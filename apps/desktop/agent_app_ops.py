@@ -1,5 +1,5 @@
 """The Desktop side of the Agent's PantheonOS interface
-(docs/pantheonos-app-interface.md).
+(docs/agent/pantheonos-app-interface.md).
 
 The Agent starts, stops, inspects, manages and develops the owner's library
 Apps through these operations. Each one reuses the Desktop's own App

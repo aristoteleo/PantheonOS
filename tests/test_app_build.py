@@ -1,4 +1,4 @@
-"""An App package built from its repository (docs/agent-app-repository.md §1)."""
+"""An App package built from its repository (docs/agent/agent-app-repository.md §1)."""
 import asyncio
 import json
 import sys

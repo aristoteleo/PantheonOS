@@ -1,6 +1,6 @@
 package lifecycle
 
-// Moving an App's state to another node (docs/fleet-orchestration.md §8). The
+// Moving an App's state to another node (docs/os/fleet-orchestration.md §8). The
 // source Runner exports a stopped generation's data as a gzip tar archive,
 // read in bounded chunks; the owner's controller relays the chunks to the
 // target Runner (ImportStage) and submits import_data, which materializes the

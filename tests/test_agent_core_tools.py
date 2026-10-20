@@ -1,6 +1,6 @@
 """Core tool exposure: four tools, everything else the pantheon command;
 history in the recorded form the UI renders, the model's view as commands
-(docs/pantheon-cli.md)."""
+(docs/os/pantheon-cli.md)."""
 
 import json
 

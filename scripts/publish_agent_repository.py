@@ -1,7 +1,7 @@
 """Publish the Agent's source repository as the official `agent` App in the Store.
 
 Each version is committed on top of the version published before it and
-tagged v<version> (docs/agent-app-repository.md §2), so the repository's
+tagged v<version> (docs/agent/agent-app-repository.md §2), so the repository's
 history is the Agent's release history. The source tree comes from
 `general_agent_release --agent-source`. Requires a Store administrator token
 in PANTHEON_STORE_TOKEN. A published version is never replaced. Run it with

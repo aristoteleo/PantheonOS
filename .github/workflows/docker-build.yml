@@ -10,7 +10,7 @@ on:
       - 'v*.*.*'
     paths:
       - 'docker/**'
-      - 'pantheon/**'
+      - 'pantheonos/**'
       - 'apps/**'
       - 'os/**'
       - 'pyproject.toml'
@@ -24,7 +24,7 @@ on:
       - develop
     paths:
       - 'docker/**'
-      - 'pantheon/**'
+      - 'pantheonos/**'
       - 'apps/**'
       - 'os/**'
       - 'pyproject.toml'
@@ -71,10 +71,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Extract version from pantheon/__init__.py
+      - name: Extract version from pantheonos/__init__.py
         id: version
         run: |
-          VERSION=$(grep -oP "__version__ = \"\K[^\"]+(?=\")" pantheon/__init__.py)
+          VERSION=$(grep -oP "__version__ = \"\K[^\"]+(?=\")" pantheonos/__init__.py)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Pantheon version: $VERSION"
 

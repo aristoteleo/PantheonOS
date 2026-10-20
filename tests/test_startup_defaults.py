@@ -11,7 +11,7 @@ from pantheonos.utils import log as pantheon_log
 from pantheonos.utils.log import log_startup_profile, startup_profile_enabled
 
 
-TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "pantheon" / "factory" / "templates"
+TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "apps" / "agent" / "pantheon" / "factory" / "templates"
 
 
 def test_factory_defaults_only_autostart_file_manager():
@@ -53,7 +53,8 @@ def test_factory_runtime_fallback_assets_are_included_in_package_metadata():
     ]:
         assert pattern in pyproject_text
 
-    assert "recursive-include pantheon/factory/templates *.md *.json *.example *.js *.css *.py .gitkeep" in manifest_text
+    # The templates live in the Agent App's package (apps/agent/pantheon).
+    assert "graft apps" in manifest_text.splitlines()
 
 
 def test_startup_profile_logs_default_enabled(monkeypatch):

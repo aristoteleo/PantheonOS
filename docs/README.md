@@ -54,11 +54,17 @@ docs/
 │   ├── installation.rst
 │   ├── quickstart.rst
 │   └── concepts.md
+├── os/                  # Design notes: the PantheonOS core (nodes, controller, CLI, orchestration)
+├── apps/                # Design notes: Apps (lifecycle, gateway, dependencies, hosting, Store)
+├── agent/               # Design notes: Pantheon-Agent (core, release, repository, migration)
 ├── build/               # Built documentation (git-ignored)
 ├── requirements.txt     # Documentation dependencies
 ├── Makefile            # Build automation
 └── README.md           # This file
 ```
+
+`os/`, `apps/` and `agent/` hold the design notes for the three parts of the
+repository; they are not part of the Sphinx site.
 
 ## Key Features
 

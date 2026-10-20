@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "apps" / "agent"))
 
 from pantheon.internal.memory import Memory
 from pantheon.team.pantheon import DELEGATION_RECENT_TAIL_SIZE

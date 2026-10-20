@@ -1,5 +1,5 @@
 """The pantheon command, run by an agent, goes through that agent
-(docs/pantheon-cli.md)."""
+(docs/os/pantheon-cli.md)."""
 import json
 import time
 from types import SimpleNamespace

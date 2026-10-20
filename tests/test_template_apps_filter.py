@@ -1,5 +1,5 @@
 """A template's `apps` field: which Apps an agent may use
-(docs/pantheonos-app-interface.md)."""
+(docs/agent/pantheonos-app-interface.md)."""
 from types import SimpleNamespace
 
 import pytest

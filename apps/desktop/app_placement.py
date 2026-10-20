@@ -37,7 +37,7 @@ class AppPlacement:
         return self._record(app_id).get('node_id')
 
     def policy(self, app_id):
-        """on_demand (default), resident or disabled (docs/agent-app-directory.md)."""
+        """on_demand (default), resident or disabled (docs/agent/agent-app-directory.md)."""
         return self._record(app_id).get('policy') or 'on_demand'
 
     def _update(self, app_id, **fields):
@@ -189,7 +189,7 @@ class AppPlacement:
         """The finished build of this version for the node's platform.
 
         Without one the build starts in the background; installing again after
-        it finishes uses it (docs/agent-app-repository.md §1).
+        it finishes uses it (docs/agent/agent-app-repository.md §1).
         """
         builds = AppBuilds(self.manager)
         platform = f"{node.get('os')}-{node.get('arch')}"

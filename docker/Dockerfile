@@ -49,9 +49,9 @@ ENV UV_PROJECT_ENVIRONMENT=${VENV_PATH}
 
 # ── Layer 1: dependency files only ──────────────────────────────────────────
 # Copy only pyproject.toml + uv.lock so this layer is reused on code-only changes.
-# Also copy pantheon/__init__.py for dynamic version reading (setuptools needs it).
+# Also copy pantheonos/__init__.py for dynamic version reading (setuptools needs it).
 COPY pyproject.toml uv.lock ./
-COPY pantheon/__init__.py ./pantheon/__init__.py
+COPY pantheonos/__init__.py ./pantheonos/__init__.py
 
 # Install all Python dependencies (no project package itself yet).
 # BuildKit cache mount keeps uv's HTTP cache on the host across builds.
@@ -170,10 +170,11 @@ RUN echo "Installing pip in venv for compatibility..." && \
 COPY . /app/
 
 # Pre-compile project source files to .pyc bytecode.
-# Only compile /app/pantheon (source), NOT the venv, so the venv directory stays
+# Only compile the source (the platform's pantheonos and the Agent's
+# apps/agent/pantheon), NOT the venv, so the venv directory stays
 # content-stable across code-only changes (critical for Docker layer caching).
 # Note: pandas and numpy are already compiled during pip install, no need to recompile.
-RUN ${VENV_PATH}/bin/python -m compileall -q /app/pantheon 2>/dev/null || true
+RUN ${VENV_PATH}/bin/python -m compileall -q /app/pantheonos /app/apps/agent/pantheon 2>/dev/null || true
 
 # ============================================
 # Production Stage (Optimized)
@@ -281,6 +282,13 @@ WORKDIR /app
 # Using ARG to ensure path consistency between builder and production stages.
 ARG VENV_PATH=/venv
 COPY --from=builder ${VENV_PATH} ${VENV_PATH}
+
+# The Agent's package is apps/agent/pantheon, beside its App manifest, not at
+# the root with the platform's pantheonos. The project is not installed into
+# the venv (see the code COPY in the builder), so a .pth puts the Agent's
+# directory on the runtime's path as an installed package would — whatever
+# PYTHONPATH a launcher sets (the Hub sets its own).
+RUN echo /app/apps/agent > "$(${VENV_PATH}/bin/python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')/pantheon-agent.pth"
 
 # Layer B — Environment variables (stable): Set before installing heavy components.
 # PYTHONPATH="/app" is just a declaration - the directory doesn't need to exist yet.
@@ -422,7 +430,7 @@ RUN (curl -L --retry 3 --retry-delay 5 --max-time 60 \
 # The agent can then transfer files to/from it over the data plane via a single
 # transfer() interface (no size branching, no control-plane fallback).
 # One binary, two names: `pantheon`, the PantheonOS command, and `fleet`, the
-# node as the entrypoint starts it (docs/pantheon-cli.md).
+# node as the entrypoint starts it (docs/os/pantheon-cli.md).
 COPY --from=os-builder /out/pantheon /usr/local/bin/pantheon
 RUN ln -s pantheon /usr/local/bin/fleet
 
@@ -507,7 +515,7 @@ COPY --from=builder /app /app
 # volume and skips the whole per-file smart-overwrite sweep when the image's
 # factory content is unchanged — that sweep reads all ~180 packaged files to
 # hash them, which on a cold-layer Modal worker measured 8.9 s of lazy pulls.
-RUN find /app/pantheon/factory/templates -type f -not -path '*/__pycache__/*' -print0 \
+RUN find /app/apps/agent/pantheon/factory/templates -type f -not -path '*/__pycache__/*' -print0 \
     | sort -z | xargs -0 md5sum | md5sum | cut -d' ' -f1 \
     > /etc/pantheon-factory-fingerprint
 
@@ -536,7 +544,7 @@ RUN chmod +x /app/docker/docker-entrypoint-dual-mode.sh && \
 # module is importable exactly as the console script would have made it.
 #
 # Installed as `pantheon-agent`: `pantheon` is the PantheonOS command (the Go
-# binary below, docs/pantheon-cli.md), which hands the agent's own commands
+# binary below, docs/os/pantheon-cli.md), which hands the agent's own commands
 # (cli, ui, setup, store, ...) to this one.
 RUN printf '#!/bin/sh\nexec "${PANTHEON_RUNTIME_PYTHON:-/venv/bin/python}" -m pantheon "$@"\n' \
         > /usr/local/bin/pantheon-agent && \

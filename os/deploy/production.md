@@ -173,7 +173,7 @@ Pieces (all committed):
   EITHER a hub-validated credential (session JWT, or a pbk_ the hub knows) OR a
   local allowlisted key; hub first, allowlist fallback (commit `8728bbf`). Inert
   with no `--hub-url` — safe to ship ahead of the switch.
-- **backend** `pantheon/chatroom/fleet_session.py` + wiring — when logged in and no
+- **backend** `apps/agent/pantheon/chatroom/fleet_session.py` + wiring — when logged in and no
   static `pbk_` `FLEET_KEY` is set (or `FLEET_PREFER_SESSION_CRED=1`), each fleet
   tool exchanges the session token for a fleet key via the hub and refreshes it
   (commit `edbff51`). Back-compat: a static `pbk_` key is left untouched.

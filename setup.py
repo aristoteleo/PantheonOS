@@ -14,8 +14,14 @@ import fnmatch
 import os
 import shutil
 
-from setuptools import setup
+from setuptools import find_packages, setup
 from setuptools.command.build_py import build_py
+
+# Pantheon-Agent is an App like the others: its package lives with its
+# manifest in apps/agent. The platform's (pantheonos) is at the root.
+AGENT = os.path.join("apps", "agent")
+PACKAGES = (find_packages(".", include=["pantheonos", "pantheonos.*"])
+            + find_packages(AGENT, include=["pantheon", "pantheon.*"]))
 
 _EXCLUDE = (
     "*.go", "go.mod", "go.sum", "*_test.go",
@@ -44,6 +50,10 @@ class BuildPyWithApps(build_py):
                 # App manifest/frontend live only in the Store repository.
                 dirs[:] = [d for d in dirs if d not in STORE_APPS or d == 'qupath']
             rel = os.path.relpath(root, src)
+            if rel == "agent":
+                # The Agent's own package is installed as `pantheon`, not
+                # folded into the builtin Apps.
+                dirs[:] = [d for d in dirs if d != "pantheon"]
             for fname in files:
                 if not _keep(fname):
                     continue
@@ -56,4 +66,5 @@ class BuildPyWithApps(build_py):
                 shutil.copy2(os.path.join(root, fname), os.path.join(out_dir, fname))
 
 
-setup(cmdclass={"build_py": BuildPyWithApps})
+setup(packages=PACKAGES, package_dir={"pantheon": os.path.join(AGENT, "pantheon")},
+      cmdclass={"build_py": BuildPyWithApps})

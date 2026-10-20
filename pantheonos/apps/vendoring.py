@@ -11,8 +11,31 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-#: The directory that holds both packages (a checkout's root, site-packages).
-ROOT = Path(__file__).resolve().parents[2]
+#: The platform package's directory.
+PLATFORM_ROOT = Path(__file__).resolve().parents[1]
+
+
+def agent_package_dir() -> Path | None:
+    """The installed Agent package's directory (site-packages/pantheon, or a
+    checkout's apps/agent/pantheon): located by name, not imported."""
+    import importlib.util
+    try:
+        spec = importlib.util.find_spec('pantheon')
+    except (ImportError, ValueError):
+        return None
+    if spec is None or not spec.submodule_search_locations:
+        return None
+    return Path(list(spec.submodule_search_locations)[0]).resolve()
+
+
+def package_root(package: str) -> Path:
+    """Where a runtime package's files are: pantheonos, or the Agent's."""
+    if package == 'pantheonos':
+        return PLATFORM_ROOT
+    root = agent_package_dir()
+    if root is None:
+        raise FileNotFoundError('The Agent package (pantheon) is not installed here')
+    return root
 
 _PLATFORM_DIRS = ('apps/', 'local/', 'store/', 'utils/', 'remote/', 'models/', 'model_contracts/',
                   'funcdesc/', 'data/', 'package_runtime/')
@@ -34,15 +57,15 @@ def runtime_source(name: str) -> tuple[str, str]:
     return 'pantheon', name
 
 
-def runtime_path(name: str, root: Path = ROOT) -> Path:
+def runtime_path(name: str) -> Path:
     package, path = runtime_source(name)
-    return root / package / path
+    return package_root(package) / path
 
 
-def vendor_file(name: str, vendor: Path, root: Path = ROOT) -> Path:
+def vendor_file(name: str, vendor: Path) -> Path:
     """Copy a runtime file into vendor/<package>/<path>."""
     package, path = runtime_source(name)
-    origin = root / package / path
+    origin = package_root(package) / path
     if origin.is_symlink() or not origin.is_file():
         raise ValueError(f'App release input must be a regular file: {origin}')
     target = vendor / package / path
@@ -51,11 +74,11 @@ def vendor_file(name: str, vendor: Path, root: Path = ROOT) -> Path:
     return target
 
 
-def vendor_tree(name: str, vendor: Path, root: Path = ROOT) -> Path:
+def vendor_tree(name: str, vendor: Path) -> Path:
     """Copy a runtime package directory (``funcdesc``) into the vendor tree."""
     package, path = runtime_source(name.rstrip('/') + '/')
     target = vendor / package / path.rstrip('/')
-    shutil.copytree(root / package / path.rstrip('/'), target, dirs_exist_ok=True,
+    shutil.copytree(package_root(package) / path.rstrip('/'), target, dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
     return target
 
@@ -65,13 +88,14 @@ def builtin_app_dir(vendor: Path) -> Path:
     return vendor / 'pantheonos' / 'apps' / 'builtin'
 
 
-def vendor_compat(vendor: Path, root: Path = ROOT) -> None:
+def vendor_compat(vendor: Path) -> None:
     """A vendored ``pantheon`` that resolves the platform's names from before
     the split (``pantheon.toolset`` is ``pantheonos.toolset``): App code
     written against them keeps working."""
-    moved = root / 'pantheon' / '_moved.py'
+    agent = agent_package_dir()
+    moved = agent / '_moved.py' if agent else None
     package = vendor / 'pantheon'
-    if not moved.is_file() or (package / '__init__.py').exists():
+    if moved is None or not moved.is_file() or (package / '__init__.py').exists():
         return
     package.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(moved, package / '_moved.py')

@@ -1,4 +1,4 @@
-// Package localmode runs PantheonOS on this machine (docs/pantheon-cli.md,
+// Package localmode runs PantheonOS on this machine (docs/os/pantheon-cli.md,
 // "Local mode"): `pantheon up`, `pantheon down` and `pantheon status`, and the
 // local product's own commands (`pantheon local`, `local-setup`,
 // `local-update`, `local-release`).

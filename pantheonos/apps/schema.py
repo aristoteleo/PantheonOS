@@ -64,7 +64,7 @@ class ManagedExecution(BaseModel):
 
 class Build(BaseModel):
     """How the package is assembled from the repository
-    (docs/agent-app-repository.md §1). The command runs in a copy of one
+    (docs/agent/agent-app-repository.md §1). The command runs in a copy of one
     commit and fills $APP_BUILD_OUTPUT with the runnable package."""
     model_config = {"extra": "forbid", "strict": True}
     argv: list[str] = Field(min_length=1, max_length=16)
@@ -82,7 +82,7 @@ class Entry(BaseModel):
     backendInstance: str = Field(default="app", pattern="^(app|window|node)$")
     # A terminal frontend: a Python script `pantheon agent chat` (or `pantheon
     # apps open --terminal`) runs on the user's machine, in an environment
-    # from the package's requirements.txt (docs/pantheon-cli.md).
+    # from the package's requirements.txt (docs/os/pantheon-cli.md).
     terminal: Optional[str] = None
 
 
@@ -197,7 +197,7 @@ class DataSchema(BaseModel):
 
 
 class ShareMethod(BaseModel):
-    """A backend method visitors of a hosted App may call (docs/app-hosting.md)."""
+    """A backend method visitors of a hosted App may call (docs/apps/app-hosting.md)."""
     model_config = {"extra": "forbid", "strict": True}
     name: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,79}$")
     arguments: list[str] = Field(default_factory=list, max_length=32)
@@ -260,7 +260,7 @@ class AppManifest(BaseModel):
     dependencies: dict[str, DependencySpec] = Field(default_factory=dict)
     expose: Optional[dict[str, list[ExposedPort]]] = None
     dataSchema: Optional[DataSchema] = None
-    #: Hosting on the owner's instance (docs/app-hosting.md); absent = not hostable.
+    #: Hosting on the owner's instance (docs/apps/app-hosting.md); absent = not hostable.
     share: Optional[ShareSpec] = None
 
     # Headed-surface fields carried over from v1, semantics unchanged.

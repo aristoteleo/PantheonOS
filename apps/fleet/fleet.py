@@ -3,7 +3,7 @@
 It speaks the Fleet control plane (NATS): it reads the Registry (JetStream KV)
 to *see* every Node, runs code on a chosen Node, and schedules Node->Node bulk
 Transfers over the libp2p data plane. The Go Runner (`fleet up`) serves the
-other side; see ``fleet/`` and ``docs/pantheon-fleet.md``.
+other side; see ``fleet/`` and ``docs/os/pantheon-fleet.md``.
 
 Wiring: a Fleet is selected by the user's API key via the Controller, or — for
 local/dev — by an explicit NATS url + fleet id. Config resolves from constructor

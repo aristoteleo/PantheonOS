@@ -237,7 +237,7 @@ Example Contributions
 
 .. code-block:: python
 
-   # pantheon/team/new_team.py
+   # apps/agent/pantheon/team/new_team.py
    from pantheon.team.base import BaseTeam
    
    class NewTeam(BaseTeam):

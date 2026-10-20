@@ -42,7 +42,7 @@ from pathlib import Path
 
 
 _OUTPUT_LOCK = threading.Lock()
-# Who is calling, when the App is hosted for others (docs/app-hosting.md).
+# Who is calling, when the App is hosted for others (docs/apps/app-hosting.md).
 _VISITOR: contextvars.ContextVar = contextvars.ContextVar('pantheon_app_visitor', default=None)
 _PROTOCOL_OUTPUT = None
 
@@ -101,7 +101,7 @@ class AppContext:
 
     def visitor(self):
         """The visitor of the current call when this App is hosted through a
-        link (docs/app-hosting.md): ``{"kind": "user" | "anonymous", "id",
+        link (docs/apps/app-hosting.md): ``{"kind": "user" | "anonymous", "id",
         "username"?, "share_id"}``; ``None`` for the owner's own windows.
         Apps that keep per-visitor state key it by ``kind`` and ``id``."""
         return _VISITOR.get()

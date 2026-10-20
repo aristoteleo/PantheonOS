@@ -1,4 +1,4 @@
-"""The terminal chat as a client of the Agent App (docs/pantheon-cli.md)."""
+"""The terminal chat as a client of the Agent App (docs/os/pantheon-cli.md)."""
 import asyncio
 import base64
 import gzip

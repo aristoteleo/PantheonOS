@@ -1,7 +1,7 @@
 """The General Team on a single-machine Fleet, deployed by its controller.
 
 The owner's setup is composed (``compose_profile``) into the same deployment
-as on a cloud Fleet (docs/fleet-orchestration.md): the controller's reconciler
+as on a cloud Fleet (docs/os/fleet-orchestration.md): the controller's reconciler
 installs, starts, restarts and stops the Apps. This module only renders the
 composition's single-machine values, stores the owner's secrets with the
 controller, saves the deployment and reports its status. It never starts or

@@ -1,0 +1,370 @@
+import asyncio
+from uuid import UUID
+from collections.abc import Mapping
+from pantheon.agent import Agent
+from pantheonos.apps.proxy import ToolsetProxy
+from pantheonos.apps.proxy import LOCAL_FILE_ROUTES
+from pantheon.internal.memory_system.file_routing import route_memory_file
+
+# The Agent's memory files live with the Agent: its file calls to them are
+# answered here, not by the Files App.
+if route_memory_file not in LOCAL_FILE_ROUTES:
+    LOCAL_FILE_ROUTES.append(route_memory_file)
+from pantheonos.utils.log import logger
+
+async def _resolve_toolset_proxy(toolset_name: str) -> ToolsetProxy:
+    """The one binding decision: every toolset is an App instance, ensured
+    on the user's node via the fleet runner and dialed by service_id.
+    There is no other route."""
+    from pantheonos.apps.resolver import get_shared_resolver
+
+    resolver = get_shared_resolver()
+    if resolver is None:
+        raise RuntimeError(
+            f"cannot bind toolset '{toolset_name}': the App resolver is not "
+            f"wired (no fleet runner coordinates in this environment)"
+        )
+    if not resolver.resolves(toolset_name):
+        raise RuntimeError(f"'{toolset_name}' is not a known App in the catalog")
+    service_id = await resolver.ensure_instance(toolset_name)
+    return ToolsetProxy.from_toolset(service_id).bind_instance(resolver, toolset_name)
+from .template_manager import get_template_manager
+from .models import TeamConfig, AgentConfig
+from pantheonos.settings import get_settings
+from .bindings import AgentToolBindings
+
+
+async def create_agent(
+    name: str,
+    instructions: str,
+    model: str,
+    icon: str,
+    toolsets: list[str] | None = None,
+    mcp_servers: list[str] | None = None,
+    description: str | None = None,
+    enable_mcp: bool = True,
+    tool_bindings: AgentToolBindings | None = None,
+    instance_id: UUID | None = None,
+    model_scope=None,
+    apps: dict | None = None,
+    **kwargs,
+) -> Agent:
+    """Create an agent from a template with all providers (toolsets and MCP servers).
+
+    Args:
+        name: The name of the agent.
+        instructions: The instructions for the agent.
+        model: The model to use for the agent.
+        icon: The icon to use for the agent.
+        toolsets: List of toolset names to add to the agent.
+        mcp_servers: List of MCP server names to add to the agent.
+        description: Optional description of the agent's purpose and capabilities.
+        tool_bindings: Explicit owner-supplied bindings. Even an empty binding
+            set disables ambient tool/MCP discovery. Every requested remote
+            capability must be bound; enable_mcp only controls legacy discovery.
+        instance_id: Stable identity supplied with explicit bindings by the App
+            composition root; never taken from a model-authored template.
+        apps: The Apps this agent may use, {allow?, deny?}
+            (docs/agent/pantheonos-app-interface.md). With explicit bindings the
+            composition already bound the deployment Apps it selects.
+    """
+    from pantheon.agent_pantheonos import AppFilter
+
+    app_filter = AppFilter.from_config(apps)
+    toolsets = list(toolsets or [])
+    if app_filter is not None and tool_bindings is None:
+        # Legacy assembly: the toolsets the filter allows, every deployment
+        # App when it allows all.
+        from pantheon.agent_core_tools import DEPLOYMENT_DESCRIPTIONS
+        names = DEPLOYMENT_DESCRIPTIONS if app_filter.allow is None else sorted(app_filter.allow)
+        toolsets = [t for t in toolsets if t == "mcp" or t.startswith("mcp:")] + [
+            name for name in names if app_filter.allows(name)]
+    if instance_id is not None and (not isinstance(instance_id, UUID) or tool_bindings is None):
+        raise ValueError("Explicit instance identity requires owner-supplied tool bindings")
+
+    declared_toolsets = list(toolsets)
+    normal_toolsets = [t for t in toolsets if t != "think"]
+    image_resolver = None
+    if tool_bindings is not None:
+        if not isinstance(tool_bindings, AgentToolBindings):
+            raise TypeError("Use explicit AgentToolBindings for scoped tool assembly")
+        from pantheonos.utils.image_resources import BoundImageResolver
+        image_resolver = BoundImageResolver(
+            image_root=model_scope.settings.pantheon_dir / 'images' if model_scope is not None else None,
+            files=tool_bindings.toolsets.get('file_manager'))
+
+    agent = Agent(
+        name=name,
+        instructions=instructions,
+        model=model,
+        icon=icon,
+        description=description,
+        model_scope=model_scope,
+        image_resolver=image_resolver,
+    )
+    agent._declared_toolsets = declared_toolsets
+    agent.not_loaded_toolsets = []
+    agent.app_filter = app_filter
+    if instance_id is not None:
+        agent.id = instance_id
+    if tool_bindings is not None:
+        await tool_bindings.attach(agent, declared_toolsets, list(mcp_servers or []))
+        return agent
+    toolsets_added = []
+    mcp_server_added = []
+    mcp_servers = list(mcp_servers or [])
+    
+    # ===== Parse toolsets to extract MCP specs =====
+    parsed_toolsets = []
+    mcp_from_toolsets = []
+
+    for spec in normal_toolsets:
+        if spec == "mcp":
+            mcp_from_toolsets.append("mcp")  # Explicit "mcp" request
+        elif spec.startswith("mcp:"):
+            mcp_from_toolsets.append(spec[4:])  # Extract: "mcp:context7" -> "context7"
+        else:
+            parsed_toolsets.append(spec)
+
+    normal_toolsets = parsed_toolsets
+    
+    # Merge all MCP sources into one set
+    all_mcp_servers = set(mcp_servers + mcp_from_toolsets)
+    
+    # If enable_mcp=True, add "mcp" to the set (unified gateway)
+    if enable_mcp and get_settings().enable_mcp_tools:
+        all_mcp_servers.add("mcp")
+    
+    # Save specific servers before deduplication (for startup)
+    servers_to_start = [s for s in all_mcp_servers if s != "mcp"]
+    
+    # Optimization: If "mcp" (unified gateway) is present, remove specific servers
+    # because "mcp" already includes all MCP tools (would cause duplicates)
+    if "mcp" in all_mcp_servers:
+        specific_servers = all_mcp_servers - {"mcp"}
+        if specific_servers:
+            logger.info(
+                f"Agent '{name}': Unified MCP gateway includes all tools. "
+                f"Skipping specific servers {list(specific_servers)} to avoid duplicates."
+            )
+            all_mcp_servers = {"mcp"}
+    
+    # ===== Add ToolSet providers from config =====
+
+    # Each provider's initialize() is a round trip to the Endpoint for that
+    # toolset's tool schema, and they do not depend on one another — so they go
+    # out together. Serially this was the boot's largest single cost: a first
+    # team assembly on staging spent 6.686 s here across three agents' toolsets,
+    # against 0.002 s once the schemas were cached, so it is round trips rather
+    # than work.
+    #
+    # Only the fetching is concurrent. Attaching stays ordered and one at a
+    # time: `agent.toolset()` mutates the agent, and the order it sees decides
+    # the order tools reach the model.
+    wanted = [t for t in normal_toolsets if t != "task"]
+    if len(wanted) != len(normal_toolsets):
+        logger.debug(f"Agent '{name}': 'task' toolset is managed by TaskSystemPlugin, skipping")
+
+    from pantheon.providers import ToolSetProvider
+
+    async def _fetch(toolset_name: str):
+        proxy = await _resolve_toolset_proxy(toolset_name)
+        provider = ToolSetProvider(proxy)
+        await provider.initialize()
+        return provider
+
+    fetched = await asyncio.gather(
+        *(_fetch(t) for t in wanted), return_exceptions=True
+    )
+
+    for toolset_name, provider in zip(wanted, fetched):
+        if isinstance(provider, BaseException):
+            logger.error(f"Agent '{name}': Failed to add toolset '{toolset_name}': {provider}")
+            agent.not_loaded_toolsets.append(toolset_name)
+            continue
+        try:
+            await agent.toolset(provider)
+            toolsets_added.append(toolset_name)
+        except Exception as e:
+            logger.error(f"Agent '{name}': Failed to add toolset '{toolset_name}': {e}")
+            agent.not_loaded_toolsets.append(toolset_name)
+
+    # ===== Add MCP providers =====
+    # Loop handles empty set naturally - no execution if set is empty
+
+    # The mcp-gateway App instance answers everything the endpoint's
+    # mcp_manager used to: server starts here, the unified URI below.
+    async def _gateway_call(method: str, call_args: dict) -> dict:
+        from pantheonos.apps.resolver import get_shared_resolver
+
+        resolver = get_shared_resolver()
+        if resolver is None:
+            raise RuntimeError("the App resolver is not wired; MCP unavailable")
+        sid = await resolver.ensure_instance("mcp_gateway")
+        return await ToolsetProxy.from_toolset(sid).invoke(method, call_args)
+
+    # First, ensure all required MCP servers are started
+    if servers_to_start:
+        try:
+            logger.info(f"Agent '{name}': Ensuring MCP servers are started: {servers_to_start}")
+            result = await _gateway_call("start_servers", {"names": servers_to_start})
+            if not result.get("success"):
+                logger.warning(
+                    f"Agent '{name}': Failed to start some MCP servers: {result.get('errors', [])}"
+                )
+            else:
+                logger.info(
+                    f"Agent '{name}': MCP servers ready: {result.get('started', [])}"
+                )
+        except Exception as e:
+            logger.warning(f"Agent '{name}': Error ensuring MCP servers: {e}")
+    
+    # Now add MCP providers
+    try:
+        from pantheon.providers import MCPProvider
+
+        # Get unified gateway URI (only if we'll use it)
+        unified_uri = None
+        for server_name in all_mcp_servers:
+            # Get URI on first iteration
+            if unified_uri is None:
+                direct = await _gateway_call("get_uri", {})
+                unified_uri = (direct or {}).get("uri")
+                if not unified_uri:
+                    raise UserWarning("Unified gateway has no URI configured")
+
+            # Add provider for this MCP server
+            if server_name == "mcp":
+                # Unified gateway - no filtering
+                provider = MCPProvider.get_instance(unified_uri)
+            else:
+                # Specific server - filter by prefix
+                provider = MCPProvider.get_instance(unified_uri, filter_prefix=server_name)
+
+            await provider.initialize()
+            await agent.mcp(server_name, provider)
+            mcp_server_added.append(server_name)
+
+    except UserWarning as e:
+        logger.warning(f"Agent '{name}': {e}")
+    except Exception as e:
+        logger.error(f"Agent '{name}': Failed to add MCP provider: {e}")
+
+    logger.info(
+        f"Agent {name} added toolsets: {toolsets_added} mcp_servers: {mcp_server_added}"
+    )
+    return agent
+
+
+async def create_agents_from_template(
+    agent_configs: dict, enable_mcp: bool = True, *,
+    tool_bindings: Mapping[str, AgentToolBindings] | None = None,
+) -> list:
+    """Create agents from configs, optionally with exact per-config bindings.
+
+    Explicit assembly fails the whole team when a required binding is missing;
+    legacy assembly retains its historical partial-team behavior.
+    """
+    if any({"tool_bindings", "instance_id"} & config.keys() for config in agent_configs.values()):
+        raise ValueError("Tool bindings must come from the composition root, not an Agent template")
+    if tool_bindings is not None:
+        if (set(tool_bindings) != set(agent_configs)
+                or not all(isinstance(binding, AgentToolBindings) for binding in tool_bindings.values())):
+            raise ValueError("Supply explicit tool bindings for every Agent config identity")
+    # The agents do not depend on each other either, and each is mostly waiting
+    # on the round trips above. gather preserves order, and order matters —
+    # the first agent is the team's leader.
+    built = await asyncio.gather(
+        *(
+            create_agent(enable_mcp=enable_mcp, **agent_config,
+                         **({"tool_bindings": tool_bindings[key]} if tool_bindings is not None else {}))
+            for key, agent_config in agent_configs.items()
+        ),
+        return_exceptions=True,
+    )
+
+    agents = []
+    if tool_bindings is not None and any(isinstance(agent, BaseException) for agent in built):
+        # Do not silently drop a required team member or turn an absent binding
+        # into legacy service discovery. Assembly performs no remote side effects.
+        raise RuntimeError("Explicit Agent team dependency assembly failed") from next(
+            agent for agent in built if isinstance(agent, BaseException))
+    for agent_config, agent in zip(agent_configs.values(), built):
+        if isinstance(agent, BaseException):
+            # One agent that cannot be built must not cost the whole team; the
+            # ones that did build are still a usable team.
+            logger.error(
+                f"Failed to create agent '{agent_config.get('name', '?')}': {agent}"
+            )
+            continue
+        agents.append(agent)
+
+    return agents
+
+
+async def create_team_from_template(
+    template_id: str,
+    check_toolsets: bool = True,
+    enable_mcp: bool = True,
+):
+    """Create a PantheonTeam from a template.
+
+    This is the primary factory function for creating teams, suitable for:
+    - Benchmark testing
+    - Programmatic team creation
+
+    Workflow:
+    1. Loads the team template by ID
+    2. Prepares agent configurations
+    3. Optionally checks toolset availability
+    4. Creates agents bound to App instances
+    5. Initializes plugins (memory, learning, compression)
+    6. Returns a fully initialized PantheonTeam
+
+    Args:
+        template_id: Team template ID (e.g., "default", "data_research_team")
+        check_toolsets: If True, warns about unavailable toolsets
+        enable_mcp: If True, enables MCP server connections
+
+    Returns:
+        PantheonTeam: Fully initialized team ready to run
+
+    Raises:
+        ValueError: If template not found
+    """
+    from pantheon.team import PantheonTeam
+
+
+    # 2. Load template
+    template_manager = get_template_manager()
+    team_config = template_manager.get_template(template_id)
+    if not team_config:
+        raise ValueError(f"Team template '{template_id}' not found")
+
+    # 3. Prepare team agents
+    (
+        agent_configs,
+        required_toolsets,
+        required_mcp_servers,
+    ) = template_manager.prepare_team(team_config)
+
+    # 4. Log required toolsets (auto-start handles missing ones on first use)
+    if check_toolsets and required_toolsets:
+        logger.debug(f"Team '{template_id}' requires toolsets: {required_toolsets}")
+
+    # 5. Create agents
+    agents = await create_agents_from_template(agent_configs, enable_mcp=enable_mcp)
+
+    # 6. Initialize plugins via centralized registry
+    from pantheon.team.plugin_registry import create_plugins
+    plugins = create_plugins(get_settings())
+
+    # 7. Create and setup team with plugins
+    team = PantheonTeam(
+        agents=agents,
+        plugins=plugins,
+    )
+    await team.async_setup()
+
+    logger.info(f"Team '{template_id}' created with {len(agents)} agents and {len(plugins)} plugins")
+    return team

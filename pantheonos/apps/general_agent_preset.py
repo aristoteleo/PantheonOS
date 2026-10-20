@@ -92,11 +92,11 @@ def expand_general_team(entries, raw):
                                            'delete_path', 'move_file', 'manage_path', 'fetch_image_base64']
         if alias == 'fleet':
             # A conversation's working node: its files through that node's
-            # file service (docs/agent-core.md).
+            # file service (docs/agent/agent-core.md).
             contract['service_methods'] = ['node_call']
         if alias == 'desktop':
             # The owner's library Apps, through the PantheonOS interface
-            # (docs/pantheonos-app-interface.md).
+            # (docs/agent/pantheonos-app-interface.md).
             contract['service_methods'] = ['agent_app_directory', 'agent_app_call', 'agent_app_describe',
                                            'agent_app_start', 'agent_app_stop', 'agent_app_manage',
                                            'agent_app_develop']
@@ -107,7 +107,7 @@ def expand_general_team(entries, raw):
                 raise AssemblyError('General Team requires the complete Files model capabilities')
         contracts[toolset] = contract
     # The Agent's own pantheon_command, which the pantheon command its agents
-    # run reaches it by (docs/pantheon-cli.md). Allocated to the Agent and
+    # run reaches it by (docs/os/pantheon-cli.md). Allocated to the Agent and
     # handed to its commands; it carries out each request as the agent.
     # An Agent package without the interface gets no command access.
     try:

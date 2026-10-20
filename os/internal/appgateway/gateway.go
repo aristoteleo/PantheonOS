@@ -38,7 +38,7 @@ type AttachRequest struct {
 	// the owner's credential and readable by any origin, as the service's own
 	// CORS policy intends.
 	URLAuth bool `json:"url_auth,omitempty"`
-	// Visitor: a hosted App's visitor (docs/app-hosting.md). Credential is
+	// Visitor: a hosted App's visitor (docs/apps/app-hosting.md). Credential is
 	// then the visitor's, and only the App's declared share passes.
 	Visitor *VisitorGrant `json:"visitor,omitempty"`
 }

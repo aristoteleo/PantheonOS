@@ -31,7 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends python-gi-dev p
     && rm -rf /tmp/xpra-6.5 /tmp/xpra.tar.gz
 WORKDIR /build
 COPY pyproject.toml uv.lock ./
-COPY pantheon/__init__.py ./pantheon/__init__.py
+COPY pantheonos/__init__.py ./pantheonos/__init__.py
 RUN uv sync --frozen --no-dev --no-install-project \
     && uv pip install --python /venv/bin/python 'pytest>=8,<10' 'pytest-asyncio>=0.25,<2' python-xlib \
     && playwright install chromium --with-deps \

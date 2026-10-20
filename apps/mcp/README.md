@@ -132,7 +132,7 @@ copied back to prepared values or an Agent profile. This pairs credential delive
 the selected native server remains responsible for its upstream API use.
 
 The owner-side `MCPEnvironmentConversion` in
-`pantheon/chatroom/migration_mcp_credentials.py` can move explicitly declared
+`apps/agent/pantheon/chatroom/migration_mcp_credentials.py` can move explicitly declared
 API keys from a fenced private backup into the existing local Fleet vault. For
 each selected server, classify all backed-up user/project `env` overrides as
 literal variable names or credential bindings (`source`, `alias`, `ref`,

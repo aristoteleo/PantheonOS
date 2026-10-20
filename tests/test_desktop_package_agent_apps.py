@@ -1,5 +1,5 @@
 """The packaged Desktop carries what it needs to offer installed Apps to the
-Agent (docs/agent-app-directory.md), with only its own vendored runtime."""
+Agent (docs/agent/agent-app-directory.md), with only its own vendored runtime."""
 import json
 import subprocess
 import sys

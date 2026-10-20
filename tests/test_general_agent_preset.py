@@ -73,7 +73,7 @@ def test_preset_preserves_choices_and_compiles_complete_scoped_graph(complete_en
                                                'primary_toolsets': ['fleet', 'model_services']}
     assert set(agent['dependencies']['profiles']['toolsets']) == {value[1] for value in PROVIDERS.values()}
     # Library Apps are reached through the Desktop's agent_app_* methods,
-    # never through app_call (docs/pantheonos-app-interface.md).
+    # never through app_call (docs/agent/pantheonos-app-interface.md).
     desktop_profile = agent['dependencies']['profiles']['toolsets']['desktop']
     assert {f['name'] for f in desktop_profile['service_functions']} == {
         'agent_app_directory', 'agent_app_call', 'agent_app_describe', 'agent_app_start',

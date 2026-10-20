@@ -103,7 +103,7 @@ func Main(args []string) {
 	localRPC := fs.Bool("local-dependency-rpc", false, "enable owner-authenticated dependency RPC on this private loopback TLS Controller")
 	localHTTP := fs.Bool("local-dependency-http", false, "enable server-only App HTTP dependencies through the private local authority")
 	appOrigins := fs.String("app-origins", os.Getenv("FLEET_APP_UI_ORIGINS"), "comma-separated allowed Atrium origins for App connections")
-	deploymentsAPI := fs.Bool("deployments", false, "serve owners' desired App deployments (<state-dir>/deployments); see docs/fleet-orchestration.md")
+	deploymentsAPI := fs.Bool("deployments", false, "serve owners' desired App deployments (<state-dir>/deployments); see docs/os/fleet-orchestration.md")
 	releaseDir := fs.String("release-dir", "", "single-machine mode: also accept file:// release sets inside this directory")
 	latestTag := fs.String("latest-tag", os.Getenv("FLEET_LATEST_TAG"), "Fleet release tag machine Nodes update to (e.g. fleet-v0.5.0-model.6); <state-dir>/latest-tag overrides it without a restart")
 	fs.Parse(args)
@@ -530,7 +530,7 @@ func Main(args []string) {
 	log.Printf("fleet-controller listening on %s (nats=%s, auth=%v)", *addr, *natsURL, *enableAuth)
 	var handler http.Handler = mux
 	var grants *appgateway.Gateway
-	// Apps the controller hosts itself (docs/fleet-orchestration.md §15); its
+	// Apps the controller hosts itself (docs/os/fleet-orchestration.md §15); its
 	// deployments store is attached below when the deployments API is on.
 	host := hosted.NewHost(nil)
 	if *localRPC {
@@ -568,7 +568,7 @@ func Main(args []string) {
 	if *deploymentsAPI {
 		deployments.LocalReleaseRoot = *releaseDir
 		// Desired App deployments and the reconciler that converges them
-		// (docs/fleet-orchestration.md). Grants are issued in-process by this
+		// (docs/os/fleet-orchestration.md). Grants are issued in-process by this
 		// controller's App gateway.
 		store, err := deployments.Open(filepath.Join(*stateDir, "deployments"))
 		if err != nil {

@@ -538,7 +538,7 @@ on_run_end(team, result):
 ┌──────────────────────────── PantheonTeam / ChatRoom ────────────────────────────┐
 │                                                                                  │
 │  ┌─────────────────────────────────────────────────────────────────────────────┐ │
-│  │ Plugin Registry (pantheon/team/plugin_registry.py)                         │ │
+│  │ Plugin Registry (apps/agent/pantheon/team/plugin_registry.py)                         │ │
 │  │   create_plugins(settings) → sorted by priority                            │ │
 │  │   ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────────────┐ │ │
 │  │   │ MemorySystem │  │ Learning     │  │ Compression                      │ │ │
@@ -593,7 +593,7 @@ def create_plugins(settings) -> list[TeamPlugin]:
 ### 7.3 Singleton Runtime (Inside Each Plugin Module)
 
 ```python
-# pantheon/internal/memory_system/plugin.py
+# apps/agent/pantheon/internal/memory_system/plugin.py
 _memory_runtime = None
 
 def _create_memory_plugin(config, settings) -> MemorySystemPlugin:

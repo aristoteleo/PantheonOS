@@ -82,6 +82,8 @@ def _shipped_toolset_classes() -> set[str]:
     from pantheonos.apps.registry import BUILTIN_ROOT as root
     classes: set[str] = set()
     for py in root.rglob("*.py"):
+        if py.is_relative_to(root / "agent" / "pantheon"):
+            continue  # the Agent App's own package, not a builtin App backend
         for match in re.finditer(r"^class ([A-Za-z0-9]+ToolSet)\b", py.read_text(encoding="utf-8"), re.M):
             classes.add(match.group(1))
     return classes

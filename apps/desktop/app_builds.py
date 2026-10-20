@@ -1,4 +1,4 @@
-"""Background builds of library App versions (docs/agent-app-repository.md §1).
+"""Background builds of library App versions (docs/agent/agent-app-repository.md §1).
 
 A build is kept per repository, commit and platform, so a commit is built once.
 Builds run in this Desktop process; a build interrupted by a restart reports so

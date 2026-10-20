@@ -16,7 +16,7 @@ from pantheon.factory.provisioned_instances import ProvisionedAgentInstanceFacto
 
 def test_core_preserves_agent_rpc_surface_without_platform_management():
     inventory = json.loads((Path(__file__).resolve().parents[1] /
-                            'docs/agent-app-rpc-inventory.json').read_text())
+                            'docs/agent/agent-app-rpc-inventory.json').read_text())
     for row in inventory['methods']:
         method = getattr(AgentRuntime, row['method'], None)
         assert bool(getattr(method, '_is_tool', False)) == (row['owner'] == 'agent'), row['method']

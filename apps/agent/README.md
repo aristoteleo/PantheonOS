@@ -12,4 +12,4 @@ Opening a chat window does not create a new model or compute node. Execution use
 
 This is a system App bundled with Pantheon. Its identity, capabilities and entry points are declared in [app.json](app.json). Updates ship with the Pantheon runtime.
 
-The frontend is supplied by the desktop UI bundle; this directory declares its App integration.
+The frontend is supplied by the desktop UI bundle; this directory declares its App integration. The backend is the Python package in [pantheon/](pantheon/): the agent loop, conversations, teams, factory templates, memory and tasks. The platform (`pantheonos`) never imports it.

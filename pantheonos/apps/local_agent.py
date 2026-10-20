@@ -133,8 +133,10 @@ def _owner(destination):
     skip = ('__pycache__', '*.pyc', '.env*', '.venv', 'node_modules', '.git', '.DS_Store')
     shutil.copytree(source, destination/'pantheonos', ignore=shutil.ignore_patterns(*skip))
     # The owner also serves the Agent's terminal frontend (pantheon agent chat).
-    if (source.parent/'pantheon').is_dir():
-        shutil.copytree(source.parent/'pantheon', destination/'pantheon', ignore=shutil.ignore_patterns(*skip))
+    from .vendoring import agent_package_dir
+    agent = agent_package_dir()
+    if agent is not None:
+        shutil.copytree(agent, destination/'pantheon', ignore=shutil.ignore_patterns(*skip))
     apps = source.parent/'apps'
     if apps.is_dir():
         from .distribution import STORE_APPS

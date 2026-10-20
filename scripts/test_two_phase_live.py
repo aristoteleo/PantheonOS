@@ -19,6 +19,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "apps" / "agent"))
 
 
 async def run_scenario(name, task, make_checks, model="openai/gpt-4.1-mini"):

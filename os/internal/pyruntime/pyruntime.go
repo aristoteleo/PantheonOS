@@ -1,5 +1,5 @@
 // Package pyruntime is the Python the pantheon binary brings
-// (docs/pantheon-cli.md, "Installation"): a pinned uv, the Python it installs
+// (docs/os/pantheon-cli.md, "Installation"): a pinned uv, the Python it installs
 // and environments built from hash-pinned requirements, all under
 // ~/.pantheon/runtime. Nothing depends on the machine's own python3.
 package pyruntime

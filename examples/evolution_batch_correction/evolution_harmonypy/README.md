@@ -198,4 +198,4 @@ Use 50 iterations and save results to ./optimized/
 
 - [Harmony Paper](https://www.nature.com/articles/s41592-019-0619-0): Korsunsky et al., "Fast, sensitive and accurate integration of single-cell data with Harmony", Nature Methods, 2019.
 - [harmonypy](https://github.com/slowkow/harmonypy): Python implementation by Kamil Slowikowski
-- [Pantheon Evolution](../../pantheon/evolution/): Evolutionary code optimization framework
+- [Pantheon Evolution](../../../apps/agent/pantheon/evolution/): Evolutionary code optimization framework

@@ -2,7 +2,7 @@
 // nodes. A pass observes node ledgers, plans at most one lifecycle step per
 // App (this file, pure), executes the steps, and records status. Every step
 // carries an operation ID derived from what it does, so a pass that crashes or
-// loses a reply is simply repeated. See docs/fleet-orchestration.md §5.
+// loses a reply is simply repeated. See docs/os/fleet-orchestration.md §5.
 package reconciler
 
 import (

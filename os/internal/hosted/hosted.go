@@ -1,5 +1,5 @@
 // Package hosted serves Apps of an owner's deployment inside the Fleet
-// controller instead of as processes on a node (docs/fleet-orchestration.md
+// controller instead of as processes on a node (docs/os/fleet-orchestration.md
 // §15). A hosted App is part of its deployment like any other: it has a fixed
 // identity on node "controller", other Apps bind to it, and it answers the
 // ordinary App RPC ({method, args, timeout_s} -> {success, result}).

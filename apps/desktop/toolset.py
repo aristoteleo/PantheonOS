@@ -1353,7 +1353,7 @@ class DesktopToolSet(ToolSet):
         current default or explicit node without starting anything. An unavailable
         default falls back to an eligible Workspace, then another online node.
         Explicit nodes and existing instance bindings never move automatically.
-        policy sets on_demand, resident or disabled (docs/agent-app-directory.md);
+        policy sets on_demand, resident or disabled (docs/agent/agent-app-directory.md);
         a running instance on the App's node is kept alive, or no longer, at once.
         """
         try:
@@ -1507,7 +1507,7 @@ class DesktopToolSet(ToolSet):
             return {'success': False, 'error': str(exc)}
 
     # Hidden from the model: the Agent reaches installed Apps' declared tools
-    # and actions through agent_app_call (docs/agent-app-directory.md).
+    # and actions through agent_app_call (docs/agent/agent-app-directory.md).
     @tool(exclude=True)
     async def app_call(
         self,
@@ -1546,7 +1546,7 @@ class DesktopToolSet(ToolSet):
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    # ── installed Apps for the Agent (docs/agent-app-directory.md) ──────────
+    # ── installed Apps for the Agent (docs/agent/agent-app-directory.md) ──────────
 
     def _agent_leases(self):
         from .agent_apps import AgentLeases

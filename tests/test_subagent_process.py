@@ -1,4 +1,4 @@
-"""A sub-agent's loop in its own process (docs/pantheon-cli.md): the Agent App
+"""A sub-agent's loop in its own process (docs/os/pantheon-cli.md): the Agent App
 answers its model, tool and compaction calls and relays its steps."""
 import asyncio
 import json

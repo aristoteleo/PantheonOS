@@ -1,5 +1,5 @@
 """The Agent's source repository builds the package the release ships
-(docs/agent-app-repository.md §2)."""
+(docs/agent/agent-app-repository.md §2)."""
 import asyncio
 import json
 import sys

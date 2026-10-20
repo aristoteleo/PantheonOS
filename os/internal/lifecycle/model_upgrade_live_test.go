@@ -116,7 +116,7 @@ func TestLiveManagedEngineUpgrade(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	command := exec.CommandContext(ctx, python, filepath.Join(repo, "fleet", "scripts", "verify-engine-upgrade.py"), server.URL, m.root, cache)
+	command := exec.CommandContext(ctx, python, filepath.Join(repo, "os", "scripts", "verify-engine-upgrade.py"), server.URL, m.root, cache)
 	command.Dir = repo
 	command.Env = append(os.Environ(), "PYTHONPATH="+repo)
 	output, err := command.CombinedOutput()

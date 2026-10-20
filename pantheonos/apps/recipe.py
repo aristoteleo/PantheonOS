@@ -1,6 +1,6 @@
 """Validation of a composed App recipe: bounded, named Apps on exact targets
 whose provider bindings form an order (no startup cycles). Composition only;
-the Fleet controller deploys Apps (docs/fleet-orchestration.md).
+the Fleet controller deploys Apps (docs/os/fleet-orchestration.md).
 """
 from pantheonos.apps.dependency_assembly import (
     AssemblyError, DIGEST, IDENT, NAME, DEPLOYMENT_BYTES, _copy, _matches,

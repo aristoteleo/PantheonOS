@@ -255,7 +255,7 @@ async def test_a_team_naming_toolsets_reports_all_missing_bindings_before_alloca
             assert name in str(failure.value)
         assert 'execution configuration is invalid' not in str(failure.value)
         # The default team may use every App: it gets those the deployment has
-        # (docs/pantheonos-app-interface.md), here none.
+        # (docs/agent/pantheonos-app-interface.md), here none.
         default = await app.create_chat('Default', project_name='Shared')
         leader = (await app.get_team_for_chat(default['chat_id'])).team_agents[0]
         assert leader.app_filter.allow is None and leader.tool_exposure == 'core'

@@ -286,7 +286,7 @@ var envName = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,63}$`)
 
 // commandEnv is run_command's env: variables the caller (the Agent, not the
 // model) sets for this command, such as the pantheon command's endpoint and
-// token (docs/pantheon-cli.md). They are written as exports into the
+// token (docs/os/pantheon-cli.md). They are written as exports into the
 // session's input, so they appear in no process listing, and unset when the
 // command ends, so a later command never runs with them; work the command
 // started in the background keeps its copy. It returns the exports and the

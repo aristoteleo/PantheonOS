@@ -1,7 +1,7 @@
 """Compile the General Team into a deployment profile shipped in the release set.
 
 The Fleet controller deploys Apps from a desired-state deployment
-(docs/fleet-orchestration.md). Composing the General Team (Agent, providers,
+(docs/os/fleet-orchestration.md). Composing the General Team (Agent, providers,
 allocator and model policies) happens here, at release build time, against the
 release's own packages; the result is ``profile.json`` beside
 ``release-set.json``. Setting up an owner's Agent fills a few named inputs and
@@ -100,7 +100,7 @@ def _late(value):
 
 
 # Apps the Fleet controller serves itself instead of running a package
-# (docs/fleet-orchestration.md §15): deployment App name -> hosted service.
+# (docs/os/fleet-orchestration.md §15): deployment App name -> hosted service.
 HOSTED = {'fleet': 'fleet', 'allocator': 'dependency-binding',
           'model-access': 'model-services-control', 'files-models': 'model-services-control',
           'model-management': 'model-services-management'}

@@ -15,7 +15,7 @@ import (
 )
 
 // agentLink is how a command run by a Pantheon agent reaches that agent
-// (docs/pantheon-cli.md): the Agent App's endpoint, a grant for its
+// (docs/os/pantheon-cli.md): the Agent App's endpoint, a grant for its
 // pantheon_command method only, and a token for this conversation, agent and
 // tool call. Every request is carried out by the Agent, as that agent, with
 // its grants and its apps filter.

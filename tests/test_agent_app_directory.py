@@ -1,4 +1,4 @@
-"""Installed Apps in the Agent's App directory (docs/agent-app-directory.md)."""
+"""Installed Apps in the Agent's App directory (docs/agent/agent-app-directory.md)."""
 import asyncio
 from contextlib import nullcontext
 from types import SimpleNamespace

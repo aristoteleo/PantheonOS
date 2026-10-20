@@ -104,7 +104,7 @@ func main() {
 	}
 }
 
-// useManagedPython installs the managed Python once (docs/pantheon-cli.md,
+// useManagedPython installs the managed Python once (docs/os/pantheon-cli.md,
 // "One install") and gives it to the Apps this node runs. Offline, the Apps
 // keep this machine's python3.
 func useManagedPython(ctx context.Context) {

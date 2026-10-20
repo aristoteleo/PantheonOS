@@ -1,5 +1,5 @@
 """Which Apps an agent may use: the ``apps`` field of an agent's
-configuration (docs/pantheonos-app-interface.md), which the platform applies
+configuration (docs/agent/pantheonos-app-interface.md), which the platform applies
 when it binds the agent's tools and the agent when it lists them."""
 from __future__ import annotations
 

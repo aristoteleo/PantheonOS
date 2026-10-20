@@ -195,7 +195,7 @@ assert t['ttlSeconds'] > 0 and t['enabled'] == (ttl > 0)
 			t.Fatal("owned engine should have an isolated empty model store", err, models)
 		}
 		if modelAcceptance {
-			script := filepath.Join(source, "..", "..", "fleet", "scripts", "verify-managed-model.py")
+			script := filepath.Join(source, "..", "..", "os", "scripts", "verify-managed-model.py")
 			args := []string{script, "--source", source, "--cache", ownedCache, "--endpoint", endpoint,
 				"--recipe", recipeID, "--artifact", modelSource, "--blob-cache", os.Getenv("FLEET_TEST_MODEL_BLOBS"),
 				"--memory-bytes", fmt.Sprint(def.Components[0].Resources.MemoryBytes)}

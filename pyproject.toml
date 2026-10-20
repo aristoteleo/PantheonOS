@@ -91,7 +91,7 @@ dependencies = [
 dynamic = ["version"]
 
 [project.scripts]
-# `pantheon` is the PantheonOS command (a Go binary, docs/pantheon-cli.md),
+# `pantheon` is the PantheonOS command (a Go binary, docs/os/pantheon-cli.md),
 # which runs this one for the agent's own commands.
 pantheon-agent = "pantheon.__main__:main"
 
@@ -103,7 +103,7 @@ Issues = "https://github.com/aristoteleo/pantheon-agents/issues"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-pythonpath = ["."]
+pythonpath = [".", "apps/agent"]
 markers = [
     "api: marks tests that require API access (deselect with '-k \"not api\"')",
     "integration: marks tests that require heavier local deps (e.g., scanpy)",
@@ -142,7 +142,7 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = {find = {where = ["."], exclude = ["tests*", "examples*", "tmp*", "try*", "docs*", "apps*"]}}
+# packages and package-dir: setup.py (the Agent package lives in apps/agent).
 
 [tool.setuptools.package-data]
 "pantheonos.local" = ["desktop.html"]
@@ -174,7 +174,7 @@ packages = {find = {where = ["."], exclude = ["tests*", "examples*", "tmp*", "tr
 ]
 
 [tool.setuptools.dynamic]
-version = {attr = "pantheon.__version__"}
+version = {attr = "pantheonos.__version__"}
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

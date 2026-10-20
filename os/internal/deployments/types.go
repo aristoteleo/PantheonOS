@@ -1,7 +1,7 @@
 // Package deployments holds owners' desired App deployments: what should run
 // and how it is wired. Where it runs, generations and operation IDs are the
 // reconciler's bookkeeping (Status), never part of the owner's Spec. See
-// docs/fleet-orchestration.md.
+// docs/os/fleet-orchestration.md.
 package deployments
 
 import (
@@ -77,12 +77,12 @@ type Provides struct {
 
 type AppSpec struct {
 	// Hosted names a service the controller serves in process instead of a
-	// release-set package (docs/fleet-orchestration.md §15); Package is then empty.
+	// release-set package (docs/os/fleet-orchestration.md §15); Package is then empty.
 	Hosted  string `json:"hosted,omitempty"`
 	Package string `json:"package,omitempty"`
 	// Digest runs this package, already installed on a node of the fleet,
 	// instead of the release set's variant of Package: the owner's own build
-	// of the same App (docs/agent-app-repository.md §4). Empty runs the
+	// of the same App (docs/agent/agent-app-repository.md §4). Empty runs the
 	// release set's.
 	Digest    string                     `json:"digest,omitempty"`
 	Scope     string                     `json:"scope"`

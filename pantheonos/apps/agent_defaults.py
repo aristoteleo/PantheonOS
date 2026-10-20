@@ -71,12 +71,12 @@ def with_dependency_defaults(config, defaults, *, primary=False):
 
 def with_app_filter(config, deployment_apps):
     """An agent's deployment toolsets chosen by its apps filter
-    (docs/pantheonos-app-interface.md): each deployment App it allows. The
+    (docs/agent/pantheonos-app-interface.md): each deployment App it allows. The
     Desktop is bound whenever a library App may pass, since library Apps are
     reached through it; the agent sees the Desktop's own tools only if the
     filter allows desktop. The Shell is bound always: its run_command carries
     the pantheon command, through which a core-mode agent reaches every App its
-    filter allows (docs/pantheon-cli.md). MCP selections in toolsets are kept."""
+    filter allows (docs/os/pantheon-cli.md). MCP selections in toolsets are kept."""
     from pantheonos.apps.filter import AppFilter
     result = deepcopy(config)
     flt = AppFilter.from_config(result['apps'])

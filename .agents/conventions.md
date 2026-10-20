@@ -112,6 +112,6 @@ Use Pydantic for data validation in API boundaries, config models, and tool para
 - Don't use synchronous I/O in agent or tool execution paths
 - Don't hardcode API keys — use settings or environment variables
 - Don't import heavy packages at module top level (use lazy imports)
-- Don't modify `pantheon/factory/templates/` for project-specific config
+- Don't modify `apps/agent/pantheon/factory/templates/` for project-specific config
   (use `.pantheon/` instead)
 - Don't skip `@tool` decorator — it handles context injection and serialization

@@ -8,7 +8,7 @@ operate a pool of compute **Nodes**: run code on any Node and move data
 directly between Nodes, with no external VPN — and kept that name until it
 outgrew it. Released binaries keep their `fleet-*` names for installed nodes.
 
-Design doc: [`../docs/pantheon-fleet.md`](../docs/pantheon-fleet.md).
+Design doc: [`../docs/os/pantheon-fleet.md`](../docs/os/pantheon-fleet.md).
 
 ## Status — Phase 1 complete & end-to-end verified
 
@@ -154,7 +154,7 @@ optional container-engine dependency in `fleet.json`. Installation runs on the
 selected node; no other machine's Docker is implicitly reused. Office has a
 managed image containing its patched native editor and persistent session API.
 
-See [lifecycle contract](../docs/fleet-app-lifecycle.md) and
-[service gateway and rollout](../docs/fleet-app-gateway.md) for configuration,
+See [lifecycle contract](../docs/apps/fleet-app-lifecycle.md) and
+[service gateway and rollout](../docs/apps/fleet-app-gateway.md) for configuration,
 verification and the remaining migration limitations. The optional gateway uses
 isolated App origins and outbound node tunnels; it is disabled until configured.

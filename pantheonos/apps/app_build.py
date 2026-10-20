@@ -1,4 +1,4 @@
-"""Build an App's package from its repository (docs/agent-app-repository.md §1).
+"""Build an App's package from its repository (docs/agent/agent-app-repository.md §1).
 
 An App whose package is assembled from source (a compiled frontend, pinned
 binaries) declares ``"build": {"argv": [...], "timeout_seconds": N}``. The

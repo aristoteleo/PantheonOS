@@ -320,7 +320,7 @@
         if (!m || m.__lv !== LV) return
         if (m.t === 'boot') {
           canNavigate = m.capabilities?.appNavigation === 1
-          // A hosted App (docs/app-hosting.md) learns who is using it.
+          // A hosted App (docs/apps/app-hosting.md) learns who is using it.
           hostInfo = m.host || null
           visitorInfo = m.visitor || null
           return

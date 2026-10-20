@@ -1,6 +1,6 @@
 """Register this Connector in its owner's Hub model directory.
 
-Configured by the deployment (docs/fleet-orchestration.md §9): the
+Configured by the deployment (docs/os/fleet-orchestration.md §9): the
 ``directory`` value names the deployment id, display name, the models to
 publish and the tier routes to seed; the ``directory`` credential is a Hub key
 for the owner. The binding is this process's own Fleet identity, so the row

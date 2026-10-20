@@ -795,7 +795,7 @@
       },
       {
         "name": "desktop_app_placement",
-        "description": "Read/set per-App default backend nodes and policies, shared by UI and Agent.\n\n        list returns saved defaults. options returns eligible nodes and reasons.\n        set chooses a node; node_id='' restores automatic placement (Workspace\n        preferred). Existing windows keep their bindings. target resolves the\n        current default or explicit node without starting anything. An unavailable\n        default falls back to an eligible Workspace, then another online node.\n        Explicit nodes and existing instance bindings never move automatically.\n        policy sets on_demand, resident or disabled (docs/agent-app-directory.md);\n        a running instance on the App's node is kept alive, or no longer, at once.\n        ",
+        "description": "Read/set per-App default backend nodes and policies, shared by UI and Agent.\n\n        list returns saved defaults. options returns eligible nodes and reasons.\n        set chooses a node; node_id='' restores automatic placement (Workspace\n        preferred). Existing windows keep their bindings. target resolves the\n        current default or explicit node without starting anything. An unavailable\n        default falls back to an eligible Workspace, then another online node.\n        Explicit nodes and existing instance bindings never move automatically.\n        policy sets on_demand, resident or disabled (docs/agent/agent-app-directory.md);\n        a running instance on the App's node is kept alive, or no longer, at once.\n        ",
         "params": [
           {
             "name": "action",

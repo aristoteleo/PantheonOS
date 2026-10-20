@@ -29,7 +29,7 @@ Host the desktop’s windows, installed Apps, shared browser, App backends and l
 
 Desktop is a system service used by the visible desktop shell. It resolves installed Apps, creates and restores windows, routes file opens and window actions, and maintains the Store’s local repositories and version snapshots.
 
-Agents start with `desktop_apps` and `desktop_windows`, then open an App or address an existing window. Read the window state before updating it. Agents manage and develop Apps through the PantheonOS interface (`pantheonos_manage_app`, `pantheonos_develop_app`; docs/pantheonos-app-interface.md), which this backend serves with its `agent_app_*` methods; the `desktop_store_*` and `desktop_app_*` methods serve the UI.
+Agents start with `desktop_apps` and `desktop_windows`, then open an App or address an existing window. Read the window state before updating it. Agents manage and develop Apps through the PantheonOS interface (`pantheonos_manage_app`, `pantheonos_develop_app`; docs/agent/pantheonos-app-interface.md), which this backend serves with its `agent_app_*` methods; the `desktop_store_*` and `desktop_app_*` methods serve the UI.
 
 `serve_local_data` exposes files from configured serving roots. A file outside those roots cannot be made readable merely by writing its absolute path into a URL. File and backend operations must preserve the owning node’s identity.
 

@@ -124,7 +124,7 @@ func makeGateway(domain, token string, origins []string, authority *auth.Authori
 	if err != nil {
 		return nil, err
 	}
-	// Hosted-App visitor grants (docs/app-hosting.md): the share a node's
+	// Hosted-App visitor grants (docs/apps/app-hosting.md): the share a node's
 	// installed manifest declares, and the owner's current instance of an App.
 	ask := func(ctx context.Context, fleet, node string, payload map[string]any) (json.RawMessage, error) {
 		nc, err := connect(fleet)

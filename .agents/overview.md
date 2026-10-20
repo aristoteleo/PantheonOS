@@ -29,7 +29,7 @@ Key capabilities:
 
 ## Entry Points
 
-The main CLI is exposed as `pantheon` (defined in `pantheon/__main__.py`):
+The main CLI is exposed as `pantheon` (defined in `apps/agent/pantheon/__main__.py`):
 
 | Command | Description |
 |---------|-------------|
@@ -45,7 +45,7 @@ Settings are loaded with **3-layer priority** (highest first):
 
 1. `~/.pantheon/settings.json` — User global config
 2. `.pantheon/settings.json` — Project-level config
-3. `pantheon/factory/templates/settings.json` — Package defaults
+3. `apps/agent/pantheon/factory/templates/settings.json` — Package defaults
 
 All config files support JSONC (JSON with comments). Environment variables and `.env`
 files can override any setting.
@@ -239,7 +239,7 @@ internal/    ← used by agent.py, team/, chatroom/
 
 # Team Templates
 
-Team templates live in `pantheon/factory/templates/teams/` as Markdown files with YAML
+Team templates live in `apps/agent/pantheon/factory/templates/teams/` as Markdown files with YAML
 frontmatter. Each template defines agents, their toolsets, and orchestration instructions.
 
 ## Default Team (`teams/default.md`)
@@ -273,7 +273,7 @@ Specialized 7-agent team for single-cell / spatial omics workflows.
 | **system_manager** | _(delegated)_ | Package installation, environment setup |
 | **browser_use** | _(delegated)_ | Web search, literature retrieval |
 
-Agent template files: `pantheon/factory/templates/agents/single_cell/`
+Agent template files: `apps/agent/pantheon/factory/templates/agents/single_cell/`
 
 **Mandatory workflow loop**:
 ```
@@ -297,7 +297,7 @@ Work intensity: Low = 1 loop, Medium = 3 loops, High = 5+ loops.
 
 ## Inter-Agent Communication (PantheonTeam)
 
-`PantheonTeam` (`pantheon/team/pantheon.py`) adds delegation tools to every agent:
+`PantheonTeam` (`apps/agent/pantheon/team/pantheon.py`) adds delegation tools to every agent:
 
 - `list_agents()` — Discover available agents and their descriptions
 - `call_agent(agent_name, instruction)` — Delegate a task to another agent

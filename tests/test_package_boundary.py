@@ -1,5 +1,5 @@
 """The platform runs without the Agent: `pantheonos` never imports `pantheon`
-(docs/agent-app-extraction.md, Ownership). It may look for the installed
+(docs/agent/agent-app-extraction.md, Ownership). It may look for the installed
 Agent package by name only where listed here, each for a stated reason."""
 import ast
 import re
@@ -15,6 +15,7 @@ BY_NAME = {
     "toolset.py": "a tool service samples a model through the Agent's sampler when it is installed",
     "local/cli.py": "`pantheon agent chat` runs the Agent App's terminal frontend",
     "settings.py": "the Agent's factory templates are located, and its package manager reset after a reload",
+    "apps/vendoring.py": "App builds vendor Agent files, and the local owner carries the Agent's terminal",
 }
 LOADS_BY_NAME = re.compile(r"""(import_module|find_spec|sys\.modules\.get)\(\s*["']pantheon[."']""")
 

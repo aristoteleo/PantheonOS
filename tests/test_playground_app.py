@@ -30,7 +30,7 @@ def test_app_registry_and_legacy_rpc_signatures(tmp_path):
     assert not verify_interfaces(app.manifest)
     service = cls(**_construct_kwargs('llm-playground', requires, str(tmp_path)))
     assert service.workdir == tmp_path
-    baseline = json.loads((ROOT / 'docs/agent-app-rpc-inventory.json').read_text())
+    baseline = json.loads((ROOT / 'docs/agent/agent-app-rpc-inventory.json').read_text())
     for row in baseline['methods']:
         if row['method'].startswith('llm_playground_'):
             method = service.functions[row['method']][0]

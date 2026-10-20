@@ -366,7 +366,7 @@ def test_shipped_default_team_recipes_are_admitted_without_losing_members_or_too
     recipes, tools, _ = templates.prepare_team(templates.get_template('default'))
     assert {'leader', 'worker', 'researcher', 'scientific_illustrator'} <= recipes.keys()
     # The leader may use every App; the sub-agents name theirs
-    # (docs/pantheonos-app-interface.md). No toolsets are listed.
+    # (docs/agent/pantheonos-app-interface.md). No toolsets are listed.
     assert recipes['leader']['apps'] == {} and not tools
     assert recipes['worker']['apps'] == {'allow': ['file_manager', 'integrated_notebook', 'shell', 'web']}
     for recipe in recipes.values():

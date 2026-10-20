@@ -1,7 +1,7 @@
 """Model Services management operations for the desktop's Model Services App.
 
 Formerly hosted by the platform process; the model-management App serves them
-now (docs/fleet-orchestration.md §11), with the manager it already owns.
+now (docs/os/fleet-orchestration.md §11), with the manager it already owns.
 """
 from pantheonos.toolset import tool
 from pantheonos.utils.log import logger

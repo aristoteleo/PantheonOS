@@ -1,7 +1,7 @@
 """Late App references: an App's configuration names another App of its Fleet
 deployment ({"$late_app": name, "deployment": d, ...}) and resolves the
 current instance only when it needs it, from the deployment's status at the
-owner's Fleet controller (docs/fleet-orchestration.md). Such references are
+owner's Fleet controller (docs/os/fleet-orchestration.md). Such references are
 not start dependencies, so an App holding them starts independently.
 """
 import asyncio

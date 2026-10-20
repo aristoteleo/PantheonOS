@@ -1,0 +1,245 @@
+"""
+TaskSystemPlugin — PantheonTeam adapter for the task toolset.
+
+Injects TaskToolSet into the primary agent (first agent in team) via
+get_toolsets(). Per-LLM-call behaviour (EU message generation and tool
+tracking) is registered as closures directly on the primary agent, so the
+agent holds only plain callables and has no knowledge of this plugin.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+from pantheon.team.plugin import TeamPlugin
+from pantheonos.utils.log import logger
+
+if TYPE_CHECKING:
+    from pantheon.team.pantheon import PantheonTeam
+
+# ── Prompt constants ──────────────────────────────────────────────────────────
+
+TASK_BRAIN_DIR_BLOCK = """
+
+<task_brain_dir>
+Your workspace root is {workspace_root}.
+
+ORGANIZE EVERY ANALYSIS INTO ITS OWN FOLDER. For each distinct task/analysis,
+FIRST create a dedicated, descriptively-named subfolder directly under the
+workspace root (e.g. `scatac_pbmc5k/`, `visium_brain_qc/`) and keep ALL of that
+task's files together inside it — the notebook, figures (in a `figures/`
+subfolder), intermediate + result data, and reports. Do NOT scatter task files
+loosely at the workspace root, and do NOT reuse an unrelated task's folder.
+Before starting, glance at the workspace root: reuse the matching task folder if
+this continues earlier work, otherwise make a new one. DECLARE this folder up
+front via task_boundary's `output_dir` (during PLANNING) so the user sees your
+results appear live in the Output panel as you produce them. Never write outside
+the workspace root (file and notebook tools are scoped to it and reject paths
+elsewhere).
+
+Internal task-state directory: {brain_dir}/{{chat_id}}
+  - Base path: {brain_dir}
+  - {{chat_id}} is the current conversation's ID (provided per-request in
+    context). It keeps each conversation's task.md isolated from other chats.
+  - Example: {brain_dir}/default/task.md
+</task_brain_dir>"""
+
+
+OUTPUT_REGISTRATION_BLOCK = """
+
+<output_registration>
+When you produce a user-facing DELIVERABLE — a report, a figure, a data
+file/table, or an output folder — register it with the `register_output` tool
+so the user can find and browse it in the Output panel.
+
+  - The Output panel live-previews your declared task folder as you work, so the
+    user sees raw files appear. But REGISTERING is how you mark and title the
+    FINAL, curated deliverables — and is the only way files produced by RUNNING
+    CODE (a plot a script saved, a generated CSV) are surfaced as real outputs
+    rather than scratch. Register each deliverable as soon as it's final; don't
+    wait until the very end.
+  - Deliverables produced by SUB-AGENTS you delegated to are reported back to
+    you in their `## Files Produced` list — treat them exactly like your own
+    output and register the real deliverables among them. Sub-agents do not
+    register anything themselves; you are the single point of registration.
+  - Prefer organizing related deliverables into a folder and registering the
+    FOLDER (its contents are shown as a live browsable tree) — you needn't
+    register every file individually. Register single important files too,
+    with a title + description.
+  - Register the moment a deliverable is ready; when wrapping up a task
+    (REVIEW), make sure every deliverable has been registered.
+  - Do NOT register scratch/intermediate files or the task.md/plan.md
+    artifacts — only things the user actually wants.
+</output_registration>"""
+
+
+DECISION_POINTS_BLOCK = """
+
+<decision_points>
+Calibrate when to ask the user vs. just proceed — neither over-confirm nor
+silently guess on choices that are theirs to make.
+
+STOP and ask (notify_user, blocked_on_user=true, with concrete options + your
+recommended default) when the request leaves a REAL, consequential choice that is
+yours to guess — for example:
+  - It is under-specified and several materially-different options exist: which
+    dataset / sample / organism / condition, which method when the choice changes
+    the result, which scope or target.
+  - A step is expensive or hard to undo (large download/compute, destructive or
+    irreversible operation) and a wrong guess wastes significant work.
+  - Proceeding needs an assumption that, if wrong, yields the wrong deliverable.
+
+CRUCIAL — do not rationalize past this: vague phrasing like "find some data", "any
+dataset", or "analyze X" does NOT make the path clear and does NOT waive a
+confirmation. Picking the SPECIFIC dataset/sample to analyze is itself a choice the
+user usually wants in on — "find some" means "propose one and let me confirm", NOT
+"pick silently and run with it".
+
+Worked example — user: "find some spatial metabolomics data and analyze it":
+  1. Research candidate datasets — do NOT download yet.
+  2. notify_user(blocked_on_user=true): "I propose <dataset A> (<1-line why>).
+     Alternatives: <B>, <C>. Go with A?"
+  3. ONLY after they confirm: download + analyze.
+
+Ask ONCE, up front, bundling the open choices — don't drip-feed questions, and
+don't ask only after you've already done the work. Set blocked_on_user=true at
+these points even though you COULD technically proceed without approval — a choice
+being the user's to make is itself a valid reason to block; "needing the user" is
+not limited to being mechanically stuck.
+
+Otherwise — when the request already pinned every consequential choice, or the
+choice is trivial / easily reversible — just DO IT. Pointless confirmations are
+noise.
+</decision_points>"""
+
+
+SUBAGENT_FILE_REPORT_BLOCK = """
+
+<file_reporting>
+You are a sub-agent working on a delegated task. When you finish, END your
+final report with a `## Files Produced` section listing EVERY file you created
+or modified — one line per file as `path — what it is` (result files, figures,
+data, generated reports, reference docs). The leader relies on this list to
+surface your deliverables to the user.
+
+Do NOT call `register_output` yourself — registering deliverables is the
+leader's responsibility, a single consistent point of registration. Your job
+is to report your files completely and accurately, with correct paths. If you
+produced no files, say so explicitly.
+</file_reporting>"""
+
+
+class TaskSystemPlugin(TeamPlugin):
+    """Injects TaskToolSet into the primary agent via closures."""
+
+    def __init__(self, *, settings=None, output_resolver_for=None):
+        self._settings = settings
+        self._output_resolver_for = output_resolver_for
+
+    async def get_toolsets(self, team: "PantheonTeam") -> list[tuple[Any, list[str] | None]]:
+        """Create TaskToolSet, register closure hooks on primary agent, return toolset spec."""
+        from pantheonos.apps.builtin.task import TaskToolSet
+
+        if not team.team_agents:
+            return []
+
+        primary = team.team_agents[0]
+        if self._settings is None:
+            task_toolset = TaskToolSet()
+        else:
+            if self._output_resolver_for is None:
+                raise RuntimeError("Scoped tasks require an explicit output resolver")
+            output_resolver = self._output_resolver_for(primary)
+            if not callable(output_resolver):
+                raise ValueError("Scoped tasks require a bound callable output resolver")
+            task_toolset = TaskToolSet(settings=self._settings, brain_dir=self._settings.brain_dir,
+                                      output_resolver=output_resolver)
+
+        # Closure captures task_toolset directly — no registry or cache needed.
+
+        async def _ephemeral_hook(history: list[dict], context_variables: dict) -> list[dict]:
+            return [task_toolset.get_ephemeral_prompt(context_variables)]
+
+        async def _tool_tracking_hook(
+            tool_calls: list[dict],
+            tool_messages: list[dict],
+            context_variables: dict,
+        ) -> None:
+            task_toolset.process_tool_messages(
+                tool_calls=tool_calls,
+                tool_messages=tool_messages,
+                context_variables=context_variables,
+            )
+
+        # Agent mode keeps the task tools on demand, without the per-turn
+        # task workflow reminders (docs/agent/agent-core.md).
+        if getattr(team, "mode", "team") == "agent":
+            return [(task_toolset, [primary.name])]
+
+        # Register only on the primary agent — sub-agents don't need task hooks.
+        primary.hooks.context.append(_ephemeral_hook)
+        primary.hooks.after_tools.append(_tool_tracking_hook)
+
+        logger.debug(f"TaskSystemPlugin: injecting TaskToolSet into '{primary.name}'")
+        return [(task_toolset, [primary.name])]
+
+    async def on_team_created(self, team: "PantheonTeam") -> None:
+        """Inject task-system instructions into the team's agents.
+
+        Primary (leader): the concrete <task_brain_dir> path + the
+        <output_registration> block — it is the single point of register_output.
+        Sub-agents: the <file_reporting> block, so they report the files they
+        produce back to the leader instead of registering anything themselves.
+        """
+        from pantheonos.settings import get_settings
+
+        if not team.team_agents or getattr(team, "mode", "team") == "agent":
+            return
+
+        from pathlib import Path
+
+        settings = self._settings if self._settings is not None else get_settings()
+        # Anchor the brain dir + workspace root to THIS chat's project (set on the
+        # team at creation, see ChatRoom._create_team_from_template). Falls back to
+        # the global home brain dir only when no per-project root was resolved.
+        proj_dir = getattr(team, "_project_dir", None)
+        if self._settings is not None:
+            brain_dir = str(settings.brain_dir)
+            workspace_root = str(proj_dir or settings.workspace)
+        elif proj_dir:
+            brain_dir = str(Path(proj_dir) / ".pantheon" / "brain")
+            workspace_root = str(proj_dir)
+        else:
+            brain_dir = str(settings.brain_dir)
+            workspace_root = str(Path(brain_dir).parent.parent)
+        tag = TASK_BRAIN_DIR_BLOCK.format(brain_dir=brain_dir, workspace_root=workspace_root)
+
+        primary = team.team_agents[0]
+        if hasattr(primary, "instructions") and primary.instructions:
+            primary.instructions += tag + DECISION_POINTS_BLOCK + OUTPUT_REGISTRATION_BLOCK
+            logger.debug(f"TaskSystemPlugin: injected task_brain_dir + decision_points + output_registration into '{primary.name}'")
+
+        # Sub-agents never register outputs themselves — the leader is the single
+        # point of registration (consistency). But each sub-agent MUST report the
+        # files it produced so the leader can register the deliverables among them.
+        for sub in team.team_agents[1:]:
+            if hasattr(sub, "instructions") and sub.instructions:
+                sub.instructions += SUBAGENT_FILE_REPORT_BLOCK
+                logger.debug(f"TaskSystemPlugin: injected file_reporting into sub-agent '{sub.name}'")
+
+
+def _create_task_plugin(config: dict, settings: Any) -> TaskSystemPlugin:
+    """Factory function for plugin registry."""
+    return TaskSystemPlugin()
+
+
+# Register with plugin registry
+from pantheon.team.plugin_registry import PluginDef, register_plugin
+
+register_plugin(PluginDef(
+    name="task_system",
+    config_key="task_system",
+    enabled_key="enabled",
+    factory=_create_task_plugin,
+    priority=10,  # Before memory (50) and learning (100)
+))

@@ -52,7 +52,7 @@ def _format_file_size(num_bytes: int) -> str:
     return f"{num_bytes}B"
 
 
-# Markers around a capped tool output (docs/agent-core.md).
+# Markers around a capped tool output (docs/agent/agent-core.md).
 PERSISTED_OUTPUT_TAG = "<persisted-output>"
 PERSISTED_OUTPUT_CLOSING_TAG = "</persisted-output>"
 PREVIEW_SIZE_BYTES = 2000

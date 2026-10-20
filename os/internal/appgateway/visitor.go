@@ -14,7 +14,7 @@ import (
 )
 
 // Visitor grants serve a hosted App to people other than its owner
-// (docs/app-hosting.md). The owner's credential never travels with them;
+// (docs/apps/app-hosting.md). The owner's credential never travels with them;
 // only the App's declared share methods and path prefixes pass.
 
 // VisitorGrant marks an attach request as a visitor's. The Hub sends ShareID

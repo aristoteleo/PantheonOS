@@ -1,5 +1,5 @@
 """One context mechanism: the model's view, compaction, capped tool outputs
-(docs/agent-core.md)."""
+(docs/agent/agent-core.md)."""
 import asyncio
 
 import pytest

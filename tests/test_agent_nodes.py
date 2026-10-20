@@ -1,5 +1,5 @@
 """A conversation's working node: core tools on another Fleet node go through
-the Fleet App (docs/agent-core.md)."""
+the Fleet App (docs/agent/agent-core.md)."""
 
 import json
 

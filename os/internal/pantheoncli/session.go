@@ -1,5 +1,5 @@
 // Package pantheoncli is the client half of the `pantheon` command
-// (docs/pantheon-cli.md): it reaches the owner's Apps, desktop and nodes
+// (docs/os/pantheon-cli.md): it reaches the owner's Apps, desktop and nodes
 // through the Hub and the Fleet controller.
 //
 // A session holds one credential: the owner's platform key (pbk_...). The Hub

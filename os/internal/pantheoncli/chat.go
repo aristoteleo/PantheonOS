@@ -29,7 +29,7 @@ import (
 var revisionRE = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 // agentChat runs the Agent App's terminal frontend for the owner's Agent
-// (docs/pantheon-cli.md): the frontend of the exact revision that runs, in an
+// (docs/os/pantheon-cli.md): the frontend of the exact revision that runs, in an
 // environment of the managed Python, talking to the Agent through a loopback
 // this command serves with the owner's grant. The frontend holds no grant.
 func (r *runner) agentChat(args []string) error {

@@ -12,10 +12,10 @@ if not _nats_bin:
     raise FileNotFoundError("nats-server binary not found. Ensure nats-server-bin is installed.")
 
 datas = [
-    ('pantheon/factory/templates', 'pantheon/factory/templates'),
-    ('pantheon/toolsets/database_api/schemas', 'pantheon/toolsets/database_api/schemas'),
-    ('pantheon/chatroom/nats-ws.conf', 'pantheon/chatroom'),
-    ('pantheon/toolsets/knowledge/config.yaml', 'pantheon/toolsets/knowledge'),
+    ('apps/agent/pantheon/factory/templates', 'pantheon/factory/templates'),
+    ('apps/agent/pantheon/toolsets/database_api/schemas', 'pantheon/toolsets/database_api/schemas'),
+    ('apps/agent/pantheon/chatroom/nats-ws.conf', 'pantheon/chatroom'),
+    ('apps/agent/pantheon/toolsets/knowledge/config.yaml', 'pantheon/toolsets/knowledge'),
 ]
 datas += copy_metadata('fastmcp')
 # jupyter_client loads LocalProvisioner via entry_points at runtime.
@@ -40,8 +40,9 @@ if os.path.exists(_model_init):
     datas.append((_model_init, 'fakeredis/model'))
 
 a = Analysis(
-    ['pantheon/chatroom/__main__.py'],
-    pathex=[],
+    ['apps/agent/pantheon/chatroom/__main__.py'],
+    # The Agent's package lives in apps/agent, the platform's at the root.
+    pathex=['apps/agent', '.'],
     binaries=[(_nats_bin, '.')],  # nats-server binary from nats-server-bin package
     datas=datas,
     hiddenimports=[

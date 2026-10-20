@@ -20,6 +20,7 @@ from pathlib import Path
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "apps" / "agent"))
 
 from pantheonos.utils.token_optimization import (
     apply_tool_result_budget,

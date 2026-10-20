@@ -1,4 +1,4 @@
-"""Library Apps offered to the Agent (docs/agent-app-directory.md).
+"""Library Apps offered to the Agent (docs/agent/agent-app-directory.md).
 
 The Agent reaches an installed App's declared tools (backend methods) and
 window actions through the Desktop, which holds the packages and the windows.

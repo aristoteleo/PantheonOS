@@ -16,7 +16,7 @@ import (
 	"github.com/aristoteleo/pantheonos/os/internal/pantheoncli"
 )
 
-// One binary, two names (docs/pantheon-cli.md). Called `pantheon`, it is the
+// One binary, two names (docs/os/pantheon-cli.md). Called `pantheon`, it is the
 // PantheonOS command: the client of the owner's Apps, desktop and nodes, with
 // the node itself under `pantheon node`. Called `fleet`, it is the node, as
 // installed nodes, the macOS app and auto-update expect; the client commands
@@ -156,7 +156,7 @@ This machine as a node
 }
 
 // exposeCommand lets the commands a node runs (an agent's run_command, a
-// terminal, a task) call `pantheon` (docs/pantheon-cli.md). A node installed
+// terminal, a task) call `pantheon` (docs/os/pantheon-cli.md). A node installed
 // only as `fleet` adds a directory holding `pantheon`, linked to this binary,
 // at the end of PATH; an installed `pantheon` is used as it is.
 func exposeCommand(stateDir string) {
