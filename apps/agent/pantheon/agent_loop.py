@@ -164,6 +164,18 @@ async def _compact(agent: "Agent", history: list[dict], model: str, process_step
     return True
 
 
+async def _record_tool_messages(agent: "Agent", history: list[dict], tool_messages: list[dict],
+                                process_step_message: Callable | None) -> None:
+    history.extend(tool_messages)
+    for tool_msg in tool_messages:
+        agent.events_queue.put_nowait(tool_msg)
+    if process_step_message:
+        from pantheonos.utils.llm import process_messages_for_hook_func
+        for step in process_messages_for_hook_func(tool_messages):
+            step["agent_name"] = agent.name
+            await run_func(process_step_message, step)
+
+
 EMPTY_REPLY_NOTE = ("(Your last reply had no text and no tool call. Continue the task: call the "
                     "tools you need now, or answer.)")
 
@@ -196,6 +208,7 @@ async def run_turns(
 
     from .agent_context import is_context_overflow, says_nothing
     from .agent_model import _model_chain
+    from .agent_tools import ToolCallsStopped
 
     init_len = len(history)
     primary = _model_chain(agent, model)[0]
@@ -267,20 +280,19 @@ async def run_turns(
             break
         empty_replies = 0
 
-        tool_messages = await agent._handle_tool_calls(
-            message.get("tool_calls") or [], context_variables=context_variables,
-            timeout=tool_timeout, check_stop=check_stop)
+        try:
+            tool_messages = await agent._handle_tool_calls(
+                message.get("tool_calls") or [], context_variables=context_variables,
+                timeout=tool_timeout, check_stop=check_stop)
+        except ToolCallsStopped as stop:
+            # The calls ran (some partly): keep them, so the next turn and the
+            # user see what was done before the stop.
+            await _record_tool_messages(agent, history, stop.messages, process_step_message)
+            raise
         for hook in agent.hooks.after_tools:
             await hook(message.get("tool_calls") or [], tool_messages, context_variables)
 
-        history.extend(tool_messages)
-        for tool_msg in tool_messages:
-            agent.events_queue.put_nowait(tool_msg)
-        if process_step_message:
-            from pantheonos.utils.llm import process_messages_for_hook_func
-            for step in process_messages_for_hook_func(tool_messages):
-                step["agent_name"] = agent.name
-                await run_func(process_step_message, step)
+        await _record_tool_messages(agent, history, tool_messages, process_step_message)
 
         # notify_user hands the turn back to the user.
         if any(isinstance(m.get("raw_content"), dict) and m["raw_content"].get("interrupt") for m in tool_messages):

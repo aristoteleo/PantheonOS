@@ -5,7 +5,8 @@ across a file change, see FILE_CHANGES) and returns their tool messages. Each
 call passes the Agent's before_tool hooks (one may answer instead of the
 tool), runs in the foreground or, with ``_background`` / a timeout / a queued
 user message, in the background, and its result passes the after_tool hooks
-before it becomes a tool message.
+before it becomes a tool message. A stop ends the calls still running and
+raises ToolCallsStopped with a tool message for every call of the turn.
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ from uuid import uuid4
 
 from pantheonos.utils.llm import process_tool_result
 from pantheonos.utils.log import logger
+from pantheonos.utils.stop import StopRunning
 
 if TYPE_CHECKING:
     from .agent import Agent
@@ -32,6 +34,34 @@ FILE_CHANGES = frozenset({
     "write_file", "update_file", "edit_file", "apply_patch", "create_directory", "delete_path",
     "delete_file", "move_file", "copy_file", "manage_path", "rename_path",
 })
+
+
+NOT_RUN = "Not run: the user stopped the turn before this call started."
+
+
+class ToolCallsStopped(StopRunning):
+    """A stop during a turn's tool calls. It carries a tool message for each
+    of them, so the conversation keeps what ran, for how long, and what it
+    printed, instead of losing calls that may already have had effects."""
+
+    def __init__(self, messages: list[dict]):
+        super().__init__()
+        self.messages = messages
+
+
+class _Stopped:
+    """A foreground call the stop ended, with what it had printed by then."""
+
+    def __init__(self, seconds: float, output: list[str]):
+        self.seconds = seconds
+        self.output = output
+
+    def result(self) -> str:
+        text = (f"Stopped by the user after {self.seconds:.0f} s, before the call returned. "
+                "It may have done part of its work (files written, processes started): "
+                "check before relying on it or running it again.")
+        printed = "\n".join(str(line).rstrip("\n") for line in self.output)
+        return f"{text}\nOutput before the stop:\n{printed}" if printed.strip() else text
 
 
 def changes_files(tool_name: str) -> bool:
@@ -214,6 +244,8 @@ async def execute_tool_calls(
     """Run tool calls concurrently; returns their tool messages in call order."""
     from .background import _bg_output_buffer
 
+    stopped: list[str] = []
+
     async def run_one(call: dict) -> dict:
         func_name = call["function"]["name"]
         tool_call_id = call["id"]
@@ -276,10 +308,13 @@ async def execute_tool_calls(
         else:
             result = await _foreground(agent, call, func_name, tool_call_id, params, context_variables,
                                        timeout, time_delta, check_stop, allow_timeout, start_time)
+            if isinstance(result, _Stopped):
+                stopped.append(tool_call_id)
+                result = result.result()
 
         end_time = time.time()
         # after_tool hooks decorate an executed tool's result (a non-None return replaces it).
-        if short_circuit is None:
+        if short_circuit is None and tool_call_id not in stopped:
             for hook in agent.hooks.after_tool:
                 try:
                     replaced = await hook(func_name, params, result)
@@ -290,8 +325,16 @@ async def execute_tool_calls(
                     result = replaced
         return tool_message(agent, func_name, tool_call_id, result, start_time, end_time)
 
+    def not_run(calls: list[list]) -> list[dict]:
+        now = time.time()
+        return [tool_message(agent, call["function"]["name"], call["id"], NOT_RUN, now, now)
+                for group in calls for call in group]
+
     messages: list[dict] = []
-    for group in concurrent_groups(tool_calls):
+    groups = concurrent_groups(tool_calls)
+    for index, group in enumerate(groups):
+        if check_stop is not None and check_stop(None):
+            raise ToolCallsStopped(messages + not_run(groups[index:]))
         tasks = [asyncio.create_task(run_one(call)) for call in group]
         try:
             messages.extend(await asyncio.gather(*tasks))
@@ -300,14 +343,16 @@ async def execute_tool_calls(
                 if not task.done():
                     task.cancel()
             raise
+        if stopped:
+            raise ToolCallsStopped(messages + not_run(groups[index + 1:]))
     return messages
 
 
 async def _foreground(agent, call, func_name, tool_call_id, params, context_variables, timeout,
                       time_delta, check_stop, allow_timeout, start_time) -> Any:
     """Run one tool call in the foreground. A call past its timeout, or one a
-    queued user message is waiting on, is adopted into the background."""
-    from .agent import StopRunning
+    queued user message is waiting on, is adopted into the background; one a
+    stop ends comes back as _Stopped."""
     from .background import _bg_output_buffer
 
     from .agent_loop import steer_queue
@@ -345,7 +390,9 @@ async def _foreground(agent, call, func_name, tool_call_id, params, context_vari
                 break
             if check_stop is not None and check_stop(elapsed):
                 call_task.cancel()
-                raise StopRunning()
+                # What the tool itself reported; the progress lines in
+                # stdout_buffer ("[tool] Calling ...") are not its output.
+                return _Stopped(elapsed, agent._tool_output_buffers.pop(tool_call_id, []))
         if not adopted:
             agent._tool_output_buffers.pop(tool_call_id, None)
         return result

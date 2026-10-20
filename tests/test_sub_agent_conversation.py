@@ -387,4 +387,37 @@ async def test_stopping_a_continued_run_mid_call_keeps_the_call_and_closes_it():
     assert call["tool_calls"][0]["id"] == "wait_1"
     closed = run[run.index(call) + 1]
     assert closed["role"] == "tool" and closed["tool_call_id"] == "wait_1"
-    assert closed["content"] == SUB_AGENT_STOPPED
+    # The stop closes the call it ended, saying how long it ran.
+    assert closed["content"].startswith("Stopped by the user after ")
+
+
+@pytest.mark.asyncio
+async def test_stopping_the_lead_mid_call_keeps_the_call_in_the_conversation():
+    """A stopped command may have had effects: the next turn must see it ran."""
+    started = asyncio.Event()
+
+    async def count_slowly() -> str:
+        """Count to forty, a second at a time."""
+        started.set()
+        await asyncio.sleep(3600)
+        return "never"
+    team, lead, worker = await team_of([], [])
+    await run_func(lead.tool, count_slowly)
+
+    async def scripted(history, tool_use=True, process_chunk=None, model=None, context_variables=None,
+                       response_format=None):
+        return {"role": "assistant", "content": None, "tool_calls": [
+            {"id": "count_1", "type": "function", "function": {"name": "count_slowly", "arguments": "{}"}}]}
+    lead._acompletion_with_models = scripted
+    memory = Memory(name="chat")
+    thread = Thread(team, memory, [user("Count.")])
+    running = asyncio.create_task(thread.run())
+    await asyncio.wait_for(started.wait(), timeout=5)
+    await thread.stop()
+    await asyncio.wait_for(running, timeout=10)
+
+    kept = memory.get_messages(for_llm=False)
+    assert [m["role"] for m in kept] == ["user", "assistant", "tool"]
+    assert kept[1]["tool_calls"][0]["id"] == "count_1"
+    assert kept[2]["tool_call_id"] == "count_1"
+    assert kept[2]["content"].startswith("Stopped by the user after ")

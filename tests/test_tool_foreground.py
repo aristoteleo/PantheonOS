@@ -121,3 +121,67 @@ async def test_a_turn_writes_a_file_before_the_calls_after_it_and_runs_the_rest_
     assert disk.log[:2] == [("write", "start", 1), ("write", "end", 0)]
     # The two commands still ran at the same time.
     assert max(running for _, _, running in disk.log) == 2
+
+
+class Printing(ToolSet):
+    """A command that prints a line, then runs until it is stopped."""
+
+    def __init__(self):
+        super().__init__(name="shell")
+        self.printed = asyncio.Event()
+
+    @tool
+    async def run_loop(self, command: str, context_variables: dict = None) -> str:
+        """Run a command for a long time.
+
+        Args:
+            command: The command.
+        """
+        (context_variables or {}).get("_report_output", lambda line: None)("1")
+        self.printed.set()
+        await asyncio.sleep(3600)
+        return "never"
+
+
+@pytest.mark.asyncio
+async def test_a_stop_keeps_every_call_of_the_turn_with_what_it_did():
+    from pantheon.agent_tools import NOT_RUN, ToolCallsStopped
+
+    agent = Agent(name="a", instructions="", model="gpt-4o-mini")
+    disk, printing = Disk(), Printing()
+    await agent.toolset(disk)
+    await agent.toolset(printing)
+    stop = asyncio.Event()
+
+    async def stop_once_printed():
+        await printing.printed.wait()
+        await asyncio.sleep(.1)
+        stop.set()
+    asyncio.create_task(stop_once_printed())
+    with pytest.raises(ToolCallsStopped) as stopped:
+        await execute_tool_calls(agent, [
+            call("shell__run_loop", {"command": "for i in $(seq 1 40); do echo $i; sleep 1; done"}, "c1"),
+            call("file_manager__run_command", {"command": "ls"}, "c2"),
+            call("file_manager__write_file", {"file_path": "a.txt", "content": "x"}, "c3"),
+        ], {}, timeout=60, time_delta=.02, check_stop=lambda *_: stop.is_set())
+    loop, done, later = stopped.value.messages
+    assert [m["tool_call_id"] for m in (loop, done, later)] == ["c1", "c2", "c3"]
+    # The running call says it was stopped, after how long, and what it printed.
+    assert loop["content"].startswith("Stopped by the user after 0 s")
+    assert loop["content"].endswith("Output before the stop:\n1")
+    # The call that finished keeps its result; the one after the stop never ran.
+    assert "No such file" in str(done["content"])
+    assert later["content"] == NOT_RUN and disk.files == {}
+
+
+@pytest.mark.asyncio
+async def test_a_stop_before_the_calls_start_runs_none_of_them():
+    from pantheon.agent_tools import NOT_RUN, ToolCallsStopped
+
+    agent = Agent(name="a", instructions="", model="gpt-4o-mini")
+    disk = Disk()
+    await agent.toolset(disk)
+    with pytest.raises(ToolCallsStopped) as stopped:
+        await execute_tool_calls(agent, [call("file_manager__write_file", {"file_path": "a", "content": "x"})],
+                                 {}, timeout=60, check_stop=lambda *_: True)
+    assert [m["content"] for m in stopped.value.messages] == [NOT_RUN] and disk.log == []

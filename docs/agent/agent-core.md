@@ -32,7 +32,7 @@ sub_agent=<context>)`.
   "The user stopped this sub-agent before it finished.", how long it ran, that
   the user did it on purpose (not a limit or a failure, nothing to work
   around), and its work so far.
-  Each call of the run the stop cut short gets the same sentence as its
+  The call the stop cut short gets "Stopped by the user after N s ..." as its
   result, so the run's history shows when it ended; a run that ends any
   other way (the conversation stopped, a failure) closes its unfinished calls
   with "This sub-agent's run ended before this call finished."
@@ -182,6 +182,11 @@ to the head (`Memory._messages`); the log is `Memory._records`.
   alternatives with `_branch` (index, count, siblings); the UI shows ‹ i/n ›
   on such a user message.
 * Compaction appends its record on the path (see Context).
+* A stop during tool calls keeps them: the call it ended gets "Stopped by the
+  user after N s, before the call returned ..." with what the tool reported
+  so far, a finished call keeps its result, and a call that had not started
+  gets "Not run: ...". The calls may have had effects, so the next turn has
+  to see them.
 * A stop's cleanup moves the head back past empty steps and writes a new
   version of a message whose tool calls never ran.
 * Fork copies the path up to a message into a new chat (`forked_from`).
