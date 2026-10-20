@@ -25,6 +25,16 @@ echo "========================================="
 # are free.
 NICE_BG="nice -n 10"
 
+# The Agent's package is /app/apps/agent/pantheon, no longer /app/pantheon.
+# /venv finds it through a .pth, but a shell's `python` is the analysis or
+# baseline env, which found it on PYTHONPATH (/app) — the Agent's own prompts
+# run `python -c "from pantheon import packages"`. Put the Agent's directory
+# next to /app, for the agent, the node and every pty they start.
+case ":${PYTHONPATH:-}:" in
+    *:/app/apps/agent:*) ;;
+    *:/app:*) export PYTHONPATH="${PYTHONPATH}:/app/apps/agent" ;;
+esac
+
 # Warm the agent's import set in the background while the shell below does its
 # volume work. Modal lazy-loads image layers, so the first read of every .py
 # and .so pays a network fetch — measured as the difference between a 3-5.5 s

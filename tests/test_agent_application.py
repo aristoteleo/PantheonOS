@@ -233,6 +233,30 @@ async def test_legacy_composition_keeps_project_local_memory(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_a_chat_resolves_to_its_project_not_to_the_app_data_mount(tmp_path):
+    home, second = tmp_path / 'home', tmp_path / 'second'
+    projects = AppProjects([{'id': 'home', 'name': 'Home', 'path': str(home)},
+                            {'id': 'second', 'name': 'Second', 'path': str(second)}],
+                           active_id='home', default_id='home')
+    data = AgentAppData(tmp_path / 'data', namespace='agent-data', projects=projects)
+    env = AgentEnvironment(projects=projects, templates=object(),
+        settings=lambda: SimpleNamespace(workspace=home), ensure_services=AsyncMock(),
+        create_agents=AsyncMock(), validate_model=lambda _: (True, ''),
+        create_plugins=AsyncMock(return_value=[]), project_memory_dir=data.project_memory_dir)
+    app = AgentRuntime(memory_dir=data.home_memory_dir, environment=env)
+    try:
+        in_home = (await app.create_chat('Home chat', project_name='Home'))['chat_id']
+        in_second = (await app.create_chat('Second chat', project_name='Second'))['chat_id']
+        # The file panel scopes a window to this path; the Agent's own data is never one.
+        assert await app.get_chat_workspace(in_home) == {'path': None, 'name': None}
+        assert await app.get_chat_workspace(in_second) == {'path': str(second), 'name': 'Second'}
+        assert await app._project_dir_for_chat(in_second) == str(second)
+    finally:
+        await app.cleanup()
+        data.close()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize('jsonl', [True, False])
 async def test_flush_preserves_unloaded_chats_and_cancels_old_metadata_timers(tmp_path, jsonl):
     from pantheon.internal.memory import MemoryManager

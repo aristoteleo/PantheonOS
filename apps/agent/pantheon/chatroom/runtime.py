@@ -229,6 +229,21 @@ class AgentRuntime(AgentLifetime, ToolSet):
             raise ValueError("Project conversation storage must be an absolute path")
         return result
 
+    def _project_owning_memory(self, mdir) -> str | None:
+        """The project root whose conversations are stored in `mdir`, or None.
+
+        App memories live under a data mount, not <workspace>/.pantheon/memory:
+        reverse the explicit binding instead of treating its parent directory
+        as a project workspace (that would hand the UI the Agent's own data).
+        """
+        if self._environment.project_memory_dir is None:
+            pdir = Path(mdir).parent.parent
+            return str(pdir.resolve()) if pdir.is_dir() else None
+        for project in self.project_manager.list_projects():
+            if Path(self._project_memory_dir(project["path"])).resolve() == Path(mdir).resolve():
+                return project["path"]
+        return None
+
     def _is_home_dir(self, p) -> bool:
         """Is `p` the home (work_dir) project? Home uses the default endpoint."""
         try:
@@ -259,20 +274,14 @@ class AgentRuntime(AgentLifetime, ToolSet):
                 logger.debug(f"[multi-project] project dir (workspace_path) for {session_id}: {e}")
             try:
                 mdir = self.memory_manager.mgr_for_chat(session_id).path
+                owner = self._project_owning_memory(mdir)
+                if owner:
+                    return owner
                 if self._environment.project_memory_dir is not None:
-                    # App memories live under a data mount, not <workspace>/
-                    # .pantheon/memory. Reverse the explicit binding instead of
-                    # treating its parent directory as a project workspace.
-                    for project in self.project_manager.list_projects():
-                        if Path(self._project_memory_dir(project["path"])).resolve() == Path(mdir).resolve():
-                            return project["path"]
                     if Path(mdir).resolve() != self.memory_dir:
                         return None
                     selected = self.project_manager.active_project or self.project_manager.default_project
                     return selected.path if selected else None
-                pdir = Path(mdir).parent.parent
-                if pdir.is_dir():
-                    return str(pdir.resolve())
             except Exception as e:
                 logger.debug(f"[multi-project] project dir (memory) for {session_id}: {e}")
                 if self._environment.project_memory_dir is not None:
@@ -2043,13 +2052,12 @@ class AgentRuntime(AgentLifetime, ToolSet):
             # name/workspace_path (e.g. created in a project without being tagged),
             # so the memory dir is the reliable signal for the running indicator.
             try:
-                mdir = self.memory_manager.mgr_for_chat(chat_id).path
-                pdir = Path(mdir).parent.parent  # <proj>/.pantheon/memory → <proj>
-                info = self.project_manager.get_project(str(pdir))
+                pdir = self._project_owning_memory(self.memory_manager.mgr_for_chat(chat_id).path)
+                info = self.project_manager.get_project(pdir) if pdir else None
                 if info:
                     project = {"name": info.name, "workspace_path": info.path}
-                elif Path(pdir).is_dir():
-                    project = {"name": Path(pdir).name, "workspace_path": str(pdir)}
+                elif pdir:
+                    project = {"name": Path(pdir).name, "workspace_path": pdir}
             except Exception as e:
                 logger.debug(f"[list_running_chats] project for {chat_id}: {e}")
             running.append({"chat_id": chat_id, "project": project})
@@ -2093,10 +2101,9 @@ class AgentRuntime(AgentLifetime, ToolSet):
         # (2) else the project whose memory store owns the chat.
         if pdir is None:
             try:
-                mdir = self.memory_manager.mgr_for_chat(chat_id).path
-                cand = Path(mdir).parent.parent
-                if cand.is_dir() and not self._is_home_dir(cand):
-                    pdir = str(cand.resolve())
+                cand = self._project_owning_memory(self.memory_manager.mgr_for_chat(chat_id).path)
+                if cand and not self._is_home_dir(cand):
+                    pdir = cand
             except Exception as e:  # noqa: BLE001
                 logger.debug(f"[multi-project] get_chat_workspace by memory dir {chat_id}: {e}")
         if not pdir:
