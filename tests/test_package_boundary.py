@@ -73,6 +73,13 @@ def test_names_from_before_the_appkit_rename_are_the_same_modules():
             "from pantheonos.apps.builtin.file import FileManagerToolSet as F; "
             "from pantheonos.appkit.builtin.file import FileManagerToolSet as G; assert F is G")
     subprocess.run([sys.executable, "-c", code], cwd=ROOT, check=True)
+    # The General Team's composition moved out of the framework.
+    code = ("import pantheonos.apps.general_team as a, pantheonos.general_team.team as b; assert a is b; "
+            "import pantheonos.apps.general_agent_preset as c, pantheonos.general_team.agent_preset as d; assert c is d; "
+            "import pantheon.apps.local_agent as e, pantheonos.general_team.local_agent as f; assert e is f; "
+            "from pantheonos.apps.release_profile import write_profile; "
+            "from pantheonos.general_team.release_profile import write_profile as w; assert write_profile is w")
+    subprocess.run([sys.executable, "-c", code], cwd=ROOT, check=True)
     out = subprocess.run([sys.executable, "-m", "pantheonos.apps", "schema"], cwd=ROOT, check=True,
                          capture_output=True, text=True).stdout
     assert '"$schema"' in out or '"properties"' in out

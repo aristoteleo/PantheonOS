@@ -10,7 +10,7 @@ from pathlib import Path
 
 from pantheonos.appkit.dependency_assembly import AssemblyError, _copy, DEPLOYMENT_BYTES
 from pantheonos.appkit.recipe import deployment_recipe
-from pantheonos.appkit.agent_defaults import dependency_defaults
+from .agent_defaults import dependency_defaults
 
 
 def compose_deployment(*, owner, operation_id, targets, agent, tools, models,

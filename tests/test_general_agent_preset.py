@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from pantheonos.appkit.general_agent_preset import expand_general_team, PROVIDERS
-from pantheonos.appkit.local_agent import compose_profile, native_platform, read_bundle
+from pantheonos.general_team.agent_preset import expand_general_team, PROVIDERS
+from pantheonos.general_team.local_agent import compose_profile, native_platform, read_bundle
 from pantheonos.appkit.lifecycle import build_artifact
 from pantheonos.appkit.dependency_assembly import AssemblyError
 from pantheonos.models.access_package import build_package as access
@@ -164,7 +164,7 @@ def test_compilation_does_not_load_agent_runtime(complete_entries):
     script = """
 import json, sys
 from pathlib import Path
-from pantheonos.appkit.local_agent import compose_profile
+from pantheonos.general_team.local_agent import compose_profile
 value = json.load(sys.stdin)
 entries = {k: (v[0], Path(v[1])) for k, v in value['entries'].items()}
 compose_profile(entries, value['setup'])

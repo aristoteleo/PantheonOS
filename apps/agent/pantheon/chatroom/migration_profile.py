@@ -228,7 +228,7 @@ class LocalAgentMigration:
                 raise ValueError('This entry point requires a local prepared MCP App')
             app = session.spec['apps'][name]
             package = session.spec['packages'][app['package']]
-            from pantheonos.appkit.local_agent import native_platform
+            from pantheonos.general_team.local_agent import native_platform
             mcp_prepared = dict(package=package['path'], platform=package.get('platform', native_platform()),
                 name=name, target=dict(node_id=provider['node_id'], scope=app['scope'],
                                        generation=provider['generation'] - 2),

@@ -38,7 +38,7 @@ def state(path):
 
 
 def _compose(bundle, setup):
-    from pantheonos.appkit.local_agent import compose_profile, read_bundle
+    from pantheonos.general_team.local_agent import compose_profile, read_bundle
     _, entries = read_bundle(bundle)
     return compose_profile(entries, private_json(setup))
 

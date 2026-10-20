@@ -17,7 +17,7 @@ import time
 from .agent import ToolInfo, ToolProvider
 from pantheonos.utils.log import logger
 
-# The Apps of the Agent's deployment (pantheonos.appkit.general_agent_preset's
+# The Apps of the Agent's deployment (pantheonos.general_team.agent_preset's
 # PROVIDERS): its toolsets already, so not listed again.
 DEPLOYMENT_APPS = frozenset({'file-manager', 'shell', 'integrated-notebook', 'web', 'evolution',
                              'desktop', 'fleet', 'model-services-management'})

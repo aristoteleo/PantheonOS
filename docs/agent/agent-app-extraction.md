@@ -5893,7 +5893,7 @@ currently published references. It is not a new model-level ACL. The existing
 control facade still rejects replaced instance generations or changed route
 revisions at consumption time. The returned review is not an issued grant.
 
-The pure owner composer now lives in `pantheonos.appkit.agent_deployment`; the old
+The pure owner composer now lives in `pantheonos.general_team.agent_deployment`; the old
 `pantheon.chatroom.deployment` import and CLI remain compatible. The platform RPC
 is executable with all Agent/ChatRoom imports blocked. Existing explicit BYOK
 configuration is preserved rather than silently removed or treated as budget

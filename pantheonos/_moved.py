@@ -1,7 +1,8 @@
 """Names from before parts of `pantheonos` moved.
 
 The App framework was `pantheonos.apps`; it is `pantheonos.appkit`, so the
-name no longer reads like the Apps themselves (<repo>/apps). Code still naming
+name no longer reads like the Apps themselves (<repo>/apps), and the General
+Team's composition it held is `pantheonos.general_team`. Code still naming
 the old place (an installed App's manifest or backend, a saved config,
 `python -m pantheonos.apps ...` from an older launcher) gets the very same
 modules: `pantheonos.apps.registry` IS `pantheonos.appkit.registry`.
@@ -14,6 +15,11 @@ import importlib.util as _util
 import sys as _sys
 
 _MOVED = (
+    # The General Team's composition left the App framework.
+    ("pantheonos.apps.general_team", "pantheonos.general_team.team"),
+    ("pantheonos.apps.general_agent_preset", "pantheonos.general_team.agent_preset"),
+    *((f"pantheonos.apps.{name}", f"pantheonos.general_team.{name}") for name in (
+        "agent_defaults", "agent_deployment", "local_agent", "release_profile")),
     ("pantheonos.apps", "pantheonos.appkit"),
 )
 

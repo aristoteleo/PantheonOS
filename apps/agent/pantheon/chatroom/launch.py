@@ -9,7 +9,7 @@ import asyncio
 import ssl
 
 from pantheonos.appkit.runtime_config import load_runtime_configuration, RuntimeConfiguration
-from pantheonos.appkit.agent_defaults import dependency_defaults
+from pantheonos.general_team.agent_defaults import dependency_defaults
 from pantheonos.appkit.dependency_client import DependencyClient
 from pantheonos.appkit.dependency_binding_client import RemoteDependencyBindings
 from pantheon.chatroom.app_data import AppProjects

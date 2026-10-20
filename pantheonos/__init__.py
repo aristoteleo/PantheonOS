@@ -1,6 +1,7 @@
 """PantheonOS: the platform's Python side.
 
-The App SDK and hosting (appkit, apphost, toolset, remote), the local product's
+The App SDK and hosting (appkit, apphost, toolset, remote), the General Team
+the platform sets up for an owner (general_team), the local product's
 owner (local), the Store client (store), model access (models,
 model_contracts) and the infrastructure the platform and its Apps share
 (utils, settings, funcdesc, package_runtime). Pantheon-Agent (the `pantheon`

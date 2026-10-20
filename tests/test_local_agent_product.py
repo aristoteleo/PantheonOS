@@ -8,7 +8,7 @@ import sys
 import pytest
 
 from pantheonos.appkit.dependency_assembly import AssemblyError
-from pantheonos.appkit.local_agent import build_bundle, compose_profile, native_platform, read_bundle, CORE
+from pantheonos.general_team.local_agent import build_bundle, compose_profile, native_platform, read_bundle, CORE
 from pantheonos.appkit.release_set import index_packages
 from pantheonos.local.fleet import LocalFleetBinaries
 from pantheonos.models.access_package import build_package
@@ -66,7 +66,7 @@ def test_bundle_compiles_without_disabling_configuration_or_issuing_credentials(
     assert not (product/'apps/agent/__pycache__').exists()
     selected = setup(); before = deepcopy(selected)
     def no_rebuild(*args): raise AssertionError('Launch must not rebuild artifacts')
-    monkeypatch.setattr('pantheonos.appkit.local_agent.build_artifact', no_rebuild)
+    monkeypatch.setattr('pantheonos.general_team.local_agent.build_artifact', no_rebuild)
     assert read_bundle(product)[0] == binaries
     profile = compose_profile(entries, selected)
     assert selected == before
@@ -245,7 +245,7 @@ class Boundary(importlib.abc.MetaPathFinder):
   if name == 'pantheon.agent' or name.startswith(('pantheon.chatroom', 'pantheon.repl', 'pantheon.team', 'pantheon.factory')):
    raise AssertionError(name)
 sys.meta_path.insert(0, Boundary())
-from pantheonos.appkit.local_agent import compose_profile, read_bundle
+from pantheonos.general_team.local_agent import compose_profile, read_bundle
 '''], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
 

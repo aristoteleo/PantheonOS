@@ -59,7 +59,7 @@ def approve(source, target, review_id):
 
 
 def main(argv=None):
-    from pantheonos.appkit.local_agent import compose_profile, read_bundle
+    from pantheonos.general_team.local_agent import compose_profile, read_bundle
     from .launch import private_json
     parser = argparse.ArgumentParser(description='Review or approve a stopped local configuration update. '
         'Does not start Apps; after approval launch normally with the target setup.')

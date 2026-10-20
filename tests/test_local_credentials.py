@@ -127,9 +127,9 @@ def test_cli_reads_credentials_before_starting_infrastructure(source, monkeypatc
     selected['apps']['consumer'] = {'package': 'model', 'scope': 'consumer', 'components': {}, 'bindings': {}}
     setup_path = path.parent/'setup.json'
     setup_path.write_text(json.dumps({'protocol': 1})); setup_path.chmod(0o600)
-    monkeypatch.setattr('pantheonos.appkit.local_agent.read_bundle', lambda bundle, fleet_binary=None: ('binaries', {}))
-    monkeypatch.setattr('pantheonos.appkit.local_agent.compose_profile', lambda entries, setup: selected)
-    monkeypatch.setattr('pantheonos.appkit.local_agent.bundle_release', lambda bundle: path.parent/'release')
+    monkeypatch.setattr('pantheonos.general_team.local_agent.read_bundle', lambda bundle, fleet_binary=None: ('binaries', {}))
+    monkeypatch.setattr('pantheonos.general_team.local_agent.compose_profile', lambda entries, setup: selected)
+    monkeypatch.setattr('pantheonos.general_team.local_agent.bundle_release', lambda bundle: path.parent/'release')
     captured = []
     async def serve(**kwargs):
         captured.append(kwargs['credentials'])

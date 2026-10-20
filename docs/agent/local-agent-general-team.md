@@ -106,7 +106,7 @@ python -m pantheon.agent_release \
   --transport /absolute/pantheon-app-transport \
   --model-app connector --model-app image-connector
 
-python -m pantheonos.appkit.local_agent \
+python -m pantheonos.general_team.local_agent \
   --output /absolute/product --release /absolute/general-team-release \
   --platform darwin-arm64
 ```

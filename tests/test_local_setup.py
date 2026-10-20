@@ -69,7 +69,7 @@ def test_creation_is_private_and_cannot_replace_existing_profile(complete_entrie
     assert Path(result['credentials']).stat().st_mode & 0o077 == 0
     assert root.stat().st_mode & 0o077 == 0
     setup = json.loads((root/'setup.json').read_text())
-    from pantheonos.appkit.local_agent import compose_profile
+    from pantheonos.general_team.local_agent import compose_profile
     assert read_credentials(result['credentials'], compose_profile(complete_entries, setup), workspace).entries
     before = {p.name: p.read_bytes() for p in root.iterdir() if p.is_file()}
     with pytest.raises(AssemblyError): create(bundle, root, workspace, [sys.executable], choices())

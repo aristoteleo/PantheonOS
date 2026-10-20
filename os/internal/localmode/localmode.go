@@ -31,7 +31,7 @@ import (
 )
 
 // FleetBinaryEnv tells the bundle's owner that this binary runs the Fleet
-// (pantheonos/appkit/local_agent.py, FLEET_BINARY).
+// (pantheonos/general_team/local_agent.py, FLEET_BINARY).
 const FleetBinaryEnv = "PANTHEON_FLEET_BINARY"
 
 // productCommands are the local product's commands, served by its Python.
@@ -272,7 +272,7 @@ func bundleOf(args []string) (string, error) {
 }
 
 // owner is the bundle's owner: the pantheon package it runs with and the
-// owner's hash-pinned requirements (pantheonos/appkit/local_agent.py, OWNER).
+// owner's hash-pinned requirements (pantheonos/general_team/local_agent.py, OWNER).
 type owner struct {
 	Dir, Requirements, Digest string
 }

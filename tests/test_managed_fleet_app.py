@@ -13,7 +13,7 @@ import pytest
 from pantheonos.appkit.builtin.fleet.build_managed import build
 from pantheonos.appkit.builtin.fleet.fleet import FleetToolSet
 from pantheonos.appkit.builtin.fleet.managed import create_service, Controller
-from pantheonos.appkit.local_agent import native_platform
+from pantheonos.general_team.local_agent import native_platform
 from pantheonos.appkit.runtime_config import RuntimeConfiguration, RuntimeCredential
 from pantheonos.appkit.tool_profiles import compile_tool_profile
 from pantheonos.local.fleet import LocalFleet

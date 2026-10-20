@@ -6,9 +6,9 @@ reads ambient settings, chooses a model, issues credentials or starts an App.
 """
 import json
 
-from .agent_execution_client import execution_method_rules
-from .dependency_assembly import AssemblyError, _copy, DEPLOYMENT_BYTES
-from .tool_profiles import compile_tool_profile
+from pantheonos.appkit.agent_execution_client import execution_method_rules
+from pantheonos.appkit.dependency_assembly import AssemblyError, _copy, DEPLOYMENT_BYTES
+from pantheonos.appkit.tool_profiles import compile_tool_profile
 
 
 PROVIDERS = {

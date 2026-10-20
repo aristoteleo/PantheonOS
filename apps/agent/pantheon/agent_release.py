@@ -10,7 +10,7 @@ from pathlib import Path
 import tempfile
 
 from pantheonos.appkit.dependency_assembly import AssemblyError, NAME, _matches
-from pantheonos.appkit.general_agent_preset import PROVIDERS
+from pantheonos.general_team.agent_preset import PROVIDERS
 from pantheonos.appkit.release_set import index_packages
 from pantheonos.appkit.tool_profiles import compile_tool_profile
 
@@ -102,8 +102,8 @@ def build_release(destination, platform, *, version, frontend, notebook_frontend
         index_packages(root, {alias: {platform: root / alias} for alias in sorted(reserved | set(model_aliases))})
         if 'connector' in model_aliases:
             # The deployment profile the Fleet controller sets an owner's Agent up from.
-            from pantheonos.appkit.release_profile import write_profile
-            from pantheonos.appkit.general_team import DEFAULT_TIERS
+            from pantheonos.general_team.release_profile import write_profile
+            from pantheonos.general_team.team import DEFAULT_TIERS
             write_profile(root, platform, tiers=DEFAULT_TIERS, catalog=catalog)
             # The controller-hosted model management builds from this source.
             write_connector_source(root / 'model-connector.tar')
@@ -215,7 +215,7 @@ def main():
         options['input_urls'] = write_inputs(assets, options['platform'], options['frontend'], options['transport'], url_base)
     if not options.pop('no_catalog') and 'connector' in options['model_aliases']:
         import asyncio
-        from pantheonos.appkit.release_profile import platform_catalog
+        from pantheonos.general_team.release_profile import platform_catalog
         options['catalog'] = asyncio.run(platform_catalog())
     options['destination'] = options.pop('output')
     print(build_release(**options))

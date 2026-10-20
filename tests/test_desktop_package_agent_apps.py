@@ -9,7 +9,7 @@ import pytest
 
 def test_packaged_desktop_lists_an_apps_tools_and_actions(tmp_path):
     from pantheonos.appkit.builtin.desktop.build_managed import build
-    from pantheonos.appkit.local_agent import native_platform
+    from pantheonos.general_team.local_agent import native_platform
     package = build(tmp_path / 'desktop', native_platform())
     vendor = package / 'backend' / '_vendor'
     manifest = {'id': 'graph', 'name': 'Graph', 'version': '1.0.0', 'apiVersion': 2,

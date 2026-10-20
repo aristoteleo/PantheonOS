@@ -29,7 +29,7 @@ import tarfile
 import httpx
 
 from pantheonos.appkit.dependency_assembly import AssemblyError
-from pantheonos.appkit.release_profile import LOCAL_HOSTED, _app, hosted_apps, model_app
+from pantheonos.general_team.release_profile import LOCAL_HOSTED, _app, hosted_apps, model_app
 from pantheonos.appkit.release_set import INDEX
 
 NAME = 'general-team'

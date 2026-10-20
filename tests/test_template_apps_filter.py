@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from pantheonos.appkit.agent_defaults import with_app_filter
+from pantheonos.general_team.agent_defaults import with_app_filter
 from pantheon.factory.instances import _config
 from pantheon.factory.models import AgentConfig
 from pantheon.factory.provisioned_instances import ProvisionedAgentInstanceFactory

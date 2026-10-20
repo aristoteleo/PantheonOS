@@ -10,7 +10,7 @@ import sqlite3
 from fastmcp import Client
 import pytest
 
-from pantheonos.appkit.agent_defaults import dependency_defaults, with_dependency_defaults
+from pantheonos.general_team.agent_defaults import dependency_defaults, with_dependency_defaults
 from pantheonos.appkit.builtin.mcp.scoped import ScopedMCP
 from pantheonos.appkit.dependency_client import DependencyClient
 from pantheonos.appkit.runtime_config import RuntimeCredential
@@ -142,7 +142,7 @@ async def test_default_mcp_survives_reopen_and_changes_durable_revision_without_
 
 
 def test_owner_preset_retains_defaults_and_rejects_unbound_profiles(tmp_path):
-    from pantheonos.appkit.agent_deployment import compose_deployment
+    from pantheonos.general_team.agent_deployment import compose_deployment
     from pantheonos.appkit.dependency_assembly import AssemblyError
     from test_agent_deployment_recipe import inputs
     from test_agent_dependency_bindings import FUNCTION

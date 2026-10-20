@@ -76,7 +76,7 @@ For distribution maintainers, build the immutable bundle from an already-built
 ordinary release set:
 
 ```sh
-python -m pantheonos.appkit.local_agent \
+python -m pantheonos.general_team.local_agent \
   --output /absolute/path/to/new-local-product \
   --release /absolute/path/to/agent-release-set \
   --platform darwin-arm64 \

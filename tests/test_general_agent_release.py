@@ -8,10 +8,10 @@ import sys
 import pytest
 
 from pantheonos.appkit.dependency_assembly import AssemblyError
-from pantheonos.appkit.general_agent_preset import PROVIDERS
+from pantheonos.general_team.agent_preset import PROVIDERS
 from pantheon.agent_release import build_release
 from pantheonos.appkit.lifecycle import build_artifact
-from pantheonos.appkit.local_agent import native_platform
+from pantheonos.general_team.local_agent import native_platform
 
 
 def options():

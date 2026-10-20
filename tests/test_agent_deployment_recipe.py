@@ -16,7 +16,7 @@ import pytest
 from pantheonos.appkit.dependency_assembly import AssemblyError
 from pantheonos.appkit.dependency_binding_service import DependencyBindingService
 from pantheonos.appkit.lifecycle import build_artifact
-from pantheonos.appkit.agent_deployment import compose_deployment
+from pantheonos.general_team.agent_deployment import compose_deployment
 from pantheonos.models.dependency_service import ModelServiceControl
 from pantheonos.appkit.allocator_package import build_package as build_allocator
 from pantheonos.models.access_package import build_package as build_models

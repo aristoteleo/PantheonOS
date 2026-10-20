@@ -389,7 +389,7 @@ Production is untouched until staging has run on this for an agreed period.
   and moves routes that only use it to its new node. Model access policies
   may follow the row's current Connector (`'current'`). The Hub contract lets
   an attached API Connector change node.
-- **Step 5 done.** `pantheonos.appkit.release_profile` writes `profile.json` at
+- **Step 5 done.** `pantheonos.general_team.release_profile` writes `profile.json` at
   release build (General Team composed against the release's own packages;
   placeholders `$input` for the Hub, `$secret`/`$secret_ref`/`$fleet`/`$app`
   for the controller). The controller serves it (`GET /releases/profile`);

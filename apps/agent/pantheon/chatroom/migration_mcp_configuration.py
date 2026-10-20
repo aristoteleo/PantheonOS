@@ -293,7 +293,7 @@ class MCPConfigurationConversion:
                 or not 0 <= target['generation'] < 2**63-3):
             raise AssemblyError('Choose an MCP candidate scope on the reviewed credential node')
         additions = dependency_inputs(self._descriptor['contract'], name=name, aliases=aliases)
-        from pantheonos.appkit.agent_defaults import dependency_defaults
+        from pantheonos.general_team.agent_defaults import dependency_defaults
         additions['defaults'] = dependency_defaults({'toolsets': [],
             'mcp_servers': ['mcp'] if enable_mcp and self._selection['enable_mcp_tools'] else [],
             'mcp_unified_precedence': True}, profiles=additions['profiles'])

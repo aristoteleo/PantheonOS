@@ -18,9 +18,11 @@ from pantheonos.appkit.lifecycle import build_artifact
 
 
 # Explicit SDK/control clients; don't copy the platform host or App manager.
-SDK_MODULES = '''__init__ agent_defaults agent_execution_client catalog dependency_assembly dependency_binding_client filter
+SDK_MODULES = '''__init__ agent_execution_client catalog dependency_assembly dependency_binding_client filter
 dependency_client host_lifecycle owner_journal proxy reflect registry runtime_config
 schema toolset_backend'''.split()
+# The owner's default Agent dependencies, which the Agent applies.
+TEAM_MODULES = ['__init__', 'agent_defaults']
 CHAT_MODULES = '''__init__ app_data app_models application command_gateway data_transition data_format environment event_hooks
 event_store execution_engine execution_service export launch lifecycle native routed_memory runtime settings_document
 skill_files special_agents terminal_frontend thread token_stats view_services'''.split()
@@ -182,7 +184,8 @@ def export_source(destination, *, version, inputs, frontend_source=None,
         _copy_file(package_root('pantheonos') / name, backend / 'pantheonos' / name)
     for directory in ('factory', 'funcdesc', 'internal', 'team', 'utils', 'data', 'skills', 'repl', 'package_runtime'):
         place(directory, tree=True)
-    for directory, modules in (('appkit', SDK_MODULES), ('chatroom', CHAT_MODULES), ('models', MODEL_MODULES)):
+    for directory, modules in (('appkit', SDK_MODULES), ('general_team', TEAM_MODULES),
+                               ('chatroom', CHAT_MODULES), ('models', MODEL_MODULES)):
         for name in modules:
             place(f'{directory}/{name}.py')
     # The task state machine is Agent-owned. Other builtin Apps are remote

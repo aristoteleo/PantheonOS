@@ -14,9 +14,9 @@ import sys
 import tempfile
 
 from .agent_deployment import compose_deployment
-from .dependency_assembly import AssemblyError, _copy, _matches, NAME, DEPLOYMENT_BYTES
-from .lifecycle import build_artifact
-from .release_set import index_packages, _read_index, PLATFORM
+from pantheonos.appkit.dependency_assembly import AssemblyError, _copy, _matches, NAME, DEPLOYMENT_BYTES
+from pantheonos.appkit.lifecycle import build_artifact
+from pantheonos.appkit.release_set import index_packages, _read_index, PLATFORM
 from pantheonos.local.fleet import LocalFleetBinaries, PantheonBinary
 
 
@@ -133,13 +133,13 @@ def _owner(destination):
     skip = ('__pycache__', '*.pyc', '.env*', '.venv', 'node_modules', '.git', '.DS_Store')
     shutil.copytree(source, destination/'pantheonos', ignore=shutil.ignore_patterns(*skip))
     # The owner also serves the Agent's terminal frontend (pantheon agent chat).
-    from .vendoring import agent_package_dir
+    from pantheonos.appkit.vendoring import agent_package_dir
     agent = agent_package_dir()
     if agent is not None:
         shutil.copytree(agent, destination/'pantheon', ignore=shutil.ignore_patterns(*skip))
     apps = source.parent/'apps'
     if apps.is_dir():
-        from .distribution import STORE_APPS
+        from pantheonos.appkit.distribution import STORE_APPS
         builtin = destination/'pantheonos'/'appkit'/'builtin'
         for app in sorted(apps.iterdir()):
             if app.is_dir() and app.name not in STORE_APPS:
@@ -236,7 +236,7 @@ def compose_profile(entries, setup):
     """
     value = _copy(setup, DEPLOYMENT_BYTES)
     if isinstance(value, dict) and 'preset' in value:
-        from .general_agent_preset import expand_general_team
+        from .agent_preset import expand_general_team
         value = expand_general_team(entries, value)
     required = {'protocol', 'agent', 'tools', 'models', 'providers', 'model_apps'}
     if (not isinstance(value, dict) or not required <= value.keys()
@@ -252,7 +252,7 @@ def compose_profile(entries, setup):
     # An owner can select a complete versioned App tool face instead of copying
     # schemas and permission rules into setup by hand. This never augments team
     # recipes or deployment defaults, nor substitutes an undeclared provider.
-    from .tool_profiles import compile_tool_profile
+    from pantheonos.appkit.tool_profiles import compile_tool_profile
     contracts = value.get('tool_contracts', {})
     if not isinstance(contracts, dict):
         raise AssemblyError('Tool contracts must name explicit App selections')

@@ -12,8 +12,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheonos.appkit.agent_deployment import compose_deployment
-from pantheonos.appkit.agent_defaults import with_dependency_defaults
+from pantheonos.general_team.agent_deployment import compose_deployment
+from pantheonos.general_team.agent_defaults import with_dependency_defaults
 from pantheonos.appkit.builtin.mcp.scoped import ScopedMCP
 from pantheonos.appkit.dependency_assembly import AssemblyError, _methods
 from pantheonos.appkit.dependency_client import DependencyClient

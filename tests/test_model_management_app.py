@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheonos.appkit.local_agent import native_platform
+from pantheonos.general_team.local_agent import native_platform
 from pantheonos.appkit.runtime_config import RuntimeConfiguration, RuntimeCredential
 from pantheonos.appkit.tool_profiles import compile_tool_profile
 from pantheonos.models.management_app import create_service, PreparedModelManagement

@@ -10,7 +10,7 @@ from hashlib import sha256
 import json
 from pathlib import Path
 
-from pantheonos.appkit.agent_defaults import with_dependency_defaults
+from pantheonos.general_team.agent_defaults import with_dependency_defaults
 from pantheonos.appkit.dependency_assembly import _copy, _identity, _matches, IDENT
 from .migration_backup import _encoded, _read_json
 

@@ -24,7 +24,7 @@ import json
 from pathlib import Path
 
 from pantheonos.appkit.dependency_assembly import AssemblyError
-from pantheonos.appkit.local_agent import _entries, compose_profile
+from .local_agent import _entries, compose_profile
 
 PROTOCOL = 1
 PROFILE = 'profile.json'
@@ -214,7 +214,7 @@ async def platform_catalog():
 
 def write_profile(root, platform, *, tiers, catalog=()):
     """Compose against the release's own packages and write profile.json."""
-    from pantheonos.appkit.general_team import general_team_setup, tier_models
+    from .team import general_team_setup, tier_models
     root = Path(root)
     entries = _entries(root, platform)
     setup = general_team_setup(owner=OWNER, hub=HUB, models={m: 200000 for m in tier_models(tiers)},
@@ -230,7 +230,7 @@ def write_profile(root, platform, *, tiers, catalog=()):
 
 
 def main():
-    from pantheonos.appkit.general_team import DEFAULT_TIERS
+    from .team import DEFAULT_TIERS
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.add_argument('--release-set', required=True, type=Path)
     parser.add_argument('--platform', default='linux-amd64')

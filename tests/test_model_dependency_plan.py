@@ -13,7 +13,7 @@ import httpx
 import pytest
 
 from pantheonos.appkit.dependency_assembly import AssemblyError
-from pantheonos.appkit.agent_deployment import compose_deployment
+from pantheonos.general_team.agent_deployment import compose_deployment
 from pantheonos.models.client import ModelServices, model_ref
 from pantheonos.models.dependency_plan import plan_dependency
 from pantheonos.models.dependency_service import ModelServiceControl

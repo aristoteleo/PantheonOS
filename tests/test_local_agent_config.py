@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheonos.appkit.agent_deployment import compose_deployment
+from pantheonos.general_team.agent_deployment import compose_deployment
 from pantheonos.appkit.dependency_assembly import AssemblyError
 from pantheonos.appkit.resolver import AppInstanceResolver, NotJoinedError
 from pantheon.chatroom.launch import ConfiguredAgentApplication

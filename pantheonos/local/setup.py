@@ -12,7 +12,7 @@ import uuid
 
 from pantheonos.appkit.credentials import app_credential_endpoint
 from pantheonos.appkit.dependency_assembly import AssemblyError
-from pantheonos.appkit.local_agent import read_bundle, compose_profile
+from pantheonos.general_team.local_agent import read_bundle, compose_profile
 from pantheonos.appkit.owner_journal import OwnerJournal
 from pantheonos.models.client import model_ref
 from pantheonos.models.managed import module

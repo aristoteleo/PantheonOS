@@ -37,13 +37,17 @@ def package_root(package: str) -> Path:
         raise FileNotFoundError('The Agent package (pantheon) is not installed here')
     return root
 
-_PLATFORM_DIRS = ('appkit/', 'local/', 'store/', 'utils/', 'remote/', 'models/', 'model_contracts/',
+_PLATFORM_DIRS = ('appkit/', 'general_team/', 'local/', 'store/', 'utils/', 'remote/', 'models/', 'model_contracts/',
                   'funcdesc/', 'data/', 'package_runtime/')
 _PLATFORM_FILES = ('toolset.py', 'settings.py', 'constant.py', 'apphost.py')
 _RENAMED = {
     'internal/package_runtime/context.py': ('pantheonos', 'package_runtime/context.py'),
     'apps/general_agent_release.py': ('pantheon', 'agent_release.py'),
     'utils/image_detection.py': ('pantheon', 'image_detection.py'),
+    'apps/general_team.py': ('pantheonos', 'general_team/team.py'),
+    'apps/general_agent_preset.py': ('pantheonos', 'general_team/agent_preset.py'),
+    **{f'apps/{name}.py': ('pantheonos', f'general_team/{name}.py') for name in (
+        'agent_defaults', 'agent_deployment', 'local_agent', 'release_profile')},
 }
 
 

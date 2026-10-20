@@ -4,7 +4,7 @@ import json
 import pytest
 
 from pantheonos.appkit.dependency_assembly import AssemblyError
-from pantheonos.appkit.release_profile import BUDGET, HUB, OWNER, OWNER_HUB, compile_profile
+from pantheonos.general_team.release_profile import BUDGET, HUB, OWNER, OWNER_HUB, compile_profile
 
 
 def spec():
@@ -71,7 +71,7 @@ def test_unknown_local_value_is_refused():
 
 
 def test_model_management_is_hosted_with_its_hub_credential_only():
-    from pantheonos.appkit.release_profile import hosted_apps, LOCAL_HOSTED
+    from pantheonos.general_team.release_profile import hosted_apps, LOCAL_HOSTED
     app = {'package': 'model-management', 'scope': 'shared-model-management', 'intent': 'running', 'placement': {},
            'config': {'backend': {'credentials': {'controller': {'$secret': 'owner-controller'},
                'fleet': {'$secret': 'owner-controller'}, 'hub': {'$secret': 'owner-hub'}},

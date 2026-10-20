@@ -155,7 +155,7 @@ def main(argv=None):
     parser.add_argument('--model', help='Explicit model selection for the first Agent in this conversation')
     args = parser.parse_args(argv)
 
-    from pantheonos.appkit.local_agent import FLEET_BINARY, bundle_release, compose_profile, read_bundle
+    from pantheonos.general_team.local_agent import FLEET_BINARY, bundle_release, compose_profile, read_bundle
     from .credentials import read_credentials
     from .launch import private_json, read_launch
 
