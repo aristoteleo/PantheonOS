@@ -4,7 +4,7 @@ import threading
 from unittest.mock import MagicMock
 
 import pytest
-from pantheonos.apps.builtin.notebook.jedi_integration import JediCodeIntelligence, EnhancedCompletionService
+from pantheonos.appkit.builtin.notebook.jedi_integration import JediCodeIntelligence, EnhancedCompletionService
 
 
 def test_completion_only_enriches_visible_function_candidates(monkeypatch):

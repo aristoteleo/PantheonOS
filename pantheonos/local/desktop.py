@@ -20,9 +20,9 @@ import tempfile
 import threading
 from urllib.parse import unquote, urlsplit
 
-from pantheonos.apps.dependency_assembly import AssemblyError
-from pantheonos.apps.lifecycle import build_artifact
-from pantheonos.apps.owner_journal import OwnerJournal
+from pantheonos.appkit.dependency_assembly import AssemblyError
+from pantheonos.appkit.lifecycle import build_artifact
+from pantheonos.appkit.owner_journal import OwnerJournal
 
 PREFIX = 'PANTHEON_APP_DESKTOP:'
 MAX_REQUEST = 2 * 1024 * 1024

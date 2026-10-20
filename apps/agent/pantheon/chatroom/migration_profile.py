@@ -15,8 +15,8 @@ from hashlib import sha256
 import json
 from pathlib import Path
 
-from pantheonos.apps.dependency_assembly import AssemblyError
-from pantheonos.apps.dependency_binding_client import _drain
+from pantheonos.appkit.dependency_assembly import AssemblyError
+from pantheonos.appkit.dependency_binding_client import _drain
 from .migration import legacy_source_roots, fence_legacy
 from .migration_backup import (_encoded, _read_json, _destination, backup_legacy,
                                verify_backup, DEFAULT_MAX_BYTES)
@@ -228,7 +228,7 @@ class LocalAgentMigration:
                 raise ValueError('This entry point requires a local prepared MCP App')
             app = session.spec['apps'][name]
             package = session.spec['packages'][app['package']]
-            from pantheonos.apps.local_agent import native_platform
+            from pantheonos.appkit.local_agent import native_platform
             mcp_prepared = dict(package=package['path'], platform=package.get('platform', native_platform()),
                 name=name, target=dict(node_id=provider['node_id'], scope=app['scope'],
                                        generation=provider['generation'] - 2),

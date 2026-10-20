@@ -55,7 +55,7 @@ Supported build targets are `darwin` and `linux`, `arm64` and `amd64`. The outpu
 path must be new. The builder copies the same tool/interface manifest, declares
 managed `process` execution, compiles a native `shell` executable, and writes a
 matching `fleet.json`. Package this directory with the ordinary
-`pantheonos.apps.lifecycle.build_artifact` pipeline; target nodes need neither Go,
+`pantheonos.appkit.lifecycle.build_artifact` pipeline; target nodes need neither Go,
 Python nor a separate NATS service for this App. The source manifest remains the
 legacy builtin until dependency assembly explicitly selects a managed instance.
 The binary uses the target node's existing POSIX shell; Windows is not enabled.

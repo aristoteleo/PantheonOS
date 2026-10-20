@@ -28,9 +28,9 @@ import tarfile
 
 import httpx
 
-from pantheonos.apps.dependency_assembly import AssemblyError
-from pantheonos.apps.release_profile import LOCAL_HOSTED, _app, hosted_apps, model_app
-from pantheonos.apps.release_set import INDEX
+from pantheonos.appkit.dependency_assembly import AssemblyError
+from pantheonos.appkit.release_profile import LOCAL_HOSTED, _app, hosted_apps, model_app
+from pantheonos.appkit.release_set import INDEX
 
 NAME = 'general-team'
 OWNER_SECRET = 'owner-controller'

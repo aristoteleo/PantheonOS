@@ -8,9 +8,9 @@ import sys
 
 import pytest
 
-from pantheonos.apps.builtin.desktop.app_runtime import AppContext
-from pantheonos.apps.builtin.file import FileManagerToolSet
-from pantheonos.apps.builtin.python import PythonInterpreterToolSet
+from pantheonos.appkit.builtin.desktop.app_runtime import AppContext
+from pantheonos.appkit.builtin.file import FileManagerToolSet
+from pantheonos.appkit.builtin.python import PythonInterpreterToolSet
 from pantheon.evolution.local_shell import LocalShellToolSet
 from pantheon.evolution.sandbox.tool_backend import register_sandbox_mutation
 from pantheon.evolution.lifetime import EvolutionCleanupError
@@ -170,7 +170,7 @@ async def test_stop_reaps_initial_and_finish_evaluator_processes(tmp_path, opera
 async def stdio_tools(tmp_path):
     """Local ordinary tool process, deliberately forbidding model/Agent imports."""
     from types import SimpleNamespace
-    from pantheonos.apps.modal_app_transport import ModalAppTransport
+    from pantheonos.appkit.modal_app_transport import ModalAppTransport
     package = tmp_path / 'package'
     package.mkdir(parents=True)
     state = tmp_path / 'state'
@@ -187,8 +187,8 @@ class Deny(importlib.abc.MetaPathFinder):
 sys.meta_path.insert(0, Deny())
 from pantheon.evolution.sandbox.tool_backend import register_sandbox_mutation
 from pantheon.evolution.local_shell import LocalShellToolSet
-from pantheonos.apps.builtin.file import FileManagerToolSet
-from pantheonos.apps.builtin.python import PythonInterpreterToolSet
+from pantheonos.appkit.builtin.file import FileManagerToolSet
+from pantheonos.appkit.builtin.python import PythonInterpreterToolSet
 from pantheonos.settings import Settings
 async def register(ctx):
     async def tools(work):

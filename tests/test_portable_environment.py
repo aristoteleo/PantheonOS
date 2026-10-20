@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from pantheonos.apps.portable_runtime import install
+from pantheonos.appkit.portable_runtime import install
 
 
 def app(tmp_path, name, requirements=''):

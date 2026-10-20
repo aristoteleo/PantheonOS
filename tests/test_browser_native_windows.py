@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
-from pantheonos.apps.builtin.desktop.browser import BrowserEngine, INTERNAL_KEEPER_CLASS
+from pantheonos.appkit.builtin.desktop.browser import BrowserEngine, INTERNAL_KEEPER_CLASS
 
 
 def test_seamless_start_disables_both_dbus_paths_and_keeps_ws_auth(monkeypatch):

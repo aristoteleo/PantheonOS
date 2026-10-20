@@ -290,7 +290,7 @@ async def test_failed_metadata_flush_is_not_reported_as_clean_shutdown(tmp_path,
     def broken(_):
         raise OSError('simulated full disk')
     monkeypatch.setattr(memory._backend, 'persist', broken)
-    from pantheonos.apps.host_lifecycle import AppShutdownError
+    from pantheonos.appkit.host_lifecycle import AppShutdownError
     with pytest.raises(AppShutdownError):
         await app.cleanup()
     assert timer.done()

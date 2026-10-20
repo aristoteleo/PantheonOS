@@ -11,7 +11,7 @@ from PIL import Image
 from Xlib import X
 from Xlib.ext import xtest
 
-from pantheonos.apps.builtin.desktop.native_control import NativeWindowController
+from pantheonos.appkit.builtin.desktop.native_control import NativeWindowController
 
 
 class Window:
@@ -418,7 +418,7 @@ def test_client_ack_matches_nonce_and_restores_root_event_selection():
 
 
 def test_client_ack_timeout_restores_root_event_selection(monkeypatch):
-    from pantheonos.apps.builtin.desktop import native_control
+    from pantheonos.appkit.builtin.desktop import native_control
     display, masks = client_ack_fixture()
     monkeypatch.setattr(native_control, 'CLIENT_ACK_TIMEOUT', 0)
     with pytest.raises(RuntimeError, match='did not acknowledge'):

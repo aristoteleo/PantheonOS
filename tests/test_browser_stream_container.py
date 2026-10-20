@@ -8,7 +8,7 @@ import uuid
 
 import pytest
 
-from pantheonos.apps.portable import execution_package
+from pantheonos.appkit.portable import execution_package
 
 
 def test_packaged_browser_with_real_linux_display(tmp_path):

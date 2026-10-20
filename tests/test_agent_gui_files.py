@@ -16,8 +16,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from pantheonos.apps.builtin.file.managed import create_service
-from pantheonos.apps.builtin.file_transfer import FileTransferToolSet
+from pantheonos.appkit.builtin.file.managed import create_service
+from pantheonos.appkit.builtin.file_transfer import FileTransferToolSet
 from test_agent_application import TEMPLATE
 from test_agent_dependency_bindings import endpoint as tls_material
 from test_agent_model_scope import endpoint as model_endpoint
@@ -32,7 +32,7 @@ def files_provider(tmp_path, tls_material, monkeypatch):
     (root/'fixture.py').write_text('print("original file")\n')
     from PIL import Image
     Image.new('RGBA', (2400, 1200), (255, 0, 0, 255)).save(root/'preview.png')
-    monkeypatch.setattr('pantheonos.apps.builtin.fleet.local_node.local_node_id', lambda: 'files-test')
+    monkeypatch.setattr('pantheonos.appkit.builtin.fleet.local_node.local_node_id', lambda: 'files-test')
     files, transfer = create_service({'workspace': str(root)}), FileTransferToolSet('transfer', root)
     providers = {'a'*64: (files, ['list_files', 'get_cwd', 'read_file', 'write_file', 'move_file', 'delete_path', 'fetch_image_base64']),
                  'b'*64: (transfer, ['open_file_for_read', 'read_chunk_at', 'close_file',

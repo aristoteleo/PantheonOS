@@ -65,7 +65,7 @@ def call(name, arguments, call_id="c1"):
 @pytest.mark.asyncio
 async def test_core_agent_declares_four_tools_and_reaches_the_rest_through_pantheon():
     agent = await core_agent()
-    from pantheonos.apps.builtin.task import TaskToolSet
+    from pantheonos.appkit.builtin.task import TaskToolSet
     await agent.toolset(TaskToolSet())
     tools = {t["function"]["name"]: t["function"] for t in await agent.get_tools_for_llm()}
     # Of the four, this agent has read_file; no pantheonos_*, task or background tools.

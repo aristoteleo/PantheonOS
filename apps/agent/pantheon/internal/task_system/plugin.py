@@ -138,7 +138,7 @@ class TaskSystemPlugin(TeamPlugin):
 
     async def get_toolsets(self, team: "PantheonTeam") -> list[tuple[Any, list[str] | None]]:
         """Create TaskToolSet, register closure hooks on primary agent, return toolset spec."""
-        from pantheonos.apps.builtin.task import TaskToolSet
+        from pantheonos.appkit.builtin.task import TaskToolSet
 
         if not team.team_agents:
             return []

@@ -100,7 +100,7 @@ Choose target nodes explicitly in a placement file:
 In the authenticated owner platform environment, stage these releases:
 
 ```sh
-python -m pantheonos.apps.release_set \
+python -m pantheonos.appkit.release_set \
   --release-set /path/to/new-release-set \
   --placements /path/to/placements.json \
   --owner YOUR_FLEET_OWNER \
@@ -142,7 +142,7 @@ file from the delivery targets, provisioned control references and complete Agen
 profile:
 
 ```sh
-python -m pantheonos.apps.agent_setup \
+python -m pantheonos.appkit.agent_setup \
   --targets /path/to/new-targets.json \
   --profile /path/to/complete-agent-profile.json \
   --control-credentials /path/to/new-control-references.json \

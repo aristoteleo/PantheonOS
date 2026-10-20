@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from pantheonos.apps.lifecycle import FleetLifecycle
-from pantheonos.apps.runtime_config import (
+from pantheonos.appkit.lifecycle import FleetLifecycle
+from pantheonos.appkit.runtime_config import (
     RuntimeConfigurationError,
     load_runtime_configuration,
 )

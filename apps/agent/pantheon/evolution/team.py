@@ -544,8 +544,8 @@ class EvolutionTeam:
 
         from pantheon.agent import Agent
         from pantheon.team.pantheon import PantheonTeam
-        from pantheonos.apps.builtin.file import FileManagerToolSet
-        from pantheonos.apps.builtin.python import PythonInterpreterToolSet
+        from pantheonos.appkit.builtin.file import FileManagerToolSet
+        from pantheonos.appkit.builtin.python import PythonInterpreterToolSet
         from pantheon.evolution.local_shell import LocalShellToolSet
 
         agent = Agent(name="code-evolver",
@@ -1023,7 +1023,7 @@ class EvolutionTeam:
         # Add Python interpreter toolset if enabled
         if self.config.analyzer_use_python:
             if self._python_toolset is None:
-                from pantheonos.apps.builtin.python import PythonInterpreterToolSet
+                from pantheonos.appkit.builtin.python import PythonInterpreterToolSet
 
                 workdir = self.config.analyzer_python_workdir or self.config.workspace_path
                 self._python_toolset = PythonInterpreterToolSet(

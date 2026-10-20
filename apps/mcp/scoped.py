@@ -347,7 +347,7 @@ async def drain(task):
 
 
 async def register(ctx):
-    from pantheonos.apps.runtime_config import load_runtime_configuration
+    from pantheonos.appkit.runtime_config import load_runtime_configuration
     exports = json.loads(Path(__file__).with_name('exports.json').read_text())
     host = ScopedMCP(exports, load_runtime_configuration(required=True))
     ctx.require_rpc_token = True

@@ -2,8 +2,8 @@
 import asyncio
 import pytest
 
-from pantheonos.apps.modal_placement import ModalAppPlacement
-from pantheonos.apps.agent_execution_runner import ExecutionRecoveryRequired, ToolReceiptJournal
+from pantheonos.appkit.modal_placement import ModalAppPlacement
+from pantheonos.appkit.agent_execution_runner import ExecutionRecoveryRequired, ToolReceiptJournal
 from test_modal_app_owner import Modal, owner
 from test_modal_app_transport import Sandbox, until
 

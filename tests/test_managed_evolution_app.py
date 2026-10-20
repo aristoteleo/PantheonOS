@@ -9,11 +9,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheonos.apps.builtin.desktop.app_runtime import AppContext
-from pantheonos.apps.builtin.evolution.managed import create_service
-from pantheonos.apps.builtin.evolution.build_managed import build
-from pantheonos.apps.runtime_config import RuntimeCredential
-from pantheonos.apps.toolset_backend import register_toolset
+from pantheonos.appkit.builtin.desktop.app_runtime import AppContext
+from pantheonos.appkit.builtin.evolution.managed import create_service
+from pantheonos.appkit.builtin.evolution.build_managed import build
+from pantheonos.appkit.runtime_config import RuntimeCredential
+from pantheonos.appkit.toolset_backend import register_toolset
 from pantheon.chatroom.execution_service import AgentExecutions, ExecutionJournal
 from pantheon.evolution.sandbox.package import build_package
 from test_agent_execution_runner import BoundClient
@@ -130,10 +130,10 @@ class Deny(importlib.abc.MetaPathFinder):
    raise AssertionError('Embedded dependency: '+name)
 sys.meta_path.insert(0,Deny())
 sys.path.insert(0,sys.argv[1])
-from pantheonos.apps.builtin.evolution.managed import create_service
-from pantheonos.apps.runtime_config import RuntimeCredential
-from pantheonos.apps.builtin.desktop.app_runtime import AppContext
-from pantheonos.apps.toolset_backend import register_toolset
+from pantheonos.appkit.builtin.evolution.managed import create_service
+from pantheonos.appkit.runtime_config import RuntimeCredential
+from pantheonos.appkit.builtin.desktop.app_runtime import AppContext
+from pantheonos.appkit.toolset_backend import register_toolset
 async def run():
  service=create_service({'agent_credential':'agent','execution':'node','options':{}},
   {'agent':RuntimeCredential('https://agent.example/rpc','a'*64)},sys.argv[2],sys.argv[3])
@@ -193,7 +193,7 @@ async def test_separate_controller_package_uses_prepared_https_execution_depende
     import ssl
     import threading
     from types import SimpleNamespace
-    from pantheonos.apps.modal_app_transport import ModalAppTransport
+    from pantheonos.appkit.modal_app_transport import ModalAppTransport
     from pantheonos.local.tls import prepare_tls
     from test_evolution_tools_package import BOOT
     loop = asyncio.get_running_loop()
@@ -246,7 +246,7 @@ async def test_separate_controller_package_uses_prepared_https_execution_depende
     modal_credential = None
     if mode == 'isolated':
         import modal.config
-        from pantheonos.apps.lifecycle import build_artifact
+        from pantheonos.appkit.lifecycle import build_artifact
         image = json.loads(Path(os.environ['PANTHEON_TEST_MODAL_IMAGE']).read_text())
         assert build_artifact(build_package(tmp_path / 'tools'))[1] == image['artifact_sha256']
         modal_credential = RuntimeCredential('https://api.modal.com', json.dumps({
@@ -295,7 +295,7 @@ async def test_separate_controller_package_uses_prepared_https_execution_depende
         if modal_credential is not None:
             import sqlite3
             import modal
-            from pantheonos.apps.modal_credentials import ModalCredentialOwner
+            from pantheonos.appkit.modal_credentials import ModalCredentialOwner
             control = ModalCredentialOwner(modal_credential)
             remote = await control.start()
             containers = []
@@ -335,8 +335,8 @@ async def test_separate_controller_package_uses_prepared_https_execution_depende
 @pytest.mark.asyncio
 async def test_invalid_remote_resources_do_not_open_modal_credentials(tmp_path, monkeypatch):
     from types import SimpleNamespace
-    from pantheonos.apps.builtin.evolution import managed
-    from pantheonos.apps.modal_credentials import ModalCredentialOwner
+    from pantheonos.appkit.builtin.evolution import managed
+    from pantheonos.appkit.modal_credentials import ModalCredentialOwner
     values = {**CONFIG, 'placement': {'kind': 'modal', 'image': {
         'app_id':'evolution-tools', 'version':'0.1.0', 'artifact_sha256':'a'*64,
         'image_id':'im-pinned', 'base_image_id':'im-base'}, 'app_name':'test',

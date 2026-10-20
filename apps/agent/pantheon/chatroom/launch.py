@@ -8,10 +8,10 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 import asyncio
 import ssl
 
-from pantheonos.apps.runtime_config import load_runtime_configuration, RuntimeConfiguration
-from pantheonos.apps.agent_defaults import dependency_defaults
-from pantheonos.apps.dependency_client import DependencyClient
-from pantheonos.apps.dependency_binding_client import RemoteDependencyBindings
+from pantheonos.appkit.runtime_config import load_runtime_configuration, RuntimeConfiguration
+from pantheonos.appkit.agent_defaults import dependency_defaults
+from pantheonos.appkit.dependency_client import DependencyClient
+from pantheonos.appkit.dependency_binding_client import RemoteDependencyBindings
 from pantheon.chatroom.app_data import AppProjects
 from pantheon.chatroom.app_models import AppModels
 from pantheon.chatroom.application import AgentApplication
@@ -113,7 +113,7 @@ class ConfiguredAgentApplication(AgentApplication):
             results = await asyncio.gather(views.close(), allocator.shutdown(), models.aclose(), return_exceptions=True)
             errors = [result for result in results if isinstance(result, BaseException)]
             if errors:
-                from pantheonos.apps.host_lifecycle import AppShutdownError
+                from pantheonos.appkit.host_lifecycle import AppShutdownError
                 raise AppShutdownError(errors) from errors[0]
 
         super().__init__(name, data_dir=data_dir, namespace=spec['namespace'], projects=projects,

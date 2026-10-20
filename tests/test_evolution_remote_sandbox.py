@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from pantheonos.apps.modal_app_transport import ModalAppTransport
+from pantheonos.appkit.modal_app_transport import ModalAppTransport
 from pantheon.chatroom.execution_service import AgentExecutions, ExecutionJournal
 from pantheon.evolution import EvolutionConfig, EvolutionTeam, HybridEvaluator
 from pantheon.evolution.lifetime import EvolutionCleanupError

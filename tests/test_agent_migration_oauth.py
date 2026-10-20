@@ -224,7 +224,7 @@ def test_credentials_cannot_be_delivered_before_import_barrier(prepared):
 @pytest.mark.asyncio
 @pytest.mark.parametrize('capability', [None, {}, {'protocols': [True]}, {'protocols': '1'}])
 async def test_old_release_rejected_before_oauth_import(legacy, tmp_path, capability):
-    from pantheonos.apps.dependency_assembly import AssemblyError
+    from pantheonos.appkit.dependency_assembly import AssemblyError
     request = dict(protocol=1, operation='oauth', app='agent', legacy=legacy, backup=str(tmp_path/'backup'),
                    oauth_configuration={'providers': ['codex']})
     session = SimpleNamespace(info=SimpleNamespace(node_id='node'),

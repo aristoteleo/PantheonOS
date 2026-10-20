@@ -11,7 +11,7 @@ from .group_hub import HubGroupJournal
 from .group_coordinator import GroupCoordinator
 from .group_package import GroupPackageStore
 from .group_network import addresses
-from pantheonos.apps.lifecycle import FleetLifecycle
+from pantheonos.appkit.lifecycle import FleetLifecycle
 
 
 def package_store(manager):

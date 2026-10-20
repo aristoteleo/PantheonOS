@@ -88,8 +88,8 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
 
         nc = await nats.connect(f"nats://127.0.0.1:{NATS_PORT}")
         try:
-            from pantheonos.apps.client import AppClient
-            from pantheonos.apps.spec import apphost_spec
+            from pantheonos.appkit.client import AppClient
+            from pantheonos.appkit.spec import apphost_spec
             from pantheonos.remote import connect_remote
 
             # the runner registers itself in the JetStream KV registry; its
@@ -165,8 +165,8 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
             monkeypatch.setenv("PANTHEON_FLEET_ID", FLEET_ID)
             monkeypatch.setenv("PANTHEON_FLEET_NODE_ID", node_id)
             monkeypatch.setenv("PANTHEON_USER_SEED", USER_SEED)
-            from pantheonos.apps.resolver import AppInstanceResolver
-            from pantheonos.apps.proxy import ToolsetProxy
+            from pantheonos.appkit.resolver import AppInstanceResolver
+            from pantheonos.appkit.proxy import ToolsetProxy
 
             resolver = AppInstanceResolver.from_env(workdir=str(tmp_path))
             assert resolver is not None and resolver.resolves("file_manager")
@@ -255,7 +255,7 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
             # parity: the Go list_tools surface matches the app.json
             # contract (names + param names/types) — the manifest IS the
             # definition the runner's registration is held to
-            from pantheonos.apps.registry import by_app_id
+            from pantheonos.appkit.registry import by_app_id
 
             go_tools = await go_proxy.invoke("list_tools", {})
             assert go_tools["success"]
@@ -381,7 +381,7 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
 
 async def test_shared_resolver_env_gating(monkeypatch):
     """The resolver gates on identity: no user seed -> None; built once."""
-    from pantheonos.apps import resolver as R
+    from pantheonos.appkit import resolver as R
 
     R.reset_shared_resolver()
     monkeypatch.delenv("PANTHEON_USER_SEED", raising=False)
@@ -402,7 +402,7 @@ async def test_resolver_lazy_coords_from_runtime_json(tmp_path, monkeypatch):
     """Sandbox wiring: no explicit ids, coordinates read from runtime.json."""
     import json as J
 
-    from pantheonos.apps.resolver import AppInstanceResolver
+    from pantheonos.appkit.resolver import AppInstanceResolver
 
     monkeypatch.delenv("PANTHEON_FLEET_ID", raising=False)
     monkeypatch.delenv("PANTHEON_FLEET_NODE_ID", raising=False)
@@ -435,7 +435,7 @@ async def test_resolver_circuit_breaker(tmp_path, monkeypatch):
     an early-asking brain out permanently). Genuine failures still open
     the breaker, and it half-opens after the cooldown.
     """
-    from pantheonos.apps.resolver import AppInstanceResolver, NotJoinedError
+    from pantheonos.appkit.resolver import AppInstanceResolver, NotJoinedError
 
     monkeypatch.setenv("PANTHEON_USER_SEED", "seed")
     monkeypatch.setenv("PANTHEON_FLEET_STATE_DIR", str(tmp_path))
@@ -462,7 +462,7 @@ def test_prestart_cli_gives_up_cleanly_without_runner(tmp_path):
     env.pop("PANTHEON_FLEET_ID", None)
     env.pop("PANTHEON_FLEET_NODE_ID", None)
     proc = subprocess.run(
-        [sys.executable, "-m", "pantheonos.apps", "prestart", "shell", "2"],
+        [sys.executable, "-m", "pantheonos.appkit", "prestart", "shell", "2"],
         env=env, cwd=str(REPO), capture_output=True, text=True, timeout=60,
     )
     assert proc.returncode == 1, (proc.returncode, proc.stdout, proc.stderr)

@@ -23,7 +23,7 @@ class EvaluatorToolSet(ToolSet):
     Example:
         ```python
         from pantheon.agent import Agent
-        from pantheonos.apps.builtin.evolution import EvaluatorToolSet
+        from pantheonos.appkit.builtin.evolution import EvaluatorToolSet
 
         agent = Agent(
             name="code-reviewer",

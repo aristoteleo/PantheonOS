@@ -11,11 +11,11 @@ import sys
 import nats
 import pytest
 
-from pantheonos.apps.client import AppClient
-from pantheonos.apps.dependency_assembly import DependencyAuthority, DependencyStarter
-from pantheonos.apps.dependency_client import DependencyClient, DependencyCallError
-from pantheonos.apps.lifecycle import FleetLifecycle, build_artifact, CHUNK_SIZE
-from pantheonos.apps.runtime_config import RuntimeCredential
+from pantheonos.appkit.client import AppClient
+from pantheonos.appkit.dependency_assembly import DependencyAuthority, DependencyStarter
+from pantheonos.appkit.dependency_client import DependencyClient, DependencyCallError
+from pantheonos.appkit.lifecycle import FleetLifecycle, build_artifact, CHUNK_SIZE
+from pantheonos.appkit.runtime_config import RuntimeCredential
 from pantheonos.local.fleet import LocalFleet
 from test_local_fleet import binaries
 
@@ -51,7 +51,7 @@ def consumer_package(path, root):
     sdk.mkdir()
     (sdk / '__init__.py').write_text('')
     for name in ('runtime_config.py', 'dependency_client.py'):
-        shutil.copy2(root / 'pantheonos/apps' / name, sdk / name)
+        shutil.copy2(root / 'pantheonos/appkit' / name, sdk / name)
     (path / 'consumer.py').write_text(CONSUMER)
     manifest = {'apiVersion': 2, 'id': 'local-rpc-consumer', 'version': '1.0.0',
                 'runtime': 'process', 'execution': {'protocol': 1, 'manifest': 'fleet.json'},

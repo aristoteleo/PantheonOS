@@ -15,7 +15,7 @@ import re
 import httpx
 import psutil
 
-from pantheonos.apps.owner_journal import OwnerJournal
+from pantheonos.appkit.owner_journal import OwnerJournal
 
 
 def identity(process):

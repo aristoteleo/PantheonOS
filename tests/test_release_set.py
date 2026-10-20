@@ -10,9 +10,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheonos.apps.dependency_assembly import AssemblyError
-from pantheonos.apps.lifecycle import build_artifact, FleetLifecycle
-from pantheonos.apps.release_set import index_packages, stage_release_set
+from pantheonos.appkit.dependency_assembly import AssemblyError
+from pantheonos.appkit.lifecycle import build_artifact, FleetLifecycle
+from pantheonos.appkit.release_set import index_packages, stage_release_set
 from pantheonos.models.access_package import build_package
 
 
@@ -141,7 +141,7 @@ def test_index_refuses_overwrite_and_cross_platform_identity(distribution):
 @pytest.mark.asyncio
 async def test_existing_multiplatform_app_uses_canonical_artifact_selection(tmp_path):
     import shutil
-    from pantheonos.apps.registry import BUILTIN_ROOT
+    from pantheonos.appkit.registry import BUILTIN_ROOT
     root = tmp_path/'set'; root.mkdir()
     package = root/'model-service'
     shutil.copytree(Path(BUILTIN_ROOT)/'model-service', package,
@@ -172,7 +172,7 @@ class Boundary(importlib.abc.MetaPathFinder):
   if name.startswith(('pantheon.chatroom','pantheon.agent','pantheon.factory','pantheon.team')):
    raise AssertionError(name)
 sys.meta_path.insert(0, Boundary())
-import pantheonos.apps.release_set
+import pantheonos.appkit.release_set
 '''
     result = subprocess.run([sys.executable, '-c', source], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr

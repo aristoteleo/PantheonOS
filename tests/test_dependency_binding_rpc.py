@@ -9,11 +9,11 @@ from unittest.mock import patch
 
 import pytest
 
-from pantheonos.apps.dependency_binding_client import RemoteDependencyBindings
-from pantheonos.apps.dependency_binding_service import DependencyBindingService
-from pantheonos.apps.dependency_client import DependencyClient, DependencyCallError
-from pantheonos.apps.dependency_assembly import AssemblyError
-from pantheonos.apps.runtime_config import RuntimeCredential
+from pantheonos.appkit.dependency_binding_client import RemoteDependencyBindings
+from pantheonos.appkit.dependency_binding_service import DependencyBindingService
+from pantheonos.appkit.dependency_client import DependencyClient, DependencyCallError
+from pantheonos.appkit.dependency_assembly import AssemblyError
+from pantheonos.appkit.runtime_config import RuntimeCredential
 from test_live_dependency_bindings import fixture, request
 
 
@@ -201,7 +201,7 @@ async def test_retirement_cancellation_waits_for_accepted_transport():
 
 
 def test_hidden_allocation_cause_is_logged_privately_without_keys(monkeypatch):
-    from pantheonos.apps import dependency_binding_service as module
+    from pantheonos.appkit import dependency_binding_service as module
     lines = []
     monkeypatch.setattr(module.logger, 'warning', lines.append)
     module._log_hidden('allocation', RuntimeError(
@@ -214,7 +214,7 @@ def test_allocator_package_imports_from_its_own_vendored_runtime(tmp_path):
     import site
     import subprocess
     import sys
-    from pantheonos.apps.allocator_package import build_package
+    from pantheonos.appkit.allocator_package import build_package
     package = tmp_path / 'allocator'
     build_package(package, 'linux-amd64')
     # -S skips .pth files, so an editable checkout cannot fill in missing vendored

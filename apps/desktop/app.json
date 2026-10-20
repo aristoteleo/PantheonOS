@@ -4,7 +4,7 @@
   "version": "0.14.0",
   "description": "The user's desktop: windows, apps, browser, data server.",
   "entry": {
-    "backend": "pantheonos.apps.builtin.desktop:DesktopToolSet"
+    "backend": "pantheonos.appkit.builtin.desktop:DesktopToolSet"
   },
   "provides": {
     "tools": [

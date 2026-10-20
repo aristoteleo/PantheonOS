@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from pantheonos.apps.spec import apphost_spec, instance_service_seed
+from pantheonos.appkit.spec import apphost_spec, instance_service_seed
 from pantheonos.utils.misc import generate_service_id
 
 

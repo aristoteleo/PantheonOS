@@ -5,9 +5,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheonos.apps.agent_deployment import compose_deployment
-from pantheonos.apps.dependency_assembly import AssemblyError
-from pantheonos.apps.resolver import AppInstanceResolver, NotJoinedError
+from pantheonos.appkit.agent_deployment import compose_deployment
+from pantheonos.appkit.dependency_assembly import AssemblyError
+from pantheonos.appkit.resolver import AppInstanceResolver, NotJoinedError
 from pantheon.chatroom.launch import ConfiguredAgentApplication
 from pantheonos.local.tls import prepare_tls
 from test_agent_deployment_recipe import inputs

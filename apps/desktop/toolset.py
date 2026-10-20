@@ -80,7 +80,7 @@ def _deep_merge(target: Any, patch: Any) -> Any:
 def _catalog_icon(directory: str, manifest: dict) -> str | None:
     """Read a bounded package icon without starting the data server/tunnel."""
     from pathlib import Path
-    from pantheonos.apps.store_release import release_icon
+    from pantheonos.appkit.store_release import release_icon
     try:
         return release_icon(Path(directory), manifest)
     except (OSError, ValueError):
@@ -354,7 +354,7 @@ class DesktopToolSet(ToolSet):
         # First-party App tree (<repo>/apps): bundled headed apps' frontends
         # (frontend/main.js + assets) are fetched by the shell over this
         # server, exactly like a volume-installed packaged app's.
-        from pantheonos.apps.registry import BUILTIN_ROOT
+        from pantheonos.appkit.registry import BUILTIN_ROOT
 
         roots.append(BUILTIN_ROOT)
         # Store installs are user-owned, shared across this user's workspaces.
@@ -398,7 +398,7 @@ class DesktopToolSet(ToolSet):
             import base64
             from pathlib import Path
             import re
-            from pantheonos.apps.builtin.file.image_sources import MAX_IMAGE_BYTES
+            from pantheonos.appkit.builtin.file.image_sources import MAX_IMAGE_BYTES
 
             header, _, b64 = str(data_url).partition(",")
             ext = "jpg" if "jpeg" in header else "png"
@@ -426,7 +426,7 @@ class DesktopToolSet(ToolSet):
         except Exception as e:  # noqa: BLE001
             return {"success": False, "error": f"failed to save snapshot: {e}"}
 
-        from pantheonos.apps.builtin.file.image_sources import image_location
+        from pantheonos.appkit.builtin.file.image_sources import image_location
         result: dict = {
             "success": True,
             **image_location(out, **({'node_id': self._files_binding.node_id}
@@ -590,7 +590,7 @@ class DesktopToolSet(ToolSet):
             if self._files_binding is not None:
                 own_node = self._files_binding.node_id
             else:
-                from pantheonos.apps.builtin.fleet.local_node import local_node_id
+                from pantheonos.appkit.builtin.fleet.local_node import local_node_id
                 own_node = local_node_id()
             if own_node != node_id:
                 return {'success': False, 'error_code': 'different_file_node',
@@ -1058,7 +1058,7 @@ class DesktopToolSet(ToolSet):
 
         from pantheonos.settings import get_settings
 
-        from pantheonos.apps.registry import BUILTIN_ROOT, default_scope_roots
+        from pantheonos.appkit.registry import BUILTIN_ROOT, default_scope_roots
 
         settings = get_settings()
         return [
@@ -1333,7 +1333,7 @@ class DesktopToolSet(ToolSet):
     def _fleet_resolver(self):
         if self._fleet_binding is not None:
             return self._fleet_binding.resolver
-        from pantheonos.apps.resolver import get_shared_resolver
+        from pantheonos.appkit.resolver import get_shared_resolver
         return get_shared_resolver()
 
     def _app_placement(self):
@@ -1384,7 +1384,7 @@ class DesktopToolSet(ToolSet):
     async def _apply_policy(self, placement, app_id, policy):
         """Keep the App's running instance alive (resident) or let it stop when
         idle (otherwise), on the node it runs on by default."""
-        from pantheonos.apps.lifecycle import FleetLifecycle
+        from pantheonos.appkit.lifecycle import FleetLifecycle
         try:
             _, manifest, _ = await asyncio.to_thread(placement.resolve, app_id)
             if not (manifest.get('entry') or {}).get('backend') and not manifest.get('execution'):
@@ -1453,7 +1453,7 @@ class DesktopToolSet(ToolSet):
         This avoids depending on the Agent pod's runtime version and shares
         the freshly read node inventory across launch, status and start.
         """
-        from pantheonos.apps.lifecycle import FleetLifecycle
+        from pantheonos.appkit.lifecycle import FleetLifecycle
         try:
             lifecycle = FleetLifecycle(self._app_placement().resolver)
             if action == 'status':
@@ -1494,7 +1494,7 @@ class DesktopToolSet(ToolSet):
         lifecycle method breaks when an older Agent and newer Desktop coexist.
         The Fleet node validates membership, instance revision and generation.
         """
-        from pantheonos.apps.lifecycle import FleetLifecycle
+        from pantheonos.appkit.lifecycle import FleetLifecycle
         try:
             resolver = self._fleet_resolver()
             if resolver is None:
@@ -1557,7 +1557,7 @@ class DesktopToolSet(ToolSet):
         return self._agent_lease_table
 
     async def _app_usage(self, binding, *, lease_id='', release=False, keep_alive=None):
-        from pantheonos.apps.lifecycle import FleetLifecycle
+        from pantheonos.appkit.lifecycle import FleetLifecycle
         resolver = self._fleet_resolver()
         if resolver is None:
             raise RuntimeError('Fleet is not connected')
@@ -1916,7 +1916,7 @@ class DesktopToolSet(ToolSet):
                     except Exception:
                         continue
                     app_id = manifest.get("id")
-                    from pantheonos.apps.distribution import included
+                    from pantheonos.appkit.distribution import included
                     if not included(manifest, scope):
                         continue
                     frontend = (manifest.get("entry") or {}).get("frontend") or ""
@@ -2284,7 +2284,7 @@ class DesktopToolSet(ToolSet):
             manifest = app.manifest if app else {}
             directory = app.dir if app else None
         else:
-            from pantheonos.apps.registry import by_app_id
+            from pantheonos.appkit.registry import by_app_id
             app = by_app_id().get(app_id)
             manifest = app.manifest.model_dump() if app else {}
             directory = app.dir if app else None
@@ -2881,7 +2881,7 @@ class DesktopToolSet(ToolSet):
                     return remote
                 import base64
                 from pathlib import Path
-                from pantheonos.apps.builtin.file.image_sources import image_location
+                from pantheonos.appkit.builtin.file.image_sources import image_location
                 out = Path(path or f'browser-shot-{uuid.uuid4().hex[:12]}.jpg').absolute()
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_bytes(base64.b64decode(remote.pop('image_base64')))
@@ -2901,7 +2901,7 @@ class DesktopToolSet(ToolSet):
             data = await engine.call(
                 session.page.screenshot(type="jpeg", quality=80, scale="css"))
             out.write_bytes(data)
-            from pantheonos.apps.builtin.file.image_sources import image_location
+            from pantheonos.appkit.builtin.file.image_sources import image_location
             return {"success": True, **image_location(out),
                     **await self._browser_page_info(session)}
         except Exception as e:

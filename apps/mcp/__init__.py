@@ -51,7 +51,7 @@ class MCPGatewayToolSet(ToolSet):
         auto_start) so behavior is identical either side of the migration.
         """
         from pantheonos.settings import get_settings
-        from pantheonos.apps.builtin.mcp.manager import MCPManager
+        from pantheonos.appkit.builtin.mcp.manager import MCPManager
 
         settings = get_settings()
         self._migration_settings = settings

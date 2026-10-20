@@ -10,8 +10,8 @@ import time
 import uuid
 from urllib.request import Request, urlopen
 
-from pantheonos.apps.portable import execution_package, portable_backend
-from pantheonos.apps.schema import parse_manifest
+from pantheonos.appkit.portable import execution_package, portable_backend
+from pantheonos.appkit.schema import parse_manifest
 
 SOURCE = Path(__file__).parents[1] / 'apps/notebook'
 

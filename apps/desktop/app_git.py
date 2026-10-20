@@ -1,7 +1,7 @@
 """Working-tree state kept separate from immutable release history."""
 from pathlib import Path
 
-from pantheonos.apps.store_release import git
+from pantheonos.appkit.store_release import git
 
 
 def working_tree(root: Path) -> dict:

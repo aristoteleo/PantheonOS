@@ -10,8 +10,8 @@ from pathlib import Path
 import subprocess
 import uuid
 
-from pantheonos.apps.distribution import STORE_APPS
-from pantheonos.apps.store_release import git, prepare_release
+from pantheonos.appkit.distribution import STORE_APPS
+from pantheonos.appkit.store_release import git, prepare_release
 
 
 def export(source: Path, output: Path):

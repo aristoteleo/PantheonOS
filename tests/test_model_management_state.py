@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from pantheonos.apps.reflect import reflect_toolset_class
+from pantheonos.appkit.reflect import reflect_toolset_class
 from pantheon.internal.model_services_plugin import ModelServicesToolSet
 from pantheonos.models.management_tools import ModelManagementToolSet
 from pantheonos.models.management_state import ManagementState
@@ -44,7 +44,7 @@ class Forbid(importlib.abc.MetaPathFinder):
             raise RuntimeError('Forbidden import: ' + fullname)
 sys.meta_path.insert(0, Forbid())
 from pantheonos.models.management_tools import ModelManagementToolSet
-from pantheonos.apps.reflect import reflect_toolset_class
+from pantheonos.appkit.reflect import reflect_toolset_class
 assert len(reflect_toolset_class(ModelManagementToolSet)) == 10
 '''
     result = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True)

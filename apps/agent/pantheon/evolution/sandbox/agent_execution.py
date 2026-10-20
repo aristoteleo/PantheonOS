@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 import sqlite3
 
-from pantheonos.apps.agent_execution_runner import (
+from pantheonos.appkit.agent_execution_runner import (
     AgentExecutionRunner, ExecutionEnded, ExecutionRecoveryRequired, ToolReceiptJournal,
     _encode, _identity,
 )

@@ -13,7 +13,7 @@ import re
 from types import MappingProxyType
 from uuid import UUID
 
-from pantheonos.apps.runtime_config import RuntimeConfiguration
+from pantheonos.appkit.runtime_config import RuntimeConfiguration
 from pantheon.factory.bindings import AgentToolBindings, _bindings_from_spec, _thaw
 
 

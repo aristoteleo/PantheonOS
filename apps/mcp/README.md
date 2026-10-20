@@ -42,7 +42,7 @@ selection still needs an explicit migration into reviewed profiles/defaults.
 Build a release for a selected node platform:
 
 ```sh
-python -m pantheonos.apps.mcp_package \
+python -m pantheonos.appkit.mcp_package \
   --output /absolute/path/to/mcp-app \
   --platform darwin-arm64 \
   --exports /absolute/path/to/reviewed-exports.json \

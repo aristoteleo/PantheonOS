@@ -4,8 +4,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
-from pantheonos.apps.builtin.desktop.desktop_session import DesktopSessionStore
+from pantheonos.appkit.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.appkit.builtin.desktop.desktop_session import DesktopSessionStore
 
 
 @pytest.fixture(params=['qupath', 'pkg:qupath'])

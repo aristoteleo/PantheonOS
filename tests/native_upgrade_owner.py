@@ -17,14 +17,14 @@ import nats
 # Always test the source tree containing this driver.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from pantheonos.apps.dependency_assembly import AssemblyError, DependencyAuthority, DependencyStarter
-from pantheonos.apps.deployment import AppDeployment
-from pantheonos.apps.deployment_abort import AppDeploymentAbort
-from pantheonos.apps.deployment_stop import AppDeploymentStop
-from pantheonos.apps.deployment_upgrade import AppUpgradePreparation
-from pantheonos.apps.lifecycle import FleetLifecycle
-from pantheonos.apps.resolver import AppInstanceResolver
-from pantheonos.apps.runtime_config import RuntimeCredential
+from pantheonos.appkit.dependency_assembly import AssemblyError, DependencyAuthority, DependencyStarter
+from pantheonos.appkit.deployment import AppDeployment
+from pantheonos.appkit.deployment_abort import AppDeploymentAbort
+from pantheonos.appkit.deployment_stop import AppDeploymentStop
+from pantheonos.appkit.deployment_upgrade import AppUpgradePreparation
+from pantheonos.appkit.lifecycle import FleetLifecycle
+from pantheonos.appkit.resolver import AppInstanceResolver
+from pantheonos.appkit.runtime_config import RuntimeCredential
 
 
 async def main(path):

@@ -9,13 +9,13 @@ import threading
 import pytest
 from PIL import Image
 
-from pantheonos.apps.builtin.desktop.app_runtime import AppContext
-from pantheonos.apps.builtin.file.build_managed import build
-from pantheonos.apps.builtin.file.managed import create_service
-from pantheonos.apps.builtin.file.image_generation import ImageGeneration
-from pantheonos.apps.lifecycle import build_artifact
-from pantheonos.apps.runtime_config import RuntimeCredential
-from pantheonos.apps.toolset_backend import register_toolset
+from pantheonos.appkit.builtin.desktop.app_runtime import AppContext
+from pantheonos.appkit.builtin.file.build_managed import build
+from pantheonos.appkit.builtin.file.managed import create_service
+from pantheonos.appkit.builtin.file.image_generation import ImageGeneration
+from pantheonos.appkit.lifecycle import build_artifact
+from pantheonos.appkit.runtime_config import RuntimeCredential
+from pantheonos.appkit.toolset_backend import register_toolset
 from pantheonos.models.client import model_ref
 from pantheonos.models.jobs import InferenceSession
 from test_model_dependency import model_dependency, model_endpoint, tls_material

@@ -73,7 +73,7 @@ async def test_preview_missing_binary_and_oversize_files_are_reported(memory_roo
 @pytest.mark.asyncio
 async def test_agent_proxy_does_not_send_memory_reads_to_workspace(memory_root):
     import pantheon.factory  # noqa: F401 (the Agent registers its memory files' route)
-    from pantheonos.apps.proxy import ToolsetProxy
+    from pantheonos.appkit.proxy import ToolsetProxy
     file = memory_root / "reference.md"
     file.write_text("agent state")
     resolver = SimpleNamespace(_workdir=str(memory_root.parents[1]))

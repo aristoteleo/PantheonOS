@@ -11,8 +11,8 @@ import cloudpickle
 import pytest
 from PIL import Image
 
-from pantheonos.apps.builtin.file.file_manager import FileManagerToolSet
-from pantheonos.apps.proxy import ToolsetProxy
+from pantheonos.appkit.builtin.file.file_manager import FileManagerToolSet
+from pantheonos.appkit.proxy import ToolsetProxy
 from pantheonos.toolset import (
     ExecutionContext, get_current_context_variables,
     reset_current_context_variables, set_current_context_variables, tool,

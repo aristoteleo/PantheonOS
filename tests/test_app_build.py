@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from pantheonos.apps import app_build
+from pantheonos.appkit import app_build
 
 BUILD_PY = '''
 import json, os, pathlib, sys

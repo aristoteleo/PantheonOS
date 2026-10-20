@@ -14,7 +14,7 @@ import uuid
 
 import pytest
 
-from pantheonos.apps.host_lifecycle import AppShutdownError, serve_toolset
+from pantheonos.appkit.host_lifecycle import AppShutdownError, serve_toolset
 from pantheonos.remote.backend.tcp import TCPBackend
 from pantheonos.toolset import ToolSet
 from pantheonos.utils.misc import generate_service_id

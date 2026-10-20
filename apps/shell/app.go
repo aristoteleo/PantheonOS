@@ -446,7 +446,7 @@ func (a *App) getShellOutput(shellID string, timeoutSec, maxOutput int) map[stri
 var manifestJSON []byte
 
 // Tools returns the shell@1 surface wired to app. Signatures come from the
-// embedded app.json — the same manifest `pantheonos.apps check` keeps honest —
+// embedded app.json — the same manifest `pantheonos.appkit check` keeps honest —
 // so Go contributes only the handlers; a wiring mismatch errors at startup.
 func Tools(app *App) ([]*appsvc.Tool, error) {
 	handlers := map[string]appsvc.Handler{

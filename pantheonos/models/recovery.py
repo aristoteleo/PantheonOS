@@ -6,7 +6,7 @@ installed artifacts and node-local configuration, never installation/download.
 """
 import uuid
 
-from pantheonos.apps.lifecycle import FleetLifecycle
+from pantheonos.appkit.lifecycle import FleetLifecycle
 
 
 def exact_instance(state, binding, scope):

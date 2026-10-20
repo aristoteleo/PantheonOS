@@ -8,7 +8,7 @@
   "surface": "dom+headless",
   "entry": {
     "frontend": "ui:llm-playground",
-    "backend": "pantheonos.apps.builtin.llm_playground.service:PlaygroundToolSet"
+    "backend": "pantheonos.appkit.builtin.llm_playground.service:PlaygroundToolSet"
   },
   "placement": {
     "requires": [

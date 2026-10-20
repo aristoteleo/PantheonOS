@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheonos.apps.dependency_assembly import AssemblyError, DependencyStarter, _compatible, _methods
+from pantheonos.appkit.dependency_assembly import AssemblyError, DependencyStarter, _compatible, _methods
 
 
 def test_raw_catalog_interface_uses_the_schema_default_version():
@@ -62,8 +62,8 @@ def fixture():
 
 def test_local_rpc_grant_requires_explicit_trusted_authority():
     import ssl
-    from pantheonos.apps.dependency_assembly import DependencyAuthority, _grant
-    from pantheonos.apps.runtime_config import RuntimeCredential
+    from pantheonos.appkit.dependency_assembly import DependencyAuthority, _grant
+    from pantheonos.appkit.runtime_config import RuntimeCredential
     _, authority, recipe, _ = fixture()
     request = {'consumer': recipe['consumer'], 'provider': recipe['bindings']['files']['provider']}
     grant = authority.issue.side_effect(request)
@@ -105,7 +105,7 @@ def test_version_ranges_fail_closed_and_zero_major_caret_is_precise():
 
 @pytest.mark.asyncio
 async def test_manifest_request_keeps_exact_node_and_rejects_wrong_revision(monkeypatch):
-    from pantheonos.apps.lifecycle import FleetLifecycle
+    from pantheonos.appkit.lifecycle import FleetLifecycle
     lifecycle = FleetLifecycle(None)
     wire = AsyncMock(return_value={'protocol': 1, 'revision': 'a'*64,
         'manifest': {'id': 'files', 'version': '1.0.0'},

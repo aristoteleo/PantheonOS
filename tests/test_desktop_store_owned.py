@@ -9,10 +9,10 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from pantheonos.apps.builtin.desktop.data_server import DataServerConfig, LiveViewDataServer
-from pantheonos.apps.builtin.desktop.files_binding import DesktopFilesBinding
-from pantheonos.apps.builtin.desktop.store_binding import DesktopStoreBinding
-from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.appkit.builtin.desktop.data_server import DataServerConfig, LiveViewDataServer
+from pantheonos.appkit.builtin.desktop.files_binding import DesktopFilesBinding
+from pantheonos.appkit.builtin.desktop.store_binding import DesktopStoreBinding
+from pantheonos.appkit.builtin.desktop.toolset import DesktopToolSet
 
 
 @pytest.fixture

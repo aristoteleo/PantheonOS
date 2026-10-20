@@ -9,8 +9,8 @@ import pytest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
-from pantheonos.apps.builtin.desktop.desktop_session import DesktopSessionStore
-from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.appkit.builtin.desktop.desktop_session import DesktopSessionStore
+from pantheonos.appkit.builtin.desktop.toolset import DesktopToolSet
 
 
 class FakeEngine:
@@ -115,7 +115,7 @@ def test_volume_caches_are_evicted_but_the_login_state_is_not():
     import tempfile
     from pathlib import Path
 
-    from pantheonos.apps.builtin.desktop.browser import BrowserEngine
+    from pantheonos.appkit.builtin.desktop.browser import BrowserEngine
 
     with tempfile.TemporaryDirectory() as tmp:
         profile = Path(tmp) / "browser-profile"
@@ -144,7 +144,7 @@ def test_an_icon_belongs_to_a_site_not_to_a_tab():
     an evaluate returned its icon — a second or two of the previous site's
     identity on a tab that had already moved on.
     """
-    from pantheonos.apps.builtin.desktop.browser import surviving_favicon
+    from pantheonos.appkit.builtin.desktop.browser import surviving_favicon
 
     wiki = "https://en.wikipedia.org/static/favicon/wikipedia.ico"
     # Navigating within the site keeps it: no flicker on every click.
@@ -164,7 +164,7 @@ def test_a_gesture_becomes_the_events_a_hand_would_produce():
     each call site is how a click ends up missing its mouse-up in one place
     and not another.
     """
-    from pantheonos.apps.builtin.desktop.browser import input_events
+    from pantheonos.appkit.builtin.desktop.browser import input_events
 
     click = input_events([{"t": "click", "x": 40, "y": 90}])
     assert [e["t"] for e in click] == ["move", "down", "up"]
@@ -194,7 +194,7 @@ def test_an_action_that_cannot_be_carried_out_says_so():
     in the caller, and swallowing it looks like a page that ignored it."""
     import pytest
 
-    from pantheonos.apps.builtin.desktop.browser import input_events
+    from pantheonos.appkit.builtin.desktop.browser import input_events
 
     for bad in ({"t": "click"}, {"t": "drag", "x": 1, "y": 1},
                 {"t": "key"}, {"t": "teleport", "x": 1, "y": 1}):

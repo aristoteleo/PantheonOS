@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from pantheonos.apps.resolver import AppInstanceResolver
+from pantheonos.appkit.resolver import AppInstanceResolver
 
 
 def resolver(monkeypatch, root='/workspace'):

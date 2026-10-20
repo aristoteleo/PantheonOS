@@ -17,7 +17,7 @@ _ID = re.compile(r'[a-z0-9][a-z0-9_-]{0,63}')
 
 class ModelServiceControl:
     def __init__(self, client, *, policies, issue_connection=None):
-        from pantheonos.apps.dependency_assembly import _identity, _copy
+        from pantheonos.appkit.dependency_assembly import _identity, _copy
         # Identity validation is shared with ordinary App dependency assembly.
         self.client, self.issue_connection = client, issue_connection
         self.policies = _copy(policies)

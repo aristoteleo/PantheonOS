@@ -21,7 +21,7 @@ from urllib.request import urlopen
 import pytest
 
 from pantheon.chatroom.package import build_package
-from pantheonos.apps.lifecycle import build_artifact, MAX_ARTIFACT
+from pantheonos.appkit.lifecycle import build_artifact, MAX_ARTIFACT
 from test_agent_application import TEMPLATE
 from test_agent_launch import prepared
 from test_agent_native_process import request
@@ -53,7 +53,7 @@ def release(tmp_path_factory):
     assert manifest['dataSchema'] == {'id': FORMAT_ID, 'version': FORMAT_VERSION, 'accepts': [FORMAT_VERSION]}
     definition = json.loads((root / 'fleet.json').read_text())
     assert definition['data_schema'] == manifest['dataSchema']
-    from pantheonos.apps.agent_execution_client import METHODS
+    from pantheonos.appkit.agent_execution_client import METHODS
     assert manifest['provides']['interfaces'] == [
         {'name': 'agent-execution', 'version': 1, 'tools': list(METHODS)}]
     assert {item['name'] for item in manifest['provides']['tools']} == set(METHODS)
@@ -62,7 +62,7 @@ def release(tmp_path_factory):
     assert all(hashlib.sha256((root / path).read_bytes()).hexdigest() == digest for path, digest in inventory.items())
     for asset in ('app-host.html', 'snapshot-colors.js', 'vendor/html-to-image-1.11.13.js'):
         assert '.fleet-runtime/assets/' + asset in inventory
-    assert not any('/chatroom/room.py' in p or '/platform/service.py' in p or '/apps/builtin/file/' in p for p in inventory)
+    assert not any('/chatroom/room.py' in p or '/platform/service.py' in p or '/appkit/builtin/file/' in p for p in inventory)
     assert not any('/models/platform_budget.py' in p or '/models/credentials.py' in p for p in inventory), \
         'Owner credential provisioning must not ship inside the Agent App'
     assert not any('/chatroom/migration_models.py' in p or '/chatroom/migration_templates.py' in p for p in inventory)

@@ -30,7 +30,7 @@ fences are kept as is); changing App packages' contracts; multi-controller HA.
 | Concern | Today | Code |
 |---|---|---|
 | Desired state | Hub `AppStartupPreset` row (recipe JSON, CAS revision); `node_id` fixed per App at setup | `hub/api/app_startup.py` |
-| Coordinator | Python `AppDeployment` (install → prepare_start → grants → configure → start), owner journals on the platform pod, polled every 1 s by `AppPreset._drive` | `pantheonos/apps/deployment.py`, `pantheon/platform/app_preset.py` |
+| Coordinator | Python `AppDeployment` (install → prepare_start → grants → configure → start), owner journals on the platform pod, polled every 1 s by `AppPreset._drive` | `pantheonos/appkit/deployment.py`, `pantheon/platform/app_preset.py` |
 | Recovery | 30 s Python watch; infers "lost" vs "owner stopped" from stop-operation ID prefixes | `pantheon/platform/preset_resume.py` |
 | Grants | Platform → Hub `/api/fleet/apps/dependency-grants` → controller app gateway mints and stores the token; platform renews every 30 s | `dependency_assembly.py`, `os/internal/appgateway/dependency.go` |
 | Credentials | Platform delivers owner keys to node vaults (`node-secret://`) with ECDH+AES-GCM import | `owner_credentials.py`, `os/internal/lifecycle/credential_import.go` |
@@ -312,7 +312,7 @@ Every browser call it serves today moves to an owner of that concern:
 | App services (`resolve_app_service`, `call_app_service`, `get_toolsets`) | App gateway (already the data path) |
 
 The pod image no longer starts a platform process; a pod node runs the Runner
-only. The Python packages `pantheon.platform`, `pantheonos.apps.deployment*`,
+only. The Python packages `pantheon.platform`, `pantheonos.appkit.deployment*`,
 `dependency_assembly` (coordinator half), `models.bootstrap` and the owner
 journals are deleted once their callers are gone.
 
@@ -352,7 +352,7 @@ Production is untouched until staging has run on this for an agreed period.
 - **Step 2 done (behind `--deployments`)** — `os/internal/reconciler`:
   - `release.go`: release sets are fetched by URL + SHA-256 and cached; only
     `release-set.json` and `artifacts/<sha256>` are kept. Index protocol 2
-    (written by `pantheonos.apps.release_set.index_packages`) adds each
+    (written by `pantheonos.appkit.release_set.index_packages`) adds each
     variant's prebuilt `artifact` and its manifest `requires`/`prefer`, so the
     controller never repackages an App. Protocol-1 sets must be rebuilt.
   - `plan.go`: pure planner, one step per App per pass, operation IDs
@@ -389,7 +389,7 @@ Production is untouched until staging has run on this for an agreed period.
   and moves routes that only use it to its new node. Model access policies
   may follow the row's current Connector (`'current'`). The Hub contract lets
   an attached API Connector change node.
-- **Step 5 done.** `pantheonos.apps.release_profile` writes `profile.json` at
+- **Step 5 done.** `pantheonos.appkit.release_profile` writes `profile.json` at
   release build (General Team composed against the release's own packages;
   placeholders `$input` for the Hub, `$secret`/`$secret_ref`/`$fleet`/`$app`
   for the controller). The controller serves it (`GET /releases/profile`);
@@ -405,7 +405,7 @@ Production is untouched until staging has run on this for an agreed period.
   `{"$late_app": X, "deployment": D, ...}` and they are not start
   dependencies. The allocator uses them (`release_profile.LATE_REFERENCES`)
   and resolves the current instance from the deployment's status when an
-  Agent session binds (`pantheonos/apps/late_refs.py`). The Agent's own Files
+  Agent session binds (`pantheonos/appkit/late_refs.py`). The Agent's own Files
   use (auxiliary work, GUI views) is allocated through the allocator on first
   call (`{"allocate": "file_manager"}`), so the Agent starts on the brain pod
   without waiting for the sandbox.
@@ -484,7 +484,7 @@ one process for every owner:
 | Service | Was | Now |
 |---|---|---|
 | `fleet` (Agent's Fleet tools; desktop inventory, node services, App lifecycle, HPC, updates) | `apps/fleet`, Python App on the brain | `internal/hosted` fleet service |
-| `allocator` (`dependency-binding`: runtime grants for Agent tool sessions) | `pantheonos/apps/allocator_host.py` on the brain | `internal/hosted` allocator; grants issued in-process |
+| `allocator` (`dependency-binding`: runtime grants for Agent tool sessions) | `pantheonos/appkit/allocator_host.py` on the brain | `internal/hosted` allocator; grants issued in-process |
 | `model-access`, `files-models` (`model-services-control`: consumer-scoped directory + inference grants) | Python Apps on the brain | `internal/hosted` model access (cloud); local stays an App |
 | `model-management` (`model-services-management`: 9 Agent tools + desktop Model Services operations, Modal GPUs, deploy, model groups) | Python App on the brain | `internal/modelservices`, rewritten in Go (cloud); local stays an App |
 | `connector` | App (also runs on owners' GPU nodes) | stays an App |

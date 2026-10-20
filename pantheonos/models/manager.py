@@ -6,9 +6,9 @@ import time
 
 from loguru import logger
 
-from pantheonos.apps.lifecycle import FleetLifecycle
+from pantheonos.appkit.lifecycle import FleetLifecycle
 from .managed import connector_root
-from pantheonos.apps.resolver import AppInstanceResolver
+from pantheonos.appkit.resolver import AppInstanceResolver
 from .client import get_client
 
 

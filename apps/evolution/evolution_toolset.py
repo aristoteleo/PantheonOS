@@ -434,7 +434,7 @@ class EvolutionToolSet(ToolSet):
     Example:
         ```python
         from pantheon.agent import Agent
-        from pantheonos.apps.builtin.evolution import EvolutionToolSet
+        from pantheonos.appkit.builtin.evolution import EvolutionToolSet
 
         agent = Agent(
             name="optimizer",

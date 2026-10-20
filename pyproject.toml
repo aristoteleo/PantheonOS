@@ -146,7 +146,7 @@ dev = [
 
 [tool.setuptools.package-data]
 "pantheonos.local" = ["desktop.html"]
-"pantheonos.apps" = ["official-store.json", "portable_runtime/*.py", "portable_runtime/assets/*.html", "portable_runtime/assets/*.js", "portable_runtime/assets/vendor/*.js"]
+"pantheonos.appkit" = ["official-store.json", "portable_runtime/*.py", "portable_runtime/assets/*.html", "portable_runtime/assets/*.js", "portable_runtime/assets/vendor/*.js"]
 "pantheonos" = [
     # Offline OpenRouter catalog snapshot — the picker's last-resort fallback when a
     # cold sandbox can't reach the network (scripts/refresh_catalog_snapshot.py).

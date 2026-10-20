@@ -63,7 +63,7 @@ async def inventory_from_records(records: list[dict], *, resolver=None) -> dict:
                         raise RuntimeError(envelope.get('error') or 'Desktop inventory unavailable')
                     reply = envelope['response']['result']
                 else:
-                    from pantheonos.apps.proxy import ToolsetProxy
+                    from pantheonos.appkit.proxy import ToolsetProxy
                     reply = await ToolsetProxy.from_toolset(instance['service_id']).invoke('fleet_instances', {})
             if not reply.get('success'):
                 raise RuntimeError(reply.get('error', 'Desktop inventory unavailable'))

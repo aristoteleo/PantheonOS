@@ -12,7 +12,7 @@ import re
 from typing import TYPE_CHECKING
 
 from .agent_core_tools import BUILTIN_PROVIDERS, DEPLOYMENT_DESCRIPTIONS, DIRECT_APP_TOOLS
-from pantheonos.apps.filter import _NAME, AppFilter, app_name  # noqa: F401 (their home is the platform)
+from pantheonos.appkit.filter import _NAME, AppFilter, app_name  # noqa: F401 (their home is the platform)
 
 if TYPE_CHECKING:
     from .agent import Agent

@@ -8,11 +8,11 @@ import pytest
 from nats.errors import NoRespondersError
 
 from pantheon.agent import Agent
-from pantheonos.apps import proxy as proxy_module
-from pantheonos.apps.proxy import ToolsetProxy
-from pantheonos.apps.registry import by_service_type
-from pantheonos.apps.resolver import AppInstanceResolver
-from pantheonos.apps.spec import apphost_spec
+from pantheonos.appkit import proxy as proxy_module
+from pantheonos.appkit.proxy import ToolsetProxy
+from pantheonos.appkit.registry import by_service_type
+from pantheonos.appkit.resolver import AppInstanceResolver
+from pantheonos.appkit.spec import apphost_spec
 from pantheon.providers import ToolSetProvider
 from pantheonos.toolset import ToolSet, tool
 
@@ -113,7 +113,7 @@ class FleetBoundary:
 @pytest.mark.asyncio
 async def test_factory_agent_recovers_same_app_on_fresh_workspace(tmp_path, monkeypatch, no_backoff_wait):
     from pantheon.factory import _resolve_toolset_proxy
-    import pantheonos.apps.resolver as resolver_module
+    import pantheonos.appkit.resolver as resolver_module
 
     f = FleetBoundary(tmp_path)
     monkeypatch.setattr(resolver_module, 'get_shared_resolver', lambda: f.resolver)
@@ -339,7 +339,7 @@ def test_resolver_invalidate_default_compatibility_and_precise_scope(tmp_path):
 @pytest.mark.asyncio
 @pytest.mark.parametrize('bound', [False, True])
 async def test_chatroom_pooled_proxy_has_only_one_recovery_owner(tmp_path, monkeypatch, no_backoff_wait, bound):
-    import pantheonos.apps.resolver as resolver_module
+    import pantheonos.appkit.resolver as resolver_module
     from pantheon.chatroom.room import ChatRoom
 
     f = FleetBoundary(tmp_path, service_type='desktop')

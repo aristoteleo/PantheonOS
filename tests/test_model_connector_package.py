@@ -14,7 +14,7 @@ from urllib.request import Request, urlopen
 import httpx
 import pytest
 
-from pantheonos.apps.lifecycle import build_artifact
+from pantheonos.appkit.lifecycle import build_artifact
 from pantheonos.models.connector_package import build_package
 from test_model_services import connector_module
 from test_model_platform_budget import vault, provision, payload, KEY
@@ -76,7 +76,7 @@ def test_artifact_uses_original_server_and_shared_configuration_reader(tmp_path,
     second = build_package(tmp_path / 'second', platform)
     assert build_artifact(package)[1] == build_artifact(second)[1]
     assert (package / 'server.py').read_bytes() == (root / 'apps/model-service/server.py').read_bytes()
-    assert (package / '_fleet_runtime_config.py').read_bytes() == (root / 'pantheonos/apps/runtime_config.py').read_bytes()
+    assert (package / '_fleet_runtime_config.py').read_bytes() == (root / 'pantheonos/appkit/runtime_config.py').read_bytes()
     definition = json.loads((package / 'fleet.json').read_text())
     assert definition['components'][0]['configuration'] == {
         'values': {'connector': {'required': True}, 'directory': {}}, 'credentials': {'directory': {}}}

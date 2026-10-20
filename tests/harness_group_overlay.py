@@ -4,7 +4,7 @@ import json
 import sys
 from urllib.request import Request, urlopen
 
-from pantheonos.apps.lifecycle import FleetLifecycle
+from pantheonos.appkit.lifecycle import FleetLifecycle
 from pantheonos.models.group_network import PeerTopology
 
 

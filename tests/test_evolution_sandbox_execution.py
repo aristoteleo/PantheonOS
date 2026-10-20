@@ -4,7 +4,7 @@ import sqlite3
 
 import pytest
 
-from pantheonos.apps.agent_execution_runner import ToolReceiptJournal
+from pantheonos.appkit.agent_execution_runner import ToolReceiptJournal
 from pantheon.chatroom.execution_service import AgentExecutions, ExecutionJournal
 from pantheon.evolution.lifetime import EvolutionCleanupError
 from pantheon.evolution.sandbox.agent_execution import SandboxAgentExecution
@@ -239,9 +239,9 @@ async def test_independent_agent_and_tool_apps_complete_a_mutation(tmp_path, evo
     import urllib.request
     from test_agent_native_process import native_process, request
     from test_evolution_sandbox_tools import stdio_tools
-    from pantheonos.apps.agent_execution_client import AgentExecutionClient
-    from pantheonos.apps.dependency_client import DependencyClient
-    from pantheonos.apps.runtime_config import RuntimeCredential
+    from pantheonos.appkit.agent_execution_client import AgentExecutionClient
+    from pantheonos.appkit.dependency_client import DependencyClient
+    from pantheonos.appkit.runtime_config import RuntimeCredential
     def forbid(*args, **kwargs):
         raise AssertionError('Controller constructed an embedded Agent')
     monkeypatch.setattr('pantheon.agent.Agent.__init__', forbid)

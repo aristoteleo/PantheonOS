@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from pantheonos.apps.builtin.mcp.gateway import UnifiedMCPGateway
+from pantheonos.appkit.builtin.mcp.gateway import UnifiedMCPGateway
 from pantheon.factory.template_io import FileBasedTemplateManager
 from pantheon.factory.template_manager import TemplateManager
 from pantheonos.settings import load_jsonc
@@ -33,7 +33,7 @@ def test_default_team_has_no_retired_toolsets():
 
     # 'package' died with the toolset cleanup; every declared toolset must
     # be a catalog App (or the think pseudo-toolset)
-    from pantheonos.apps.registry import by_service_type
+    from pantheonos.appkit.registry import by_service_type
     known = set(by_service_type()) | {"think", "task"}
     assert set(leader.toolsets) <= known, set(leader.toolsets) - known
 

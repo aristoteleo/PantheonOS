@@ -10,8 +10,8 @@ from pathlib import Path
 import shutil
 import tempfile
 
-from pantheonos.apps.lifecycle import build_artifact
-from pantheonos.apps.registry import BUILTIN_ROOT
+from pantheonos.appkit.lifecycle import build_artifact
+from pantheonos.appkit.registry import BUILTIN_ROOT
 
 
 def build_package(destination, platform):
@@ -43,7 +43,7 @@ def build_package(destination, platform):
             path.unlink()
         for name, value in (('app.json', manifest), ('fleet.json', definition)):
             (package / name).write_text(json.dumps(value, indent=2) + '\n')
-        shutil.copyfile(Path(__file__).parents[1] / 'apps/runtime_config.py',
+        shutil.copyfile(Path(__file__).parents[1] / 'appkit/runtime_config.py',
                         package / '_fleet_runtime_config.py')
         # Validate ordinary artifact bounds/link policy before publishing output.
         build_artifact(package)

@@ -1,7 +1,7 @@
 package lifecycle
 
 // Optional integration against a real App artifact, isolated from any running
-// Fleet. Build the artifact with pantheonos.apps.portable.execution_package and
+// Fleet. Build the artifact with pantheonos.appkit.portable.execution_package and
 // set FLEET_TEST_PORTABLE_ARTIFACT to its tar path.
 import (
 	"bytes"

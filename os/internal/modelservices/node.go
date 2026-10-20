@@ -15,7 +15,7 @@ import (
 )
 
 // Fleet node access for one owner (formerly FleetLifecycle over the owned
-// resolver, pantheonos/apps/lifecycle.py).
+// resolver, pantheonos/appkit/lifecycle.py).
 type nodes struct {
 	bus   hosted.Bus
 	fleet string

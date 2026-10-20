@@ -8,11 +8,11 @@ import tempfile
 
 
 def build(output: Path, platform: str, *, frontend: Path | None = None):
-    from pantheonos.apps.portable import definition
-    from pantheonos.apps.schema import parse_manifest
+    from pantheonos.appkit.portable import definition
+    from pantheonos.appkit.schema import parse_manifest
     from .managed import ManagedNotebook
     source = Path(__file__).resolve().parent
-    from pantheonos.apps.vendoring import add_package_inits, builtin_app_dir, vendor_file, vendor_tree
+    from pantheonos.appkit.vendoring import add_package_inits, builtin_app_dir, vendor_file, vendor_tree
     runtime = source.parents[1] / 'pantheonos'
     frontend = Path(frontend).resolve() if frontend is not None else source / 'frontend'
     if not (frontend / 'index.js').is_file():
@@ -54,8 +54,8 @@ def build(output: Path, platform: str, *, frontend: Path | None = None):
         # lazy assets come from the explicitly selected frontend build.
         shutil.copyfile(source / 'frontend/control.js', package / 'frontend/control.js')
         vendor = package / 'backend/_vendor'
-        for name in ('toolset.py', 'utils/log.py', 'utils/misc.py', 'apps/runtime_config.py',
-                     'apps/toolset_backend.py', 'internal/package_runtime/context.py', 'remote/backend/base.py'):
+        for name in ('toolset.py', 'utils/log.py', 'utils/misc.py', 'appkit/runtime_config.py',
+                     'appkit/toolset_backend.py', 'internal/package_runtime/context.py', 'remote/backend/base.py'):
             vendor_file(name, vendor)
         vendor_tree('funcdesc', vendor)
         notebook = builtin_app_dir(vendor) / 'notebook'
@@ -64,7 +64,7 @@ def build(output: Path, platform: str, *, frontend: Path | None = None):
             if file.name != 'build_managed.py':
                 shutil.copyfile(file, notebook / file.name)
         add_package_inits(vendor)
-        (package / 'backend/__init__.py').write_text('from pantheonos.apps.builtin.notebook.managed import register\n')
+        (package / 'backend/__init__.py').write_text('from pantheonos.appkit.builtin.notebook.managed import register\n')
         (package / 'requirements.txt').write_text(
             'jupyter-client==8.8.0\nipykernel==7.1.0\nipywidgets==8.1.9\nipycanvas==0.14.3\n'
             'nbformat==5.10.4\njedi==0.19.2\nloguru==0.7.3\nrich==14.3.2\npydantic==2.12.5\npsutil==7.2.2\n')
@@ -72,11 +72,11 @@ def build(output: Path, platform: str, *, frontend: Path | None = None):
         adapter.mkdir()
         shutil.copyfile(source.parent / 'desktop/app_runtime.py', adapter / 'app_runtime.py')
         for name in ('host.py', 'install.py', 'launch.py'):
-            shutil.copyfile(runtime / 'apps/portable_runtime' / name, adapter / name)
+            shutil.copyfile(runtime / 'appkit/portable_runtime' / name, adapter / name)
         # A managed package bypasses portable.execution_package's adapter build.
         # Ship its ordinary SDK host too: Desktop loads /app-host.html from the
         # isolated App origin, not from the Atrium origin or an Agent service.
-        shutil.copytree(runtime / 'apps/portable_runtime/assets', adapter / 'assets')
+        shutil.copytree(runtime / 'appkit/portable_runtime/assets', adapter / 'assets')
         execution = definition(manifest, platform)
         execution['components'][0]['configuration'] = {'values': {'notebook': {'required': True}}}
         execution['hooks']['before_stop']['component'] = 'backend'

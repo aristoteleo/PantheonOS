@@ -63,7 +63,7 @@ class AppModels:
         if 'model_services' in config:
             if (not isinstance(dependency, str) or dependency not in credentials or fleet_client is not None):
                 raise ValueError('Supply one explicit Model Services dependency credential reference')
-            from pantheonos.apps.dependency_client import DependencyClient
+            from pantheonos.appkit.dependency_client import DependencyClient
             from pantheonos.models.dependency import DependencyModelServices
             fleet_client = DependencyModelServices(DependencyClient(credentials[dependency], tls_context=tls_context))
         providers, oauth = config.get('providers', {}), config.get('oauth', [])

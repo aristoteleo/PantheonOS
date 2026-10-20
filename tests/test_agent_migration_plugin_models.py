@@ -128,7 +128,7 @@ def test_plugin_mapping_is_part_of_resume_identity(configured, monkeypatch):
 async def test_migrated_plugin_work_calls_original_connector(configured, tmp_path, model_dependency,
                                                             model_endpoint, tls_material, monkeypatch):
     from pantheon.agent import Agent, _parse_thinking_suffix
-    from pantheonos.apps.runtime_config import RuntimeCredential
+    from pantheonos.appkit.runtime_config import RuntimeCredential
     from pantheon.chatroom.app_models import AppModels
     from pantheonos.models.client import model_ref
     from pantheon.factory.bindings import AgentToolBindings

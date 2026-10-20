@@ -11,7 +11,7 @@ from pantheon.chatroom.services.apps_api import resolve_app_service
 
 @pytest.fixture
 def resolver(monkeypatch):
-    from pantheonos.apps import resolver as module
+    from pantheonos.appkit import resolver as module
     resolver = SimpleNamespace(resolves=lambda name: name in ('file_manager', 'file_transfer', 'shell', 'pty'),
         project_scope=lambda path: 'project:' + path,
         ensure_instance=AsyncMock(return_value='file-service'))

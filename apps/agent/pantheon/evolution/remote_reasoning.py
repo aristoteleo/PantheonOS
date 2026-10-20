@@ -12,7 +12,7 @@ import sqlite3
 from types import SimpleNamespace
 import uuid
 
-from pantheonos.apps.agent_execution_runner import AgentExecutionRunner, ExecutionEnded
+from pantheonos.appkit.agent_execution_runner import AgentExecutionRunner, ExecutionEnded
 from pantheonos.utils.owned_io import run_owned_io
 from .lifetime import EvolutionCleanupError, EvolutionResources, join_cleanup
 

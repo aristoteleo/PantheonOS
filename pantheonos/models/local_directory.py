@@ -16,7 +16,7 @@ from pathlib import Path
 import re
 import stat
 
-from pantheonos.apps.owner_journal import OwnerJournal
+from pantheonos.appkit.owner_journal import OwnerJournal
 from pantheonos.utils.registry_lock import registry_lock
 from .errors import ControlError
 from pydantic import ValidationError

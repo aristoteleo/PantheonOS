@@ -4,10 +4,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheonos.apps.builtin.desktop.browser import BrowserEngine
-from pantheonos.apps.builtin.desktop.fleet_binding import DesktopFleetBinding
-from pantheonos.apps.builtin.desktop.session_binding import DesktopSessionBinding
-from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.appkit.builtin.desktop.browser import BrowserEngine
+from pantheonos.appkit.builtin.desktop.fleet_binding import DesktopFleetBinding
+from pantheonos.appkit.builtin.desktop.session_binding import DesktopSessionBinding
+from pantheonos.appkit.builtin.desktop.toolset import DesktopToolSet
 
 
 def bound(node='mac', generation=1):

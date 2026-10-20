@@ -4,7 +4,7 @@
   "version": "0.7.0",
   "description": "Notebook editing and execution with streaming.",
   "entry": {
-    "backend": "pantheonos.apps.builtin.notebook:IntegratedNotebookToolSet",
+    "backend": "pantheonos.appkit.builtin.notebook:IntegratedNotebookToolSet",
     "frontend": "frontend/control.js",
     "fleetBackend": "fleet_backend/__init__.py"
   },

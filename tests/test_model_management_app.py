@@ -11,9 +11,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheonos.apps.local_agent import native_platform
-from pantheonos.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
-from pantheonos.apps.tool_profiles import compile_tool_profile
+from pantheonos.appkit.local_agent import native_platform
+from pantheonos.appkit.runtime_config import RuntimeConfiguration, RuntimeCredential
+from pantheonos.appkit.tool_profiles import compile_tool_profile
 from pantheonos.models.management_app import create_service, PreparedModelManagement
 from pantheonos.models.management_package import build_package
 from pantheonos.models.management_state import ManagementState
@@ -119,10 +119,10 @@ def hub_and_engine():
 @pytest.mark.asyncio
 async def test_installed_management_controls_original_connector_and_reopens(tmp_path, binaries, hub_and_engine, directory_mode):
     import nats
-    from pantheonos.apps.client import AppClient
-    from pantheonos.apps.credentials import RemoteAppCredentialVault
-    from pantheonos.apps.lifecycle import FleetLifecycle, ConfigurationBusy
-    from pantheonos.apps.resolver import AppInstanceResolver
+    from pantheonos.appkit.client import AppClient
+    from pantheonos.appkit.credentials import RemoteAppCredentialVault
+    from pantheonos.appkit.lifecycle import FleetLifecycle, ConfigurationBusy
+    from pantheonos.appkit.resolver import AppInstanceResolver
     endpoint, rows, requests = hub_and_engine
     package = build_package(tmp_path/'management', native_platform())
     workspace = tmp_path/'workspace'; workspace.mkdir()

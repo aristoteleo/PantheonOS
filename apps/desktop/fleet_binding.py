@@ -8,7 +8,7 @@ The binder must supply a separate connection, not one borrowed from a sibling.
 import asyncio
 from pathlib import Path
 
-from pantheonos.apps.resolver import AppInstanceResolver
+from pantheonos.appkit.resolver import AppInstanceResolver
 
 
 class DesktopFleetBinding:

@@ -31,7 +31,7 @@ HAS_OPENAI = bool(os.environ.get("OPENAI_API_KEY"))
 @pytest.fixture
 def image_toolset():
     """Create ImageGenerationToolSet instance."""
-    from pantheonos.apps.builtin.image import ImageGenerationToolSet
+    from pantheonos.appkit.builtin.image import ImageGenerationToolSet
     return ImageGenerationToolSet()
 
 
@@ -528,7 +528,7 @@ class TestToolSetBasics:
             "pantheonos.utils.adapters.get_adapter",
             lambda sdk: FakeAdapter(),
         )
-        monkeypatch.setattr("pantheonos.apps.builtin.image.image_gen.logger", FakeLogger(), raising=False)
+        monkeypatch.setattr("pantheonos.appkit.builtin.image.image_gen.logger", FakeLogger(), raising=False)
 
         result = await image_toolset.generate_image(
             prompt="Make the input image look like a watercolor painting",
@@ -608,7 +608,7 @@ class TestDallEGeneration:
     async def test_dalle_with_references_via_agent(self, test_images):
         """DALL-E with references requires Agent for vision fallback."""
         from pantheon.agent import Agent
-        from pantheonos.apps.builtin.image import ImageGenerationToolSet
+        from pantheonos.appkit.builtin.image import ImageGenerationToolSet
         
         agent = Agent(
             name="dalle_test",

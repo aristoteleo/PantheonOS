@@ -16,9 +16,9 @@ import httpx
 import nats
 import pytest
 
-from pantheonos.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
-from pantheonos.apps.builtin.desktop.app_runtime import AppContext
-from pantheonos.apps.builtin.desktop import managed
+from pantheonos.appkit.runtime_config import RuntimeConfiguration, RuntimeCredential
+from pantheonos.appkit.builtin.desktop.app_runtime import AppContext
+from pantheonos.appkit.builtin.desktop import managed
 from pantheonos.local.fleet import LocalFleet
 from test_local_fleet import binaries, assert_stopped
 from native_packages import consumer_package
@@ -233,16 +233,16 @@ async def test_second_bus_failure_cleans_first_connection_and_credential(tmp_pat
 
 @pytest.mark.asyncio
 async def test_owned_catalog_metadata_without_ambient_registry(tmp_path, monkeypatch):
-    from pantheonos.apps.builtin.desktop.files_binding import DesktopFilesBinding
-    from pantheonos.apps.builtin.desktop.data_server import LiveViewDataServer, DataServerConfig
-    from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
+    from pantheonos.appkit.builtin.desktop.files_binding import DesktopFilesBinding
+    from pantheonos.appkit.builtin.desktop.data_server import LiveViewDataServer, DataServerConfig
+    from pantheonos.appkit.builtin.desktop.toolset import DesktopToolSet
     apps = tmp_path/'apps'
     app = apps/'custom'; app.mkdir(parents=True)
     (app/'app.json').write_text(json.dumps({'id': 'custom', 'name': 'Owned app',
         'entry': {'frontend': 'ui:custom'}, 'actions': [{'name': 'draw'}]}))
     def forbidden():
         pytest.fail('Owned metadata used global catalog')
-    monkeypatch.setattr('pantheonos.apps.registry.by_app_id', forbidden)
+    monkeypatch.setattr('pantheonos.appkit.registry.by_app_id', forbidden)
     service = DesktopToolSet(files_binding=DesktopFilesBinding(workspace=tmp_path,
         app_roots=[(apps, 'user')], data_roots=[tmp_path], server=LiveViewDataServer(config=DataServerConfig())))
     try:
@@ -296,11 +296,11 @@ async def test_cancelled_start_joins_cleanup_before_releasing_bus(tmp_path, even
 
 @pytest.mark.asyncio
 async def test_packaged_desktop_installed_configured_restarted_by_native_fleet(tmp_path, binaries, event_bus):
-    from pantheonos.apps.builtin.desktop.build_managed import build
-    from pantheonos.apps.client import AppClient
-    from pantheonos.apps.credentials import RemoteAppCredentialVault
-    from pantheonos.apps.lifecycle import FleetLifecycle, ConfigurationBusy
-    from pantheonos.apps.resolver import AppInstanceResolver
+    from pantheonos.appkit.builtin.desktop.build_managed import build
+    from pantheonos.appkit.client import AppClient
+    from pantheonos.appkit.credentials import RemoteAppCredentialVault
+    from pantheonos.appkit.lifecycle import FleetLifecycle, ConfigurationBusy
+    from pantheonos.appkit.resolver import AppInstanceResolver
     platform_id = ('darwin' if sys.platform == 'darwin' else 'linux') + '-' + {
         'arm64': 'arm64', 'aarch64': 'arm64', 'x86_64': 'amd64'}[platform.machine()]
     package = build(tmp_path/'desktop-release', platform_id)

@@ -7,7 +7,7 @@ bindings and configuration revisions remain fenced by the existing data plane.
 import re
 from copy import deepcopy
 
-from pantheonos.apps.lifecycle import FleetLifecycle
+from pantheonos.appkit.lifecycle import FleetLifecycle
 from .managed import module
 from .local_directory import OPERATIONS, _deployment
 from .errors import ControlError

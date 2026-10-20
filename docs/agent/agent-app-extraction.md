@@ -37,7 +37,7 @@ Agent, `apps/` the first-party Apps. `tests/test_package_boundary.py` holds
 `pantheonos` to never importing `pantheon`; the few places that look for an
 installed Agent by name say why. Former `pantheon.*` names of platform modules
 resolve to the same modules (`apps/agent/pantheon/_moved.py`), also in App releases that
-vendor them (`pantheonos/apps/vendoring.py`). A preset may
+vendor them (`pantheonos/appkit/vendoring.py`). A preset may
 install/autostart Agent, but platform login and readiness do not depend on it.
 
 ## Milestones and acceptance
@@ -2130,7 +2130,7 @@ it does not terminate durable remote models/paid nodes or claim a cancelled RPC
 has a known remote outcome. A reopened owner observes original deployment status.
 The future prepared host must invoke this drain before closing its clients.
 
-Fleet and model management now share `pantheonos.apps.fleet_controller`, preserving
+Fleet and model management now share `pantheonos.appkit.fleet_controller`, preserving
 explicit TLS/credential ownership and Fleet's seven-day HPC token policy. Model
 launch/revoke requests use the supplied Controller, never a fallback environment
 when that explicit connection fails. This adds no new runtime dependency.
@@ -2189,7 +2189,7 @@ tokens and update release lookup use its explicit Controller client. Its local
 node comes from the prepared identity rather than host files or hostname guesses.
 A broken connection cannot silently join the environment's Fleet. Shutdown joins
 transfer workers before releasing connections. Desktop and Fleet now share the
-same small `pantheonos.apps.owned_bus` implementation and private credential-file
+same small `pantheonos.appkit.owned_bus` implementation and private credential-file
 cleanup contract; this adds no new third-party runtime dependency.
 
 Installed-package testing exposed a remaining global proxy in window inventory.
@@ -2300,7 +2300,7 @@ tests are not counted as verified, and production defaults remain unchanged.
 
 ### Ordinary credential delivery and local Desktop composition
 
-Owner-side credential delivery now lives in `pantheonos.apps.credentials`. The
+Owner-side credential delivery now lives in `pantheonos.appkit.credentials`. The
 existing model classes remain HTTP-only compatibility adapters over the same
 implementation; neither model API paths nor platform-budget routing are changed.
 Ordinary Apps can provision NATS/TLS/WebSocket credentials through the existing
@@ -3434,7 +3434,7 @@ PANTHEON_TEST_NOTEBOOK_UI=/absolute/path/to/paired/ui \
 PANTHEON_TEST_NOTEBOOK_FRONTEND=/tmp/agent-extraction-notebook-frontend \
   python -m pytest -q tests/test_notebook_gui.py
 
-python -m pantheonos.apps.builtin.notebook.build_managed \
+python -m pantheonos.appkit.builtin.notebook.build_managed \
   --output /tmp/paired-notebook-app --platform darwin-arm64 \
   --frontend /tmp/agent-extraction-notebook-frontend
 ```
@@ -5683,7 +5683,7 @@ reviewing or saving does not start, replace or migrate a running Agent. Account
 changes invalidate pending file reads/reviews; unknown saves still require a
 reload rather than automatic replay.
 
-The owner-side `pantheonos.apps.agent_setup` joins exact release-delivery targets,
+The owner-side `pantheonos.appkit.agent_setup` joins exact release-delivery targets,
 the complete Agent profile and the previous control-credential descriptors.
 References are selected by each control App's actual node. Projects, settings,
 tool/MCP profiles, extra grants and prepared provider Apps pass through unchanged;
@@ -5749,7 +5749,7 @@ credential aliases pass through unchanged. Optional ordinary provider packages
 use the existing portable adapter/native manifests. An already deployed Model
 Service is reused through model selection, not rebuilt by this command.
 
-The owner-side `pantheonos.apps.release_set` delivery command validates every
+The owner-side `pantheonos.appkit.release_set` delivery command validates every
 selected package against its indexed ordinary Fleet artifact digest, checks all
 target owners/platforms, and stages original bytes through `stage_exact`. It
 returns the composer's existing target map with digests filled in. The index
@@ -5893,7 +5893,7 @@ currently published references. It is not a new model-level ACL. The existing
 control facade still rejects replaced instance generations or changed route
 revisions at consumption time. The returned review is not an issued grant.
 
-The pure owner composer now lives in `pantheonos.apps.agent_deployment`; the old
+The pure owner composer now lives in `pantheonos.appkit.agent_deployment`; the old
 `pantheon.chatroom.deployment` import and CLI remain compatible. The platform RPC
 is executable with all Agent/ChatRoom imports blocked. Existing explicit BYOK
 configuration is preserved rather than silently removed or treated as budget
@@ -7709,7 +7709,7 @@ their full release gates below still apply.
 
 ## Prepared owner allocation service
 
-`pantheonos.apps.allocator_package` builds an opt-in, headless
+`pantheonos.appkit.allocator_package` builds an opt-in, headless
 `dependency-binding` App. It uses the ordinary portable native host, lifecycle
 hooks, configuration delivery and dependency gateway. Only the allocation method
 is registered. The artifact contains a bounded set of platform modules and pinned
@@ -7717,7 +7717,7 @@ is registered. The artifact contains a bounded set of platform modules and pinne
 policies or mutable journals. The generation-bound policies arrive through
 prepared configuration, not editable package files or consumer RPC arguments.
 
-Build code with `python -m pantheonos.apps.allocator_package --output <new-dir>
+Build code with `python -m pantheonos.appkit.allocator_package --output <new-dir>
 --platform <linux-amd64|linux-arm64|darwin-amd64|darwin-arm64>`, then use the existing
 Fleet stage/install/prepare/configure/start APIs. The owner journal currently
 requires POSIX; Windows consumers may use its gateway but Windows owner hosting
@@ -9116,7 +9116,7 @@ new admissions, including a request waiting on a liveness probe. Already accepte
 mutations may finish; an unavailable provider produces an unknown-outcome error,
 not an automatic replay. Gateway restart invalidates its in-memory grants.
 
-`pantheonos.apps.dependency_client.DependencyClient` consumes an explicit
+`pantheonos.appkit.dependency_client.DependencyClient` consumes an explicit
 `RuntimeCredential` from the ordinary configuration snapshot. It uses HTTPS with
 normal certificate verification, ignores ambient proxy/login/Fleet credentials,
 follows no redirects and performs no retries. These are scoped **bearer** grants,

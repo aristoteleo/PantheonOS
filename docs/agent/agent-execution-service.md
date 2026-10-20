@@ -21,7 +21,7 @@ code loading or caller-controlled local tool factory in the Agent service.
 
 The owner declares an ordinary runtime dependency on `agent-execution@1` and uses
 `execution_method_rules(logical_consumer_id)` from
-`pantheonos.apps.agent_execution_client` when assembling the existing generic
+`pantheonos.appkit.agent_execution_client` when assembling the existing generic
 dependency grant. Every method **binds `consumer_id` at the gateway**, removing
 that field from caller-controlled arguments. The ID must come from the owner's
 durable logical identity; an HTTP field alone is not authentication. The existing
@@ -109,7 +109,7 @@ executable hooks. Invalid reminders are rejected before request admission.
 
 ### Caller-owned dispatcher
 
-`pantheonos.apps.agent_execution_runner.AgentExecutionRunner` implements the caller
+`pantheonos.appkit.agent_execution_runner.AgentExecutionRunner` implements the caller
 side with the existing `AgentExecutionClient`, an explicit logical binding ID and
 an async authorized tool callback. It imports no Agent, provider SDK, Model
 Services implementation or platform authority. Its private SQLite ledger holds

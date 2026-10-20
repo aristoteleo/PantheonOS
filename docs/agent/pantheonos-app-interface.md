@@ -124,7 +124,7 @@ from the Agent, and a disabled App is not listed to the Agent at all.
   tools, reached with `pantheonos_call_app(app="desktop", …)` like any App's.
 
 The Desktop's methods for the Agent (`agent_app_*`, granted to the Agent as
-service methods in `pantheonos/apps/general_agent_preset.py`):
+service methods in `pantheonos/appkit/general_agent_preset.py`):
 
 | Method | Used by |
 |---|---|

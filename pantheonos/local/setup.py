@@ -10,10 +10,10 @@ from pathlib import Path
 import sys
 import uuid
 
-from pantheonos.apps.credentials import app_credential_endpoint
-from pantheonos.apps.dependency_assembly import AssemblyError
-from pantheonos.apps.local_agent import read_bundle, compose_profile
-from pantheonos.apps.owner_journal import OwnerJournal
+from pantheonos.appkit.credentials import app_credential_endpoint
+from pantheonos.appkit.dependency_assembly import AssemblyError
+from pantheonos.appkit.local_agent import read_bundle, compose_profile
+from pantheonos.appkit.owner_journal import OwnerJournal
 from pantheonos.models.client import model_ref
 from pantheonos.models.managed import module
 from .launch import unique_fields as _unique_fields

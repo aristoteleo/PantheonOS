@@ -378,7 +378,7 @@ class MCPCommandHandler(CommandHandler):
             self.console.print("[red]MCP manager not available[/red]")
             return None
         
-        from pantheonos.apps.builtin.mcp.manager import MCPServerConfig, MCPServerType
+        from pantheonos.appkit.builtin.mcp.manager import MCPServerConfig, MCPServerType
         
         try:
             if server_type == "http":

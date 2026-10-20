@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheonos.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
+from pantheonos.appkit.runtime_config import RuntimeConfiguration, RuntimeCredential
 from pantheonos.models.errors import ControlError
 from pantheonos.models.local_directory import LocalModelDirectory
 from pantheonos.models.management_app import create_service

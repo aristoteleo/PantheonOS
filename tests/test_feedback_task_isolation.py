@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from pantheonos.apps.builtin.task.task_toolset import TaskToolSet
+from pantheonos.appkit.builtin.task.task_toolset import TaskToolSet
 
 
 @pytest.mark.asyncio

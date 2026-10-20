@@ -8,11 +8,11 @@ import tempfile
 
 RUNTIME_FILES = '''toolset.py utils/log.py utils/misc.py utils/file_paths.py
 internal/package_runtime/context.py remote/backend/base.py
-apps/runtime_config.py apps/owned_bus.py apps/toolset_backend.py apps/resolver.py apps/client.py
-apps/lifecycle.py apps/portable.py apps/reflect.py apps/schema.py apps/registry.py apps/app_build.py
-apps/distribution.py apps/store_release.py apps/versioning.py apps/compat.py
-apps/dependency_assembly.py apps/tool_profiles.py apps/owner_journal.py utils/registry_lock.py
-models/group_network.py models/group_overlay.py apps/stream_runtime.py'''.split()
+appkit/runtime_config.py appkit/owned_bus.py appkit/toolset_backend.py appkit/resolver.py appkit/client.py
+appkit/lifecycle.py appkit/portable.py appkit/reflect.py appkit/schema.py appkit/registry.py appkit/app_build.py
+appkit/distribution.py appkit/store_release.py appkit/versioning.py appkit/compat.py
+appkit/dependency_assembly.py appkit/tool_profiles.py appkit/owner_journal.py utils/registry_lock.py
+models/group_network.py models/group_overlay.py appkit/stream_runtime.py'''.split()
 
 
 # The desktop's built-in Apps (viewers, Files, Terminal, ...): what the pod's
@@ -22,7 +22,7 @@ BUILTIN_APPS = 'builtin-apps'
 
 
 def bundle_builtin_apps(apps, destination):
-    from pantheonos.apps.distribution import included
+    from pantheonos.appkit.distribution import included
     for directory in sorted(apps.iterdir()):
         manifest = directory / 'app.json'
         if not manifest.is_file():
@@ -38,9 +38,9 @@ def bundle_builtin_apps(apps, destination):
 
 
 def build(output, platform, *, data_mode='loopback'):
-    from pantheonos.apps.portable import definition
-    from pantheonos.apps.reflect import reflect_toolset_class
-    from pantheonos.apps.schema import parse_manifest
+    from pantheonos.appkit.portable import definition
+    from pantheonos.appkit.reflect import reflect_toolset_class
+    from pantheonos.appkit.schema import parse_manifest
     from .toolset import DesktopToolSet
     # Store and Desktop documents currently use POSIX file locks. Do not ship a
     # manifest claiming Windows support before the actual service can run there.
@@ -49,7 +49,7 @@ def build(output, platform, *, data_mode='loopback'):
     if data_mode not in ('loopback', 'tunnel', 'gateway'):
         raise ValueError('Desktop data mode must be loopback, tunnel or gateway')
     source = Path(__file__).resolve().parent
-    from pantheonos.apps.vendoring import add_package_inits, builtin_app_dir, runtime_path, vendor_file, vendor_tree
+    from pantheonos.appkit.vendoring import add_package_inits, builtin_app_dir, runtime_path, vendor_file, vendor_tree
     runtime = source.parents[1] / 'pantheonos'
     output = Path(output).absolute()
     if output.exists() or output.is_symlink():
@@ -86,16 +86,16 @@ def build(output, platform, *, data_mode='loopback'):
             copy(source.parent / name, builtin_app_dir(vendor) / name)
         # These canonical adapters stage ordinary Browser/native App artifacts;
         # the prepared Desktop does not install or launch a browser at startup.
-        for directory in ('apps/portable_runtime', 'apps/native_stream'):
+        for directory in ('appkit/portable_runtime', 'appkit/native_stream'):
             for path in (runtime / directory).rglob('*'):
                 if path.is_file() and '__pycache__' not in path.parts and path.suffix != '.pyc':
                     copy(path, vendor / 'pantheonos' / path.relative_to(runtime))
         add_package_inits(vendor)
-        (root / 'backend/__init__.py').write_text('from pantheonos.apps.builtin.desktop.managed import register\n')
+        (root / 'backend/__init__.py').write_text('from pantheonos.appkit.builtin.desktop.managed import register\n')
         copy(source / 'requirements.lock', root / 'requirements.txt')
         copy(source / 'app_runtime.py', root / '.fleet-runtime/app_runtime.py')
         for name in ('host.py', 'install.py', 'launch.py'):
-            copy(runtime / 'apps/portable_runtime' / name, root / '.fleet-runtime' / name)
+            copy(runtime / 'appkit/portable_runtime' / name, root / '.fleet-runtime' / name)
         execution = definition(manifest, platform)
         component = execution['components'][0]
         component['configuration'] = {

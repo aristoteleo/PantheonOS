@@ -189,7 +189,7 @@ import sys
 sys.path.insert(0, {root!r})
 import asyncio
 from pantheonos.toolset import ToolSet, tool
-from pantheonos.apps.toolset_backend import register_toolset
+from pantheonos.appkit.toolset_backend import register_toolset
 
 async def register(ctx):
     class Service(ToolSet):

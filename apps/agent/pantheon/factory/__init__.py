@@ -2,8 +2,8 @@ import asyncio
 from uuid import UUID
 from collections.abc import Mapping
 from pantheon.agent import Agent
-from pantheonos.apps.proxy import ToolsetProxy
-from pantheonos.apps.proxy import LOCAL_FILE_ROUTES
+from pantheonos.appkit.proxy import ToolsetProxy
+from pantheonos.appkit.proxy import LOCAL_FILE_ROUTES
 from pantheon.internal.memory_system.file_routing import route_memory_file
 
 # The Agent's memory files live with the Agent: its file calls to them are
@@ -16,7 +16,7 @@ async def _resolve_toolset_proxy(toolset_name: str) -> ToolsetProxy:
     """The one binding decision: every toolset is an App instance, ensured
     on the user's node via the fleet runner and dialed by service_id.
     There is no other route."""
-    from pantheonos.apps.resolver import get_shared_resolver
+    from pantheonos.appkit.resolver import get_shared_resolver
 
     resolver = get_shared_resolver()
     if resolver is None:
@@ -195,7 +195,7 @@ async def create_agent(
     # The mcp-gateway App instance answers everything the endpoint's
     # mcp_manager used to: server starts here, the unified URI below.
     async def _gateway_call(method: str, call_args: dict) -> dict:
-        from pantheonos.apps.resolver import get_shared_resolver
+        from pantheonos.appkit.resolver import get_shared_resolver
 
         resolver = get_shared_resolver()
         if resolver is None:

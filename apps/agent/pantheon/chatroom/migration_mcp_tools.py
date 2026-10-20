@@ -7,7 +7,7 @@ legacy provider's prefix filtering; it is not migration/import admission.
 import asyncio
 from copy import deepcopy
 
-from pantheonos.apps.builtin.mcp.scoped import NAME, bounded, validate_exports
+from pantheonos.appkit.builtin.mcp.scoped import NAME, bounded, validate_exports
 
 
 def _catalog(tools):
@@ -82,7 +82,7 @@ async def capture_mcp_tools(manager, *, providers):
     Returned data has no server coordinates or launch environment.
     """
     from fastmcp import Client
-    from pantheonos.apps.builtin.mcp.manager import MCPManager
+    from pantheonos.appkit.builtin.mcp.manager import MCPManager
     if not isinstance(manager, MCPManager) or not manager._lock.locked():
         raise ValueError('Capture through the original locked MCP gateway')
     gateway = manager._gateway

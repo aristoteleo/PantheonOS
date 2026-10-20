@@ -4,9 +4,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from pantheonos.apps.portable import execution_package, portable_backend, stream_backend
-from pantheonos.apps.builtin.desktop.app_placement import AppPlacement
-from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.appkit.portable import execution_package, portable_backend, stream_backend
+from pantheonos.appkit.builtin.desktop.app_placement import AppPlacement
+from pantheonos.appkit.builtin.desktop.toolset import DesktopToolSet
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -44,7 +44,7 @@ def test_stream_node_filter_does_not_mistake_mac_display_for_xpra():
 
 
 def test_only_trusted_native_driver_is_portable():
-    trusted = {'id': 'qupath', 'entry': {'nativeDriver': 'pantheonos.apps.builtin.qupath.native:NativeAppManager'}}
+    trusted = {'id': 'qupath', 'entry': {'nativeDriver': 'pantheonos.appkit.builtin.qupath.native:NativeAppManager'}}
     assert stream_backend(trusted) and portable_backend(trusted)
     assert not stream_backend({'id': 'qupath', 'entry': {'nativeDriver': 'arbitrary:Driver'}})
 
@@ -68,7 +68,7 @@ async def test_stream_calls_keep_exact_binding_and_reject_another_node():
 
 @pytest.mark.asyncio
 async def test_created_stream_page_returns_the_published_desktop_revision(tmp_path):
-    from pantheonos.apps.builtin.desktop.desktop_session import DesktopSessionStore
+    from pantheonos.appkit.builtin.desktop.desktop_session import DesktopSessionStore
     store = DesktopSessionStore(tmp_path)
     bound = {'node_id': 'node-a', 'instance_id': 'one', 'revision': 'digest', 'generation': 2}
     wid = store.apply('open', {'app_id': 'browser', 'args': {'appInstance': bound}})[1]['window_id']

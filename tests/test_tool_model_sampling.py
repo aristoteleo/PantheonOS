@@ -8,13 +8,13 @@ from types import MappingProxyType
 from PIL import Image
 import pytest
 
-from pantheonos.apps.builtin.desktop.app_runtime import AppContext
-from pantheonos.apps.builtin.file.build_managed import build
-from pantheonos.apps.model_sampling import ToolModelSampling
-from pantheonos.apps.lifecycle import build_artifact
-from pantheonos.apps.runtime_config import RuntimeCredential
-from pantheonos.apps.toolset_backend import register_toolset
-from pantheonos.apps.dependency_client import DependencyClient
+from pantheonos.appkit.builtin.desktop.app_runtime import AppContext
+from pantheonos.appkit.builtin.file.build_managed import build
+from pantheonos.appkit.model_sampling import ToolModelSampling
+from pantheonos.appkit.lifecycle import build_artifact
+from pantheonos.appkit.runtime_config import RuntimeCredential
+from pantheonos.appkit.toolset_backend import register_toolset
+from pantheonos.appkit.dependency_client import DependencyClient
 from pantheonos.models.dependency import DependencyModelServices
 from pantheonos.toolset import ToolSet, tool
 from test_model_dependency import model_dependency, model_endpoint, tls_material

@@ -732,7 +732,7 @@ class PackageManager:
         skipped = 0
         slow_threshold_s = 0.05
         try:
-            import pantheonos.apps.builtin as builtin_toolsets
+            import pantheonos.appkit.builtin as builtin_toolsets
         except Exception:  # pragma: no cover - import failure surfaced
             logger.exception("Unable to import built-in Pantheon toolsets")
             return

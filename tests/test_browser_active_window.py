@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheonos.apps.builtin.desktop.browser import BrowserEngine, PageSession
+from pantheonos.appkit.builtin.desktop.browser import BrowserEngine, PageSession
 
 
 class Page:

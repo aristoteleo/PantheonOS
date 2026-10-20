@@ -273,7 +273,7 @@ async def test_a_desktop_that_is_not_up_is_asked_again_later_or_when_an_app_is_n
 
 def test_the_deployment_apps_are_the_presets_providers():
     from pantheon.agent_app_directory import DEPLOYMENT_APPS
-    from pantheonos.apps.general_agent_preset import PROVIDERS
+    from pantheonos.appkit.general_agent_preset import PROVIDERS
     assert DEPLOYMENT_APPS == {app_id for app_id, _ in PROVIDERS.values()}
 
 
@@ -357,7 +357,7 @@ async def test_the_desktop_stops_an_apps_running_backends(monkeypatch):
         async def submit(self, node_id, action, digest, *, generation=0, **kw):
             submitted.append((node_id, action, digest, generation))
             return {'request': {'operation_id': 'op1'}}
-    monkeypatch.setattr('pantheonos.apps.lifecycle.FleetLifecycle', Lifecycle)
+    monkeypatch.setattr('pantheonos.appkit.lifecycle.FleetLifecycle', Lifecycle)
     placement = Placement({'graph-tools': TOOL_APP})
     placement.resolver = None
     placement.nodes = AsyncMock(return_value=[])

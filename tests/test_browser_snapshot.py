@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheonos.apps.builtin.desktop.browser_snapshot import BROWSER_SNAPSHOT_JS
-from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.appkit.builtin.desktop.browser_snapshot import BROWSER_SNAPSHOT_JS
+from pantheonos.appkit.builtin.desktop.toolset import DesktopToolSet
 
 
 @pytest.fixture

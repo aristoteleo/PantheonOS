@@ -4,7 +4,7 @@
   "version": "0.6.5",
   "description": "Evolutionary experiment runs.",
   "entry": {
-    "backend": "pantheonos.apps.builtin.evolution:EvolutionToolSet"
+    "backend": "pantheonos.appkit.builtin.evolution:EvolutionToolSet"
   },
   "provides": {
     "tools": [

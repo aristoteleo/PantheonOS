@@ -1,6 +1,6 @@
 """Reap actual HTTP servers created by legacy Desktop data tests."""
 import pytest
-from pantheonos.apps.builtin.desktop.data_server import LiveViewDataServer
+from pantheonos.appkit.builtin.desktop.data_server import LiveViewDataServer
 
 
 @pytest.fixture(autouse=True)

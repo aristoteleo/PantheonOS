@@ -10,7 +10,7 @@ from pathlib import Path
 import asyncio
 import shlex
 
-from pantheonos.apps.runtime_config import load_runtime_configuration
+from pantheonos.appkit.runtime_config import load_runtime_configuration
 from pantheon.chatroom.launch import ConfiguredAgentApplication
 from pantheon.dependency_provider import _drain_call
 from .core import Repl

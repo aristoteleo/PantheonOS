@@ -10,8 +10,8 @@ import shlex
 import sys
 from PIL import Image
 
-from pantheonos.apps.builtin.mcp import MCPGatewayToolSet
-from pantheonos.apps.builtin.mcp.manager import MCPManager, MCPServerConfig, MCPServerInstance
+from pantheonos.appkit.builtin.mcp import MCPGatewayToolSet
+from pantheonos.appkit.builtin.mcp.manager import MCPManager, MCPServerConfig, MCPServerInstance
 from pantheon.chatroom.migration import fence_legacy
 from pantheon.chatroom.migration_backup import backup_legacy
 from pantheon.chatroom.migration_mcp_configuration import MCPConfigurationConversion

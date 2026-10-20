@@ -8,10 +8,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from pantheonos.apps.builtin.desktop.app_runtime import AppContext
-from pantheonos.apps.builtin.file import managed
-from pantheonos.apps.builtin.file.build_managed import build
-from pantheonos.apps.lifecycle import build_artifact
+from pantheonos.appkit.builtin.desktop.app_runtime import AppContext
+from pantheonos.appkit.builtin.file import managed
+from pantheonos.appkit.builtin.file.build_managed import build
+from pantheonos.appkit.lifecycle import build_artifact
 
 
 def test_packaged_files_without_model_credentials_remains_complete(tmp_path):
@@ -44,14 +44,14 @@ async def main():
  ctx=AppContext('file-manager',Path.cwd(),Path.cwd()/'state',None)
  try:
   backend=_load_backend(Path(sys.argv[2]))
-  from pantheonos.apps import model_sampling
+  from pantheonos.appkit import model_sampling
   def forbidden(*args, **kwargs): raise AssertionError('Unconfigured model client constructed')
   model_sampling.model_client=forbidden
   await backend.register(ctx)
   assert set(ctx._methods)==set(json.loads(sys.argv[3]))
   async def unread(*args, **kwargs): raise AssertionError('Unconfigured capability read image inputs')
   # RPC closures bind service methods; replace its preview before invoking.
-  from pantheonos.apps.builtin.file.managed import ManagedFiles
+  from pantheonos.appkit.builtin.file.managed import ManagedFiles
   ManagedFiles.fetch_image_base64=unread
   observed=await ctx._methods['observe_images'](question='What?',image_paths=['missing.png'])
   generated=await ctx._methods['generate_image'](prompt='Draw',model='ambient-provider',reference_images=['missing.png'])

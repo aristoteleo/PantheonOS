@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheonos.apps.client import AppClient
+from pantheonos.appkit.client import AppClient
 from pantheonos.models import manager
 
 

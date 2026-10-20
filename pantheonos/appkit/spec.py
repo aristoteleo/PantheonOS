@@ -1,0 +1,100 @@
+"""Building an app_start spec — the control plane's half of P3.
+
+The fleet runner supervises whatever concrete process spec it is sent
+(os/internal/apps); resolving an App's manifest into that spec happens
+HERE, next to the registry. For a python App the command line is the
+pantheonos.apphost invocation; a Go builtin will swap the command without the
+caller noticing.
+
+The wire shape mirrors fleet's proto.AppCommand exactly — the cross-language
+boundary is this JSON.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+from pantheonos.appkit.registry import by_app_id
+from pantheonos.utils.misc import generate_service_id
+
+
+def instance_service_seed(user_seed: str, app_id: str, scope: str = "app") -> str:
+    """The stable id-hash seed for one App instance.
+
+    Same family as every existing service: generate_service_id(seed) ignores
+    names, so distinct seeds are what keep instances on distinct subjects
+    (the chatroom/-endpoint suffix precedent).
+    """
+    if scope == "app":
+        return f"{user_seed}-app-{app_id}"
+    return f"{user_seed}-app-{app_id}-{scope}"
+
+
+def apphost_spec(
+    app_id: str,
+    *,
+    user_seed: str,
+    workdir: str,
+    scope: str = "app",
+    python: str | None = None,
+    env: dict[str, str] | None = None,
+    version: str = "",
+) -> dict:
+    """An app_start payload (proto.AppCommand) for a catalog App.
+
+    Args:
+        app_id: A catalog App id (the registry refuses unknown ids).
+        user_seed: The user's stable id-hash (as the hub assigns).
+        workdir: Workspace directory for fs-bound apps.
+        python: Interpreter for the apphost process (default: this one).
+        env: Extra per-instance environment (e.g. scoped NATS creds).
+    """
+    apps = by_app_id()
+    if app_id not in apps:
+        raise ValueError(f"unknown app id {app_id!r} (known: {sorted(apps)})")
+    seed = instance_service_seed(user_seed, app_id, scope)
+    # The manifest's runtime decides the spec: builtin apps run inside the
+    # fleet runner itself — no command line, no python on the node. The env
+    # STILL travels: it carries the service-plane NATS coordinates
+    # (NATS_SERVERS/JWT/prefix) the runner's builtinConn dials — dropping it
+    # here left builtins registering on the runner's own fleet bus, healthy
+    # and unreachable (staging round 8).
+    if apps[app_id].manifest.runtime.value == "builtin":
+        return {
+            "app_id": app_id,
+            "scope": scope,
+            "version": version,
+            "service_id": generate_service_id(seed),
+            "runtime": "builtin",
+            "command": [],
+            "dir": workdir,
+            "env": dict(env or {}),
+        }
+    # The apphost process must find pantheonos (and the packages installed
+    # beside it) regardless of its own cwd (the workdir) or whatever relative
+    # PYTHONPATH the caller inherited — inject its location, absolute, ahead
+    # of anything given.
+    import pantheonos as _pantheonos
+
+    pantheon_root = str(Path(_pantheonos.__file__).resolve().parent.parent)
+    merged_env = dict(env or {})
+    existing_pp = merged_env.get("PYTHONPATH", "")
+    parts = [pantheon_root] + [p for p in existing_pp.split(os.pathsep) if p and p != pantheon_root]
+    merged_env["PYTHONPATH"] = os.pathsep.join(parts)
+    return {
+        "app_id": app_id,
+        "scope": scope,
+        "version": version,
+        "service_id": generate_service_id(seed),
+        "command": [
+            python or sys.executable,
+            "-m", "pantheonos.apphost",
+            "--app-id", app_id,
+            "--workdir", workdir,
+            "--id-hash", seed,
+        ],
+        "dir": workdir,
+        "env": merged_env,
+    }

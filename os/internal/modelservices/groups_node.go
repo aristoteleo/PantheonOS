@@ -11,7 +11,7 @@ import (
 )
 
 // Node operations of group members (FleetLifecycle.group_* in
-// pantheonos/apps/lifecycle.py). Every operation is idempotent on its original
+// pantheonos/appkit/lifecycle.py). Every operation is idempotent on its original
 // binding; a lost reply retries the same request.
 
 // groupAuthority runs a public certificate operation on the rank-zero node.

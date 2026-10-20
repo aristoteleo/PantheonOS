@@ -14,13 +14,13 @@ import urllib.request
 
 import pytest
 
-from pantheonos.apps.agent_execution_client import AgentExecutionClient
-from pantheonos.apps.dependency_client import DependencyClient
-from pantheonos.apps.lifecycle import build_artifact
-from pantheonos.apps.modal_app_transport import ModalAppTransport
-from pantheonos.apps.modal_image import ModalAppImage
-from pantheonos.apps.modal_sandbox import ModalSandboxOwner
-from pantheonos.apps.runtime_config import RuntimeCredential
+from pantheonos.appkit.agent_execution_client import AgentExecutionClient
+from pantheonos.appkit.dependency_client import DependencyClient
+from pantheonos.appkit.lifecycle import build_artifact
+from pantheonos.appkit.modal_app_transport import ModalAppTransport
+from pantheonos.appkit.modal_image import ModalAppImage
+from pantheonos.appkit.modal_sandbox import ModalSandboxOwner
+from pantheonos.appkit.runtime_config import RuntimeCredential
 from pantheon.evolution.sandbox.agent_execution import SandboxAgentExecution
 from pantheon.evolution.sandbox.package import build_package
 from test_agent_native_process import native_process, request
@@ -131,7 +131,7 @@ async def test_real_modal_controller_initial_and_mutation_with_native_agent(tmp_
                 with urllib.request.urlopen(req, timeout=30) as response:
                     return json.load(response)
         sdk = AgentExecutionClient(LocalGrant(RuntimeCredential('https://bound.example/rpc', 'a' * 64)))
-        from pantheonos.apps.modal_placement import PreparedModalApp
+        from pantheonos.appkit.modal_placement import PreparedModalApp
         from pantheon.evolution import EvolutionConfig, EvolutionTeam, HybridEvaluator
         from pantheon.evolution.remote_execution import RemoteEvolutionBinding
         monkeypatch.setattr(HybridEvaluator, 'evaluate', forbid)

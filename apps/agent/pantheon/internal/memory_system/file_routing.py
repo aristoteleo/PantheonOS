@@ -78,7 +78,7 @@ async def route_memory_file(method: str, args: dict, *, workdir: str | None = No
         except (OSError, UnicodeError) as error:
             return {"success": False, "error": f"Cannot preview memory file: {error}"}
 
-    from pantheonos.apps.builtin.file import FileManagerToolSet
+    from pantheonos.appkit.builtin.file import FileManagerToolSet
     manager = FileManagerToolSet("agent-memory-files", path=path.parent)
     kwargs = {key: value for key, value in args.items() if key in _FILE_METHODS[method]}
     return await getattr(manager, method)(file_path=str(path), **kwargs)

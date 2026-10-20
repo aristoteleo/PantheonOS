@@ -11,7 +11,7 @@ import argparse
 import json
 from pathlib import Path
 
-from pantheonos.apps.dependency_assembly import AssemblyError, _matches
+from pantheonos.appkit.dependency_assembly import AssemblyError, _matches
 from .launch import LaunchJournal, PrivateJournal, private_json, read_launch, validate_launch
 from .update import changed_paths, digest
 
@@ -38,7 +38,7 @@ def state(path):
 
 
 def _compose(bundle, setup):
-    from pantheonos.apps.local_agent import compose_profile, read_bundle
+    from pantheonos.appkit.local_agent import compose_profile, read_bundle
     _, entries = read_bundle(bundle)
     return compose_profile(entries, private_json(setup))
 

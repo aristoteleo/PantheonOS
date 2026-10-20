@@ -14,7 +14,7 @@ class NativeAppManager:
 
     def _driver(self, app_id):
         if app_id not in self.drivers:
-            from pantheonos.apps.registry import default_scope_roots
+            from pantheonos.appkit.registry import default_scope_roots
             from pantheonos.settings import get_settings
             from pathlib import Path
             from .store_manager import AppStoreManager
@@ -24,7 +24,7 @@ class NativeAppManager:
             # Native drivers remain trusted OS integration code. Installing an
             # App never grants its manifest permission to import arbitrary code
             # into the Desktop daemon.
-            trusted = {'qupath': 'pantheonos.apps.builtin.qupath.native:NativeAppManager'}
+            trusted = {'qupath': 'pantheonos.appkit.builtin.qupath.native:NativeAppManager'}
             entry = trusted.get(app_id)
             if not installed or not entry:
                 raise ValueError(f"No installed native driver for App: {app_id}")

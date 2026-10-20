@@ -10,8 +10,8 @@ import sys
 from fastmcp import Client
 import pytest
 
-from pantheonos.apps.builtin.mcp.scoped import ScopedMCP
-from pantheonos.apps.runtime_config import RuntimeCredential
+from pantheonos.appkit.builtin.mcp.scoped import ScopedMCP
+from pantheonos.appkit.runtime_config import RuntimeCredential
 from pantheon.chatroom.migration import fence_legacy
 from pantheon.chatroom.migration_backup import backup_legacy
 from pantheon.chatroom.migration_mcp_credentials import MCPEnvironmentConversion

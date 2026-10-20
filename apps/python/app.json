@@ -4,7 +4,7 @@
   "version": "0.6.5",
   "description": "Execute Python in the workspace (Jupyter-kernel backed).",
   "entry": {
-    "backend": "pantheonos.apps.builtin.python:PythonInterpreterToolSet"
+    "backend": "pantheonos.appkit.builtin.python:PythonInterpreterToolSet"
   },
   "provides": {
     "tools": [

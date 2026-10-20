@@ -7,7 +7,7 @@ from urllib.error import HTTPError
 
 import pytest
 
-from pantheonos.apps.dependency_assembly import AssemblyError
+from pantheonos.appkit.dependency_assembly import AssemblyError
 from pantheonos.local.deployment import DIRECTORY_SECRET, OWNER_SECRET, deployment_spec, release_archive, render
 from pantheonos.local import release as local_release
 from pantheonos.local import update as local_update

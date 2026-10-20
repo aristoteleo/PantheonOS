@@ -12,11 +12,11 @@ from fastmcp import Client, Context, FastMCP
 from mcp.types import CreateMessageRequestParams, SamplingMessage, TextContent
 import pytest
 
-from pantheonos.apps.builtin.mcp.sampling import ModelSampling
-from pantheonos.apps.builtin.mcp.scoped import ScopedMCP
-from pantheonos.apps.runtime_config import RuntimeCredential
+from pantheonos.appkit.builtin.mcp.sampling import ModelSampling
+from pantheonos.appkit.builtin.mcp.scoped import ScopedMCP
+from pantheonos.appkit.runtime_config import RuntimeCredential
 from pantheonos.models.dependency import DependencyModelServices
-from pantheonos.apps.dependency_client import DependencyClient
+from pantheonos.appkit.dependency_client import DependencyClient
 from test_scoped_mcp_app import config, contract
 from test_model_dependency import model_dependency, model_endpoint, tls_material
 
@@ -235,7 +235,7 @@ async def test_built_mcp_sampling_runs_without_agent_or_provider_sdks(
     import os
     from pathlib import Path
     import sys
-    from pantheonos.apps.mcp_package import build_package
+    from pantheonos.appkit.mcp_package import build_package
     server = FastMCP('Contract')
     @server.tool
     async def ask(ctx: Context) -> dict:

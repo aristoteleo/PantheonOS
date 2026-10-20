@@ -9,8 +9,8 @@ import asyncio
 from collections.abc import Mapping
 import ssl
 
-from pantheonos.apps.dependency_assembly import AssemblyError
-from pantheonos.apps.runtime_config import load_runtime_configuration
+from pantheonos.appkit.dependency_assembly import AssemblyError
+from pantheonos.appkit.runtime_config import load_runtime_configuration
 from pantheonos.models.dependency_service import ModelServiceControl
 from pantheonos.models.errors import ControlError
 from pantheonos.models.access_control import ModelDependencyControl

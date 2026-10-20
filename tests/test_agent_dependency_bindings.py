@@ -19,8 +19,8 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 import pytest
 
-from pantheonos.apps.dependency_client import DependencyClient, DependencyCallError
-from pantheonos.apps.runtime_config import RuntimeCredential, load_runtime_configuration
+from pantheonos.appkit.dependency_client import DependencyClient, DependencyCallError
+from pantheonos.appkit.runtime_config import RuntimeCredential, load_runtime_configuration
 from pantheon.chatroom.lifecycle import AgentLifetime
 from pantheon.dependency_provider import DependencyToolProvider
 from pantheon.factory import create_agent, create_agents_from_template
@@ -102,7 +102,7 @@ def forbid_ambient_tools(monkeypatch):
         raise AssertionError("Explicit tool assembly used ambient service discovery/settings")
     monkeypatch.setattr("pantheon.factory.get_settings", forbidden)
     monkeypatch.setattr("pantheon.factory._resolve_toolset_proxy", forbidden)
-    monkeypatch.setattr("pantheonos.apps.resolver.get_shared_resolver", forbidden)
+    monkeypatch.setattr("pantheonos.appkit.resolver.get_shared_resolver", forbidden)
     monkeypatch.setenv("HTTPS_PROXY", "https://do-not-use.invalid")
     monkeypatch.setenv("FLEET_KEY", "owner-key-must-not-escape")
 

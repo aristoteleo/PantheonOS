@@ -14,7 +14,7 @@ from aiohttp import web
 from playwright.async_api import async_playwright
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from pantheonos.apps.builtin.notebook.integrated_notebook import IntegratedNotebookToolSet
+from pantheonos.appkit.builtin.notebook.integrated_notebook import IntegratedNotebookToolSet
 
 
 CODE = """

@@ -9,7 +9,7 @@ import tempfile
 import uuid
 
 from PIL import Image
-from pantheonos.apps.model_sampling import ModelClientOwner
+from pantheonos.appkit.model_sampling import ModelClientOwner
 from pantheonos.models.client import parse_ref, parse_route_ref
 
 MIMES = {'PNG': 'image/png', 'JPEG': 'image/jpeg', 'WEBP': 'image/webp'}

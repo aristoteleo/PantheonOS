@@ -15,8 +15,8 @@ import time
 import httpx
 import pytest
 
-from pantheonos.apps.dependency_assembly import AssemblyError
-from pantheonos.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
+from pantheonos.appkit.dependency_assembly import AssemblyError
+from pantheonos.appkit.runtime_config import RuntimeConfiguration, RuntimeCredential
 from pantheonos.models.errors import ControlError
 from pantheonos.models.dependency_service import ModelServiceControl
 from pantheonos.models.access_control import ModelDependencyControl, inference_rules
@@ -263,8 +263,8 @@ async def test_packaged_model_owner_real_tls_and_ordinary_host(tmp_path, tls_mat
     try:
         platform = 'darwin-arm64' if sys.platform == 'darwin' else 'linux-amd64'
         package = build_package(tmp_path/'package', platform)
-        from pantheonos.apps.schema import parse_manifest
-        from pantheonos.apps.lifecycle import build_artifact
+        from pantheonos.appkit.schema import parse_manifest
+        from pantheonos.appkit.lifecycle import build_artifact
         assert parse_manifest(json.loads((package/'app.json').read_text())).id == 'model-services-control'
         payload, digest = build_artifact(package)
         assert payload and len(digest) == 64

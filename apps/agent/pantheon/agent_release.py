@@ -9,10 +9,10 @@ import json
 from pathlib import Path
 import tempfile
 
-from pantheonos.apps.dependency_assembly import AssemblyError, NAME, _matches
-from pantheonos.apps.general_agent_preset import PROVIDERS
-from pantheonos.apps.release_set import index_packages
-from pantheonos.apps.tool_profiles import compile_tool_profile
+from pantheonos.appkit.dependency_assembly import AssemblyError, NAME, _matches
+from pantheonos.appkit.general_agent_preset import PROVIDERS
+from pantheonos.appkit.release_set import index_packages
+from pantheonos.appkit.tool_profiles import compile_tool_profile
 
 
 def build_release(destination, platform, *, version, frontend, notebook_frontend,
@@ -38,17 +38,17 @@ def build_release(destination, platform, *, version, frontend, notebook_frontend
 
     # Builder imports belong to the source build, never to the local launcher or
     # platform runtime. Individual builders retain their own byte/input checks.
-    from pantheonos.apps.builtin.desktop.build_managed import build as desktop
-    from pantheonos.apps.builtin.evolution.build_managed import build as evolution
-    from pantheonos.apps.builtin.file.build_managed import build as files
-    from pantheonos.apps.builtin.fleet.build_managed import build as fleet
-    from pantheonos.apps.builtin.notebook.build_managed import build as notebook
-    from pantheonos.apps.builtin.shell.build_managed import build as shell
-    from pantheonos.apps.builtin.web.build_managed import build as web
+    from pantheonos.appkit.builtin.desktop.build_managed import build as desktop
+    from pantheonos.appkit.builtin.evolution.build_managed import build as evolution
+    from pantheonos.appkit.builtin.file.build_managed import build as files
+    from pantheonos.appkit.builtin.fleet.build_managed import build as fleet
+    from pantheonos.appkit.builtin.notebook.build_managed import build as notebook
+    from pantheonos.appkit.builtin.shell.build_managed import build as shell
+    from pantheonos.appkit.builtin.web.build_managed import build as web
     from pantheon.chatroom.package import build_package as agent
     from pantheonos.models.connector_package import build_package as connector
     from pantheonos.models.management_package import build_package as management
-    from pantheonos.apps.allocator_package import build_package as allocator
+    from pantheonos.appkit.allocator_package import build_package as allocator
     from pantheonos.models.access_package import build_package as access
 
     # The Desktop declares its data port: a Fleet deployment serves it through
@@ -102,8 +102,8 @@ def build_release(destination, platform, *, version, frontend, notebook_frontend
         index_packages(root, {alias: {platform: root / alias} for alias in sorted(reserved | set(model_aliases))})
         if 'connector' in model_aliases:
             # The deployment profile the Fleet controller sets an owner's Agent up from.
-            from pantheonos.apps.release_profile import write_profile
-            from pantheonos.apps.general_team import DEFAULT_TIERS
+            from pantheonos.appkit.release_profile import write_profile
+            from pantheonos.appkit.general_team import DEFAULT_TIERS
             write_profile(root, platform, tiers=DEFAULT_TIERS, catalog=catalog)
             # The controller-hosted model management builds from this source.
             write_connector_source(root / 'model-connector.tar')
@@ -121,7 +121,7 @@ def write_connector_source(path):
     """
     import io
     import tarfile
-    from pantheonos.apps.registry import BUILTIN_ROOT
+    from pantheonos.appkit.registry import BUILTIN_ROOT
     connector = Path(BUILTIN_ROOT) / 'model-service'
     import pantheonos.models
     models = Path(pantheonos.models.__file__).resolve().parent
@@ -215,7 +215,7 @@ def main():
         options['input_urls'] = write_inputs(assets, options['platform'], options['frontend'], options['transport'], url_base)
     if not options.pop('no_catalog') and 'connector' in options['model_aliases']:
         import asyncio
-        from pantheonos.apps.release_profile import platform_catalog
+        from pantheonos.appkit.release_profile import platform_catalog
         options['catalog'] = asyncio.run(platform_catalog())
     options['destination'] = options.pop('output')
     print(build_release(**options))

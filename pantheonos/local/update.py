@@ -10,7 +10,7 @@ import argparse
 import hashlib
 import json
 
-from pantheonos.apps.dependency_assembly import AssemblyError, _matches
+from pantheonos.appkit.dependency_assembly import AssemblyError, _matches
 
 
 def digest(value):
@@ -59,7 +59,7 @@ def approve(source, target, review_id):
 
 
 def main(argv=None):
-    from pantheonos.apps.local_agent import compose_profile, read_bundle
+    from pantheonos.appkit.local_agent import compose_profile, read_bundle
     from .launch import private_json
     parser = argparse.ArgumentParser(description='Review or approve a stopped local configuration update. '
         'Does not start Apps; after approval launch normally with the target setup.')

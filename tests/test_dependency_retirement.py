@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from pantheonos.apps.dependency_assembly import AssemblyError
-from pantheonos.apps.live_dependencies import LiveDependencyOwner, ScopedDependencyBindings
+from pantheonos.appkit.dependency_assembly import AssemblyError
+from pantheonos.appkit.live_dependencies import LiveDependencyOwner, ScopedDependencyBindings
 from test_live_dependency_bindings import fixture, request
 
 

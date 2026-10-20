@@ -84,7 +84,7 @@ from pantheonos.remote import (
     StreamMessage,
     StreamType,
 )
-from pantheonos.apps.builtin.notebook import IntegratedNotebookToolSet
+from pantheonos.appkit.builtin.notebook import IntegratedNotebookToolSet
 
 # Check if NATS server is available
 def _check_nats_available():

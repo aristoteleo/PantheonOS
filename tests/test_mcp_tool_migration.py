@@ -6,16 +6,16 @@ import json
 from fastmcp import Client, FastMCP
 import pytest
 
-from pantheonos.apps.builtin.mcp import MCPGatewayToolSet
-from pantheonos.apps.builtin.mcp.manager import MCPManager, MCPServerConfig, MCPServerInstance
-from pantheonos.apps.builtin.mcp.scoped import ScopedMCP, legacy_result
-from pantheonos.apps.dependency_client import DependencyClient
-from pantheonos.apps.runtime_config import RuntimeCredential
+from pantheonos.appkit.builtin.mcp import MCPGatewayToolSet
+from pantheonos.appkit.builtin.mcp.manager import MCPManager, MCPServerConfig, MCPServerInstance
+from pantheonos.appkit.builtin.mcp.scoped import ScopedMCP, legacy_result
+from pantheonos.appkit.dependency_client import DependencyClient
+from pantheonos.appkit.runtime_config import RuntimeCredential
 from pantheon.chatroom.migration_mcp_tools import capture_mcp_tools, compile_mcp_tools
 from pantheon.dependency_provider import DependencyToolProvider
 from pantheon.factory import create_agent
 from pantheon.factory.bindings import AgentToolBindings
-from pantheonos.apps.mcp_package import build_migration_package
+from pantheonos.appkit.mcp_package import build_migration_package
 from pantheon.providers import MCPProvider
 from test_scoped_mcp_app import config
 
@@ -189,8 +189,8 @@ def test_release_rejects_changed_provider_views_before_writing(tmp_path, problem
 
 def test_cli_builds_captured_catalog_as_an_ordinary_versioned_artifact(tmp_path, monkeypatch):
     import sys
-    from pantheonos.apps.mcp_package import main
-    from pantheonos.apps.lifecycle import build_artifact
+    from pantheonos.appkit.mcp_package import main
+    from pantheonos.appkit.lifecycle import build_artifact
     contract = compile_mcp_tools([tool('docs_echo')],
         {'docs': {'prefix': 'docs', 'tools': [tool()]}}, providers=['mcp', 'docs'])
     path = tmp_path/'catalog.json'

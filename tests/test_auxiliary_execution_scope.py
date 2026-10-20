@@ -130,7 +130,7 @@ async def test_pending_drain_retains_latest_call_snapshot(scopes, kind):
 async def test_scoped_background_work_cannot_construct_local_files(scopes, monkeypatch):
     def forbidden(*args, **kwargs):
         raise AssertionError('Constructed local FileManager')
-    monkeypatch.setattr('pantheonos.apps.builtin.file.file_manager.FileManagerToolSet', forbidden)
+    monkeypatch.setattr('pantheonos.appkit.builtin.file.file_manager.FileManagerToolSet', forbidden)
     execution = AuxiliaryExecution(model_scope=scopes())
     with pytest.raises(RuntimeError, match='explicit Files'):
         await execution.run_agent('test', name='test', instructions='test',
@@ -141,7 +141,7 @@ async def test_scoped_background_work_cannot_construct_local_files(scopes, monke
 async def test_background_agent_tool_loop_uses_scoped_files_over_tls(scopes, files_endpoint, monkeypatch):
     def forbidden(*args, **kwargs):
         raise AssertionError('Constructed local FileManager')
-    monkeypatch.setattr('pantheonos.apps.builtin.file.file_manager.FileManagerToolSet', forbidden)
+    monkeypatch.setattr('pantheonos.appkit.builtin.file.file_manager.FileManagerToolSet', forbidden)
     ref = 'fleet-model://service/model'
     clients = []
     async def run(token, label):

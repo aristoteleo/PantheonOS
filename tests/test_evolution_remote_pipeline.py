@@ -7,7 +7,7 @@ import pytest
 from pantheon.evolution import EvolutionTeam
 from pantheon.evolution.lifetime import EvolutionCleanupError
 from pantheon.evolution.remote_execution import OwnedMutationTool
-from pantheonos.apps.builtin.python import PythonInterpreterToolSet
+from pantheonos.appkit.builtin.python import PythonInterpreterToolSet
 from pantheon.chatroom.execution_service import AgentExecutions, ExecutionJournal
 from test_agent_execution_runner import BoundClient
 from test_evolution_remote_execution import configuration, binding, EVALUATOR
@@ -231,7 +231,7 @@ asyncio.run(main())
 
 @pytest.mark.asyncio
 async def test_failed_analyzer_cleanup_keeps_whole_run_fenced(tmp_path, local_settings):
-    from pantheonos.apps.agent_execution_runner import ToolReceiptJournal
+    from pantheonos.appkit.agent_execution_runner import ToolReceiptJournal
     from pantheonos.toolset import ToolSet, tool
     class FailingTool(ToolSet):
         @tool

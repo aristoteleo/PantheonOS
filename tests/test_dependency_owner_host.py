@@ -34,10 +34,10 @@ import nkeys
 import pytest
 import pytest_asyncio
 
-from pantheonos.apps.dependency_assembly import AssemblyError
-from pantheonos.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
-from pantheonos.apps.allocator_host import DependencyBindingHost
-from pantheonos.apps.allocator_package import build_package
+from pantheonos.appkit.dependency_assembly import AssemblyError
+from pantheonos.appkit.runtime_config import RuntimeConfiguration, RuntimeCredential
+from pantheonos.appkit.allocator_host import DependencyBindingHost
+from pantheonos.appkit.allocator_package import build_package
 from test_live_dependency_bindings import fixture
 
 
@@ -420,8 +420,8 @@ def test_bad_owner_snapshot_is_rejected_before_storage(tmp_path, change):
 @pytest.mark.parametrize('consumer_stop', ['live', 'stopped', 'release-lost'])
 async def test_packaged_http_host_is_authenticated_and_registers_only_allocator(tmp_path, wire, consumer_stop):
     package = build_package(tmp_path / 'package', 'darwin-arm64' if sys.platform == 'darwin' else 'linux-amd64')
-    from pantheonos.apps.schema import parse_manifest
-    from pantheonos.apps.lifecycle import build_artifact
+    from pantheonos.appkit.schema import parse_manifest
+    from pantheonos.appkit.lifecycle import build_artifact
     manifest = json.loads((package / 'app.json').read_text())
     assert parse_manifest(manifest).id == 'dependency-binding'
     definition = json.loads((package / 'fleet.json').read_text())

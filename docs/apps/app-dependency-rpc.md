@@ -67,8 +67,8 @@ are limited to 512 KiB. Large outputs should use separately authorized artifacts
 Python consumer code:
 
 ```python
-from pantheonos.apps.runtime_config import load_runtime_configuration
-from pantheonos.apps.dependency_client import DependencyClient
+from pantheonos.appkit.runtime_config import load_runtime_configuration
+from pantheonos.appkit.dependency_client import DependencyClient
 
 config = load_runtime_configuration(required=True)
 files = DependencyClient(config.credentials["files"])
@@ -98,7 +98,7 @@ interface and a runtime credential alias such as `allocator` in their ordinary
 App configuration, then compose:
 
 ```python
-from pantheonos.apps.dependency_binding_client import RemoteDependencyBindings
+from pantheonos.appkit.dependency_binding_client import RemoteDependencyBindings
 
 allocator = RemoteDependencyBindings(DependencyClient(config.credentials['allocator']))
 receipt = await allocator.bind(

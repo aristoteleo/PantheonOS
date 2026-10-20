@@ -16,7 +16,7 @@ class DesktopBrowser:
         self.observed = set()
 
     async def start(self, platform):
-        from pantheonos.apps.portable import execution_package
+        from pantheonos.appkit.portable import execution_package
         repo = Path(__file__).resolve().parents[1]
         with execution_package(repo/'apps/browser', platform) as package:
             self.digest = await self.stage('provider-node', package)

@@ -8,11 +8,11 @@ from dotenv import load_dotenv
 import loguru
 
 from pantheon.agent import Agent
-from pantheonos.apps.builtin.python import PythonInterpreterToolSet
-from pantheonos.apps.builtin.web import WebToolSet
-from pantheonos.apps.builtin.file import FileManagerToolSet
-from pantheonos.apps.builtin.shell import ShellToolSet
-from pantheonos.apps.builtin.notebook import IntegratedNotebookToolSet
+from pantheonos.appkit.builtin.python import PythonInterpreterToolSet
+from pantheonos.appkit.builtin.web import WebToolSet
+from pantheonos.appkit.builtin.file import FileManagerToolSet
+from pantheonos.appkit.builtin.shell import ShellToolSet
+from pantheonos.appkit.builtin.notebook import IntegratedNotebookToolSet
 from pantheon.team import PantheonTeam
 from pantheonos.utils.display import print_agent_message
 

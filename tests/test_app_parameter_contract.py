@@ -4,10 +4,10 @@ import json
 
 import pytest
 
-from pantheonos.apps.compat import check_compat
-from pantheonos.apps.reflect import reflect_toolset_class, reflect_toolset_instance
-from pantheonos.apps.registry import refresh_manifest
-from pantheonos.apps.schema import parse_manifest
+from pantheonos.appkit.compat import check_compat
+from pantheonos.appkit.reflect import reflect_toolset_class, reflect_toolset_instance
+from pantheonos.appkit.registry import refresh_manifest
+from pantheonos.appkit.schema import parse_manifest
 from pantheonos.toolset import ToolSet, tool
 
 
@@ -52,7 +52,7 @@ async def test_manifest_requiredness_matches_real_calls_and_wire():
 
 
 def test_emit_preserves_null_and_old_release_is_compatible(tmp_path, monkeypatch):
-    monkeypatch.setattr('pantheonos.apps.registry.backend_class', lambda _: Arguments)
+    monkeypatch.setattr('pantheonos.appkit.registry.backend_class', lambda _: Arguments)
     old = legacy_manifest()
     path = tmp_path/'app.json'
     path.write_text(json.dumps(old))

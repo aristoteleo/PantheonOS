@@ -15,7 +15,7 @@ import os
 import signal
 import sys
 
-from pantheonos.apps.dependency_assembly import AssemblyError
+from pantheonos.appkit.dependency_assembly import AssemblyError
 
 STATUS_INTERVAL = 1.0
 
@@ -48,7 +48,7 @@ async def serve(*, profile, binaries, workspace, spec, release, credentials=None
                 on_ready=None, recover=False):
     """Bring the deployment up, serve on_ready while it runs, stop on request."""
     import nats
-    from pantheonos.apps.resolver import AppInstanceResolver
+    from pantheonos.appkit.resolver import AppInstanceResolver
     from pantheonos.models.local_directory import LocalModelDirectory
     from .deployment import LocalDeployment, deployment_spec, release_archive, render
     from .directory import DirectoryServer
@@ -155,7 +155,7 @@ def main(argv=None):
     parser.add_argument('--model', help='Explicit model selection for the first Agent in this conversation')
     args = parser.parse_args(argv)
 
-    from pantheonos.apps.local_agent import FLEET_BINARY, bundle_release, compose_profile, read_bundle
+    from pantheonos.appkit.local_agent import FLEET_BINARY, bundle_release, compose_profile, read_bundle
     from .credentials import read_credentials
     from .launch import private_json, read_launch
 

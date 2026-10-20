@@ -17,8 +17,8 @@ from pantheon.chatroom.services.projects_api import ProjectsAPI
 from pantheon.chatroom.services.store_api import StoreAPI
 from pantheon.chatroom.services.model_directory import ModelDirectoryAPI
 from pantheon.chatroom.services.oauth_api import OAuthAPI
-from pantheonos.apps.builtin.llm_playground.service import PlaygroundAPI
-from pantheonos.apps.host_lifecycle import AppShutdownError
+from pantheonos.appkit.builtin.llm_playground.service import PlaygroundAPI
+from pantheonos.appkit.host_lifecycle import AppShutdownError
 from pantheon.factory import create_agents_from_template, get_template_manager
 from pantheonos.settings import get_settings
 from pantheon.team import PantheonTeam
@@ -164,8 +164,8 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
     async def _refresh_transfer_handles(self) -> None:
         probe = self._transfer_probe
         try:
-            from pantheonos.apps.proxy import ToolsetProxy
-            from pantheonos.apps.resolver import get_shared_resolver
+            from pantheonos.appkit.proxy import ToolsetProxy
+            from pantheonos.appkit.resolver import get_shared_resolver
 
             resolver = get_shared_resolver()
             if resolver is None:
@@ -200,8 +200,8 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
         if not required_services:
             return
 
-        from pantheonos.apps.proxy import ToolsetProxy
-        from pantheonos.apps.resolver import get_shared_resolver
+        from pantheonos.appkit.proxy import ToolsetProxy
+        from pantheonos.appkit.resolver import get_shared_resolver
 
         resolver = get_shared_resolver()
         if resolver is None:

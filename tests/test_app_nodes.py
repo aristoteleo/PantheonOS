@@ -2,8 +2,8 @@
 
 import pytest
 
-from pantheonos.apps.registry import builtin_apps
-from pantheonos.apps.nodes import NodeCapability, NodeEntry, NodeKind, NodeSystem
+from pantheonos.appkit.registry import builtin_apps
+from pantheonos.appkit.nodes import NodeCapability, NodeEntry, NodeKind, NodeSystem
 
 
 def _node(kind: NodeKind, caps: list[str], os: str = "linux") -> NodeEntry:

@@ -12,8 +12,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from pantheonos.apps.builtin.llm_playground import engine, media
-from pantheonos.apps.builtin.llm_playground.service import PlaygroundToolSet
+from pantheonos.appkit.builtin.llm_playground import engine, media
+from pantheonos.appkit.builtin.llm_playground.service import PlaygroundToolSet
 from pantheonos.settings import Settings
 
 
@@ -22,8 +22,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_app_registry_and_legacy_rpc_signatures(tmp_path):
     from pantheonos.apphost import _construct_kwargs, _resolve_backend
-    from pantheonos.apps.registry import reflected_tools, verify_interfaces
-    from pantheonos.apps.reflect import signature_diff
+    from pantheonos.appkit.registry import reflected_tools, verify_interfaces
+    from pantheonos.appkit.reflect import signature_diff
     cls, requires, app = _resolve_backend('llm-playground')
     assert cls is PlaygroundToolSet
     assert not signature_diff(app.manifest.provides.tools, reflected_tools(app.manifest))

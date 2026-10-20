@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime, timezone
 
-from pantheonos.apps.builtin.fleet.update import update_nodes
+from pantheonos.appkit.builtin.fleet.update import update_nodes
 
 
 def record(node_id, kind='machine', self_update=True, seen=True, version='0.5.0-model.6'):

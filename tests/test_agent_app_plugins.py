@@ -39,7 +39,7 @@ def no_ambient_management(monkeypatch):
     monkeypatch.setattr("pantheon.internal.fleet_plugin._fleet_configured", forbidden)
     monkeypatch.setattr("pantheon.internal.model_services_plugin._fleet_configured", forbidden)
     monkeypatch.setattr("pantheonos.models.manager.ModelServiceManager", forbidden)
-    monkeypatch.setattr("pantheonos.apps.resolver.get_shared_resolver", forbidden)
+    monkeypatch.setattr("pantheonos.appkit.resolver.get_shared_resolver", forbidden)
     monkeypatch.setenv("FLEET_KEY", "ambient-owner-secret")
     monkeypatch.setenv("FLEET_CONTROLLER_URL", "https://must-not-use.invalid")
 
@@ -315,10 +315,10 @@ async def test_cancelled_required_binding_never_retries_partial_team(scopes):
 
 @pytest.mark.asyncio
 async def test_scoped_task_never_falls_back_to_ambient_output_or_headless(scopes, monkeypatch):
-    from pantheonos.apps.builtin.task import TaskToolSet
+    from pantheonos.appkit.builtin.task import TaskToolSet
     scope = scopes()
     monkeypatch.setenv("PANTHEON_HEADLESS", "1")
-    monkeypatch.setattr("pantheonos.apps.builtin.task.output_paths.output_metadata", forbidden)
+    monkeypatch.setattr("pantheonos.appkit.builtin.task.output_paths.output_metadata", forbidden)
     tasks = TaskToolSet(settings=scope.settings, brain_dir=scope.settings.brain_dir)
     response = await tasks.register_output("result.txt")
     assert response["code"] == "output_verification_unavailable"
@@ -328,7 +328,7 @@ async def test_scoped_task_never_falls_back_to_ambient_output_or_headless(scopes
 
 
 def test_scoped_task_rejects_context_path_escape(scopes, tmp_path):
-    from pantheonos.apps.builtin.task import TaskToolSet
+    from pantheonos.appkit.builtin.task import TaskToolSet
     scope = scopes()
     tasks = TaskToolSet(settings=scope.settings, brain_dir=scope.settings.brain_dir)
     for identity in ("..", "../../other", "/absolute", "windows\\other", 3, 0, "control\n"):

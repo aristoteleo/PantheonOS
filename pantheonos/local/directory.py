@@ -13,7 +13,7 @@ import secrets
 from pathlib import Path
 import threading
 
-from pantheonos.apps.dependency_assembly import AssemblyError
+from pantheonos.appkit.dependency_assembly import AssemblyError
 from pantheonos.local.launch import PrivateJournal
 
 from pantheonos.models.local_directory import LocalModelDirectory

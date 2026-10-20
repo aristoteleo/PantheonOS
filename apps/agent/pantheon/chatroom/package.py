@@ -12,9 +12,9 @@ from pathlib import Path
 import shutil
 import tempfile
 
-from pantheonos.apps.portable import definition
-from pantheonos.apps.schema import parse_manifest
-from pantheonos.apps.lifecycle import build_artifact
+from pantheonos.appkit.portable import definition
+from pantheonos.appkit.schema import parse_manifest
+from pantheonos.appkit.lifecycle import build_artifact
 
 
 # Explicit SDK/control clients; don't copy the platform host or App manager.
@@ -96,12 +96,12 @@ def source_manifest(version, dependencies=None):
             'model-services-control': {'range': '^0.1.0', 'uses': ['model-inference@1']},
         },
     }
-    from pantheonos.apps.agent_execution_client import METHODS
+    from pantheonos.appkit.agent_execution_client import METHODS
     from pantheon.chatroom.data_transition import INITIALIZATION_CAPABILITY
     manifest['caps'] = {'agentDataInitialization': dict(INITIALIZATION_CAPABILITY),
                         'agentMCPMigration': {'protocols': [1, 2]},
                         'agentOAuthMigration': {'protocols': [1]}}
-    from pantheonos.apps.reflect import reflect_toolset_class
+    from pantheonos.appkit.reflect import reflect_toolset_class
     from pantheon.chatroom.native import NativeAgentApplication
     manifest['provides'] = {
         'tools': [signature.model_dump(exclude_none=True)
@@ -167,8 +167,8 @@ def export_source(destination, *, version, inputs, frontend_source=None,
     _copy_file(Path(agent_build.__file__), root / 'build.py')
     # The Agent's runtime is two packages: the Agent's own (pantheon) and the
     # platform's it runs on (pantheonos); files are named as before the split.
-    from pantheonos.apps import builtin as builtin_apps
-    from pantheonos.apps.vendoring import package_root, runtime_source
+    from pantheonos.appkit import builtin as builtin_apps
+    from pantheonos.appkit.vendoring import package_root, runtime_source
     apps, backend = Path(list(builtin_apps.__path__)[0]), root / 'backend'
 
     def place(name, *, tree=False):
@@ -178,15 +178,16 @@ def export_source(destination, *, version, inputs, frontend_source=None,
     # Shared Agent execution modules remain one source, not maintained forks.
     for name in ('_moved.py', 'agent.py', 'agent_app_directory.py', 'agent_core_tools.py', 'agent_pantheonos.py', 'agent_nodes.py', 'agent_loop.py', 'agent_tools.py', 'agent_model.py', 'agent_context.py', 'background.py', 'image_detection.py', 'settings.py', 'toolset.py', 'constant.py', 'dependency_provider.py', 'providers.py'):
         place(name)
-    _copy_file(package_root('pantheonos') / '__init__.py', backend / 'pantheonos' / '__init__.py')
+    for name in ('__init__.py', '_moved.py'):
+        _copy_file(package_root('pantheonos') / name, backend / 'pantheonos' / name)
     for directory in ('factory', 'funcdesc', 'internal', 'team', 'utils', 'data', 'skills', 'repl', 'package_runtime'):
         place(directory, tree=True)
-    for directory, modules in (('apps', SDK_MODULES), ('chatroom', CHAT_MODULES), ('models', MODEL_MODULES)):
+    for directory, modules in (('appkit', SDK_MODULES), ('chatroom', CHAT_MODULES), ('models', MODEL_MODULES)):
         for name in modules:
             place(f'{directory}/{name}.py')
     # The task state machine is Agent-owned. Other builtin Apps are remote
     # dependencies and never copied into this distribution.
-    builtin = backend / 'pantheonos' / 'apps' / 'builtin'
+    builtin = backend / 'pantheonos' / 'appkit' / 'builtin'
     builtin.mkdir()
     (builtin / '__init__.py').write_text('"""Agent-owned task state only; no ambient App lookup."""\n')
     _copy_tree(apps / 'task', builtin / 'task')
@@ -215,8 +216,8 @@ def export_source(destination, *, version, inputs, frontend_source=None,
     _copy_file(Path(__file__).with_name('package-requirements.lock'), root / 'requirements.txt')
     adapter = root / 'fleet-runtime'
     for name in ('host.py', 'install.py', 'launch.py'):
-        _copy_file(package_root('pantheonos') / 'apps' / 'portable_runtime' / name, adapter / name)
-    _copy_tree(package_root('pantheonos') / 'apps' / 'portable_runtime' / 'assets', adapter / 'assets')
+        _copy_file(package_root('pantheonos') / 'appkit' / 'portable_runtime' / name, adapter / name)
+    _copy_tree(package_root('pantheonos') / 'appkit' / 'portable_runtime' / 'assets', adapter / 'assets')
     _copy_file(apps / 'desktop' / 'app_runtime.py', adapter / 'app_runtime.py')
     execution = definition({**manifest, 'execution': {}}, 'linux-amd64')
     execution['components'][0]['configuration'] = {

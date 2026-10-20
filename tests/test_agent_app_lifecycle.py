@@ -17,7 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from pantheonos.apps.host_lifecycle import AppShutdownError
+from pantheonos.appkit.host_lifecycle import AppShutdownError
 from pantheon.background import BackgroundTaskManager
 from pantheon.chatroom import lifecycle
 from pantheon.chatroom.lifecycle import AgentLifetime, admitted_chat
@@ -303,7 +303,7 @@ if CORE:
                 'pantheon.chatroom.services.models_api', 'pantheon.chatroom.services.projects_api',
                 'pantheon.chatroom.services.store_api', 'pantheon.chatroom.services.oauth_api',
                 'pantheon.chatroom.services.model_directory', 'pantheon.chatroom.services.health',
-                'pantheonos.apps.builtin.llm_playground', 'pantheon.repl')
+                'pantheonos.appkit.builtin.llm_playground', 'pantheon.repl')
             if any(fullname == p or fullname.startswith(p + '.') for p in blocked):
                 raise AssertionError('Agent imported a platform controller: ' + fullname)
     sys.meta_path.insert(0, NoPlatformControllers())

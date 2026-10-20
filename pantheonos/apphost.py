@@ -40,7 +40,7 @@ def _construct_kwargs(app_id: str, requires: list[str], workdir: str) -> dict:
 
 
 def _resolve_backend(app_id: str):
-    from pantheonos.apps.registry import backend_class, builtin_apps
+    from pantheonos.appkit.registry import backend_class, builtin_apps
 
     apps = {a.manifest.id: a for a in builtin_apps()}
     app = apps.get(app_id)
@@ -72,7 +72,7 @@ async def _run(args) -> None:
     toolset = cls(service_name, **kwargs)
     logger.info(f"[apphost] {args.app_id} ({cls.__name__}) starting "
                 f"as service {service_name!r}, workdir={workdir}")
-    from pantheonos.apps.host_lifecycle import serve_toolset
+    from pantheonos.appkit.host_lifecycle import serve_toolset
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     handlers = {}

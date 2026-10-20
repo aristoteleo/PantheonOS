@@ -6,7 +6,7 @@ explicitly lists that scope. No grants, engine wakes or inference are issued.
 """
 import asyncio
 
-from pantheonos.apps.dependency_assembly import AssemblyError, _copy, _identity
+from pantheonos.appkit.dependency_assembly import AssemblyError, _copy, _identity
 from .client import model_ref, parse_ref
 from .routing import parse_route_ref, summary
 

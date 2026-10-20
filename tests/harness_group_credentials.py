@@ -13,7 +13,7 @@ import time
 
 import nats
 
-from pantheonos.apps.lifecycle import FleetLifecycle
+from pantheonos.appkit.lifecycle import FleetLifecycle
 from pantheonos.models.group_coordinator import GroupCoordinator
 from pantheonos.models.group_journal import GroupJournal
 

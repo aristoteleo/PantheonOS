@@ -7,7 +7,7 @@ import re
 import shutil
 import tempfile
 
-from pantheonos.apps.registry import BUILTIN_ROOT
+from pantheonos.appkit.registry import BUILTIN_ROOT
 
 
 def connector_root():

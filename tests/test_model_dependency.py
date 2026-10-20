@@ -15,8 +15,8 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from pantheonos.apps.dependency_client import DependencyClient
-from pantheonos.apps.runtime_config import RuntimeCredential
+from pantheonos.appkit.dependency_client import DependencyClient
+from pantheonos.appkit.runtime_config import RuntimeCredential
 from pantheonos.models.client import ModelServices, ControlError, model_ref
 from pantheonos.models.dependency import DependencyModelServices, control_operation
 from pantheonos.models.dependency_service import ModelServiceControl

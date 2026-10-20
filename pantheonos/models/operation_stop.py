@@ -8,7 +8,7 @@ from copy import deepcopy
 import time
 import uuid
 
-from pantheonos.apps.lifecycle import FleetLifecycle
+from pantheonos.appkit.lifecycle import FleetLifecycle
 from .recovery import exact_instance, stopped
 
 

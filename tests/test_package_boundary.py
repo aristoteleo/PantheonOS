@@ -15,7 +15,7 @@ BY_NAME = {
     "toolset.py": "a tool service samples a model through the Agent's sampler when it is installed",
     "local/cli.py": "`pantheon agent chat` runs the Agent App's terminal frontend",
     "settings.py": "the Agent's factory templates are located, and its package manager reset after a reload",
-    "apps/vendoring.py": "App builds vendor Agent files, and the local owner carries the Agent's terminal",
+    "appkit/vendoring.py": "App builds vendor Agent files, and the local owner carries the Agent's terminal",
 }
 LOADS_BY_NAME = re.compile(r"""(import_module|find_spec|sys\.modules\.get)\(\s*["']pantheon[."']""")
 
@@ -66,8 +66,31 @@ def test_names_from_before_the_split_are_the_same_modules():
     assert '"$schema"' in out or '"properties"' in out
 
 
+def test_names_from_before_the_appkit_rename_are_the_same_modules():
+    # The App framework was pantheonos.apps (and pantheon.apps before that).
+    code = ("import pantheonos.apps.registry as a, pantheonos.appkit.registry as b; assert a is b; "
+            "import pantheon.apps.vendoring as c, pantheonos.appkit.vendoring as d; assert c is d; "
+            "from pantheonos.apps.builtin.file import FileManagerToolSet as F; "
+            "from pantheonos.appkit.builtin.file import FileManagerToolSet as G; assert F is G")
+    subprocess.run([sys.executable, "-c", code], cwd=ROOT, check=True)
+    out = subprocess.run([sys.executable, "-m", "pantheonos.apps", "schema"], cwd=ROOT, check=True,
+                         capture_output=True, text=True).stdout
+    assert '"$schema"' in out or '"properties"' in out
+
+
+def test_a_vendored_platform_resolves_the_old_names(tmp_path):
+    from pantheonos.appkit.vendoring import add_package_inits, vendor_file
+    # App builds may still name the framework's files as before.
+    assert vendor_file("apps/runtime_config.py", tmp_path) == tmp_path / "pantheonos/appkit/runtime_config.py"
+    add_package_inits(tmp_path)
+    code = (f"import sys; sys.path.insert(0, {str(tmp_path)!r}); "
+            "import pantheonos.apps.runtime_config as a, pantheonos.appkit.runtime_config as b; "
+            f"assert a is b and b.__file__.startswith({str(tmp_path)!r}), b.__file__")
+    subprocess.run([sys.executable, "-I", "-c", code], check=True)
+
+
 def test_importing_the_platform_loads_no_agent_module():
-    code = ("import sys, pantheonos.apps.registry, pantheonos.toolset, pantheonos.settings, pantheonos.models.client; "
+    code = ("import sys, pantheonos.appkit.registry, pantheonos.toolset, pantheonos.settings, pantheonos.models.client; "
             "loaded = [m for m in sys.modules if m == 'pantheon' or m.startswith('pantheon.')]; "
             "assert not loaded, loaded")
     subprocess.run([sys.executable, "-c", code], cwd=ROOT, check=True)

@@ -240,7 +240,7 @@ python -m pantheon.chatroom.package \
 
 The destination must not exist. `release.json` inventories frontend, backend,
 host, requirements and transport hashes. Actual deployment uses the immutable
-artifact digest returned by `pantheonos.apps.lifecycle.build_artifact`, not the
+artifact digest returned by `pantheonos.appkit.lifecycle.build_artifact`, not the
 directory name or `release.json` alone. The builder checks that the output can be
 encoded by that ordinary App protocol before publishing its destination.
 

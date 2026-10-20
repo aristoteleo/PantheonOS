@@ -12,8 +12,8 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
-from pantheonos.apps.lifecycle import build_artifact
-from pantheonos.apps.portable import execution_package
+from pantheonos.appkit.lifecycle import build_artifact
+from pantheonos.appkit.portable import execution_package
 
 
 def fixture_app(root):
@@ -171,7 +171,7 @@ def test_real_backend_rpc_files_ranges_and_persistent_state(tmp_path, transport)
 
 
 def test_fleet_filesystem_declaration_requires_authenticated_rpc():
-    from pantheonos.apps.schema import ManagedExecution
+    from pantheonos.appkit.schema import ManagedExecution
     assert ManagedExecution().fs_transport == 'gateway'
     with pytest.raises(ValueError, match='requires Fleet RPC'):
         ManagedExecution(fs_transport='fleet')

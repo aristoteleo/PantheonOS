@@ -8,10 +8,10 @@ from unittest.mock import AsyncMock
 import nats
 import pytest
 
-from pantheonos.apps.builtin.desktop.data_server import DataServerConfig, LiveViewDataServer
-from pantheonos.apps.builtin.desktop.files_binding import DesktopFilesBinding
-from pantheonos.apps.builtin.desktop.fleet_binding import DesktopFleetBinding
-from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.appkit.builtin.desktop.data_server import DataServerConfig, LiveViewDataServer
+from pantheonos.appkit.builtin.desktop.files_binding import DesktopFilesBinding
+from pantheonos.appkit.builtin.desktop.fleet_binding import DesktopFleetBinding
+from pantheonos.appkit.builtin.desktop.toolset import DesktopToolSet
 from pantheonos.local.fleet import LocalFleet
 from test_local_fleet import binaries, assert_stopped
 from native_packages import consumer_package
@@ -66,7 +66,7 @@ async def test_desktop_owned_fleet_install_lease_and_close_without_ambient_ident
         try:
             with monkeypatch.context() as bound:
                 bound.setattr(builtins, '__import__', guarded)
-                bound.setattr('pantheonos.apps.resolver.get_shared_resolver', no_shared)
+                bound.setattr('pantheonos.appkit.resolver.get_shared_resolver', no_shared)
                 options = await desktop.desktop_app_placement('options', 'model-consumer')
                 assert options['success'] and options['nodes'][0]['node_id'] == info.node_id, options
                 assert not options['nodes'][0]['reason']

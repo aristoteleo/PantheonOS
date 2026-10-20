@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from pantheonos.apps.dependency_assembly import AssemblyError, _identity
+from pantheonos.appkit.dependency_assembly import AssemblyError, _identity
 from pantheonos.models.errors import ControlError
 
 

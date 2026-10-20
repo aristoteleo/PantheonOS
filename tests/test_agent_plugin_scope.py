@@ -8,7 +8,7 @@ import pytest
 
 from pantheon.chatroom.lifecycle import AgentLifetime
 from pantheon.chatroom.runtime import AgentRuntime
-from pantheonos.apps.host_lifecycle import AppShutdownError
+from pantheonos.appkit.host_lifecycle import AppShutdownError
 from pantheon.internal.learning_system.plugin import _create_learning_plugin
 from pantheon.internal.memory_system.plugin import _create_memory_plugin
 from pantheon.internal.memory_system.types import MemoryEntry, MemoryType

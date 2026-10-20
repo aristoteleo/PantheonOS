@@ -7,8 +7,8 @@ the composed deployment at the profile's controller.
 import json
 from pathlib import Path
 
-from pantheonos.apps.dependency_assembly import AssemblyError, DEPLOYMENT_BYTES
-from pantheonos.apps.owner_journal import OwnerJournal
+from pantheonos.appkit.dependency_assembly import AssemblyError, DEPLOYMENT_BYTES
+from pantheonos.appkit.owner_journal import OwnerJournal
 
 
 def unique_fields(pairs):

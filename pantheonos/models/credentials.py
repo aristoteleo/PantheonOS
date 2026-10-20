@@ -5,7 +5,7 @@ only by the generic App provisioning classes, never by model configuration.
 """
 from urllib.parse import urlsplit
 
-from pantheonos.apps.credentials import LocalAppCredentialVault, RemoteAppCredentialVault, _regular_file
+from pantheonos.appkit.credentials import LocalAppCredentialVault, RemoteAppCredentialVault, _regular_file
 
 
 def model_credential_endpoint(value):

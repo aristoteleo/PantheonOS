@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from fastmcp import Client
 
 from .agent import ToolInfo, ToolProvider
-from pantheonos.apps.proxy import TOOLSET_DISCOVERY_TIMEOUT, ToolsetProxy
+from pantheonos.appkit.proxy import TOOLSET_DISCOVERY_TIMEOUT, ToolsetProxy
 from pantheonos.utils.log import logger
 
 

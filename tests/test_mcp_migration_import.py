@@ -13,8 +13,8 @@ import time
 
 import pytest
 
-from pantheonos.apps.builtin.mcp.scoped import ScopedMCP
-from pantheonos.apps.dependency_client import DependencyClient
+from pantheonos.appkit.builtin.mcp.scoped import ScopedMCP
+from pantheonos.appkit.dependency_client import DependencyClient
 from pantheon.chatroom.app_data import AgentAppData, AppProjects
 from pantheon.chatroom.launch import ConfiguredAgentApplication
 from pantheon.chatroom.migration_import import import_backup

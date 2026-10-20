@@ -60,7 +60,7 @@ def _revision(desktop, app_id, version, repository=''):
 async def instances(desktop, app_ids=None) -> dict:
     """Running backends of the given Apps (all when None), by App id, read
     from every online node of the Fleet."""
-    from pantheonos.apps.lifecycle import FleetLifecycle
+    from pantheonos.appkit.lifecycle import FleetLifecycle
     placement = desktop._app_placement()
     nodes = [n for n in await placement.nodes() if n['status'] in ('online', 'busy')]
     lifecycle = FleetLifecycle(placement.resolver)
@@ -132,7 +132,7 @@ async def start(desktop, app_id, *, node='', version='', window=False, job=None,
 
 
 async def stop(desktop, app_id, *, node='', holder='') -> dict:
-    from pantheonos.apps.lifecycle import FleetLifecycle
+    from pantheonos.appkit.lifecycle import FleetLifecycle
     placement = desktop._app_placement()
     target = await _node(placement, node)
     running = [i for i in (await instances(desktop, {app_id})).get(app_id, [])

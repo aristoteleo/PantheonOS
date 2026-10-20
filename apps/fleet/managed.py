@@ -2,12 +2,12 @@
 from collections.abc import Mapping
 from pathlib import Path
 
-from pantheonos.apps.fleet_controller import Controller
+from pantheonos.appkit.fleet_controller import Controller
 
-from pantheonos.apps.owned_bus import BusConfiguration, OwnedBus
-from pantheonos.apps.resolver import AppInstanceResolver
-from pantheonos.apps.runtime_config import load_runtime_configuration
-from pantheonos.apps.toolset_backend import register_toolset
+from pantheonos.appkit.owned_bus import BusConfiguration, OwnedBus
+from pantheonos.appkit.resolver import AppInstanceResolver
+from pantheonos.appkit.runtime_config import load_runtime_configuration
+from pantheonos.appkit.toolset_backend import register_toolset
 from .fleet import FleetToolSet
 from .hpc import TOKEN_TTL_MINUTES
 

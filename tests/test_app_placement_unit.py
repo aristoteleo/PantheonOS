@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from pantheonos.apps.resolver import AppInstanceResolver, NotJoinedError
+from pantheonos.appkit.resolver import AppInstanceResolver, NotJoinedError
 
 AGENT = {
     "node_id": "n_agent", "name": "agent-u", "kind": "pod",

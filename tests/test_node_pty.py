@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from apps.fleet.inventory import node_inventory
-from pantheonos.apps.resolver import AppInstanceResolver
+from pantheonos.appkit.resolver import AppInstanceResolver
 
 
 def record(node_id, *, os='darwin', caps=None, status='online'):
@@ -66,8 +66,8 @@ def test_inventory_distinguishes_running_pty_from_can_start_pty():
 
 @pytest.mark.asyncio
 async def test_default_terminal_stays_on_workspace_instead_of_another_proc_node():
-    from pantheonos.apps.registry import by_service_type
-    from pantheonos.apps.resolver import NotJoinedError
+    from pantheonos.appkit.registry import by_service_type
+    from pantheonos.appkit.resolver import NotJoinedError
     resolver = AppInstanceResolver('fleet', 'agent', 'seed', '/cloud/workspace')
     agent, personal = record('agent'), record('personal')
     workspace = record('workspace', os='linux', caps=['proc', 'fs:workspace'])
@@ -81,11 +81,11 @@ async def test_default_terminal_stays_on_workspace_instead_of_another_proc_node(
 @pytest.mark.asyncio
 async def test_proxy_preserves_node_and_session_without_project_lookup(monkeypatch):
     from pantheon.chatroom.room import ChatRoom
-    from pantheonos.apps.proxy import ToolsetProxy
+    from pantheonos.appkit.proxy import ToolsetProxy
     from nats.errors import NoRespondersError
     resolver = SimpleNamespace(ensure_instance=AsyncMock(side_effect=['dead', 'new']), invalidate=Mock())
     invoke = AsyncMock(side_effect=[NoRespondersError(), {'success': True}])
-    monkeypatch.setattr('pantheonos.apps.resolver.get_shared_resolver', lambda: resolver)
+    monkeypatch.setattr('pantheonos.appkit.resolver.get_shared_resolver', lambda: resolver)
     monkeypatch.setattr(ToolsetProxy, 'from_toolset', lambda sid: SimpleNamespace(invoke=invoke))
     room = ChatRoom.__new__(ChatRoom)
     room._project_dir_for_chat = AsyncMock(side_effect=AssertionError('wrong workspace'))

@@ -8,10 +8,10 @@ import tempfile
 
 # Reviewed controller sources; the Agent implementation and legacy sandbox
 # launcher/worker are deliberately outside the independently shipped release.
-CONTROLLER_FILES = '''apps/runtime_config.py apps/dependency_client.py
-apps/agent_execution_client.py apps/agent_execution_runner.py
-apps/modal_app_transport.py apps/modal_sandbox.py apps/modal_placement.py
-apps/modal_credentials.py apps/modal_image.py
+CONTROLLER_FILES = '''appkit/runtime_config.py appkit/dependency_client.py
+appkit/agent_execution_client.py appkit/agent_execution_runner.py
+appkit/modal_app_transport.py appkit/modal_sandbox.py appkit/modal_placement.py
+appkit/modal_credentials.py appkit/modal_image.py
 evolution/__init__.py evolution/database.py evolution/team.py
 evolution/prompt_builder.py evolution/result.py evolution/visualizer.py
 evolution/remote_execution.py evolution/remote_reasoning.py evolution/remote_run.py
@@ -19,12 +19,12 @@ evolution/sandbox/agent_execution.py evolution/sandbox/remote_operation.py'''.sp
 
 
 def build(output, platform):
-    from pantheonos.apps.portable import definition
-    from pantheonos.apps.schema import parse_manifest
+    from pantheonos.appkit.portable import definition
+    from pantheonos.appkit.schema import parse_manifest
     from pantheon.evolution.sandbox.package import RUNTIME_FILES, APP_FILES
     from .evolution_toolset import EvolutionToolSet, EvolutionManager
     source = Path(__file__).resolve().parent
-    from pantheonos.apps.vendoring import add_package_inits, builtin_app_dir, runtime_path, vendor_file, vendor_tree
+    from pantheonos.appkit.vendoring import add_package_inits, builtin_app_dir, runtime_path, vendor_file, vendor_tree
     runtime = source.parents[1] / 'pantheonos'
     output = Path(output).absolute()
     if output.exists() or output.is_symlink():
@@ -69,12 +69,12 @@ def build(output, platform):
             copy(source / name, builtin_app_dir(vendor) / 'evolution' / name)
         vendor_tree('funcdesc', vendor)
         add_package_inits(vendor)
-        (root / 'backend/__init__.py').write_text('from pantheonos.apps.builtin.evolution.managed import register\n')
+        (root / 'backend/__init__.py').write_text('from pantheonos.appkit.builtin.evolution.managed import register\n')
         copy(source / 'requirements.lock', root / 'requirements.txt')
         adapter = root / '.fleet-runtime'
         copy(source.parent / 'desktop/app_runtime.py', adapter / 'app_runtime.py')
         for name in ('host.py', 'install.py', 'launch.py'):
-            copy(runtime / 'apps/portable_runtime' / name, adapter / name)
+            copy(runtime / 'appkit/portable_runtime' / name, adapter / name)
         execution = definition(manifest, platform)
         execution['components'][0]['configuration'] = {
             'values': {'evolution': {'required': True}},

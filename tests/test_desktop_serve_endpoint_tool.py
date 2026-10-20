@@ -3,7 +3,7 @@ import sys
 import pytest
 from aiohttp import web
 
-from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.appkit.builtin.desktop.toolset import DesktopToolSet
 
 
 class FakeDataServer:

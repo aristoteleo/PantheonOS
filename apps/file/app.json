@@ -4,7 +4,7 @@
   "version": "0.6.8",
   "description": "Workspace file operations, outlines and symbol reads.",
   "entry": {
-    "backend": "pantheonos.apps.builtin.file:FileManagerToolSet"
+    "backend": "pantheonos.appkit.builtin.file:FileManagerToolSet"
   },
   "provides": {
     "tools": [

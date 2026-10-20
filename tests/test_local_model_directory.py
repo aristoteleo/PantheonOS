@@ -156,7 +156,7 @@ async def test_failed_atomic_replace_retains_previous_publication(tmp_path, monk
     await directory.initialize()
     row = await directory.save(publication())
     def fail(*args): raise OSError('injected replace failure')
-    monkeypatch.setattr('pantheonos.apps.owner_journal.os.replace', fail)
+    monkeypatch.setattr('pantheonos.appkit.owner_journal.os.replace', fail)
     with pytest.raises(OSError): await directory.save(row | {'name': 'not committed'})
     assert await directory.deployments() == [row]
     assert not list(directory.root.glob('*.tmp'))

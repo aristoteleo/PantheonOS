@@ -10,9 +10,9 @@ import threading
 
 import pytest
 
-from pantheonos.apps.agent_execution_client import AgentExecutionClient
-from pantheonos.apps.dependency_client import DependencyClient, DependencyCallError
-from pantheonos.apps.runtime_config import RuntimeCredential
+from pantheonos.appkit.agent_execution_client import AgentExecutionClient
+from pantheonos.appkit.dependency_client import DependencyClient, DependencyCallError
+from pantheonos.appkit.runtime_config import RuntimeCredential
 
 
 def client():
@@ -116,9 +116,9 @@ class Guard(importlib.abc.MetaPathFinder):
   if name.startswith(('pantheon.agent','pantheon.chatroom','pantheonos.settings','pantheonos.models','pantheon.platform','litellm','openai')):
    raise AssertionError('Execution consumer imported runtime authority: '+name)
 sys.meta_path.insert(0,Guard())
-from pantheonos.apps.agent_execution_client import AgentExecutionClient, METHODS
-from pantheonos.apps.dependency_client import DependencyClient
-from pantheonos.apps.runtime_config import RuntimeCredential
+from pantheonos.appkit.agent_execution_client import AgentExecutionClient, METHODS
+from pantheonos.appkit.dependency_client import DependencyClient
+from pantheonos.appkit.runtime_config import RuntimeCredential
 assert len(METHODS)==7
 AgentExecutionClient(DependencyClient(RuntimeCredential('https://bound.example/rpc','a'*64)))
 '''
@@ -129,9 +129,9 @@ AgentExecutionClient(DependencyClient(RuntimeCredential('https://bound.example/r
 
 
 def test_execution_grant_projects_the_actual_rpc_contract_and_binds_its_owner():
-    from pantheonos.apps.agent_execution_client import METHODS, execution_method_rules
-    from pantheonos.apps.dependency_assembly import _methods
-    from pantheonos.apps.reflect import reflect_toolset_class
+    from pantheonos.appkit.agent_execution_client import METHODS, execution_method_rules
+    from pantheonos.appkit.dependency_assembly import _methods
+    from pantheonos.appkit.reflect import reflect_toolset_class
     from pantheon.chatroom.native import NativeAgentApplication
     signatures = [s.model_dump() for s in reflect_toolset_class(NativeAgentApplication) if s.name in METHODS]
     provider = {'provides': {'tools': signatures, 'interfaces': [

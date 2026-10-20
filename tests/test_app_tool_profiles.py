@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from pantheonos.apps.dependency_assembly import AssemblyError, _methods
-from pantheonos.apps.tool_profiles import compile_tool_profile, _type
+from pantheonos.appkit.dependency_assembly import AssemblyError, _methods
+from pantheonos.appkit.tool_profiles import compile_tool_profile, _type
 
 
 def test_types_never_execute_manifest_python(tmp_path):
@@ -60,11 +60,11 @@ def test_invalid_complete_contract_fails_instead_of_dropping_tools(damage):
 
 
 def test_every_default_team_provider_has_its_complete_packaged_tool_face(tmp_path):
-    from pantheonos.apps.builtin.file.build_managed import build as files
-    from pantheonos.apps.builtin.notebook.build_managed import build as notebook
-    from pantheonos.apps.builtin.web.build_managed import build as web
-    from pantheonos.apps.builtin.evolution.build_managed import build as evolution
-    from pantheonos.apps.builtin.desktop.build_managed import build as desktop
+    from pantheonos.appkit.builtin.file.build_managed import build as files
+    from pantheonos.appkit.builtin.notebook.build_managed import build as notebook
+    from pantheonos.appkit.builtin.web.build_managed import build as web
+    from pantheonos.appkit.builtin.evolution.build_managed import build as evolution
+    from pantheonos.appkit.builtin.desktop.build_managed import build as desktop
     from pantheon.dependency_provider import DependencyToolProvider
     builds = {'file_manager': files, 'integrated_notebook': notebook,
               'web': web, 'evolution': evolution, 'desktop': desktop}
@@ -98,7 +98,7 @@ def test_every_default_team_provider_has_its_complete_packaged_tool_face(tmp_pat
 
 
 def test_host_service_methods_require_explicit_selection_and_interface_coverage(tmp_path):
-    from pantheonos.apps.builtin.file.build_managed import build
+    from pantheonos.appkit.builtin.file.build_managed import build
     root = build(tmp_path/'files', 'darwin-arm64')
     manifest = json.loads((root/'app.json').read_text())
     uses = [f"{i['name']}@1" for i in manifest['provides']['interfaces']]
@@ -119,8 +119,8 @@ def test_host_service_methods_require_explicit_selection_and_interface_coverage(
 
 @pytest.mark.asyncio
 async def test_service_method_is_callable_by_host_but_absent_from_agent_menu():
-    from pantheonos.apps.dependency_client import DependencyClient
-    from pantheonos.apps.runtime_config import RuntimeCredential
+    from pantheonos.appkit.dependency_client import DependencyClient
+    from pantheonos.appkit.runtime_config import RuntimeCredential
     from pantheon.dependency_provider import DependencyToolProvider
     calls = []
     class Client(DependencyClient):

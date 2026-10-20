@@ -8,7 +8,7 @@ from urllib.parse import quote, urljoin
 
 import httpx
 
-from pantheonos.apps.store_release import git, unpack_release
+from pantheonos.appkit.store_release import git, unpack_release
 
 
 async def store_action(manager, action, app_id, repository_id, scope, version, name, query, changelog, expected_commit, *,

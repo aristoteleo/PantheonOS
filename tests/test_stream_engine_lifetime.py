@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheonos.apps.builtin.desktop.browser import BrowserEngine
+from pantheonos.appkit.builtin.desktop.browser import BrowserEngine
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -20,8 +20,8 @@ async def test_stream_cleanup_joins_engine_and_preserves_display_on_failure(monk
     # Linux execution package does. Xpra is replaced by an owned child process;
     # this gate exercises ownership and the native save guard, not capture.
     spec = importlib.util.spec_from_file_location(
-        'pantheonos.apps.builtin.desktop._stream_lifetime_fixture',
-        ROOT/'pantheonos/apps/stream_runtime.py')
+        'pantheonos.appkit.builtin.desktop._stream_lifetime_fixture',
+        ROOT/'pantheonos/appkit/stream_runtime.py')
     adapter = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(adapter)
     monkeypatch.setattr(adapter.shutil, 'which', lambda name: '/fixture/'+name)
@@ -42,7 +42,7 @@ async def test_stream_cleanup_joins_engine_and_preserves_display_on_failure(monk
         if startup_failure:
             raise RuntimeError('display startup failed')
     monkeypatch.setattr(BrowserEngine, 'ensure_native_stage', stage)
-    native = ModuleType('pantheonos.apps.builtin.desktop.qupath.native')
+    native = ModuleType('pantheonos.appkit.builtin.desktop.qupath.native')
     native.NativeAppManager = lambda *a, **kw: SimpleNamespace(
         _executable=lambda: 'fixture', sessions={'one': SimpleNamespace(process=process)})
     monkeypatch.setitem(sys.modules, native.__name__, native)

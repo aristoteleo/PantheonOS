@@ -16,11 +16,11 @@ from urllib.request import Request, urlopen
 import pytest
 import psutil
 
-from pantheonos.apps.builtin.desktop.app_runtime import AppContext
-from pantheonos.apps.builtin.notebook.build_managed import build
-from pantheonos.apps.builtin.notebook.managed import create_service
-from pantheonos.apps.toolset_backend import register_toolset
-from pantheonos.apps.lifecycle import build_artifact
+from pantheonos.appkit.builtin.desktop.app_runtime import AppContext
+from pantheonos.appkit.builtin.notebook.build_managed import build
+from pantheonos.appkit.builtin.notebook.managed import create_service
+from pantheonos.appkit.toolset_backend import register_toolset
+from pantheonos.appkit.lifecycle import build_artifact
 from test_local_fleet import binaries
 
 CONFIG = {'execution_timeout': 60, 'execution_logging': True}
@@ -57,7 +57,7 @@ class Boundary(importlib.abc.MetaPathFinder):
    raise AssertionError('Ambient import: '+name)
 sys.meta_path.insert(0, Boundary())
 sys.path.insert(0, sys.argv[1])
-from pantheonos.apps.builtin.notebook.managed import create_service
+from pantheonos.appkit.builtin.notebook.managed import create_service
 async def run():
  service = create_service({'execution_timeout':60,'execution_logging':True}, sys.argv[2], sys.argv[3])
  await service.run(remote=False, cleanup_on_exit=False)
@@ -293,9 +293,9 @@ async def test_actual_fleet_prepared_notebook_start_stop_reopen(tmp_path, binari
     import platform
     import shlex
     import nats
-    from pantheonos.apps.client import AppClient
-    from pantheonos.apps.lifecycle import FleetLifecycle, CHUNK_SIZE, ConfigurationBusy
-    from pantheonos.apps.resolver import AppInstanceResolver
+    from pantheonos.appkit.client import AppClient
+    from pantheonos.appkit.lifecycle import FleetLifecycle, CHUNK_SIZE, ConfigurationBusy
+    from pantheonos.appkit.resolver import AppInstanceResolver
     from pantheonos.local.fleet import LocalFleet
     from test_local_fleet import assert_stopped
 

@@ -216,7 +216,7 @@ class PlatformHealth:
         import time as _time
 
         try:
-            from pantheonos.apps.resolver import get_shared_resolver
+            from pantheonos.appkit.resolver import get_shared_resolver
 
             resolver = get_shared_resolver()
             if resolver is None:

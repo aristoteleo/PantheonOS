@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from pantheonos.apps.compat import check_compat
-from pantheonos.apps.schema import parse_manifest
-from pantheonos.apps.versioning import (
+from pantheonos.appkit.compat import check_compat
+from pantheonos.appkit.schema import parse_manifest
+from pantheonos.appkit.versioning import (
     VersioningError,
     fork,
     install,
@@ -25,7 +25,7 @@ def _manifest(app_id: str, version: str = "1.0.0", tools=None, ifaces=None, deps
     return {
         "id": app_id, "name": app_id, "version": version, "apiVersion": 2,
         "kind": "service", "surface": "headless",
-        "entry": {"backend": f"pantheonos.apps.builtin.{app_id}:X"},
+        "entry": {"backend": f"pantheonos.appkit.builtin.{app_id}:X"},
         "provides": {
             "tools": tools if tools is not None else [
                 {"name": "greet", "params": [

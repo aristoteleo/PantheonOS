@@ -10,9 +10,9 @@ import os
 from pathlib import Path
 import re
 
-from pantheonos.apps.credentials import _regular_file, app_credential_endpoint, credential_identity
-from pantheonos.apps.dependency_assembly import AssemblyError
-from pantheonos.apps.runtime_config import RuntimeCredential
+from pantheonos.appkit.credentials import _regular_file, app_credential_endpoint, credential_identity
+from pantheonos.appkit.dependency_assembly import AssemblyError
+from pantheonos.appkit.runtime_config import RuntimeCredential
 from .launch import unique_fields as _unique_fields
 
 

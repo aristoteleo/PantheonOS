@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from pantheonos.apps.lifecycle import FleetLifecycle
+from pantheonos.appkit.lifecycle import FleetLifecycle
 from pantheonos.models.client import ModelServices, ControlError
 from pantheonos.models.manager import ModelServiceManager
 from test_model_services import connector_module, serve

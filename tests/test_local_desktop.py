@@ -7,8 +7,8 @@ import sys
 import httpx
 import pytest
 
-from pantheonos.apps.dependency_assembly import AssemblyError
-from pantheonos.apps.lifecycle import build_artifact
+from pantheonos.appkit.dependency_assembly import AssemblyError
+from pantheonos.appkit.lifecycle import build_artifact
 from pantheonos.local.desktop import DesktopView, snapshot_frontend, MAX_REQUEST
 
 

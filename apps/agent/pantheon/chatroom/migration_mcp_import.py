@@ -10,8 +10,8 @@ from hashlib import sha256
 import json
 from pathlib import Path
 
-from pantheonos.apps.agent_defaults import with_dependency_defaults
-from pantheonos.apps.dependency_assembly import _copy, _identity, _matches, IDENT
+from pantheonos.appkit.agent_defaults import with_dependency_defaults
+from pantheonos.appkit.dependency_assembly import _copy, _identity, _matches, IDENT
 from .migration_backup import _encoded, _read_json
 
 
@@ -70,7 +70,7 @@ class MCPImportConversion:
         self._configuration.assert_current()
         if digest != self._configuration._digest or fence.identity != self._configuration._identity:
             raise ValueError('MCP bindings belong to another migration')
-        from pantheonos.apps.lifecycle import build_artifact
+        from pantheonos.appkit.lifecycle import build_artifact
         _, revision = build_artifact(Path(self._candidate['artifact']['directory']))
         if revision != self._candidate['artifact']['revision']:
             raise ValueError('Reviewed MCP artifact changed before import')

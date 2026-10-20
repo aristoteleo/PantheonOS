@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheonos.apps.lifecycle import build_artifact, FleetLifecycle, CHUNK_SIZE
+from pantheonos.appkit.lifecycle import build_artifact, FleetLifecycle, CHUNK_SIZE
 
 
 @pytest.mark.asyncio
@@ -91,7 +91,7 @@ def test_artifact_rejects_identity_mismatch_and_symlinks(tmp_path):
 
 
 def test_large_release_compresses_reproducibly_and_bounds_expansion(tmp_path):
-    from pantheonos.apps.lifecycle import MAX_ARTIFACT, MAX_UNPACKED_ARTIFACT
+    from pantheonos.appkit.lifecycle import MAX_ARTIFACT, MAX_UNPACKED_ARTIFACT
     package(tmp_path)
     path = tmp_path / 'large.js'
     with path.open('wb') as stream:
@@ -208,7 +208,7 @@ async def test_snapshot_reuses_digest_but_validates_installation_on_each_node(tm
     def build(*args):
         builds.append(args)
         return build_artifact(*args)
-    monkeypatch.setattr('pantheonos.apps.lifecycle.build_artifact', build)
+    monkeypatch.setattr('pantheonos.appkit.lifecycle.build_artifact', build)
     for node in ['node-a', 'node-a', 'node-b']:
         service = FleetLifecycle(resolver)
         monkeypatch.setattr(service, '_client', AsyncMock(return_value=client))
@@ -282,7 +282,7 @@ async def test_stage_exact_lost_chunk_replays_same_bytes_and_no_rpc_on_corruptio
     ('lost configuration acknowledgement', False),
 ])
 async def test_configuration_busy_requires_exact_prewrite_rejection(monkeypatch, message, busy):
-    from pantheonos.apps.lifecycle import ConfigurationBusy
+    from pantheonos.appkit.lifecycle import ConfigurationBusy
     service = FleetLifecycle(None)
     request = AsyncMock(side_effect=RuntimeError(message))
     monkeypatch.setattr(service, '_request', request)

@@ -9,9 +9,9 @@ import sys
 
 import pytest
 
-from pantheonos.apps.builtin.file.build_managed import build
-from pantheonos.apps.builtin.file.managed import METHODS, create_service
-from pantheonos.apps.lifecycle import build_artifact
+from pantheonos.appkit.builtin.file.build_managed import build
+from pantheonos.appkit.builtin.file.managed import METHODS, create_service
+from pantheonos.appkit.lifecycle import build_artifact
 from PIL import Image
 
 
@@ -31,7 +31,7 @@ class Boundary(importlib.abc.MetaPathFinder):
    raise AssertionError('Files imported Agent or ambient state: '+name)
 sys.meta_path.insert(0, Boundary())
 sys.path.insert(0,sys.argv[1])
-from pantheonos.apps.builtin.file.managed import create_service
+from pantheonos.appkit.builtin.file.managed import create_service
 async def run():
  service=create_service({'workspace':sys.argv[2], 'limits':{'max_file_read_chars':5}})
  assert (await service.write_file('sample.py', 'def sample():\\n    return 42\\n'))['success']

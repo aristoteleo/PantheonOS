@@ -113,11 +113,11 @@ async def test_placement_by_requires(tmp_path, monkeypatch):
             assert "display" in nodes["node-b"]["capability"]["caps"]
 
             # the test's App tree: shell needs a display, pty needs nothing
-            import pantheonos.apps.registry as registry
+            import pantheonos.appkit.registry as registry
             monkeypatch.setattr(registry, "BUILTIN_ROOT", _test_tree(tmp_path))
 
-            from pantheonos.apps.registry import by_service_type
-            from pantheonos.apps.resolver import AppInstanceResolver
+            from pantheonos.appkit.registry import by_service_type
+            from pantheonos.appkit.resolver import AppInstanceResolver
 
             resolver = AppInstanceResolver(
                 FLEET_ID, node_a, USER_SEED, workdir=str(tmp_path))
@@ -138,7 +138,7 @@ async def test_placement_by_requires(tmp_path, monkeypatch):
                     await asyncio.sleep(1.0)
             assert sid, "ensure_instance never succeeded"
 
-            from pantheonos.apps.client import AppClient
+            from pantheonos.appkit.client import AppClient
 
             client = AppClient(nc, FLEET_ID)
             listing = await client.list(node_b)

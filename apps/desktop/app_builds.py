@@ -14,7 +14,7 @@ import time
 import uuid
 from pathlib import Path
 
-from pantheonos.apps import app_build
+from pantheonos.appkit import app_build
 
 
 class AppBuilds:

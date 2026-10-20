@@ -7,10 +7,10 @@ import tempfile
 
 
 def build(output: Path, platform: str):
-    from pantheonos.apps.portable import definition
-    from pantheonos.apps.schema import parse_manifest
+    from pantheonos.appkit.portable import definition
+    from pantheonos.appkit.schema import parse_manifest
     source = Path(__file__).resolve().parent
-    from pantheonos.apps.vendoring import add_package_inits, builtin_app_dir, vendor_file, vendor_tree
+    from pantheonos.appkit.vendoring import add_package_inits, builtin_app_dir, vendor_file, vendor_tree
     runtime = source.parents[1] / 'pantheonos'
     output = Path(output).absolute()
     if output.exists() or output.is_symlink():
@@ -40,7 +40,7 @@ def build(output: Path, platform: str):
         parse_manifest(manifest)
         (package / 'app.json').write_text(json.dumps(manifest, indent=2) + '\n')
         vendor = package / 'backend/_vendor'
-        for name in ('toolset.py', 'utils/log.py', 'utils/misc.py', 'apps/toolset_backend.py',
+        for name in ('toolset.py', 'utils/log.py', 'utils/misc.py', 'appkit/toolset_backend.py',
                      'internal/package_runtime/context.py', 'remote/backend/base.py'):
             vendor_file(name, vendor)
         vendor_tree('funcdesc', vendor)
@@ -49,7 +49,7 @@ def build(output: Path, platform: str):
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source / name, dest)
         add_package_inits(vendor)
-        (package / 'backend/__init__.py').write_text('from pantheonos.apps.builtin.web.managed import register\n')
+        (package / 'backend/__init__.py').write_text('from pantheonos.appkit.builtin.web.managed import register\n')
         (package / 'requirements.txt').write_text(
             'loguru==0.7.3\nrich==14.3.2\npydantic==2.12.5\n'
             'ddgs==9.16.0\ncrawl4ai==0.8.0\nplaywright==1.58.0\n')
@@ -59,7 +59,7 @@ def build(output: Path, platform: str):
         adapter.mkdir()
         shutil.copyfile(source.parent / 'desktop/app_runtime.py', adapter / 'app_runtime.py')
         for name in ('host.py', 'install.py', 'launch.py'):
-            shutil.copyfile(runtime / 'apps/portable_runtime' / name, adapter / name)
+            shutil.copyfile(runtime / 'appkit/portable_runtime' / name, adapter / name)
         execution = definition(manifest, platform)
         execution['hooks']['before_stop']['component'] = 'backend'
         (package / 'fleet.json').write_text(json.dumps(execution, indent=2) + '\n')

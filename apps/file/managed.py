@@ -10,8 +10,8 @@ import base64
 from pathlib import Path
 from types import SimpleNamespace
 
-from pantheonos.apps.runtime_config import load_runtime_configuration
-from pantheonos.apps.toolset_backend import register_toolset
+from pantheonos.appkit.runtime_config import load_runtime_configuration
+from pantheonos.appkit.toolset_backend import register_toolset
 from pantheonos.toolset import tool
 from .file_manager import FileManagerToolSet
 
@@ -195,7 +195,7 @@ async def register_sampling(ctx):
 
 
 async def register_capabilities(ctx, *, observation=False, generation=False):
-    from pantheonos.apps.model_sampling import ToolModelSampling
+    from pantheonos.appkit.model_sampling import ToolModelSampling
     configuration = load_runtime_configuration(required=True)
     sampling = images = None
     unconfigured = {name for name, enabled in (('sampling', observation), ('image_generation', generation))

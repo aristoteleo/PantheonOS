@@ -13,9 +13,9 @@ import re
 import ssl
 import time
 
-from pantheonos.apps.owned_bus import BusConfiguration, OwnedBus, _join
-from pantheonos.apps.runtime_config import load_runtime_configuration
-from pantheonos.apps.toolset_backend import register_toolset
+from pantheonos.appkit.owned_bus import BusConfiguration, OwnedBus, _join
+from pantheonos.appkit.runtime_config import load_runtime_configuration
+from pantheonos.appkit.toolset_backend import register_toolset
 from .data_server import DataServerConfig, LiveViewDataServer
 from .files_binding import DesktopFilesBinding
 from .fleet_binding import DesktopFleetBinding

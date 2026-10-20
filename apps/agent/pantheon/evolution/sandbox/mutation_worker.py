@@ -37,8 +37,8 @@ async def main():
     from pantheon.evolution.program import CodebaseSnapshot, Program
     from pantheon.internal.memory import Memory
     from pantheon.team.pantheon import PantheonTeam
-    from pantheonos.apps.builtin.file import FileManagerToolSet
-    from pantheonos.apps.builtin.python import PythonInterpreterToolSet
+    from pantheonos.appkit.builtin.file import FileManagerToolSet
+    from pantheonos.appkit.builtin.python import PythonInterpreterToolSet
     from pantheon.evolution.local_shell import LocalShellToolSet
 
     parent_files = json.loads(_dec("EVO_PARENT", "{}"))

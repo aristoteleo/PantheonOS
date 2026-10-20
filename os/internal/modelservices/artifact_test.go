@@ -50,8 +50,8 @@ func TestBuildArtifactMatchesPython(t *testing.T) {
 	for _, platform := range []string{"linux-amd64", "darwin-arm64"} {
 		cmd := exec.Command(python, "-c", `import sys
 from pathlib import Path
-from pantheonos.apps.lifecycle import build_artifact
-from pantheonos.apps.portable import execution_package
+from pantheonos.appkit.lifecycle import build_artifact
+from pantheonos.appkit.portable import execution_package
 with execution_package(Path(sys.argv[1]), sys.argv[2]) as root:
     payload, digest = build_artifact(root, sys.argv[2])
 print(digest)`, source, platform)

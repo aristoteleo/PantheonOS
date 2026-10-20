@@ -9,7 +9,7 @@ import pytest
 import test_model_groups as fixture
 from test_model_group_overlay import OverlayFleet, network
 from test_model_group_security import OWNER, security
-from pantheonos.apps.lifecycle import FleetLifecycle
+from pantheonos.appkit.lifecycle import FleetLifecycle
 from pantheonos.models.group_coordinator import GroupCoordinator
 from pantheonos.models.group_inference import deployment, transition
 from pantheonos.models.group_journal import GroupJournal, GroupConflict

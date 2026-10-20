@@ -9,7 +9,7 @@ import time
 from urllib.request import Request, urlopen
 
 import pytest
-from pantheonos.apps.builtin.notebook.build_managed import build
+from pantheonos.appkit.builtin.notebook.build_managed import build
 
 
 @pytest.fixture

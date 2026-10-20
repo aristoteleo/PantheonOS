@@ -11,9 +11,9 @@ from fastmcp import Client, FastMCP
 import httpx
 import pytest
 
-from pantheonos.apps.builtin.mcp.scoped import ScopedMCP, validate_exports
-from pantheonos.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
-from pantheonos.apps.mcp_package import build_package
+from pantheonos.appkit.builtin.mcp.scoped import ScopedMCP, validate_exports
+from pantheonos.appkit.runtime_config import RuntimeConfiguration, RuntimeCredential
+from pantheonos.appkit.mcp_package import build_package
 
 
 @pytest.fixture
@@ -240,7 +240,7 @@ server.run(transport="stdio", show_banner=False)
     exports = await contract(mcp[0])
     if legacy:
         from pantheon.chatroom.migration_mcp_tools import compile_mcp_tools
-        from pantheonos.apps.mcp_package import build_migration_package
+        from pantheonos.appkit.mcp_package import build_migration_package
         original = {key: exports['increment'][key] for key in ('description', 'parameters')}
         captured = compile_mcp_tools([dict(original, name='docs_increment')],
             {'docs': {'prefix': 'docs', 'tools': [dict(original, name='increment')]}}, providers=['mcp'])
@@ -251,8 +251,8 @@ server.run(transport="stdio", show_banner=False)
         package = build_package(tmp_path / 'package', 'darwin-arm64' if sys.platform == 'darwin' else 'linux-amd64',
             exports=exports, credential_slots=['mcp-api'] if credentialed else [])
         method = 'increment'
-    from pantheonos.apps.schema import parse_manifest
-    from pantheonos.apps.lifecycle import build_artifact
+    from pantheonos.appkit.schema import parse_manifest
+    from pantheonos.appkit.lifecycle import build_artifact
     assert parse_manifest(json.loads((package / 'app.json').read_text())).id == 'mcp-gateway'
     assert build_artifact(package)[0]
     cfg = config({'docs': {'transport': 'stdio', 'command': [sys.executable, str(script)],
@@ -322,7 +322,7 @@ runpy.run_module('host', run_name='__main__')
 @pytest.mark.asyncio
 async def test_agent_consumes_the_mcp_export_as_an_ordinary_dependency(mcp):
     """Real Agent + dependency schema + real MCP. RPC link is an in-process fixture."""
-    from pantheonos.apps.dependency_client import DependencyClient
+    from pantheonos.appkit.dependency_client import DependencyClient
     from pantheon.dependency_provider import DependencyToolProvider
     from pantheon.factory import create_agent
     from pantheon.factory.bindings import AgentToolBindings
@@ -416,7 +416,7 @@ async def test_content_blocks_and_metadata_survive_rpc_representation():
 @pytest.mark.asyncio
 @pytest.mark.parametrize('platform', ['darwin-arm64', 'darwin-amd64', 'linux-arm64', 'linux-amd64', 'windows-arm64', 'windows-amd64'])
 async def test_package_declarations_match_ordinary_app_contract(mcp, tmp_path, platform):
-    from pantheonos.apps.lifecycle import build_artifact
+    from pantheonos.appkit.lifecycle import build_artifact
     from pantheon.dependency_provider import DependencyToolProvider
     package = build_package(tmp_path / platform, platform, exports=await contract(mcp[0]), credential_slots=['api'])
     execution = json.loads((package / 'fleet.json').read_text())

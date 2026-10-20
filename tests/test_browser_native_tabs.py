@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from pantheonos.apps.builtin.desktop.browser import BrowserEngine
+from pantheonos.appkit.builtin.desktop.browser import BrowserEngine
 
 
 def test_observer_is_private_local_and_has_only_identity_permission():

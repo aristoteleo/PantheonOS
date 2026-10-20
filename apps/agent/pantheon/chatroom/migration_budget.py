@@ -59,7 +59,7 @@ async def review_budget_models(client, receipt, references):
     Read-only directory review. Existing deployment preparation must still check
     these bindings/revisions before starting the candidate; this issues no grant.
     """
-    from pantheonos.apps.dependency_assembly import _copy
+    from pantheonos.appkit.dependency_assembly import _copy
     from pantheonos.models.dependency_plan import plan_dependency
     from pantheonos.models.managed import module
     try:

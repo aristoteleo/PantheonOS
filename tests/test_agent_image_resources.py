@@ -11,7 +11,7 @@ from PIL import Image
 import pytest
 
 from pantheon.agent import Agent
-from pantheonos.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
+from pantheonos.appkit.runtime_config import RuntimeConfiguration, RuntimeCredential
 from pantheon.factory.bindings import _bindings_from_spec
 from pantheon.factory.instances import AgentInstanceBinding, AgentInstanceFactory, config_revision
 from pantheonos.utils.image_resources import BoundImageResolver, expand_bound_images

@@ -19,9 +19,9 @@ class FleetAPI:
     @tool
     async def fleet_inventory(self) -> dict:
         """Nodes and supervised App instances in the authenticated user's Fleet."""
-        from pantheonos.apps.resolver import get_shared_resolver
-        from pantheonos.apps.builtin.fleet.inventory import fleet_inventory
-        from pantheonos.apps.builtin.fleet.update import published_release
+        from pantheonos.appkit.resolver import get_shared_resolver
+        from pantheonos.appkit.builtin.fleet.inventory import fleet_inventory
+        from pantheonos.appkit.builtin.fleet.update import published_release
         try:
             result = await fleet_inventory(get_shared_resolver())
             return {**result, 'fleet_release': await published_release()}
@@ -46,8 +46,8 @@ class FleetAPI:
         also available explicitly and never replays interrupted hooks.
         This never starts on a different node or executes arbitrary commands.
         """
-        from pantheonos.apps.resolver import get_shared_resolver
-        from pantheonos.apps.lifecycle import FleetLifecycle
+        from pantheonos.appkit.resolver import get_shared_resolver
+        from pantheonos.appkit.lifecycle import FleetLifecycle
         try:
             resolver = get_shared_resolver()
             if resolver is None:
@@ -76,8 +76,8 @@ class FleetAPI:
         in flight answers "deferred" and updates on its own once idle.
         Sandbox/pod nodes are updated with their image and are skipped.
         """
-        from pantheonos.apps.resolver import get_shared_resolver
-        from pantheonos.apps.builtin.fleet.update import update_nodes
+        from pantheonos.appkit.resolver import get_shared_resolver
+        from pantheonos.appkit.builtin.fleet.update import update_nodes
         try:
             return await update_nodes(get_shared_resolver(), node_ids, tag)
         except Exception as exc:
@@ -96,8 +96,8 @@ class FleetAPI:
         stops one (only jobs started from this login node). The HPC allocation
         is the user's own: launch only when the user asks.
         """
-        from pantheonos.apps.resolver import get_shared_resolver
-        from pantheonos.apps.builtin.fleet import hpc
+        from pantheonos.appkit.resolver import get_shared_resolver
+        from pantheonos.appkit.builtin.fleet import hpc
         try:
             resolver = get_shared_resolver()
             if action == 'launch':
@@ -122,8 +122,8 @@ class FleetAPI:
         node_id is the machine that holds the SSH session. Sign-in answers arrive
         encrypted to that machine's per-prompt key; this backend cannot read them.
         """
-        from pantheonos.apps.resolver import get_shared_resolver
-        from pantheonos.apps.builtin.fleet import hpc
+        from pantheonos.appkit.resolver import get_shared_resolver
+        from pantheonos.appkit.builtin.fleet import hpc
         data = {'cluster_id': cluster_id, 'job_id': job_id, 'remember': remember}
         for key, value in (('cluster', cluster), ('answer', answer), ('request', request)):
             if value:
@@ -148,8 +148,8 @@ class FleetAPI:
         requires the exact instance_id, revision and generation from list.
         Work and access end with the allocation or attended SSH connection.
         """
-        from pantheonos.apps.resolver import get_shared_resolver
-        from pantheonos.apps.builtin.fleet import hpc
+        from pantheonos.appkit.resolver import get_shared_resolver
+        from pantheonos.appkit.builtin.fleet import hpc
         try:
             data = {'instance_id': instance_id, 'revision': revision, 'generation': generation}
             if spec is not None:
@@ -231,7 +231,7 @@ class FleetAPI:
                 "note": "No fleet configured on this backend.",
             }
         try:
-            from pantheonos.apps.builtin.fleet import FleetToolSet
+            from pantheonos.appkit.builtin.fleet import FleetToolSet
 
             ts = getattr(self, "_fleet_ts", None)
             if ts is None:
@@ -291,7 +291,7 @@ class FleetAPI:
 
         # Already registered as a node? Nothing to do.
         try:
-            from pantheonos.apps.builtin.fleet import FleetToolSet
+            from pantheonos.appkit.builtin.fleet import FleetToolSet
 
             ts = getattr(self, "_fleet_ts", None)
             if ts is None:

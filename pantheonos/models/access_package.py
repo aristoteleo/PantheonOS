@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 import shutil
 
-from pantheonos.apps.portable import definition
+from pantheonos.appkit.portable import definition
 
 
 def build_package(destination, platform):
@@ -37,7 +37,7 @@ def build_package(destination, platform):
     modules = (
         'models/access_host.py', 'models/access_control.py', 'utils/registry_lock.py',
         'models/dependency_service.py', 'models/errors.py', 'models/local_directory.py',
-        'apps/runtime_config.py', 'apps/dependency_assembly.py', 'apps/owner_journal.py',
+        'appkit/runtime_config.py', 'appkit/dependency_assembly.py', 'appkit/owner_journal.py',
     )
     for name in modules:
         target = vendor / name
@@ -47,15 +47,15 @@ def build_package(destination, platform):
     contracts.mkdir()
     for path in (source / 'model_contracts').glob('*.py'):
         shutil.copyfile(path, contracts / path.name)
-    for directory in (vendor, vendor / 'models', vendor / 'apps'):
+    for directory in (vendor, vendor / 'models', vendor / 'appkit'):
         (directory / '__init__.py').write_text('')
     (destination / 'requirements.txt').write_text('httpx==0.28.1\npydantic==2.12.5\n')
     adapter = destination / '.fleet-runtime'
     adapter.mkdir()
-    from pantheonos.apps.builtin.desktop import app_runtime
+    from pantheonos.appkit.builtin.desktop import app_runtime
     shutil.copyfile(app_runtime.__file__, adapter / 'app_runtime.py')
     for name in ('host.py', 'install.py', 'launch.py'):
-        shutil.copyfile(source / 'apps' / 'portable_runtime' / name, adapter / name)
+        shutil.copyfile(source / 'appkit' / 'portable_runtime' / name, adapter / name)
     execution = definition(manifest, platform)
     execution['components'][0]['configuration'] = {
         'values': {'model_services': {'required': True}},

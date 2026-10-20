@@ -7,7 +7,7 @@ import subprocess
 
 import pytest
 
-from pantheonos.apps.dependency_assembly import AssemblyError
+from pantheonos.appkit.dependency_assembly import AssemblyError
 from pantheonos.local.setup import prepare, create
 from pantheonos.local.credentials import read_credentials
 from test_general_agent_preset import complete_entries
@@ -69,7 +69,7 @@ def test_creation_is_private_and_cannot_replace_existing_profile(complete_entrie
     assert Path(result['credentials']).stat().st_mode & 0o077 == 0
     assert root.stat().st_mode & 0o077 == 0
     setup = json.loads((root/'setup.json').read_text())
-    from pantheonos.apps.local_agent import compose_profile
+    from pantheonos.appkit.local_agent import compose_profile
     assert read_credentials(result['credentials'], compose_profile(complete_entries, setup), workspace).entries
     before = {p.name: p.read_bytes() for p in root.iterdir() if p.is_file()}
     with pytest.raises(AssemblyError): create(bundle, root, workspace, [sys.executable], choices())
@@ -87,7 +87,7 @@ def test_creation_rejects_public_destination_before_writing(complete_entries, tm
 
 def test_interrupted_creation_has_no_launch_receipt(complete_entries, tmp_path, monkeypatch):
     monkeypatch.setattr('pantheonos.local.setup.read_bundle', lambda path: (None, complete_entries))
-    from pantheonos.apps.owner_journal import OwnerJournal
+    from pantheonos.appkit.owner_journal import OwnerJournal
     write = OwnerJournal._write
     def fail_receipt(self, path, value):
         if path.name == 'launch.json': raise OSError('interrupted write')

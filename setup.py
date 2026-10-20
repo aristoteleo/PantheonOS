@@ -4,7 +4,7 @@ The first-party Apps live at <repo>/apps — outside the pantheonos package,
 where the design wants them (each one a future git repo of its own). An
 installed wheel has no repo root, so at build time the tree's runtime face
 (manifests, Python backends, frontend bundles, assets) is copied into
-pantheonos/apps/builtin/, which is exactly where the import bridge and the
+pantheonos/appkit/builtin/, which is exactly where the import bridge and the
 registry fall back to when no source tree is present. Go sources, tests
 and frontend build inputs stay out — the wheel ships what runs, not what
 compiles.
@@ -38,11 +38,11 @@ class BuildPyWithApps(build_py):
     def run(self):
         super().run()
         import runpy
-        STORE_APPS = runpy.run_path(os.path.join(os.path.dirname(__file__), 'pantheonos/apps/distribution.py'))['STORE_APPS']
+        STORE_APPS = runpy.run_path(os.path.join(os.path.dirname(__file__), 'pantheonos/appkit/distribution.py'))['STORE_APPS']
         src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "apps")
         if not os.path.isdir(src):
             return
-        dst = os.path.join(self.build_lib, "pantheonos", "apps", "builtin")
+        dst = os.path.join(self.build_lib, "pantheonos", "appkit", "builtin")
         for root, dirs, files in os.walk(src):
             dirs[:] = [d for d in dirs if _keep(d)]
             if root == src:

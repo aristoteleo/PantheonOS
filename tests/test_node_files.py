@@ -7,7 +7,7 @@ import pytest
 from apps.fleet.inventory import node_inventory
 from apps.task.output_paths import output_metadata
 from apps.task.task_state import ConversationState
-from pantheonos.apps.resolver import AppInstanceResolver
+from pantheonos.appkit.resolver import AppInstanceResolver
 
 
 def record(node_id='Node-A', *, stale=False, files=True):
@@ -45,8 +45,8 @@ async def test_output_exists_only_on_remote_node(monkeypatch, tmp_path):
     proxy = SimpleNamespace(bind_instance=lambda *a: None, invoke=AsyncMock(return_value={
         'success': True, 'exists': True, 'is_dir': False, 'node_id': 'Node-A',
         'path': '/reports/chart.png', 'store_path': 'reports/chart.png'}))
-    monkeypatch.setattr('pantheonos.apps.resolver.get_shared_resolver', lambda: resolver)
-    monkeypatch.setattr('pantheonos.apps.proxy.ToolsetProxy.from_toolset', lambda sid: proxy)
+    monkeypatch.setattr('pantheonos.appkit.resolver.get_shared_resolver', lambda: resolver)
+    monkeypatch.setattr('pantheonos.appkit.proxy.ToolsetProxy.from_toolset', lambda sid: proxy)
     result = await output_metadata('reports/chart.png', {'project_root': str(tmp_path)})
     assert result['exists'] and not (tmp_path / 'reports/chart.png').exists()
     assert result['source'] == {'node_id': 'Node-A', 'path': '/reports/chart.png', 'service_id': 'remote-files'}
@@ -58,7 +58,7 @@ async def test_output_exists_only_on_remote_node(monkeypatch, tmp_path):
 async def test_offline_output_does_not_fall_back_to_same_local_path(monkeypatch, tmp_path):
     path = tmp_path / 'result.txt'; path.write_text('unrelated local data')
     resolver = SimpleNamespace(ensure_instance=AsyncMock(side_effect=RuntimeError('node offline')))
-    monkeypatch.setattr('pantheonos.apps.resolver.get_shared_resolver', lambda: resolver)
+    monkeypatch.setattr('pantheonos.appkit.resolver.get_shared_resolver', lambda: resolver)
     with pytest.raises(RuntimeError, match='offline'):
         await output_metadata(str(path), {}, 'Node-B')
     with pytest.raises(ValueError, match='absolute'):
@@ -123,7 +123,7 @@ async def test_desktop_http_rejects_other_nodes_before_resolving_path(monkeypatc
 
 
 def test_fleet_is_registered_as_a_builtin_app():
-    from pantheonos.apps.registry import builtin_apps
+    from pantheonos.appkit.registry import builtin_apps
     manifest = next(app.manifest for app in builtin_apps() if app.manifest.id == 'fleet')
     assert manifest.kind.value == 'service'
     assert manifest.entry.frontend == 'ui:fleet'
@@ -196,8 +196,8 @@ async def test_windows_output_path_is_not_rewritten_as_agent_local(monkeypatch):
     resolver = SimpleNamespace(ensure_instance=AsyncMock(return_value='native-files'))
     proxy = SimpleNamespace(invoke=AsyncMock(return_value={
         'success': True, 'exists': True, 'node_id': 'win-node', 'path': 'C:/Shared/report.txt'}))
-    monkeypatch.setattr('pantheonos.apps.resolver.get_shared_resolver', lambda: resolver)
-    monkeypatch.setattr('pantheonos.apps.proxy.ToolsetProxy.from_toolset', lambda sid: proxy)
+    monkeypatch.setattr('pantheonos.appkit.resolver.get_shared_resolver', lambda: resolver)
+    monkeypatch.setattr('pantheonos.appkit.proxy.ToolsetProxy.from_toolset', lambda sid: proxy)
     result = await output_metadata('C:/Shared/report.txt', {}, node_id='win-node')
     assert result['source']['path'] == 'C:/Shared/report.txt'
     assert proxy.invoke.call_args.args[1]['file_path'] == 'C:/Shared/report.txt'
@@ -229,10 +229,10 @@ async def test_node_files_recovers_no_responders_on_same_node(monkeypatch, tools
     from unittest.mock import Mock
     from nats.errors import NoRespondersError
     from pantheon.chatroom.room import ChatRoom
-    from pantheonos.apps.proxy import ToolsetProxy
+    from pantheonos.appkit.proxy import ToolsetProxy
     resolver = SimpleNamespace(ensure_instance=AsyncMock(side_effect=['dead-files', 'live-files']), invalidate=Mock())
     invoke = AsyncMock(side_effect=[NoRespondersError(), {'success': True}])
-    monkeypatch.setattr('pantheonos.apps.resolver.get_shared_resolver', lambda: resolver)
+    monkeypatch.setattr('pantheonos.appkit.resolver.get_shared_resolver', lambda: resolver)
     monkeypatch.setattr(ToolsetProxy, 'from_toolset', lambda sid: SimpleNamespace(invoke=invoke))
     room = ChatRoom.__new__(ChatRoom)
     result = await room.proxy_toolset(method, {'_node_id': 'Node-A', **args}, toolset)
@@ -247,10 +247,10 @@ async def test_node_files_recovers_no_responders_on_same_node(monkeypatch, tools
 async def test_node_files_does_not_replay_uncertain_or_rejected_writes(monkeypatch, error):
     from unittest.mock import Mock
     from pantheon.chatroom.room import ChatRoom
-    from pantheonos.apps.proxy import ToolsetProxy
+    from pantheonos.appkit.proxy import ToolsetProxy
     resolver = SimpleNamespace(ensure_instance=AsyncMock(return_value='files'), invalidate=Mock())
     invoke = AsyncMock(side_effect=error)
-    monkeypatch.setattr('pantheonos.apps.resolver.get_shared_resolver', lambda: resolver)
+    monkeypatch.setattr('pantheonos.appkit.resolver.get_shared_resolver', lambda: resolver)
     monkeypatch.setattr(ToolsetProxy, 'from_toolset', lambda sid: SimpleNamespace(invoke=invoke))
     result = await ChatRoom.__new__(ChatRoom).proxy_toolset('write_file', {'_node_id': 'Node-A', 'file_path': '/shared/a'}, 'file_manager')
     assert not result['success']

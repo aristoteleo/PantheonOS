@@ -344,7 +344,7 @@ else
         # which come one at a time, then find them ready. Located (on
         # PYTHONPATH, not the working directory) without importing pantheonos,
         # which would cost a second here.
-        WARM_ENVS="$(python3 -P -c 'import importlib.util as u; print(u.find_spec("pantheonos").submodule_search_locations[0])' 2>/dev/null)/apps/portable_runtime/install.py"
+        WARM_ENVS="$(python3 -P -c 'import importlib.util as u; print(u.find_spec("pantheonos").submodule_search_locations[0])' 2>/dev/null)/appkit/portable_runtime/install.py"
         if [ -f "${WARM_ENVS}" ]; then
             ( python3 -I "${WARM_ENVS}" --warm "${PANTHEON_FLEET_STATE_DIR}" > /tmp/pantheon-env-warm.log 2>&1 & )
         fi
@@ -534,7 +534,7 @@ EOF
             # desktop/file_manager next to the default_workspace ones — two
             # BrowserEngines split the xpra stage between them.
             ( if [ "$DW_ENABLED" = "true" ]; then cd "$DEFAULT_WS" 2>/dev/null || true; fi; \
-              "${PANTHEON_RUNTIME_PYTHON:-python}" -m pantheonos.apps prestart \
+              "${PANTHEON_RUNTIME_PYTHON:-python}" -m pantheonos.appkit prestart \
                 "$PRESTART" 90 > /tmp/apps-prestart.log 2>&1 & )
         fi
     fi

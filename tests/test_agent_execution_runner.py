@@ -8,7 +8,7 @@ import threading
 
 import pytest
 
-from pantheonos.apps.agent_execution_runner import (
+from pantheonos.appkit.agent_execution_runner import (
     AgentExecutionRunner, ExecutionEnded, ExecutionRecoveryRequired, ToolReceiptJournal,
 )
 from pantheon.chatroom.execution_service import AgentExecutions, ExecutionJournal
@@ -211,7 +211,7 @@ async def test_tool_failure_is_not_falsely_replied_or_replayed(tmp_path):
 def test_crash_after_effect_keeps_unknown_receipt_and_fences_other_bindings(tmp_path):
     code = '''import os, sys
 from pathlib import Path
-from pantheonos.apps.agent_execution_runner import ToolReceiptJournal
+from pantheonos.appkit.agent_execution_runner import ToolReceiptJournal
 root=Path(sys.argv[1])
 j=ToolReceiptJournal(root/'caller','binding')
 j.prepare('run','{}')
@@ -240,7 +240,7 @@ class Guard(importlib.abc.MetaPathFinder):
   if name.startswith(('pantheon.agent','pantheon.chatroom','pantheonos.settings','pantheonos.models','pantheon.platform','litellm','openai')):
    raise AssertionError(name)
 sys.meta_path.insert(0,Guard())
-from pantheonos.apps.agent_execution_runner import ToolReceiptJournal, AgentExecutionRunner
+from pantheonos.appkit.agent_execution_runner import ToolReceiptJournal, AgentExecutionRunner
 j=ToolReceiptJournal(sys.argv[1],'binding'); j.close()
 '''
     subprocess.run([sys.executable, '-c', code, str(tmp_path / 'caller')], check=True,

@@ -45,8 +45,8 @@ async def test_exact_node_transfer_not_local_same_name(tmp_path, monkeypatch):
         if action == 'open_file_for_read': return {'success': True, 'handle_id': 'h', 'total_size': len(data)}
         if action == 'read_chunk_at': return {'success': True, 'data': base64.b64encode(data).decode()}
         return {'success': True}
-    monkeypatch.setattr('pantheonos.apps.resolver.get_shared_resolver', lambda: resolver)
-    monkeypatch.setattr('pantheonos.apps.proxy.ToolsetProxy.from_toolset', lambda _: SimpleNamespace(invoke=invoke))
+    monkeypatch.setattr('pantheonos.appkit.resolver.get_shared_resolver', lambda: resolver)
+    monkeypatch.setattr('pantheonos.appkit.proxy.ToolsetProxy.from_toolset', lambda _: SimpleNamespace(invoke=invoke))
     same_name = tmp_path / 'same.png'; same_name.write_text('unrelated local bytes')
     resolve = lambda _: same_name
     paths, sources = await resolve_image_sources(['pantheon-node:///remote/shared/same.png'], None, resolve, tmp_path)
@@ -69,8 +69,8 @@ async def test_transfer_failure_closes_handle(tmp_path, monkeypatch, failure):
         if args['method']=='open_file_for_read':
             return {'success': True, 'handle_id': 'h', 'total_size': 100000000 if failure=='oversized' else 12}
         return {'success': True, 'data': ''}
-    monkeypatch.setattr('pantheonos.apps.resolver.get_shared_resolver', lambda: resolver)
-    monkeypatch.setattr('pantheonos.apps.proxy.ToolsetProxy.from_toolset', lambda _: SimpleNamespace(invoke=invoke))
+    monkeypatch.setattr('pantheonos.appkit.resolver.get_shared_resolver', lambda: resolver)
+    monkeypatch.setattr('pantheonos.appkit.proxy.ToolsetProxy.from_toolset', lambda _: SimpleNamespace(invoke=invoke))
     with pytest.raises(ValueError):
         await resolve_image_sources(['/shared/image.png'], 'remote', lambda p: tmp_path/p, tmp_path)
     assert calls[-1]=='close_file'

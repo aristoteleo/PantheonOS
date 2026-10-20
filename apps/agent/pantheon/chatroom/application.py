@@ -86,7 +86,7 @@ class AgentApplication(AgentRuntime):
                     except Exception as exc:
                         errors.append(exc)
                 if errors:
-                    from pantheonos.apps.host_lifecycle import AppShutdownError
+                    from pantheonos.appkit.host_lifecycle import AppShutdownError
                     raise AppShutdownError(errors) from errors[0]
 
             environment = AgentEnvironment(projects=projects, templates=templates,

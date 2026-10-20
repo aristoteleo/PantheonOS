@@ -165,7 +165,7 @@ async def test_generations_bounds_and_restricted_messages(kernel):
 @pytest.mark.asyncio
 async def test_failed_widget_channel_start_does_not_leave_kernel_running(tmp_path, monkeypatch):
     from unittest.mock import AsyncMock
-    from pantheonos.apps.builtin.notebook import jupyter_kernel
+    from pantheonos.appkit.builtin.notebook import jupyter_kernel
     manager = AsyncKernelManager()
     manager.kernel_spec.argv = [sys.executable, '-m', 'ipykernel_launcher', '-f', '{connection_file}']
     monkeypatch.setattr(jupyter_kernel, 'AsyncKernelManager', lambda **kwargs: manager)

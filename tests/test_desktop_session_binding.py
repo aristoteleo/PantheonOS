@@ -15,8 +15,8 @@ import time
 import nats
 import pytest
 
-from pantheonos.apps.builtin.desktop.session_binding import DesktopSessionBinding
-from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.appkit.builtin.desktop.session_binding import DesktopSessionBinding
+from pantheonos.appkit.builtin.desktop.toolset import DesktopToolSet
 from pantheonos.remote.backend.nats import NATSBackend
 from pantheonos.remote.streams import NamedStreamPublisher
 
@@ -70,8 +70,8 @@ async def test_bound_desktops_share_only_selected_document_and_event_namespace(t
     monkeypatch.setenv('NATS_ENABLE_JETSTREAM', 'false')
     # Pre-import dependencies before denying ambient discovery during operations.
     import pantheonos.remote.backend.base
-    import pantheonos.apps.builtin.desktop.presence
-    import pantheonos.apps.builtin.desktop.desktop_session
+    import pantheonos.appkit.builtin.desktop.presence
+    import pantheonos.appkit.builtin.desktop.desktop_session
     original_import = builtins.__import__
     forbidden = []
     def guarded(name, *args, **kwargs):

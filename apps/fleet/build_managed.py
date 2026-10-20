@@ -7,22 +7,22 @@ import tempfile
 
 RUNTIME_FILES = '''toolset.py utils/log.py utils/misc.py
 internal/package_runtime/context.py remote/backend/base.py
-apps/runtime_config.py apps/owned_bus.py apps/fleet_controller.py apps/toolset_backend.py apps/resolver.py
-apps/client.py apps/registry.py apps/reflect.py apps/schema.py apps/distribution.py
-apps/lifecycle.py apps/portable.py apps/store_release.py apps/versioning.py
-apps/compat.py apps/dependency_assembly.py apps/owner_journal.py
-utils/registry_lock.py models/group_network.py models/group_overlay.py apps/spec.py'''.split()
+appkit/runtime_config.py appkit/owned_bus.py appkit/fleet_controller.py appkit/toolset_backend.py appkit/resolver.py
+appkit/client.py appkit/registry.py appkit/reflect.py appkit/schema.py appkit/distribution.py
+appkit/lifecycle.py appkit/portable.py appkit/store_release.py appkit/versioning.py
+appkit/compat.py appkit/dependency_assembly.py appkit/owner_journal.py
+utils/registry_lock.py models/group_network.py models/group_overlay.py appkit/spec.py'''.split()
 
 
 def build(output, platform):
-    from pantheonos.apps.portable import definition
-    from pantheonos.apps.reflect import reflect_toolset_class
-    from pantheonos.apps.schema import parse_manifest
+    from pantheonos.appkit.portable import definition
+    from pantheonos.appkit.reflect import reflect_toolset_class
+    from pantheonos.appkit.schema import parse_manifest
     from .fleet import FleetToolSet
     if platform not in ('darwin-arm64', 'darwin-amd64', 'linux-arm64', 'linux-amd64'):
         raise ValueError('Prepared Fleet management currently requires a POSIX host')
     source = Path(__file__).resolve().parent
-    from pantheonos.apps.vendoring import add_package_inits, builtin_app_dir, runtime_path, vendor_file, vendor_tree
+    from pantheonos.appkit.vendoring import add_package_inits, builtin_app_dir, runtime_path, vendor_file, vendor_tree
     runtime = source.parents[1] / 'pantheonos'
     output = Path(output).absolute()
     if output.exists() or output.is_symlink():
@@ -56,11 +56,11 @@ def build(output, platform):
         for app in ('file', 'node_files', 'pty'):
             copy(source.parent/app/'app.json', builtin_app_dir(vendor) / app/'app.json')
         add_package_inits(vendor)
-        (root/'backend/__init__.py').write_text('from pantheonos.apps.builtin.fleet.managed import register\n')
+        (root/'backend/__init__.py').write_text('from pantheonos.appkit.builtin.fleet.managed import register\n')
         (root/'requirements.txt').write_text('loguru==0.7.3\nrich==14.3.2\npydantic==2.12.5\nnats-py[nkeys,aiohttp]==2.16.0\nhttpx==0.28.1\n')
         copy(source.parent/'desktop/app_runtime.py', root/'.fleet-runtime/app_runtime.py')
         for name in ('host.py', 'install.py', 'launch.py'):
-            copy(runtime/'apps/portable_runtime'/name, root/'.fleet-runtime'/name)
+            copy(runtime/'appkit/portable_runtime'/name, root/'.fleet-runtime'/name)
         execution = definition(manifest, platform)
         execution['components'][0]['configuration'] = {'values': {'fleet': {'required': True}},
             'credentials': {'fleet': {'required': True}, 'controller': {'required': True}}}

@@ -12,8 +12,8 @@ import asyncio
 import re
 import time
 
-from pantheonos.apps.schema import parse_manifest
-from pantheonos.apps.tool_profiles import tool_function
+from pantheonos.appkit.schema import parse_manifest
+from pantheonos.appkit.tool_profiles import tool_function
 from pantheonos.utils.log import logger
 
 POLICIES = ('on_demand', 'resident', 'disabled')

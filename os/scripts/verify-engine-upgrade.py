@@ -18,7 +18,7 @@ import uuid
 
 import httpx
 
-from pantheonos.apps.lifecycle import build_artifact
+from pantheonos.appkit.lifecycle import build_artifact
 from pantheonos.models import manager as coordinator, engine_upgrade, managed
 
 ADDRESS, ROOT, CACHE = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3])

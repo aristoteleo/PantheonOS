@@ -12,7 +12,7 @@ import (
 
 // Provider resource sessions (e.g. a Shell session per Agent owner), held for
 // the logical owner and released when it retires (formerly
-// pantheonos/apps/resource_sessions.py).
+// pantheonos/appkit/resource_sessions.py).
 
 var terminalSessions = map[string]bool{"released": true, "expired": true, "lost": true, "failed": true}
 

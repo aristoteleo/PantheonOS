@@ -21,7 +21,6 @@ Design doc: [`../docs/os/pantheon-fleet.md`](../docs/os/pantheon-fleet.md).
 | **Controller** (`cmd/pantheon-controller`) | `--key` → Fleet (one per user) | ✅ |
 | **Relay** (`cmd/pantheon-relay`) | Circuit Relay v2 node (data-plane fallback) | ✅ boots; node accepts it |
 | **Installer** (`scripts/install.sh`) | `curl … | sh` bootstrap | ✅ |
-| **Agent toolset core** (`python/fleet_client.py`) | list_nodes / run / transfer / ping | ✅ Python↔Go interop |
 
 Needs real infra to exercise (not locally self-verifiable): the relay-*fallback*
 data path (needs a NAT'd environment), key validation against the PantheonOS
@@ -41,7 +40,6 @@ internal/runner      serves run_task / transfer / ping; drives the data plane
 internal/exec        runs a Task via subprocess (bash / python3)
 internal/dataplane   libp2p host + sha256-verified transfer stream
 internal/join        Runner's Controller client
-python/fleet_client.py  async client — seed of the Agent's Fleet toolset
 scripts/install.sh   curl bootstrap
 ```
 

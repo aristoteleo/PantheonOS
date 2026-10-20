@@ -19,8 +19,8 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from pantheonos.apps.modal_sandbox import ModalSandboxOwner
-from pantheonos.apps.modal_app_transport import ModalAppTransport
+from pantheonos.appkit.modal_sandbox import ModalSandboxOwner
+from pantheonos.appkit.modal_app_transport import ModalAppTransport
 
 
 BACKEND = '''

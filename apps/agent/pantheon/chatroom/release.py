@@ -11,11 +11,11 @@ from pathlib import Path
 import shutil
 import tempfile
 
-from pantheonos.apps.release_set import index_packages, PLATFORM
-from pantheonos.apps.dependency_assembly import NAME, _matches
-from pantheonos.apps.portable import execution_package
+from pantheonos.appkit.release_set import index_packages, PLATFORM
+from pantheonos.appkit.dependency_assembly import NAME, _matches
+from pantheonos.appkit.portable import execution_package
 from pantheon.chatroom.package import build_package
-from pantheonos.apps.allocator_package import build_package as build_allocator
+from pantheonos.appkit.allocator_package import build_package as build_allocator
 from pantheonos.models.access_package import build_package as build_models
 
 

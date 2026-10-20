@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import nats
 
-from pantheonos.apps.client import AppClient
+from pantheonos.appkit.client import AppClient
 from pantheonos.local.fleet import _local_environment
 
 

@@ -186,7 +186,7 @@ def test_explicit_lifetime_is_validated_and_preserved_in_engine_package(recipe, 
 
 def test_managed_package_is_deterministic_with_exact_budget_and_no_installer():
     from pantheonos.models.managed import package, validate
-    from pantheonos.apps.lifecycle import build_artifact
+    from pantheonos.appkit.lifecycle import build_artifact
     config = managed_config()
     with package(config, 'darwin-arm64') as first, package(config, 'darwin-arm64') as second:
         assert build_artifact(first) == build_artifact(second)

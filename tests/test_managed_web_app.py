@@ -19,11 +19,11 @@ from urllib.request import Request, urlopen
 import pytest
 import nats
 
-from pantheonos.apps.client import AppClient
-from pantheonos.apps.builtin.web import WebToolSet
-from pantheonos.apps.builtin.web.build_managed import build
-from pantheonos.apps.lifecycle import build_artifact, FleetLifecycle, CHUNK_SIZE
-from pantheonos.apps.resolver import AppInstanceResolver
+from pantheonos.appkit.client import AppClient
+from pantheonos.appkit.builtin.web import WebToolSet
+from pantheonos.appkit.builtin.web.build_managed import build
+from pantheonos.appkit.lifecycle import build_artifact, FleetLifecycle, CHUNK_SIZE
+from pantheonos.appkit.resolver import AppInstanceResolver
 from pantheonos.local.fleet import LocalFleet
 from test_local_fleet import binaries, assert_stopped
 from test_model_services import serve
@@ -49,7 +49,7 @@ class Boundary(importlib.abc.MetaPathFinder):
    raise AssertionError('Web imported Agent or ambient state: '+name)
 sys.meta_path.insert(0, Boundary())
 sys.path.insert(0, sys.argv[1])
-from pantheonos.apps.builtin.web.managed import create_service
+from pantheonos.appkit.builtin.web.managed import create_service
 from pathlib import Path
 async def run():
  service = create_service(sys.argv[2])

@@ -7,7 +7,7 @@ import httpx
 import nkeys
 import pytest
 
-from pantheonos.apps.owned_bus import BusConfiguration, FleetKeyCredential
+from pantheonos.appkit.owned_bus import BusConfiguration, FleetKeyCredential
 
 KEY = 'pbk_' + 'a' * 43
 
@@ -81,7 +81,7 @@ async def test_unreachable_bus_fails_the_first_connect_instead_of_retrying_forev
     import asyncio
     import socket
     from nats.aio.client import Client
-    from pantheonos.apps.owned_bus import OwnedBus
+    from pantheonos.appkit.owned_bus import OwnedBus
     text, _ = creds(time.time() + 3600)
     transport = httpx.MockTransport(lambda request: httpx.Response(
         200, json={'fleet_id': 'f_0123456789abcdef', 'creds': text}))

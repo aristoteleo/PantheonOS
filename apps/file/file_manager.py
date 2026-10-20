@@ -319,7 +319,7 @@ class FileManagerToolSetBase(ToolSet):
         try:
             path = self._resolve_path(file_path).resolve()
             root = self._get_root().resolve()
-            from pantheonos.apps.builtin.fleet.local_node import local_node_id
+            from pantheonos.appkit.builtin.fleet.local_node import local_node_id
             node_id = local_node_id()
             return {"success": True, "exists": path.exists(), "is_dir": path.is_dir(), "node_id": node_id,
                     "path": str(path), "store_path": str(path.relative_to(root)) if path.is_relative_to(root) else str(path)}
@@ -673,7 +673,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
                    'write_chunk', 'close_file', 'transfer_activity', 'read_file'}
         if method not in allowed:
             return {'success': False, 'error': 'Unsupported file transfer method'}
-        from pantheonos.apps.builtin.file_transfer.worker import FileTransferToolSet
+        from pantheonos.appkit.builtin.file_transfer.worker import FileTransferToolSet
         if not hasattr(self, '_node_transfer'):
             self._node_transfer = FileTransferToolSet('node_files', self._get_root())
         return await getattr(self._node_transfer, method)(**args)
@@ -866,13 +866,13 @@ class FileManagerToolSet(FileManagerToolSetBase):
         target_path = resolve_workspace_path(str(self._resolve_path(file_path)), self._get_root())
         if not target_path.exists() and self._template_fallback:
             target_path = _resolve_template_layer_path(file_path) or target_path
-        from pantheonos.apps.builtin.fleet.local_node import local_node_id
+        from pantheonos.appkit.builtin.fleet.local_node import local_node_id
         location = {"resolved_path": str(target_path.resolve()), "node_id": local_node_id()}
 
         # Symbol extraction mode: use tree-sitter to extract specific code item
         if symbol:
             try:
-                from pantheonos.apps.builtin.file.tree_sitter_parser import get_code_item
+                from pantheonos.appkit.builtin.file.tree_sitter_parser import get_code_item
                 if not target_path.exists():
                     return {**location, "success": False, "error": "File does not exist"}
                 return {**get_code_item(target_path, symbol), **location}
@@ -1047,7 +1047,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
             outline = await view_file_outline("lib/index.js")
         """
         try:
-            from pantheonos.apps.builtin.file.tree_sitter_parser import get_file_outline
+            from pantheonos.appkit.builtin.file.tree_sitter_parser import get_file_outline
             target_path = self._resolve_path(file_path)
             if not target_path.exists():
                 return {"success": False, "error": "File does not exist"}
@@ -2108,7 +2108,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
             - images: List of file paths to generated images
             - error: Error message if failed
         """
-        from pantheonos.apps.builtin.image import ImageGenerationToolSet
+        from pantheonos.appkit.builtin.image import ImageGenerationToolSet
 
         # Lazy initialization of image generation toolset
         if not hasattr(self, "_image_gen"):

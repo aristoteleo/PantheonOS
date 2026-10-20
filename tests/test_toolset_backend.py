@@ -3,8 +3,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheonos.apps.builtin.desktop.app_runtime import AppContext
-from pantheonos.apps.toolset_backend import register_toolset
+from pantheonos.appkit.builtin.desktop.app_runtime import AppContext
+from pantheonos.appkit.toolset_backend import register_toolset
 from pantheonos.toolset import ToolSet, tool, ExecutionContext, set_current_context_variables, reset_current_context_variables
 
 

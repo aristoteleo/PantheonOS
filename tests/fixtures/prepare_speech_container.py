@@ -14,7 +14,7 @@ import types
 
 ROOT = Path(__file__).resolve().parents[2]
 APPS = ROOT / 'apps'
-sys.modules['pantheonos.apps.registry'] = types.SimpleNamespace(BUILTIN_ROOT=APPS)
+sys.modules['pantheonos.appkit.registry'] = types.SimpleNamespace(BUILTIN_ROOT=APPS)
 
 def load(name, path):
     spec = importlib.util.spec_from_file_location(name, path)

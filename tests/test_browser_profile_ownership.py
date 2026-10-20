@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, Mock
 import psutil
 import pytest
 
-from pantheonos.apps.builtin.desktop.browser import BrowserEngine, BrowserProfileInUse
+from pantheonos.appkit.builtin.desktop.browser import BrowserEngine, BrowserProfileInUse
 
 
 @pytest.fixture
@@ -36,7 +36,7 @@ def test_cross_process_profile_guard_preserves_owner_artifacts(engine, tmp_path)
     code = """
 import sys
 from pathlib import Path
-from pantheonos.apps.builtin.desktop.browser import BrowserEngine, BrowserProfileInUse
+from pantheonos.appkit.builtin.desktop.browser import BrowserEngine, BrowserProfileInUse
 try:
     BrowserEngine()._acquire_profile_lock(Path(sys.argv[1]))
 except BrowserProfileInUse:

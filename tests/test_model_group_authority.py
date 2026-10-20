@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pantheonos.apps.lifecycle import FleetLifecycle
+from pantheonos.appkit.lifecycle import FleetLifecycle
 from pantheonos.models.group_network import PeerTopology
 
 

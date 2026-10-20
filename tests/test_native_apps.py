@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from pantheonos.apps.builtin.desktop.browser import BrowserEngine
-from pantheonos.apps.builtin.qupath.native import NativeAppManager, NativeSession
+from pantheonos.appkit.builtin.desktop.browser import BrowserEngine
+from pantheonos.appkit.builtin.qupath.native import NativeAppManager, NativeSession
 
 
 class Process:
@@ -60,7 +60,7 @@ async def test_native_display_and_browser_share_one_start_without_chromium(monke
 
 @pytest.mark.asyncio
 async def test_native_display_rejects_shadow_without_starting_browser(monkeypatch):
-    monkeypatch.setattr("pantheonos.apps.builtin.desktop.browser.xpra_mode", lambda: "shadow")
+    monkeypatch.setattr("pantheonos.appkit.builtin.desktop.browser.xpra_mode", lambda: "shadow")
     engine = BrowserEngine()
     engine._ensure_xvfb = AsyncMock()
     with pytest.raises(RuntimeError, match="seamless"):
@@ -429,8 +429,8 @@ def test_foreign_pid_cannot_be_closed_even_if_window_class_was_reused(tmp_path):
 
 
 def test_desktop_rpc_manifest_matches_native_contract():
-    from pantheonos.apps.registry import builtin_apps, reflected_tools
-    from pantheonos.apps.reflect import signature_diff
+    from pantheonos.appkit.registry import builtin_apps, reflected_tools
+    from pantheonos.appkit.reflect import signature_diff
 
     manifest = next(app.manifest for app in builtin_apps() if app.manifest.id == "desktop")
     assert not signature_diff(manifest.provides.tools, reflected_tools(manifest))
@@ -444,7 +444,7 @@ def test_desktop_rpc_manifest_matches_native_contract():
 
 @pytest.mark.asyncio
 async def test_rpc_preserves_native_identity_apart_from_framework_session():
-    from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
+    from pantheonos.appkit.builtin.desktop.toolset import DesktopToolSet
 
     manager = SimpleNamespace(
         launch=AsyncMock(return_value={"session_id": "win-42", "running": True}),

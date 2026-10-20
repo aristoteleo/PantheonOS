@@ -6,7 +6,7 @@ import subprocess
 import uuid
 from pathlib import Path
 
-from pantheonos.apps.store_release import git, validate_manifest
+from pantheonos.appkit.store_release import git, validate_manifest
 
 
 def source_path(root: Path, path: str) -> Path:

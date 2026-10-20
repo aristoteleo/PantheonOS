@@ -5,7 +5,7 @@ import pytest
 
 from apps.desktop.store_manager import AppStoreManager
 from apps.desktop.app_supervisor import AppSupervisor
-from pantheonos.apps.store_release import git
+from pantheonos.appkit.store_release import git
 
 
 def make_app(root, version='1.0.0', **entry):
@@ -286,7 +286,7 @@ async def test_desktop_new_windows_follow_fork_until_explicit_official_switch(ma
 
 
 def review_release(manager):
-    from pantheonos.apps.store_release import prepare_release
+    from pantheonos.appkit.store_release import prepare_release
     manager.versions.ensure()
     return prepare_release(manager.roots[0][0] / 'counter')['app_release']
 

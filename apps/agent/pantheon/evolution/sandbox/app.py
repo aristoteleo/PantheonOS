@@ -5,9 +5,9 @@ construct an Agent, select model providers or fetch controller credentials.
 """
 import asyncio
 
-from pantheonos.apps.builtin.desktop.app_runtime import AppContext
-from pantheonos.apps.builtin.file import FileManagerToolSet
-from pantheonos.apps.builtin.python import PythonInterpreterToolSet
+from pantheonos.appkit.builtin.desktop.app_runtime import AppContext
+from pantheonos.appkit.builtin.file import FileManagerToolSet
+from pantheonos.appkit.builtin.python import PythonInterpreterToolSet
 from pantheonos.settings import Settings
 from ..local_shell import LocalShellToolSet
 from ..lifetime import join_cleanup

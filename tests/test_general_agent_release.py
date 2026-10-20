@@ -7,11 +7,11 @@ import sys
 
 import pytest
 
-from pantheonos.apps.dependency_assembly import AssemblyError
-from pantheonos.apps.general_agent_preset import PROVIDERS
+from pantheonos.appkit.dependency_assembly import AssemblyError
+from pantheonos.appkit.general_agent_preset import PROVIDERS
 from pantheon.agent_release import build_release
-from pantheonos.apps.lifecycle import build_artifact
-from pantheonos.apps.local_agent import native_platform
+from pantheonos.appkit.lifecycle import build_artifact
+from pantheonos.appkit.local_agent import native_platform
 
 
 def options():
@@ -47,7 +47,7 @@ def test_existing_destination_is_not_replaced(tmp_path, symlink):
 
 
 def test_late_build_failure_removes_partial_release(tmp_path, monkeypatch):
-    from pantheonos.apps.builtin.evolution import build_managed
+    from pantheonos.appkit.builtin.evolution import build_managed
     def fail(output, platform):
         # Desktop has already been packaged: this is not an early input failure.
         assert (output.parent/'desktop/app.json').is_file()

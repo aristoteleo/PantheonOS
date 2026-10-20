@@ -11,7 +11,7 @@ MAX_IMAGE_BYTES = 20 * 1024 * 1024
 
 def image_location(path: Path, *, node_id: str | None = None) -> dict:
     if node_id is None:
-        from pantheonos.apps.builtin.fleet.local_node import local_node_id
+        from pantheonos.appkit.builtin.fleet.local_node import local_node_id
         node_id = local_node_id()
     node = node_id
     absolute = str(path.resolve())
@@ -20,7 +20,7 @@ def image_location(path: Path, *, node_id: str | None = None) -> dict:
 
 
 async def resolve_image_sources(image_paths, node_id, resolve_local, temporary: Path):
-    from pantheonos.apps.builtin.fleet.local_node import local_node_id
+    from pantheonos.appkit.builtin.fleet.local_node import local_node_id
     paths = [image_paths] if isinstance(image_paths, str) else image_paths
     if not isinstance(paths, list) or not 1 <= len(paths) <= 8:
         raise ValueError('Provide between 1 and 8 image paths')
@@ -59,8 +59,8 @@ async def resolve_image_sources(image_paths, node_id, resolve_local, temporary: 
 
 
 async def _download_image(node_id: str, path: str, target: Path):
-    from pantheonos.apps.resolver import get_shared_resolver
-    from pantheonos.apps.proxy import ToolsetProxy
+    from pantheonos.appkit.resolver import get_shared_resolver
+    from pantheonos.appkit.proxy import ToolsetProxy
     resolver = get_shared_resolver()
     if resolver is None:
         raise RuntimeError('A connected Fleet is required to read an image on another node')

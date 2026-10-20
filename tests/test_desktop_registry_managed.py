@@ -52,7 +52,7 @@ def test_registry_icons_work_before_data_endpoint_is_ready(tmp_path, monkeypatch
 
 
 def test_bundled_viewers_have_self_contained_icons():
-    from pantheonos.apps.store_release import release_icon
+    from pantheonos.appkit.store_release import release_icon
     root = Path(__file__).resolve().parents[1] / 'apps'
     for name in ('image_viewer', 'pdf_viewer', 'text_viewer'):
         directory = root / name
@@ -104,7 +104,7 @@ def test_install_on_node_stages_the_resolved_revision(tmp_path, monkeypatch, exp
     ))
     monkeypatch.setattr('apps.desktop.store_manager.AppStoreManager', lambda roots: manager)
     resolver = object()
-    monkeypatch.setattr('pantheonos.apps.resolver.get_shared_resolver', lambda: resolver)
+    monkeypatch.setattr('pantheonos.appkit.resolver.get_shared_resolver', lambda: resolver)
     lifecycle = SimpleNamespace(stage=AsyncMock(return_value='digest'), staged_snapshot={},
                                 submit=AsyncMock(return_value={'state': 'queued'}))
     monkeypatch.setattr('apps.desktop.app_placement.FleetLifecycle', lambda value: lifecycle)
@@ -124,9 +124,9 @@ def test_install_on_node_stages_the_resolved_revision(tmp_path, monkeypatch, exp
 
 @pytest.mark.asyncio
 async def test_window_usage_routes_through_desktop_with_exact_binding(monkeypatch):
-    from pantheonos.apps.lifecycle import FleetLifecycle
+    from pantheonos.appkit.lifecycle import FleetLifecycle
     resolver = object()
-    monkeypatch.setattr('pantheonos.apps.resolver.get_shared_resolver', lambda: resolver)
+    monkeypatch.setattr('pantheonos.appkit.resolver.get_shared_resolver', lambda: resolver)
     request = AsyncMock(return_value={'ok': True})
     monkeypatch.setattr(FleetLifecycle, '_request', request)
     toolset = DesktopToolSet()

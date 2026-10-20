@@ -8,8 +8,8 @@ this client never acquires a Fleet owner key or chooses its own policy.
 import asyncio
 import re
 
-from pantheonos.apps.dependency_client import DependencyClient, DependencyCallError
-from pantheonos.apps.dependency_binding_client import _drain
+from pantheonos.appkit.dependency_client import DependencyClient, DependencyCallError
+from pantheonos.appkit.dependency_binding_client import _drain
 from .client import ModelServices, ControlError
 
 

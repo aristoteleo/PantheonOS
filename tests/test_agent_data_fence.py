@@ -182,7 +182,7 @@ async def test_real_legacy_constructor_holds_roots_through_flush(room, tmp_path)
 
 @pytest.mark.asyncio
 async def test_failed_drain_does_not_authorize_migration(room, tmp_path):
-    from pantheonos.apps.host_lifecycle import AppShutdownError
+    from pantheonos.appkit.host_lifecycle import AppShutdownError
     instance, settings, _ = room
     instance.memory_manager.flush = AsyncMock(side_effect=OSError('simulated save failure'))
     with pytest.raises(AppShutdownError): await instance.cleanup()

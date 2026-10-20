@@ -15,8 +15,9 @@ _MOVED = (
     ("pantheon.apps.general_agent_release", "pantheon.agent_release"),
     ("pantheon.utils.image_detection", "pantheon.image_detection"),
     ("pantheon.internal.package_runtime.context", "pantheonos.package_runtime.context"),
+    ("pantheon.apps", "pantheonos.appkit"),
     *((f"pantheon.{name}", f"pantheonos.{name}") for name in (
-        "apps", "local", "store", "utils", "remote", "models", "model_contracts", "funcdesc",
+        "local", "store", "utils", "remote", "models", "model_contracts", "funcdesc",
         "toolset", "settings", "constant", "apphost")),
 )
 

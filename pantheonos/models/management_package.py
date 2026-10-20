@@ -5,19 +5,19 @@ from pathlib import Path
 import shutil
 import tempfile
 
-from pantheonos.apps.lifecycle import build_artifact
-from pantheonos.apps.portable import definition
-from pantheonos.apps.reflect import reflect_toolset_class
-from pantheonos.apps.schema import parse_manifest
+from pantheonos.appkit.lifecycle import build_artifact
+from pantheonos.appkit.portable import definition
+from pantheonos.appkit.reflect import reflect_toolset_class
+from pantheonos.appkit.schema import parse_manifest
 from .management_tools import ModelManagementToolSet
 
 
 SDK_FILES = '''toolset.py utils/log.py utils/misc.py utils/adapters/image_blocks.py
 package_runtime/context.py remote/backend/base.py
-apps/runtime_config.py apps/owned_bus.py apps/fleet_controller.py apps/toolset_backend.py apps/resolver.py
-apps/client.py apps/registry.py apps/reflect.py apps/schema.py apps/distribution.py
-apps/lifecycle.py apps/portable.py apps/store_release.py apps/versioning.py
-apps/compat.py apps/dependency_assembly.py apps/owner_journal.py
+appkit/runtime_config.py appkit/owned_bus.py appkit/fleet_controller.py appkit/toolset_backend.py appkit/resolver.py
+appkit/client.py appkit/registry.py appkit/reflect.py appkit/schema.py appkit/distribution.py
+appkit/lifecycle.py appkit/portable.py appkit/store_release.py appkit/versioning.py
+appkit/compat.py appkit/dependency_assembly.py appkit/owner_journal.py
 utils/registry_lock.py'''.split()
 MODEL_MODULES = '''client direct direct_session engine_upgrade errors group_coordinator
  group_creation group_hub group_inference group_install group_journal group_management
@@ -30,7 +30,7 @@ def build_package(destination, platform):
     if platform not in {'darwin-arm64', 'darwin-amd64', 'linux-arm64', 'linux-amd64'}:
         raise ValueError('Prepared model management currently requires a POSIX host')
     runtime = Path(__file__).resolve().parents[1]
-    from pantheonos.apps.registry import BUILTIN_ROOT
+    from pantheonos.appkit.registry import BUILTIN_ROOT
     connector = Path(BUILTIN_ROOT)/'model-service'
     destination = Path(destination).absolute()
     if destination.exists() or destination.is_symlink():
@@ -62,7 +62,7 @@ def build_package(destination, platform):
             copy(path, vendor/'model_contracts'/path.name)
         for path in (runtime/'funcdesc').rglob('*.py'):
             copy(path, vendor/path.relative_to(runtime))
-        copy(BUILTIN_ROOT/'fleet/inventory.py', vendor/'apps/builtin/fleet/inventory.py')
+        copy(BUILTIN_ROOT/'fleet/inventory.py', vendor/'appkit/builtin/fleet/inventory.py')
         for path in connector.rglob('*'):
             relative = path.relative_to(connector)
             if any(part in {'__pycache__', '.git'} for part in relative.parts) or path.suffix == '.pyc':
@@ -79,7 +79,7 @@ def build_package(destination, platform):
         (root/'requirements.txt').write_text('loguru==0.7.3\nrich==14.3.2\npydantic==2.12.5\nnats-py[nkeys,aiohttp]==2.16.0\nhttpx==0.28.1\n')
         copy(BUILTIN_ROOT/'desktop/app_runtime.py', root/'.fleet-runtime/app_runtime.py')
         for name in ('host.py', 'install.py', 'launch.py'):
-            copy(runtime/'apps/portable_runtime'/name, root/'.fleet-runtime'/name)
+            copy(runtime/'appkit/portable_runtime'/name, root/'.fleet-runtime'/name)
         execution = definition(manifest, platform)
         execution['components'][0]['configuration'] = {
             'values': {'model_management': {'required': True}},

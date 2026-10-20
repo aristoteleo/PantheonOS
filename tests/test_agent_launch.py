@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from pantheonos.apps.runtime_config import RuntimeConfiguration, RuntimeCredential
+from pantheonos.appkit.runtime_config import RuntimeConfiguration, RuntimeCredential
 from pantheon.chatroom.launch import ConfiguredAgentApplication
 from pantheon.chatroom.app_models import AppModels
 from test_agent_application import PLUGIN_KEYS, TEMPLATE
@@ -164,7 +164,7 @@ async def test_launch_binds_each_logical_agent_and_verifies_outputs_at_its_files
     """Real launch/factory/provisioner/providers; transport authority is a fixture."""
     import hashlib
     import time
-    from pantheonos.apps.dependency_client import DependencyClient
+    from pantheonos.appkit.dependency_client import DependencyClient
     value = prepared(tmp_path, 'http://127.0.0.1:12345')
     spec = value['values']['agent']
     function = lambda name, arg: {'name': name, 'description': name,

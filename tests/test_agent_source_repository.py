@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from pantheonos.apps import app_build
-from pantheonos.apps.lifecycle import build_artifact
-from pantheonos.apps.schema import parse_manifest
+from pantheonos.appkit import app_build
+from pantheonos.appkit.lifecycle import build_artifact
+from pantheonos.appkit.schema import parse_manifest
 from pantheon.chatroom import agent_build
 from pantheon.chatroom.package import build_package
 
@@ -94,8 +94,8 @@ sys.path.insert(0, sys.argv[1])
 import pantheon
 assert pantheon.__file__.startswith(sys.argv[1]), pantheon.__file__
 from pantheon.agent import Agent
-from pantheonos.apps.dependency_client import DependencyClient
-from pantheonos.apps.runtime_config import RuntimeCredential
+from pantheonos.appkit.dependency_client import DependencyClient
+from pantheonos.appkit.runtime_config import RuntimeCredential
 from pantheon.dependency_provider import DependencyToolProvider
 from pantheon.factory.bindings import AgentToolBindings
 

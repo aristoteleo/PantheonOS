@@ -15,7 +15,7 @@ import pytest
 
 from test_agent_executions import FUNCTION
 from test_agent_native_process import native_process, request
-from pantheonos.apps.agent_execution_runner import AgentExecutionRunner
+from pantheonos.appkit.agent_execution_runner import AgentExecutionRunner
 
 
 @pytest.fixture
@@ -121,9 +121,9 @@ async def test_native_agent_executes_multiple_tool_rounds_and_recovers_result_af
 
 @pytest.mark.asyncio
 async def test_durable_caller_runs_native_agent_and_reopens_without_repeating_tools(tmp_path, tool_model):
-    from pantheonos.apps.agent_execution_client import AgentExecutionClient
-    from pantheonos.apps.dependency_client import DependencyClient
-    from pantheonos.apps.runtime_config import RuntimeCredential
+    from pantheonos.appkit.agent_execution_client import AgentExecutionClient
+    from pantheonos.appkit.dependency_client import DependencyClient
+    from pantheonos.appkit.runtime_config import RuntimeCredential
     import urllib.request
 
     spec = {'prompt': 'Edit the file, then score it, then report the result.',

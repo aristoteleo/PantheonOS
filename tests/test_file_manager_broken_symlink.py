@@ -2,7 +2,7 @@ import os
 import pytest
 from tempfile import TemporaryDirectory
 
-from pantheonos.apps.builtin.file import FileManagerToolSet
+from pantheonos.appkit.builtin.file import FileManagerToolSet
 
 
 @pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlink not supported")

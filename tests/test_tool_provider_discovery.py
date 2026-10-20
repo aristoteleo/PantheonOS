@@ -9,7 +9,7 @@ from nats.errors import NoRespondersError
 
 import pantheon.providers as providers_module
 from pantheon.agent import Agent
-from pantheonos.apps.proxy import ToolsetProxy
+from pantheonos.appkit.proxy import ToolsetProxy
 from pantheon.providers import LocalProvider, MCPProvider, ToolSetProvider
 from pantheonos.toolset import ToolSet, tool
 

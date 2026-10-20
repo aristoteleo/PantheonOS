@@ -1,6 +1,6 @@
 """PantheonOS: the platform's Python side.
 
-The App SDK and hosting (apps, apphost, toolset, remote), the local product's
+The App SDK and hosting (appkit, apphost, toolset, remote), the local product's
 owner (local), the Store client (store), model access (models,
 model_contracts) and the infrastructure the platform and its Apps share
 (utils, settings, funcdesc, package_runtime). Pantheon-Agent (the `pantheon`
@@ -19,3 +19,8 @@ for _name in ("mcp", "mcp.server", "mcp.server.lowlevel.server"):
     logging.getLogger(_name).setLevel(logging.WARNING)
 
 __version__ = "0.6.4"
+
+# Modules that moved keep their old names (pantheonos/_moved.py).
+from ._moved import install as _install_moved
+
+_install_moved()

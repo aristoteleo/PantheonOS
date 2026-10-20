@@ -457,7 +457,7 @@ class MCPManager:
             host: Host address to bind to (default: 127.0.0.1)
             config_path: Path to mcp.json for config persistence (optional)
         """
-        from pantheonos.apps.builtin.mcp.gateway import UnifiedMCPGateway
+        from pantheonos.appkit.builtin.mcp.gateway import UnifiedMCPGateway
         global _MCP_LOG_DIR
 
         self.instances: Dict[str, MCPServerInstance] = {}

@@ -15,7 +15,7 @@ async def output_metadata(path: str, context: dict, node_id: str | None = None) 
     if not remote_absolute and not candidate.is_absolute():
         candidate = Path(root) / candidate
 
-    from pantheonos.apps.resolver import get_shared_resolver
+    from pantheonos.appkit.resolver import get_shared_resolver
     from pantheon.internal.memory_system.file_routing import memory_path
     resolver = get_shared_resolver()
     # Durable memory is explicitly owned by the Agent. Ordinary deliverables
@@ -23,7 +23,7 @@ async def output_metadata(path: str, context: dict, node_id: str | None = None) 
     if node_id and resolver is None:
         raise RuntimeError('Cross-node output registration requires a connected Fleet')
     if resolver is not None and (node_id or memory_path(str(candidate), root) is None):
-        from pantheonos.apps.proxy import ToolsetProxy
+        from pantheonos.appkit.proxy import ToolsetProxy
         async with asyncio.timeout(30):
             service_id = await resolver.ensure_instance('file_manager', node_id=node_id)
             proxy = ToolsetProxy.from_toolset(service_id)

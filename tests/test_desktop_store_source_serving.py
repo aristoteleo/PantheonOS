@@ -5,8 +5,8 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from pantheonos.apps.builtin.desktop.data_server import LiveViewDataServer, _prefix_for
-from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.appkit.builtin.desktop.data_server import LiveViewDataServer, _prefix_for
+from pantheonos.appkit.builtin.desktop.toolset import DesktopToolSet
 
 
 def test_store_source_repositories_are_allowed_without_exposing_store_records(

@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 from typing import Protocol
 
-from pantheonos.apps.agent_defaults import dependency_defaults, with_app_filter, with_dependency_defaults
+from pantheonos.appkit.agent_defaults import dependency_defaults, with_app_filter, with_dependency_defaults
 from pantheon.dependency_provider import _drain_call
 from pantheon.factory.bindings import _thaw
 from pantheon.factory.instances import AgentInstanceBinding, AgentInstanceFactory, _config, _identifier

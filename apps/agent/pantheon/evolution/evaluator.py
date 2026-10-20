@@ -92,7 +92,7 @@ class HybridEvaluator:
         # and memory issues. Each subprocess terminates after evaluation.
         # if self._python_interpreter is None:
         #     try:
-        #         from pantheonos.apps.builtin.python import PythonInterpreterToolSet
+        #         from pantheonos.appkit.builtin.python import PythonInterpreterToolSet
         #         self._python_interpreter = PythonInterpreterToolSet("evolution_evaluator")
         #     except ImportError:
         #         logger.warning("PythonInterpreterToolSet not available, using subprocess")

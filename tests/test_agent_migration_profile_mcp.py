@@ -87,7 +87,7 @@ async def test_mcp_restart_admission_keeps_scope_and_contract_but_allows_new_gen
 async def test_old_agent_release_is_rejected_before_mcp_initialization(legacy, tmp_path, capability):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
-    from pantheonos.apps.dependency_assembly import AssemblyError
+    from pantheonos.appkit.dependency_assembly import AssemblyError
     from pantheon.chatroom.data_transition import INITIALIZATION_CAPABILITY
     request = dict(protocol=1, operation='mcp-upgrade', app='agent', legacy=legacy,
         backup=str(tmp_path/'backup'), mcp_configuration=dict(app='mcp', targets={}, environments={},

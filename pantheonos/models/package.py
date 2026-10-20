@@ -37,14 +37,14 @@ def transport_platform(path):
 def bundle_client(vendor, *, platform, transport=None):
     """Copy canonical client modules into a package's vendored runtime (its
     backend/_vendor, pantheonos.vendoring)."""
-    from pantheonos.apps.vendoring import add_package_inits, vendor_file
+    from pantheonos.appkit.vendoring import add_package_inits, vendor_file
     vendor = Path(vendor)
     if transport is not None:
         transport = Path(transport)
         if transport.is_symlink() or not transport.is_file() or transport_platform(transport) != platform:
             raise ValueError('Supply a regular target-platform Fleet workload transport')
     modules = [f'models/{name}.py' for name in CLIENT_MODULES] + [
-        'apps/runtime_config.py', 'apps/dependency_client.py', 'apps/dependency_binding_client.py',
+        'appkit/runtime_config.py', 'appkit/dependency_client.py', 'appkit/dependency_binding_client.py',
         'utils/adapters/image_blocks.py']
     for name in modules:
         vendor_file(name, vendor)

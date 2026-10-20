@@ -6,7 +6,7 @@ snapshot supplies models and scoped allocation; App data owns event replay.
 from copy import deepcopy
 from dataclasses import asdict
 
-from pantheonos.apps.toolset_backend import register_toolset
+from pantheonos.appkit.toolset_backend import register_toolset
 from pantheon.chatroom.event_store import AgentEventStore
 from pantheon.chatroom.launch import ConfiguredAgentApplication
 from pantheon.chatroom.settings_document import AgentSettingsDocument

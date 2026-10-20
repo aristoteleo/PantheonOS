@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 import sqlite3
 
-from pantheonos.apps.agent_execution_runner import AgentExecutionRunner, ExecutionEnded, ExecutionRecoveryRequired
+from pantheonos.appkit.agent_execution_runner import AgentExecutionRunner, ExecutionEnded, ExecutionRecoveryRequired
 from pantheonos.funcdesc import parse_func
 from pantheonos.funcdesc.pydantic import function_schema
 from pantheonos.toolset import parse_tool_desc
@@ -42,7 +42,7 @@ class RemoteEvolutionBinding:
     infer placement or credentials from the mutator's model configuration.
     """
     def __init__(self, client, receipt_root, *, run_id, binding_id, tool_factory=None, analyzer_tool_factory=None, sandbox_factory=None):
-        from pantheonos.apps.agent_execution_runner import _identity
+        from pantheonos.appkit.agent_execution_runner import _identity
         self.run_id, self.binding_id = _identity(run_id), _identity(binding_id)
         self.client, self.root, self.tool_factory = client, Path(receipt_root).resolve(), tool_factory
         self.analyzer_tool_factory = analyzer_tool_factory
@@ -58,7 +58,7 @@ class RemoteEvolutionBinding:
     async def run_sandbox(self, team, *, key, configuration, instructions='', model=None,
                           timeout=600, evaluation_only=False):
         from .sandbox.remote_operation import RemoteSandboxOperation
-        from pantheonos.apps.agent_execution_runner import _identity
+        from pantheonos.appkit.agent_execution_runner import _identity
         _identity(key)
         if self.sandbox_factory is None:
             raise ValueError('Supply an owned isolated App placement factory')
@@ -76,7 +76,7 @@ class RemoteEvolutionBinding:
 
     async def create_reasoner(self, team, *, role, instructions, model, timeout, functions=(), tool_factory=None):
         from .remote_reasoning import RemoteEvolutionReasoner
-        from pantheonos.apps.agent_execution_runner import _identity
+        from pantheonos.appkit.agent_execution_runner import _identity
         _identity(role)
         workspace = Path(team.config.workspace_path).resolve()
         if self.root == workspace or self.root.is_relative_to(workspace):

@@ -11,13 +11,13 @@ import re
 import shutil
 import tempfile
 
-from pantheonos.apps.portable import execution_package
-from pantheonos.apps.schema import parse_manifest
+from pantheonos.appkit.portable import execution_package
+from pantheonos.appkit.schema import parse_manifest
 
 
 RUNTIME_FILES = '''toolset.py settings.py constant.py
 utils/log.py utils/misc.py utils/file_paths.py utils/vision.py utils/start_hook.py utils/owned_io.py
-apps/toolset_backend.py internal/package_runtime/context.py remote/backend/base.py
+appkit/toolset_backend.py internal/package_runtime/context.py remote/backend/base.py
 utils/registry_lock.py
 evolution/config.py evolution/program.py evolution/evaluator.py evolution/lifetime.py
 evolution/local_shell.py evolution/utils/diff.py evolution/utils/metrics.py
@@ -45,12 +45,12 @@ def build_package(destination, *, version='0.1.0', platform='linux-amd64'):
     destination = Path(destination).absolute()
     if destination.exists() or destination.is_symlink():
         raise FileExistsError(destination)
-    from pantheonos.apps import builtin
+    from pantheonos.appkit import builtin
     apps = Path(list(builtin.__path__)[0])
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.mutation-tools-', dir=destination.parent) as temporary:
         root = Path(temporary) / 'source'
-        from pantheonos.apps.vendoring import add_package_inits, builtin_app_dir, vendor_file, vendor_tree
+        from pantheonos.appkit.vendoring import add_package_inits, builtin_app_dir, vendor_file, vendor_tree
         vendor = root / 'backend/_vendor'
         def copy(path, target):
             if path.is_symlink() or not path.is_file():

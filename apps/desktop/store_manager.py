@@ -11,9 +11,9 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
-from pantheonos.apps.store_release import git, git_history, prepare_release, unpack_release, validate_manifest
-from pantheonos.apps.versioning import fork, publish
-from pantheonos.apps.versioning import _match_range
+from pantheonos.appkit.store_release import git, git_history, prepare_release, unpack_release, validate_manifest
+from pantheonos.appkit.versioning import fork, publish
+from pantheonos.appkit.versioning import _match_range
 
 
 class AppStoreManager:
@@ -65,7 +65,7 @@ class AppStoreManager:
                     continue
                 try:
                     manifest = json.loads(path.read_text())
-                    from pantheonos.apps.distribution import included, SYSTEM_APPS
+                    from pantheonos.appkit.distribution import included, SYSTEM_APPS
                     if not included(manifest, scope):
                         continue
                     app_id = manifest["id"]

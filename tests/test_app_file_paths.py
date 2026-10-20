@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from pantheonos.utils.file_paths import resolve_workspace_path
-from pantheonos.apps.builtin.file import FileManagerToolSet
-from pantheonos.apps.builtin.desktop.toolset import DesktopToolSet
+from pantheonos.appkit.builtin.file import FileManagerToolSet
+from pantheonos.appkit.builtin.desktop.toolset import DesktopToolSet
 
 
 @pytest.fixture

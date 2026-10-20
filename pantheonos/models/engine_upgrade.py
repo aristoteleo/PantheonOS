@@ -8,7 +8,7 @@ import time
 import uuid
 import hashlib
 
-from pantheonos.apps.lifecycle import FleetLifecycle
+from pantheonos.appkit.lifecycle import FleetLifecycle
 from . import managed
 from .recovery import exact_instance, stopped
 
