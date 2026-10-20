@@ -27,7 +27,7 @@ def build(output: Path, platform: str, *, model_sampling=False, image_generation
         package = Path(temp) / 'package'
         package.mkdir()
         manifest = json.loads((source / 'app.json').read_text())
-        manifest.update(version='0.6.15', runtime='process', surface='headless',
+        manifest.update(version='0.6.16', runtime='process', surface='headless',
                         execution={'protocol': 1, 'manifest': 'fleet.json'})
         manifest['entry'] = {'backend': 'backend/__init__.py'}
         methods = METHODS | {'observe_images'} if model_sampling else METHODS
@@ -54,6 +54,9 @@ def build(output: Path, platform: str, *, model_sampling=False, image_generation
             manifest['dependencies'] = {'model-services-control': {'uses': ['model-inference@1']}}
         manifest['provides']['interfaces'].append({'name': 'image-preview', 'version': 1,
                                                  'tools': ['fetch_image_base64']})
+        # Chunked reads and writes for a file panel's previews and uploads.
+        manifest['provides']['interfaces'].append({'name': 'file-transfer', 'version': 1,
+                                                 'tools': ['file_transfer']})
         # The legacy fs/outline contracts cover only a subset of the public
         # service. Publish the remaining file operations for ordinary consumers
         # without changing those existing contracts or granting image inference.
@@ -78,6 +81,9 @@ def build(output: Path, platform: str, *, model_sampling=False, image_generation
             shutil.copyfile(source / name, dest)
         if image_generation:
             shutil.copyfile(source / 'image_generation.py', builtin / 'file/image_generation.py')
+        for name in ('__init__.py', 'worker.py'):
+            dest = builtin / 'file_transfer' / name; dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source.parent / 'file_transfer' / name, dest)
         dest = builtin / 'fleet/local_node.py'; dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source.parent / 'fleet/local_node.py', dest)
         entry = 'register_sampling as register' if model_sampling else 'register'
@@ -86,7 +92,8 @@ def build(output: Path, platform: str, *, model_sampling=False, image_generation
             f'async def register(ctx):\n    await register_capabilities(ctx, observation={model_sampling!r}, generation=True)\n'
             if image_generation else f'from pantheonos.apps.builtin.file.managed import {entry}\n')
         (package / 'requirements.txt').write_text('loguru==0.7.3\nrich==14.3.2\npydantic==2.12.5\n'
-            'diff-match-patch==20241021\ntree-sitter==0.25.2\ntree-sitter-python==0.25.0\ntree-sitter-javascript==0.25.0\npillow==12.1.0\n')
+            'diff-match-patch==20241021\ntree-sitter==0.25.2\ntree-sitter-python==0.25.0\ntree-sitter-javascript==0.25.0\npillow==12.1.0\n'
+            'aiofiles==25.1.0\n')
         if model_sampling or image_generation:
             from pantheonos.models.package import bundle_client
             bundle_client(vendor, platform=platform, transport=transport)

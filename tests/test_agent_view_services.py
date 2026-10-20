@@ -117,3 +117,33 @@ def test_schema_reference_cannot_replace_authority_or_override_profile(tmp_path,
     with pytest.raises(ValueError, match='configuration'):
         ConfiguredAgentApplication('agent', data_dir=tmp_path/'data', configuration=snapshot(value))
     assert not (tmp_path/'data').exists()
+
+
+@pytest.mark.asyncio
+async def test_panel_transfers_use_the_granted_files_backend():
+    """The deployed Agent grants Files only; its previews read in chunks."""
+    from pantheon.chatroom.app_data import AppProjects
+    from pantheon.chatroom.view_services import AgentViewServices
+    from pantheon.dependency_provider import DependencyToolProvider
+
+    class Files(DependencyToolProvider):
+        toolset_name, calls = 'file_manager', []
+
+        def __init__(self):
+            pass
+
+        async def call_tool(self, name, args):
+            self.calls.append((name, args))
+            return {'success': True, 'handle_id': 'h'}
+
+    files = Files()
+    views = AgentViewServices(None, AppProjects([{'id': 'shared', 'name': 'Shared', 'path': '/w'}]),
+                              {'shared': {'toolsets': {'file_manager': {'allocate': 'file_manager'}}}},
+                              allocate=lambda name: files)
+    out = await views.call('/w', 'file_transfer', 'open_file_for_read', {'file_path': 'a.txt'})
+    assert out == {'success': True, 'handle_id': 'h'}
+    assert files.calls == [('file_transfer', {'method': 'open_file_for_read', 'args': {'file_path': 'a.txt'}})]
+    for path, service in [('/w', 'shell'), ('/elsewhere', 'file_transfer')]:
+        with pytest.raises(ValueError, match='not bound'):
+            await views.call(path, service, 'execute', {})
+    assert len(files.calls) == 1

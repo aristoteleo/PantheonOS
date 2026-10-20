@@ -87,9 +87,11 @@ def expand_general_team(entries, raw):
             contract['resource'] = {'kind': 'shell', 'arguments': {'run_command': 'shell_id'}}
         if alias == 'files':
             # The Agent's own file panel (view dependencies) browses and manages
-            # the workspace; these stay out of the model's tools.
+            # the workspace, and previews and uploads in chunks (file_transfer);
+            # these stay out of the model's tools.
             contract['service_methods'] = ['stat_path', 'get_cwd', 'list_files', 'create_directory',
-                                           'delete_path', 'move_file', 'manage_path', 'fetch_image_base64']
+                                           'delete_path', 'move_file', 'manage_path', 'fetch_image_base64',
+                                           'file_transfer']
         if alias == 'fleet':
             # A conversation's working node: its files through that node's
             # file service (docs/agent/agent-core.md).

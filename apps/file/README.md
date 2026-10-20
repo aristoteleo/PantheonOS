@@ -52,6 +52,10 @@ two concurrent encoding workers. The longest output edge is configurable from
 1 to 4096 pixels. GIF/SVG bytes are preserved within the byte limit; their display
 dimensions are not limited by the raster resize. Original files are unchanged.
 The package pins Pillow 12.1.0, already used by the Agent distribution.
+Since v0.6.16 it also provides `file-transfer@1`: `file_transfer(method, args)`
+serves the chunked reads and writes (`open_file_for_read`, `read_chunk_at`,
+`close_file`, `open_file_for_write`, `write_chunk`, ...) a file panel uses for
+previews and uploads, with the same path rules as `read_file`.
 It has no Agent, model SDK or shared ToolSet bus. Ordinary dependency grants choose
 the allowed methods and arguments. There is no per-Agent resource session: two
 consumers can use the same provider with independent grants, and revoking one does

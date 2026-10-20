@@ -32,6 +32,13 @@ class AgentViewServices:
         project = self._projects.get_project(workspace_path)
         bindings = self._bindings.get(project.id) if project else None
         provider = bindings.toolsets.get(service) if bindings and isinstance(service, str) else None
+        if provider is None and service == 'file_transfer' and bindings:
+            # Without a transfer service of its own, the panel's chunked reads
+            # and writes go through the granted Files backend's transfer
+            # dispatch, rooted at the same workspace.
+            files = bindings.toolsets.get('file_manager')
+            if files is not None:
+                return await files.call_tool('file_transfer', {'method': method, 'args': args})
         if provider is None:
             raise ValueError('Service is not bound to this App workspace')
         # The grant, not workspace_path or a caller-supplied session, determines

@@ -17,7 +17,7 @@ from .file_manager import FileManagerToolSet
 
 METHODS = frozenset(('read_file', 'write_file', 'update_file', 'glob', 'grep', 'apply_patch',
     'view_file_outline', 'list_files', 'stat_path', 'get_cwd', 'manage_path',
-    'create_directory', 'delete_path', 'move_file', 'fetch_image_base64'))
+    'create_directory', 'delete_path', 'move_file', 'fetch_image_base64', 'file_transfer'))
 
 
 def unconfigured_model(capability):

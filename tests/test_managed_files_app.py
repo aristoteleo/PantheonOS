@@ -43,6 +43,12 @@ async def run():
  assert not (await service.read_file('.pantheon/agents/missing.md'))['success']
  preview = await service.fetch_image_base64('preview.png', 120)
  assert preview['success'] and preview['data_uri'].startswith('data:image/jpeg;base64,')
+ opened = await service.file_transfer('open_file_for_read', {'file_path': 'sample.py'})
+ assert opened['success'], opened
+ chunk = await service.file_transfer('read_chunk_at', {'handle_id': opened['handle_id'], 'offset': 0, 'size': 3})
+ assert chunk['success'] and chunk['bytes_read'] == 3, chunk
+ assert (await service.file_transfer('close_file', {'handle_id': opened['handle_id']}))['success']
+ assert not (await service.file_transfer('delete_path', {'path': 'sample.py'}))['success']
  await service.cleanup()
 asyncio.run(run())
 '''
