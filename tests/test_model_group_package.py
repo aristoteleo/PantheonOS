@@ -1,4 +1,5 @@
 import asyncio
+from isolated_import import isolated
 from copy import deepcopy
 import hashlib
 import io
@@ -145,7 +146,7 @@ finally:
 assert not thread.is_alive()
 print('PACKAGED_LEADER_OK')
 '''
-    result = await asyncio.to_thread(subprocess.run, [sys.executable, '-I', '-c', script, str(directory)],
+    result = await asyncio.to_thread(subprocess.run, [sys.executable, '-I', '-c', isolated(script), str(directory)],
         cwd=directory, capture_output=True, text=True, timeout=10,
         env={'PATH': os.defpath, 'PYTHONDONTWRITEBYTECODE': '1'})
     assert result.returncode == 0, result.stderr

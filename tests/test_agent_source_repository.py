@@ -1,6 +1,7 @@
 """The Agent's source repository builds the package the release ships
 (docs/agent/agent-app-repository.md §2)."""
 import asyncio
+from isolated_import import isolated
 import json
 import sys
 import subprocess
@@ -114,7 +115,7 @@ print('attached')
 def test_the_packaged_agent_reaches_installed_apps(release, tmp_path):
     # Only the vendored runtime: a module the package leaves out fails here.
     _, package, _, _, _ = release
-    result = subprocess.run([sys.executable, '-I', '-c', PACKAGED_ATTACH, str(package / 'backend' / '_vendor')],
+    result = subprocess.run([sys.executable, '-I', '-c', isolated(PACKAGED_ATTACH), str(package / 'backend' / '_vendor')],
                             capture_output=True, text=True, cwd=tmp_path, timeout=300)
     assert result.returncode == 0 and 'attached' in result.stdout, result.stderr[-3000:]
 
@@ -174,3 +175,15 @@ def test_inputs_are_verified(tmp_path):
     with pytest.raises(SystemExit, match='not available'):
         agent_build.fetch({'url': '', 'sha256': 'b' * 64}, tmp_path)
     assert asyncio.iscoroutinefunction(app_build.run)
+
+
+def test_the_packaged_backend_imports_from_its_own_vendored_tree_alone(release):
+    _, package, *_ = release
+    vendor = package / 'backend' / '_vendor'
+    code = isolated(f"sys.path[:0] = [{str(vendor)!r}, {str(package)!r}]\n"
+                    "import backend, pantheon, pantheonos\n"
+                    f"assert pantheon.__file__.startswith({str(vendor)!r}), pantheon.__file__\n"
+                    f"assert pantheonos.__file__.startswith({str(vendor)!r}), pantheonos.__file__\n"
+                    "import pantheonos.apps.registry, pantheonos.appkit.registry\n")
+    result = subprocess.run([sys.executable, '-I', '-c', code], cwd=package, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr[-3000:]

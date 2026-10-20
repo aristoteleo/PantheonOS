@@ -1,6 +1,7 @@
 """The packaged Desktop carries what it needs to offer installed Apps to the
 Agent (docs/agent/agent-app-directory.md), with only its own vendored runtime."""
 import json
+from isolated_import import isolated
 import subprocess
 import sys
 
@@ -20,7 +21,7 @@ def test_packaged_desktop_lists_an_apps_tools_and_actions(tmp_path):
             'from pantheonos.appkit.builtin.desktop.agent_apps import offer; '
             'import pantheonos; assert pantheonos.__file__.startswith(sys.argv[1]), pantheonos.__file__; '
             'print(json.dumps(offer(json.loads(sys.argv[2]))))')
-    result = subprocess.run([sys.executable, '-I', '-c', code, str(vendor), json.dumps(manifest)],
+    result = subprocess.run([sys.executable, '-I', '-c', isolated(code), str(vendor), json.dumps(manifest)],
                             capture_output=True, text=True, cwd=tmp_path, timeout=120)
     assert result.returncode == 0, result.stderr[-2000:]
     entry = json.loads(result.stdout)

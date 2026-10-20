@@ -1,5 +1,6 @@
 """A separate ordinary Notebook process; no embedded Agent/settings imports."""
 import json
+from isolated_import import isolated
 import os
 from pathlib import Path
 import secrets
@@ -44,7 +45,7 @@ runpy.run_path(sys.argv[0],run_name='__main__')
 '''
     log_path = tmp_path / 'notebook.log'
     with log_path.open('w') as log:
-        process = subprocess.Popen([sys.executable, '-I', '-c', boot, str(package / '.fleet-runtime'),
+        process = subprocess.Popen([sys.executable, '-I', '-c', isolated(boot), str(package / '.fleet-runtime'),
             str(package / '.fleet-runtime/host.py'), 'start', '--package', str(package), '--data', str(data),
             '--workspace', str(workspace)], stdout=log, stderr=log, env=env)
         try:

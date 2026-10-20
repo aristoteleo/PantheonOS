@@ -39,7 +39,7 @@ def package_root(package: str) -> Path:
 
 _PLATFORM_DIRS = ('appkit/', 'general_team/', 'local/', 'store/', 'utils/', 'remote/', 'models/', 'model_contracts/',
                   'funcdesc/', 'data/', 'package_runtime/')
-_PLATFORM_FILES = ('toolset.py', 'settings.py', 'constant.py', 'apphost.py')
+_PLATFORM_FILES = ('toolset.py', 'settings.py', 'constant.py', 'apphost.py', 'source.py', '_moved.py')
 _RENAMED = {
     'internal/package_runtime/context.py': ('pantheonos', 'package_runtime/context.py'),
     'apps/general_agent_release.py': ('pantheon', 'agent_release.py'),
@@ -110,9 +110,13 @@ def vendor_compat(vendor: Path) -> None:
 
 
 def vendor_platform_compat(vendor: Path) -> None:
-    """A vendored ``pantheonos`` that resolves the names of modules that moved
-    (``pantheonos.apps`` is ``pantheonos.appkit``), as the installed one does."""
+    """A vendored ``pantheonos`` has the package's own root modules: where it
+    runs from (source.py, which framework modules ask) and, unless the build
+    wrote its own __init__, the names of modules that moved (``pantheonos.apps``
+    is ``pantheonos.appkit``), as the installed one does."""
     package = vendor / 'pantheonos'
+    if not (package / 'source.py').exists():
+        shutil.copyfile(PLATFORM_ROOT / 'source.py', package / 'source.py')
     if (package / '__init__.py').exists():
         return
     shutil.copyfile(PLATFORM_ROOT / '_moved.py', package / '_moved.py')

@@ -1,5 +1,6 @@
 """Deferred model choices keep the complete Files surface, without inference."""
 import json
+from isolated_import import isolated
 import os
 from pathlib import Path
 import subprocess
@@ -67,7 +68,7 @@ async def main():
   if ctx._cleanup: await ctx._cleanup()
 asyncio.run(main())
 '''
-    result = subprocess.run([sys.executable, '-I', '-c', code, str(package/'.fleet-runtime'), str(package),
+    result = subprocess.run([sys.executable, '-I', '-c', isolated(code), str(package/'.fleet-runtime'), str(package),
                              json.dumps(sorted(methods))], cwd=workspace, env=env, text=True,
                             capture_output=True, timeout=30)
     assert result.returncode == 0, result.stderr

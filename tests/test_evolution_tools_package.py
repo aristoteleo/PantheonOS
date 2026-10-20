@@ -1,5 +1,6 @@
 """Independent mutation release, exercised with no repository import path."""
 import asyncio
+from isolated_import import isolated
 import json
 import inspect
 import os
@@ -77,7 +78,7 @@ async def test_packaged_source_input_files_python_evaluation_and_shutdown(tmp_pa
     state.mkdir()
     env = {key: value for key, value in os.environ.items()
            if key in ('PATH', 'LANG', 'TMPDIR', 'SYSTEMROOT', 'WINDIR')}
-    proc = await asyncio.create_subprocess_exec(sys.executable, '-I', '-c', BOOT,
+    proc = await asyncio.create_subprocess_exec(sys.executable, '-I', '-c', isolated(BOOT),
         str(package / '.fleet-runtime/app_runtime.py'), '--app-dir', str(package),
         '--app-id', 'evolution-tools', '--workspace', str(work), '--state-dir', str(state),
         cwd=tmp_path, env=env, stdin=asyncio.subprocess.PIPE,

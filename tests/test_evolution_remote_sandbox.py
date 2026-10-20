@@ -4,6 +4,7 @@ Local subprocess placement is a test boundary, not production OS isolation.
 The Agent service/model replies are controlled fixtures.
 """
 import asyncio
+from isolated_import import isolated
 import json
 import os
 from pathlib import Path
@@ -35,7 +36,7 @@ class LocalPlacement:
         state.mkdir()
         env = {key: value for key, value in os.environ.items()
                if key in ('PATH', 'LANG', 'TMPDIR', 'SYSTEMROOT', 'WINDIR')}
-        self.process = await asyncio.create_subprocess_exec(sys.executable, '-I', '-c', BOOT,
+        self.process = await asyncio.create_subprocess_exec(sys.executable, '-I', '-c', isolated(BOOT),
             str(self.package / '.fleet-runtime/app_runtime.py'), '--app-dir', str(self.package),
             '--app-id', 'evolution-tools', '--workspace', str(self.root / 'work'), '--state-dir', str(state),
             cwd=self.root, env=env, stdin=asyncio.subprocess.PIPE,

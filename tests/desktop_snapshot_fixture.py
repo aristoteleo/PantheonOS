@@ -1,5 +1,6 @@
 """Run Desktop screenshot packaging in an Agent-free, explicitly bound process."""
 import json
+from isolated_import import isolated
 import os
 from pathlib import Path
 import subprocess
@@ -30,7 +31,7 @@ assert result['image_ref'].startswith('pantheon-node:///desktop-node/')
 asyncio.run(service.cleanup())
 print(json.dumps(result))
 '''
-    result = subprocess.run([sys.executable, '-I', '-c', boot,
+    result = subprocess.run([sys.executable, '-I', '-c', isolated(boot),
         str(Path(__file__).resolve().parents[1]), str(workspace)],
         input=json.dumps({'uri': uri}), text=True, capture_output=True, timeout=20,
         env={**os.environ, 'PANTHEON_FLEET_NODE_ID': 'wrong-ambient-node'})

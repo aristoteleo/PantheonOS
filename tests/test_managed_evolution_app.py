@@ -1,5 +1,6 @@
 """Public Evolution App admission, actual isolated tools and owned shutdown."""
 import asyncio
+from isolated_import import isolated
 import json
 import os
 from pathlib import Path
@@ -144,7 +145,7 @@ async def run():
  await ctx._cleanup()
 asyncio.run(run())
 '''
-    result = subprocess.run([os.environ.get('PANTHEON_TEST_EVOLUTION_PYTHON', sys.executable), '-I', '-c', script, str(package / 'backend/_vendor'),
+    result = subprocess.run([os.environ.get('PANTHEON_TEST_EVOLUTION_PYTHON', sys.executable), '-I', '-c', isolated(script), str(package / 'backend/_vendor'),
                              str(work), str(state)], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr
 
@@ -267,7 +268,7 @@ async def test_separate_controller_package_uses_prepared_https_execution_depende
         PANTHEON_INSTANCE_GENERATION='1')
     process = pipe = None
     try:
-        process = await asyncio.create_subprocess_exec(os.environ.get('PANTHEON_TEST_EVOLUTION_PYTHON', sys.executable), '-I', '-c', BOOT,
+        process = await asyncio.create_subprocess_exec(os.environ.get('PANTHEON_TEST_EVOLUTION_PYTHON', sys.executable), '-I', '-c', isolated(BOOT),
             str(package / '.fleet-runtime/app_runtime.py'), '--app-dir', str(package), '--app-id', 'evolution',
             '--workspace', str(work), '--state-dir', str(state), cwd=tmp_path, env=env,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)

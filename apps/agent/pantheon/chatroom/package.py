@@ -180,7 +180,7 @@ def export_source(destination, *, version, inputs, frontend_source=None,
     # Shared Agent execution modules remain one source, not maintained forks.
     for name in ('_moved.py', 'agent.py', 'agent_app_directory.py', 'agent_core_tools.py', 'agent_pantheonos.py', 'agent_nodes.py', 'agent_loop.py', 'agent_tools.py', 'agent_model.py', 'agent_context.py', 'background.py', 'image_detection.py', 'settings.py', 'toolset.py', 'constant.py', 'dependency_provider.py', 'providers.py'):
         place(name)
-    for name in ('__init__.py', '_moved.py'):
+    for name in ('__init__.py', '_moved.py', 'source.py'):
         _copy_file(package_root('pantheonos') / name, backend / 'pantheonos' / name)
     for directory in ('factory', 'funcdesc', 'internal', 'team', 'utils', 'data', 'skills', 'repl', 'package_runtime'):
         place(directory, tree=True)

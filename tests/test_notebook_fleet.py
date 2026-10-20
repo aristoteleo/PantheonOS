@@ -1,5 +1,6 @@
 """Exercise the real notebook engine over the portable node's HTTP boundary."""
 import concurrent.futures
+from isolated_import import isolated
 import json
 import os
 from pathlib import Path
@@ -54,7 +55,7 @@ def test_notebook_executes_reads_interrupts_and_cleans_up_on_node(tmp_path, monk
         # host.py needs its sibling app_runtime, as it would through launch.py.
         boot = "import runpy,sys; sys.path.insert(0,sys.argv[1]); sys.argv=sys.argv[2:]; runpy.run_path(sys.argv[0],run_name='__main__')"
         with (tmp_path / 'backend.log').open('w') as log:
-            proc = subprocess.Popen([sys.executable, '-I', '-c', boot, str(root / '.fleet-runtime'),
+            proc = subprocess.Popen([sys.executable, '-I', '-c', isolated(boot), str(root / '.fleet-runtime'),
                 str(root / '.fleet-runtime/host.py'), 'start', '--package', str(root), '--data', str(data),
                 '--workspace', str(workspace)], stdout=log, stderr=log,
                 env={**os.environ, 'PANTHEON_PORT_HTTP': str(port), 'PANTHEON_INSTANCE_GENERATION': '1'})

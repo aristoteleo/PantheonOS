@@ -1,5 +1,6 @@
 """Full ordinary Fleet tools: owned real transport, no ambient identity fallback."""
 import asyncio
+from isolated_import import isolated
 import base64
 import json
 from pathlib import Path
@@ -40,7 +41,7 @@ assert 'pantheon.agent' not in sys.modules
 assert 'pantheonos.settings' not in sys.modules
 assert 'fleet_hpc_cluster' in FleetToolSet().functions
 '''
-    result = subprocess.run([sys.executable, '-I', '-c', code, str(vendor)], cwd=tmp_path,
+    result = subprocess.run([sys.executable, '-I', '-c', isolated(code), str(vendor)], cwd=tmp_path,
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
 

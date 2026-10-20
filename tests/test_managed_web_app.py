@@ -1,5 +1,6 @@
 """Web package boundary and actual browser-rendered RPC/lifecycle acceptance."""
 import asyncio
+from isolated_import import isolated
 import base64
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -61,7 +62,7 @@ async def run():
  await service.cleanup()
 asyncio.run(run())
 '''
-    result = subprocess.run([sys.executable, '-I', '-c', code, str(package / 'backend/_vendor'), str(state)],
+    result = subprocess.run([sys.executable, '-I', '-c', isolated(code), str(package / 'backend/_vendor'), str(state)],
                             cwd=tmp_path, capture_output=True, text=True, timeout=40)
     assert result.returncode == 0, result.stdout + result.stderr
 

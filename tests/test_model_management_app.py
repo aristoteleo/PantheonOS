@@ -21,6 +21,7 @@ from pantheonos.models.manager import ModelServiceManager
 from pantheonos.local.fleet import LocalFleet
 from test_local_fleet import binaries, assert_stopped
 from test_model_services import serve
+from isolated_import import isolated
 
 
 def test_package_has_original_tools_catalogs_and_no_agent_runtime(tmp_path):
@@ -49,7 +50,7 @@ assert module('server').validate_config({'engine':'api','endpoint':'http://127.0
 assert 'use_fleet_model' not in ModelManagementToolSet(object()).functions
 '''
     import os
-    result = subprocess.run([sys.executable, '-I', '-c', code, str(vendor)], cwd=tmp_path,
+    result = subprocess.run([sys.executable, '-I', '-c', isolated(code), str(vendor)], cwd=tmp_path,
         env={**os.environ, 'PANTHEON_APPS_ROOT': str(tmp_path/'does-not-exist')}, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
 

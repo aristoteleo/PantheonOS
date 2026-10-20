@@ -1,5 +1,6 @@
 """Ordinary Notebook packaging, explicit state and real kernel lifetime gates."""
 import asyncio
+from isolated_import import isolated
 from concurrent.futures import ThreadPoolExecutor
 import json
 import os
@@ -68,7 +69,7 @@ async def run():
 asyncio.run(run())
 '''
     service = service_at(tmp_path)
-    result = subprocess.run([sys.executable, '-I', '-c', script, str(package / 'backend/_vendor'),
+    result = subprocess.run([sys.executable, '-I', '-c', isolated(script), str(package / 'backend/_vendor'),
                              service.workdir, str(service.persistence_dir)], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr
 
@@ -161,7 +162,7 @@ def test_packaged_rpc_kernels_widgets_stop_and_reopen(tmp_path):
         log_path = tmp_path / f'backend-{generation}.log'
         kernel_pid = None
         with log_path.open('w') as log:
-            proc = subprocess.Popen([sys.executable, '-I', '-c', boot, str(package / '.fleet-runtime'),
+            proc = subprocess.Popen([sys.executable, '-I', '-c', isolated(boot), str(package / '.fleet-runtime'),
                 str(package / '.fleet-runtime/host.py'), 'start', '--package', str(package), '--data', str(data),
                 ], stdout=log, stderr=log, env=env)
             try:

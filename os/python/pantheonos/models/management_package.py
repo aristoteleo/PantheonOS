@@ -12,7 +12,7 @@ from pantheonos.appkit.schema import parse_manifest
 from .management_tools import ModelManagementToolSet
 
 
-SDK_FILES = '''toolset.py utils/log.py utils/misc.py utils/adapters/image_blocks.py
+SDK_FILES = '''toolset.py source.py utils/log.py utils/misc.py utils/adapters/image_blocks.py
 package_runtime/context.py remote/backend/base.py
 appkit/runtime_config.py appkit/owned_bus.py appkit/fleet_controller.py appkit/toolset_backend.py appkit/resolver.py
 appkit/client.py appkit/registry.py appkit/reflect.py appkit/schema.py appkit/distribution.py

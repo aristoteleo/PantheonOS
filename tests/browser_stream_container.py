@@ -5,6 +5,7 @@ and OS libraries are pre-provisioned by its image; this does not test installati
 or replace the Desktop/Fleet end-to-end acceptance gate.
 """
 import base64
+from isolated_import import isolated
 from contextlib import suppress
 import io
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -83,7 +84,7 @@ runpy.run_path(sys.argv[0],run_name='__main__')
     descendants = []
     viewer_browser = playwright = None
     with (results/'backend.log').open('w') as log:
-        proc = subprocess.Popen([sys.executable, '-I', '-c', boot], env=env, stdout=log, stderr=log)
+        proc = subprocess.Popen([sys.executable, '-I', '-c', isolated(boot)], env=env, stdout=log, stderr=log)
         try:
             deadline = time.monotonic() + 90
             endpoint = state/'backend-endpoint.json'

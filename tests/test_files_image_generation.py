@@ -1,5 +1,6 @@
 """Prepared Files image calls reuse the original scoped Model Services stack."""
 import asyncio
+from isolated_import import isolated
 import json
 import os
 from pathlib import Path
@@ -278,7 +279,7 @@ asyncio.run(main())
                 selected['credentials'] = {}
             prepared.write_text(json.dumps(selected))
             env['PANTHEON_INSTANCE_GENERATION'] = str(generation)
-            process = await asyncio.create_subprocess_exec(sys.executable, '-I', '-c', boot,
+            process = await asyncio.create_subprocess_exec(sys.executable, '-I', '-c', isolated(boot),
                 str(package / '.fleet-runtime'), str(package), mode, cwd=tmp_path, env=env,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
             try:

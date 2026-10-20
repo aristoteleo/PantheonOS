@@ -2,6 +2,7 @@
 (docs/agent/agent-app-extraction.md, Ownership). It may look for the installed
 Agent package by name only where listed here, each for a stated reason."""
 import ast
+from isolated_import import isolated
 import re
 import subprocess
 import sys
@@ -93,7 +94,7 @@ def test_a_vendored_platform_resolves_the_old_names(tmp_path):
     code = (f"import sys; sys.path.insert(0, {str(tmp_path)!r}); "
             "import pantheonos.apps.runtime_config as a, pantheonos.appkit.runtime_config as b; "
             f"assert a is b and b.__file__.startswith({str(tmp_path)!r}), b.__file__")
-    subprocess.run([sys.executable, "-I", "-c", code], check=True)
+    subprocess.run([sys.executable, "-I", "-c", isolated(code)], check=True)
 
 
 def test_importing_the_platform_loads_no_agent_module():

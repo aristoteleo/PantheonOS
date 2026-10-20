@@ -1,5 +1,6 @@
 """Ordinary ToolSet sampling uses explicit dependencies, never Agent imports."""
 import asyncio
+from isolated_import import isolated
 import json
 import os
 import sys
@@ -239,7 +240,7 @@ async def main():
    await ctx._cleanup()
 asyncio.run(main())
 '''
-    process = await asyncio.create_subprocess_exec(sys.executable, '-I', '-c', boot,
+    process = await asyncio.create_subprocess_exec(sys.executable, '-I', '-c', isolated(boot),
         str(package/'.fleet-runtime'), str(package), cwd=tmp_path, env=env,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     try:
