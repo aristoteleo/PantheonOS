@@ -262,7 +262,7 @@ def build_package(destination, platform, *, version, frontend, transport,
             or report.get('version') != version):
         raise ValueError('Agent GUI boundary build report is missing or invalid')
     if transport.is_symlink() or not transport.is_file():
-        raise ValueError('Supply the target-platform fleet-app-transport executable')
+        raise ValueError('Supply the target-platform pantheon-app-transport executable')
     if _transport_platform(transport) != platform:
         raise ValueError('Fleet transport executable does not match target platform')
     urls = urls or {}

@@ -31,7 +31,9 @@ import (
 // ReleaseBase is where official Fleet releases are published.
 var ReleaseBase = "https://github.com/aristoteleo/PantheonOS/releases/download/"
 
-var tagRE = regexp.MustCompile(`^fleet-v(\d+)\.(\d+)\.(\d+)(?:-([a-z]+)\.(\d+))?$`)
+// Release tags are pantheon-v<version>; fleet-v<version> is their earlier
+// name, which releases keep while nodes from before this one remain.
+var tagRE = regexp.MustCompile(`^(?:pantheon|fleet)-v(\d+)\.(\d+)\.(\d+)(?:-([a-z]+)\.(\d+))?$`)
 var versionRE = regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)(?:-([a-z]+)\.(\d+))?$`)
 
 const maxAssetBytes = 400 << 20
@@ -53,11 +55,11 @@ func parse(m []string) Version {
 	return v
 }
 
-// ParseTag reads a release tag (fleet-v0.5.0-model.6).
+// ParseTag reads a release tag (pantheon-v0.6.0, fleet-v0.5.0-model.6).
 func ParseTag(tag string) (Version, error) {
 	m := tagRE.FindStringSubmatch(tag)
 	if m == nil {
-		return Version{}, fmt.Errorf("not a Fleet release tag: %q", tag)
+		return Version{}, fmt.Errorf("not a PantheonOS release tag: %q", tag)
 	}
 	return parse(m), nil
 }
@@ -165,7 +167,7 @@ func (u *Updater) Apply(ctx context.Context, tag string) (Result, string, error)
 	if err != nil {
 		return Result{}, "", err
 	}
-	to := strings.TrimPrefix(tag, "fleet-v")
+	to := tag[strings.Index(tag, "-v")+2:]
 	if !Newer(want, have) {
 		return Result{Status: "up_to_date", From: u.Current, To: to}, "", nil
 	}

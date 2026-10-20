@@ -62,10 +62,10 @@ try {
     Move-Item -Force $pendingHelper $helper
 } catch {
     Remove-Item -ErrorAction SilentlyContinue $pendingHelper
-    Write-Error "pantheon-fleet: native capture helper download failed: $_"
+    Write-Error "pantheon: native capture helper download failed: $_"
     exit 1
 }
-Write-Host "pantheon-fleet: installed $exe and native capture helper"
+Write-Host "pantheon: installed $exe and native capture helper"
 
 # Add the install dir to the user's PATH (idempotent) so `pantheon` works in new shells.
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
@@ -85,6 +85,6 @@ if ($NoFiles) { $fleetArgs += '--no-files' }
 
 # First run: Windows Defender Firewall will pop up asking to allow pantheon.exe's
 # UDP listener — click Allow so peers can reach this node (private networks is enough).
-Write-Host 'pantheon-fleet: starting node (Ctrl-C to leave the fleet)'
+Write-Host 'pantheon: starting node (Ctrl-C to leave the fleet)'
 & $exe @fleetArgs
 exit $LASTEXITCODE

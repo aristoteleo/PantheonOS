@@ -318,14 +318,14 @@ else
     # reason. App prestart stays later: those touch the Volume and must
     # wait for the layout migration.
     NODE_APPS="${PANTHEON_NODE_APPS:-}"
-    if [ -n "${FLEET_CONTROLLER_URL:-}" ] && command -v fleet >/dev/null 2>&1; then
+    if [ -n "${FLEET_CONTROLLER_URL:-}" ] && command -v pantheon >/dev/null 2>&1; then
         export FLEET_NODE_KIND="${FLEET_NODE_KIND:-sandbox}"
         export FLEET_NODE_CAPS="${FLEET_NODE_CAPS:-proc,fs:workspace,display,net}"
         NODE_NAME="${PANTHEON_NODE_NAME:-${PANTHEON_NODE_BASENAME:-sandbox}-${ID_HASH}}"
         _ts "[fleet] joining fleet as node ${NODE_NAME} (caps=${FLEET_NODE_CAPS})"
         export PANTHEON_FLEET_STATE_DIR="${PANTHEON_FLEET_STATE_DIR:-/tmp/fleet-node}"
         mkdir -p "${PANTHEON_FLEET_STATE_DIR}"
-        fleet up --controller "${FLEET_CONTROLLER_URL}" --key "${FLEET_KEY}" \
+        pantheon node up --controller "${FLEET_CONTROLLER_URL}" --key "${FLEET_KEY}" \
             --name "${NODE_NAME}" --state-dir "${PANTHEON_FLEET_STATE_DIR}" \
             > /tmp/fleet-node.log 2>&1 &
         # A Workspace back from idle lost its Apps' Python environments with
@@ -506,7 +506,7 @@ EOF
     # node's Apps (background, non-fatal; the resolver lazy-starts at bind
     # time either way). With a topology, the list is the node's `apps`
     # minus chatroom — the placer still routes each one by requires × caps.
-    if [ -n "${FLEET_CONTROLLER_URL:-}" ] && command -v fleet >/dev/null 2>&1; then
+    if [ -n "${FLEET_CONTROLLER_URL:-}" ] && command -v pantheon >/dev/null 2>&1; then
         if [ "${PANTHEON_APPS_DEPLOYED:-}" = "1" ]; then
             # The Fleet controller places this node's Apps (a deployment).
             # Legacy App hosts started here would run beside them, which
@@ -658,7 +658,7 @@ EOF
     if [ -n "$NODE_APPS" ] && ! echo ",$NODE_APPS," | grep -q ",chatroom,"; then
         echo "[launch] node apps [$NODE_APPS]: no chatroom here — runner holds the node"
         _ts "node ready: holding on the fleet runner (no worker on this node)"
-        while pgrep -f 'fleet up' >/dev/null 2>&1; do
+        while pgrep -f '(fleet|pantheon node) up' >/dev/null 2>&1; do
             sleep 5
         done
         echo "[launch] runner exited; node container stopping"

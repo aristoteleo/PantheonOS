@@ -103,7 +103,7 @@ python -m pantheon.agent_release \
   --platform darwin-arm64 --version 0.7.0 \
   --frontend /absolute/paired-agent-build \
   --notebook-frontend /absolute/notebook-build \
-  --transport /absolute/fleet-app-transport \
+  --transport /absolute/pantheon-app-transport \
   --model-app connector --model-app image-connector
 
 python -m pantheonos.apps.local_agent \

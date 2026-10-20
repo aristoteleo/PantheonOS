@@ -401,6 +401,20 @@ for developing the Agent's backend. Users never need it.
 | `pantheon store` | `pantheon apps search/install`, `pantheon skills search/adopt/publish` |
 | `pantheon local*` | `pantheon up` and `pantheon setup` |
 | Release assets `fleet-<os>-<arch>` | `pantheon-<os>-<arch>`; the updater fetches the new name |
+| Release tags `fleet-v<version>` | `pantheon-v<version>`. Nodes released after `fleet-v0.5.1-staging.2` update from either; releases keep the `fleet-v` tag until no older node remains, since those accept only it. |
+| The Agent release's `fleet-app-transport` | `pantheon-app-transport`; the model client finds either, so releases built before the rename keep working |
+
+What keeps its name, because changing it would cut off what is already running:
+
+* wire names: NATS subjects (`fleet.<id>.…`), the node KV bucket, NATS
+  account and user names, libp2p protocol ids, the `X-Fleet-*` headers, the
+  Hub's `/api/fleet/*` routes, `fleet.json` App manifests and the `fleet` App;
+* saved state: a node's state directory and credentials file (a renamed path
+  is a new node), the controller's state directory;
+* the macOS app's bundle id (`org.pantheonos.fleet`) and its `fleet`
+  executable: macOS keys the user's Files and screen-recording grants to it;
+* public addresses: the `fleet-latest` install alias and the controller host
+  names, which installed nodes have saved.
 
 ## Phases
 

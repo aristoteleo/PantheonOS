@@ -51,6 +51,6 @@ def bundle_client(vendor, *, platform, transport=None):
     # Keeps existing package initializers intact when augmenting an App SDK.
     add_package_inits(vendor)
     if transport is not None:
-        target = vendor / 'pantheonos' / 'models' / ('fleet-app-transport.exe' if platform.startswith('windows-') else 'fleet-app-transport')
+        target = vendor / 'pantheonos' / 'models' / ('pantheon-app-transport.exe' if platform.startswith('windows-') else 'pantheon-app-transport')
         shutil.copyfile(transport, target)
         target.chmod(0o755)

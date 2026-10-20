@@ -223,7 +223,7 @@ for the selected node platform. This uses the same implementation as Fleet's
 
 ```sh
 CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags='-s -w' \
-  -o /tmp/fleet-app-transport ./cmd/pantheon-app-transport
+  -o /tmp/pantheon-app-transport ./cmd/pantheon-app-transport
 ```
 
 Use `linux`/`darwin` and `amd64`/`arm64` for another target. The release builder
@@ -235,7 +235,7 @@ From the runtime repository, using its development Python environment:
 ```sh
 python -m pantheon.chatroom.package \
   --output /tmp/agent-0.7.0 --platform darwin-arm64 --version 0.7.0 \
-  --frontend /tmp/agent-frontend --transport /tmp/fleet-app-transport
+  --frontend /tmp/agent-frontend --transport /tmp/pantheon-app-transport
 ```
 
 The destination must not exist. `release.json` inventories frontend, backend,
@@ -539,7 +539,7 @@ uv venv --python 3.12 /tmp/agent-release-python
 uv pip sync --python /tmp/agent-release-python/bin/python --require-hashes \
   apps/agent/pantheon/chatroom/package-requirements.lock
 AGENT_RELEASE_PYTHON=/tmp/agent-release-python/bin/python \
-AGENT_RELEASE_TRANSPORT=/tmp/fleet-app-transport \
+AGENT_RELEASE_TRANSPORT=/tmp/pantheon-app-transport \
 AGENT_APP_BUILD_DIR=/tmp/agent-frontend \
 PANTHEON_AGENT_FRONTEND_SCRIPT=/absolute/path/to/ui/scripts/test-agent-frontend.mjs \
   python -m pytest tests/test_agent_release.py -q
@@ -580,7 +580,7 @@ From `fleet`, with `nats-server`, Go, Python and the release build inputs availa
 ```sh
 FLEET_TEST_AGENT_DEPLOYMENT=1 \
 FLEET_TEST_PYTHON=/absolute/path/to/development/python \
-AGENT_RELEASE_TRANSPORT=/absolute/path/to/fleet-app-transport \
+AGENT_RELEASE_TRANSPORT=/absolute/path/to/pantheon-app-transport \
 AGENT_APP_BUILD_DIR=/absolute/path/to/agent-frontend \
   go test -race ./internal/controller \
   -run '^TestDependencyRPCOverAuthenticatedNATSAndNativeApps$' -count=1 -v -timeout=10m

@@ -1,7 +1,7 @@
 """Independent release gate: no source checkout or installed Pantheon package.
 
 Set AGENT_RELEASE_PYTHON to a clean venv containing package-requirements.lock,
-AGENT_RELEASE_TRANSPORT to a built fleet-app-transport, and AGENT_APP_BUILD_DIR
+AGENT_RELEASE_TRANSPORT to a built pantheon-app-transport, and AGENT_APP_BUILD_DIR
 to build:agent-app output. Model and dependency servers are local fixtures.
 """
 import asyncio
@@ -77,7 +77,7 @@ def release(tmp_path_factory):
     selected = subprocess.check_output([str(python), '-I', '-B', '-c',
         'import sys; sys.path.insert(0,sys.argv[1]); from pantheonos.models.direct import binary; print(binary())',
         str(root / 'backend/_vendor')], text=True).strip()
-    assert Path(selected) == root / 'backend/_vendor/pantheon/models/fleet-app-transport'
+    assert Path(selected) == root / 'backend/_vendor/pantheonos/models/pantheon-app-transport'
     return root, python
 
 

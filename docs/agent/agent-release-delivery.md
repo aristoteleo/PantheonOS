@@ -60,7 +60,7 @@ and native Fleet binaries; it does not provision remote images or switch default
 ## Build and stage a release
 
 Build the GUI with the same version as the Agent release, using `build:agent-app`
-in the UI repository. Build `fleet-app-transport` for each selected target OS and
+in the UI repository. Build `pantheon-app-transport` for each selected target OS and
 architecture from this repository's `fleet` directory. Then run:
 
 ```sh
@@ -68,8 +68,8 @@ python -m pantheon.chatroom.release \
   --output /path/to/new-release-set \
   --version 0.7.0 \
   --frontend /path/to/built-agent-gui \
-  --transport darwin-arm64=/path/to/mac-fleet-app-transport \
-  --transport linux-amd64=/path/to/linux-fleet-app-transport \
+  --transport darwin-arm64=/path/to/mac-pantheon-app-transport \
+  --transport linux-amd64=/path/to/linux-pantheon-app-transport \
   --dependencies /path/to/additional-app-declarations.json
 ```
 

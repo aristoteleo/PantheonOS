@@ -19,11 +19,26 @@ class DirectUnavailable(RuntimeError):
     """Direct setup failed before any application HTTP request was submitted."""
 
 
+#: The workload transport's file name in a release. fleet-app-transport is
+#: its earlier name, in releases built before the rename.
+TRANSPORT_NAMES = ('pantheon-app-transport', 'fleet-app-transport')
+
+
+def bundled_transport(directory):
+    """The workload transport a release carries in `directory`, or None."""
+    suffix = '.exe' if os.name == 'nt' else ''
+    for name in TRANSPORT_NAMES:
+        path = Path(directory) / (name + suffix)
+        if path.is_file():
+            return path
+    return None
+
+
 def binary():
     # Independent Agent releases carry the same Fleet workload transport, with
     # no node-management commands. Legacy CLI/Desktop keep their PATH fallback.
-    bundled = Path(__file__).parent / ('fleet-app-transport.exe' if os.name == 'nt' else 'fleet-app-transport')
-    if bundled.is_file():
+    bundled = bundled_transport(Path(__file__).parent)
+    if bundled is not None:
         return str(bundled)
     return shutil.which('fleet')
 

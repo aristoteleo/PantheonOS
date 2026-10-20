@@ -8,7 +8,6 @@ import base64
 from collections.abc import Mapping
 from contextlib import contextmanager
 import json
-import os
 from pathlib import Path
 import ssl
 
@@ -31,8 +30,9 @@ def model_client(credential, *, client_factory=None, trust_roots_pem=None):
     if client_factory is not None:
         return client_factory(credential)
     import pantheonos.models.client as module
-    binary = Path(module.__file__).with_name('fleet-app-transport.exe' if os.name == 'nt' else 'fleet-app-transport')
-    return DependencyModelServices(dependency, direct_executable=str(binary) if binary.is_file() else '')
+    from pantheonos.models.direct import bundled_transport
+    binary = bundled_transport(Path(module.__file__).parent)
+    return DependencyModelServices(dependency, direct_executable=str(binary) if binary else '')
 
 
 class ModelClientOwner:

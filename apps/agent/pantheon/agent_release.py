@@ -172,9 +172,9 @@ def write_inputs(assets, platform, frontend, transport, url_base):
     assets = Path(assets)
     assets.mkdir(parents=True, exist_ok=True)
     (assets / 'agent-frontend.tar.gz').write_bytes(frontend_archive(Path(frontend)))
-    shutil.copyfile(transport, assets / f'fleet-app-transport-{platform}')
+    shutil.copyfile(transport, assets / f'pantheon-app-transport-{platform}')
     base = url_base.rstrip('/') + '/'
-    return {'frontend': base + 'agent-frontend.tar.gz', 'transport': base + f'fleet-app-transport-{platform}'}
+    return {'frontend': base + 'agent-frontend.tar.gz', 'transport': base + f'pantheon-app-transport-{platform}'}
 
 
 def main():
@@ -190,7 +190,7 @@ def main():
     parser.add_argument('--assets', type=Path, help='Write the pinned prebuilt inputs here for publishing')
     parser.add_argument('--input-url-base', help='Where the pinned inputs will be published')
     parser.add_argument('--notebook-frontend', required=True, type=Path, help='Complete Notebook frontend build')
-    parser.add_argument('--transport', required=True, type=Path, help='Target fleet-app-transport executable')
+    parser.add_argument('--transport', required=True, type=Path, help='Target pantheon-app-transport executable')
     parser.add_argument('--model-app', action='append', default=[], dest='model_aliases')
     parser.add_argument('--go', default='go', help='Build-host Go executable for the native Shell App')
     parser.add_argument('--no-catalog', action='store_true',

@@ -26,7 +26,7 @@ def inputs(tmp_path):
     (frontend / 'agent.css').write_text('body{}\n')
     (frontend / 'build-report.json').write_text(json.dumps({'version': VERSION, 'revision': 'abc',
         'startupChunks': ['index.js'], 'desktopImplementation': False}))
-    transport = tmp_path / 'fleet-app-transport'
+    transport = tmp_path / 'pantheon-app-transport'
     header = bytearray(64)
     header[:6] = b'\x7fELF\x02\x01'
     struct.pack_into('<H', header, 18, 62)
@@ -56,7 +56,7 @@ def test_the_source_tree_holds_source_and_pins_prebuilt_inputs(release):
     assert manifest['build'] == {'argv': ['python3', 'build.py'], 'timeout_seconds': 1800}
     assert 'execution' not in manifest
     assert not (source / 'fleet.json').exists() and not (source / '.fleet-runtime').exists()
-    assert not (source / 'backend' / 'pantheon' / 'models' / 'fleet-app-transport').exists()
+    assert not (source / 'backend' / 'pantheonos' / 'models' / 'pantheon-app-transport').exists()
     assert (source / 'backend' / 'pantheon' / 'factory' / 'templates').is_dir()
     assert (source / 'frontend' / 'src' / 'main.ts').is_file()
     assert (source / 'frontend' / '.env.production').read_text() == 'VITE_APP_MODE=hub\n'
@@ -79,7 +79,7 @@ def test_the_package_is_complete(release):
     vendor = package / 'backend' / '_vendor' / 'pantheon'
     assert VERSION in (vendor / '__init__.py').read_text()
     # The platform package it runs on carries the model transport.
-    assert os.access(vendor.parent / 'pantheonos' / 'models' / 'fleet-app-transport', os.X_OK)
+    assert os.access(vendor.parent / 'pantheonos' / 'models' / 'pantheon-app-transport', os.X_OK)
     assert (package / 'frontend' / 'index.js').read_text() == 'export const x = 1\n'
     assert (package / '.fleet-runtime' / 'host.py').is_file()
     inventory = json.loads((package / 'release.json').read_text())['files']

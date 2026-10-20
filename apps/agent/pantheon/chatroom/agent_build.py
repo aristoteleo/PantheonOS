@@ -167,7 +167,7 @@ def build(source: Path, output: Path, *, platform: str, revision: str, cache: Pa
     transport = config['inputs']['transport'].get(platform)
     if transport is None:
         raise SystemExit(f'build.json pins no Model Services transport for {platform}')
-    executable = models / 'fleet-app-transport'
+    executable = models / 'pantheon-app-transport'
     shutil.copyfile(fetch(transport, cache), executable)
     executable.chmod(0o755)
     for name in ('cli.py', 'requirements.txt'):

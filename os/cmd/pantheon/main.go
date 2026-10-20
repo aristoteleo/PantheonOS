@@ -97,7 +97,7 @@ func main() {
 	case "broker":
 		broker.Main(os.Args[2:])
 	case "version", "--version", "-v":
-		fmt.Println("pantheon-fleet runner", version)
+		fmt.Println("pantheon node", version)
 	default:
 		usage()
 		os.Exit(2)
@@ -166,23 +166,24 @@ func cmdPrime(args []string) {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, `pantheon-fleet runner
+	fmt.Fprintln(os.Stderr, `pantheon node — this machine as a PantheonOS node
 
 Usage:
-  fleet up   [--controller <url> --join-token <token>] [--name <name>]
+  pantheon node up   [--controller <url> --join-token <token>] [--name <name>]
                           [--labels a,b] [--workdir <dir>] [--no-dataplane]
                           [--share-dir <absolute-path> ...] [--no-files] [--no-capture-setup]
                           [--group-platform-network modal-i6pn]
-  fleet capture doctor       (inspect native capture availability)
-  fleet capture permissions  (open the native streaming permission guide)
-  fleet credentials put --fleet <id> --name <name> --endpoint <url> --file <path>
-  fleet credentials ensure --fleet <id> --name <name> --endpoint <url> --stdin
-  fleet credentials list|delete --fleet <id> [--name <name>]
-  fleet version
-  fleet app-dial             (private workload stdio transport)
-  fleet app-session          (private reusable workload stdio transport)
+  pantheon node capture doctor       (inspect native capture availability)
+  pantheon node capture permissions  (open the native streaming permission guide)
+  pantheon node credentials put --fleet <id> --name <name> --endpoint <url> --file <path>
+  pantheon node credentials ensure --fleet <id> --name <name> --endpoint <url> --stdin
+  pantheon node credentials list|delete --fleet <id> [--name <name>]
+  pantheon node version
+  pantheon node app-dial             (private workload stdio transport)
+  pantheon node app-session          (private reusable workload stdio transport)
 
-After the first Controller join, plain fleet up resumes from the local state.
+After the first Controller join, plain "pantheon node up" resumes from the local
+state. fleet, this command's earlier name, still works (fleet up).
 Files shares your home directory by default. Use --no-files to turn it off,
 or --share-dir to share only specific folders. Choices are saved on this node.
 In Phase 1 (dev) you can bypass the Controller with --nats <url> and --fleet <id>.`)

@@ -236,7 +236,7 @@ start inference. Accepted model requests are never automatically replayed.
 Model errors sent to MCP contain no upstream exception details or credentials.
 
 The built App includes the canonical lightweight Model Services client. Optional
-`--transport /path/to/fleet-app-transport` bundles the target-platform workload
+`--transport /path/to/pantheon-app-transport` bundles the target-platform workload
 transport for direct connections. Without it, the client can use relay-allowed
 placements and rejects direct-only ones; it never discovers a node-management
 executable from PATH. Provider engines and the Agent runtime are not bundled.

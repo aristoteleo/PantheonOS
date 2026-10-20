@@ -59,7 +59,7 @@ if [ "$os" = "darwin" ]; then
 	app_dir="${FLEET_APP_DIR:-$HOME/Applications}"
 	app="$app_dir/Pantheon Fleet.app"
 	mkdir -p "$app_dir"
-	echo "pantheon-fleet: downloading ${BASE_URL}/${app_zip}"
+	echo "pantheon: downloading ${BASE_URL}/${app_zip}"
 	tmp="$(mktemp)"
 	curl -fsSL "${BASE_URL}/${app_zip}" -o "${tmp}"
 	stage="$(mktemp -d)"
@@ -69,7 +69,7 @@ if [ "$os" = "darwin" ]; then
 	source_app="$stage/Pantheon Fleet.app"
 	[ -d "$source_app" ] || source_app="$stage/Fleet.app"
 	if [ ! -x "$source_app/Contents/MacOS/fleet" ]; then
-		echo "pantheon-fleet: archive does not contain a Fleet app" >&2
+		echo "pantheon: archive does not contain a Fleet app" >&2
 		rm -rf "$stage"
 		exit 1
 	fi
@@ -86,16 +86,16 @@ if [ "$os" = "darwin" ]; then
 	/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app" >/dev/null 2>&1 || true
 	ln -sf "$app/Contents/MacOS/fleet" "$DEST" 2>/dev/null || true
 	alias_fleet "$app/Contents/MacOS/fleet"
-	echo "pantheon-fleet: installed $("$app/Contents/MacOS/fleet" version 2>/dev/null | sed 's/^pantheon-fleet runner /Fleet /') at $app"
+	echo "pantheon: installed $("$app/Contents/MacOS/fleet" version 2>/dev/null | sed -E 's/^pantheon(-fleet runner| node) /Pantheon /') at $app"
 	[ -n "${FLEET_INSTALL_ONLY:-}" ] && exit 0
 	pkill -f "Fleet.app/Contents/MacOS/fleet" 2>/dev/null || true
 	# The native folder prompt only appears for an `open`-launched .app, so first
 	# prime the grant via LaunchServices (-W waits until you answer the prompt).
 	# The grant then sticks to the signed .app identity — so we run the node in the
 	# FOREGROUND: live output, and Ctrl-C stops it, same as every other platform.
-	echo "pantheon-fleet: checking Files access (home by default; saved choices are kept)…"
+	echo "pantheon: checking Files access (home by default; saved choices are kept)…"
 	open -W "$app" --args prime "$@" 2>/dev/null || true
-	echo "pantheon-fleet: starting node (Ctrl-C to leave the fleet)"
+	echo "pantheon: starting node (Ctrl-C to leave the fleet)"
 	exec "$app/Contents/MacOS/fleet" up "$@"
 fi
 
@@ -115,7 +115,7 @@ for worker_arch in amd64 arm64; do
     install -m 0755 "${tmp}" "${dest_dir}/hpc/${worker}"
     rm -f "${tmp}"
 done
-echo "pantheon: installed $("${DEST}" node version 2>/dev/null | sed 's/^pantheon-fleet runner /Pantheon /') at ${DEST}"
+echo "pantheon: installed $("${DEST}" node version 2>/dev/null | sed -E 's/^pantheon(-fleet runner| node) /Pantheon /') at ${DEST}"
 
 # Nudge to add the dir to PATH if it isn't already (this run works regardless —
 # it execs the full path below).

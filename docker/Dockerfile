@@ -425,12 +425,12 @@ RUN (curl -L --retry 3 --retry-delay 5 --max-time 60 \
     rm -f /tmp/pandoc-crossref.tar.xz) || \
     echo "Warning: pandoc-crossref download failed, skipping (can be installed at runtime)"
 
-# Pantheon-Fleet node binary — when a sandbox is wired to a fleet (FLEET_CONTROLLER_URL
-# set), the entrypoint runs `fleet up` so the sandbox joins the user's fleet as a Node.
+# PantheonOS node — when a sandbox is wired to a fleet (FLEET_CONTROLLER_URL
+# set), the entrypoint runs `pantheon node up` so the sandbox joins the user's fleet as a Node.
 # The agent can then transfer files to/from it over the data plane via a single
 # transfer() interface (no size branching, no control-plane fallback).
-# One binary, two names: `pantheon`, the PantheonOS command, and `fleet`, the
-# node as the entrypoint starts it (docs/os/pantheon-cli.md).
+# One binary, two names: `pantheon`, the PantheonOS command, and `fleet`, its
+# earlier name (`fleet X` is `pantheon node X`; docs/os/pantheon-cli.md).
 COPY --from=os-builder /out/pantheon /usr/local/bin/pantheon
 RUN ln -s pantheon /usr/local/bin/fleet
 

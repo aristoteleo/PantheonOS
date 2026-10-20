@@ -39,9 +39,15 @@ func TestVersionsCompareByReleaseOrder(t *testing.T) {
 			t.Fatalf("Newer(%s, %s) = %v", c.a, c.b, got)
 		}
 	}
-	for _, bad := range []string{"v0.5.0", "fleet-v0.5.0-model.6; rm -rf /", "fleet-v0.5", "../os-v1.0.0"} {
+	for _, bad := range []string{"v0.5.0", "fleet-v0.5.0-model.6; rm -rf /", "fleet-v0.5", "../os-v1.0.0",
+		"pantheon-local-v0.9.75", "agent-app-v0.9.88"} {
 		if _, err := ParseTag(bad); err == nil {
 			t.Fatalf("accepted tag %q", bad)
+		}
+	}
+	for _, good := range []string{"fleet-v0.5.0-model.6", "pantheon-v0.6.0", "pantheon-v0.6.0-staging.1"} {
+		if _, err := ParseTag(good); err != nil {
+			t.Fatalf("refused tag %q: %v", good, err)
 		}
 	}
 }
@@ -106,6 +112,24 @@ func TestUpdatesTheBinaryOnlyWhenNewerIdleAndVerified(t *testing.T) {
 	}
 	if info, _ := os.Stat(exe); info.Mode().Perm()&0o100 == 0 {
 		t.Fatal("updated binary is not executable")
+	}
+}
+
+func TestUpdatesFromAPantheonTag(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "pantheon")
+	os.WriteFile(exe, []byte("old"), 0o755)
+	locate := func() (Target, error) {
+		return Target{Executable: exe, Asset: "pantheon-linux-amd64", Legacy: "fleet-linux-amd64"}, nil
+	}
+	release(t, "pantheon-v0.6.0", map[string][]byte{"pantheon-linux-amd64": []byte("new")}, "")
+	u := &Updater{Current: "0.5.1", Locate: locate}
+	res, _, err := u.Apply(context.Background(), "pantheon-v0.6.0")
+	if err != nil || res.Status != "updated" || res.To != "0.6.0" {
+		t.Fatalf("update: %+v %v", res, err)
+	}
+	if b, _ := os.ReadFile(exe); string(b) != "new" {
+		t.Fatalf("binary not replaced: %q", b)
 	}
 }
 

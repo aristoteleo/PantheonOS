@@ -10,6 +10,11 @@ from pantheonos.toolset import tool
 from pantheonos.utils.log import logger
 
 
+#: A running node's command line: `fleet up`, or `pantheon node up` as the
+#: installer starts it.
+NODE_UP = "(fleet|pantheon node) up --controller"
+
+
 class FleetAPI:
     @tool
     async def fleet_inventory(self) -> dict:
@@ -302,7 +307,7 @@ class FleetAPI:
         # A `fleet up` already running for this machine? Don't spawn a second.
         try:
             r = subprocess.run(
-                ["pgrep", "-f", "fleet up --controller"],
+                ["pgrep", "-f", NODE_UP],
                 capture_output=True, text=True, timeout=3,
             )
             if r.stdout.strip():
@@ -346,7 +351,7 @@ class FleetAPI:
 
         try:
             r = subprocess.run(
-                ["pgrep", "-f", "fleet up --controller"],
+                ["pgrep", "-f", NODE_UP],
                 capture_output=True, text=True, timeout=3,
             )
             pids = [p for p in r.stdout.split() if p.strip()]
