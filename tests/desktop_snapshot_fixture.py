@@ -32,7 +32,7 @@ asyncio.run(service.cleanup())
 print(json.dumps(result))
 '''
     result = subprocess.run([sys.executable, '-I', '-c', isolated(boot),
-        str(Path(__file__).resolve().parents[1]), str(workspace)],
+        str(Path(__file__).resolve().parents[1] / 'os' / 'python'), str(workspace)],
         input=json.dumps({'uri': uri}), text=True, capture_output=True, timeout=20,
         env={**os.environ, 'PANTHEON_FLEET_NODE_ID': 'wrong-ambient-node'})
     assert result.returncode == 0, result.stderr
