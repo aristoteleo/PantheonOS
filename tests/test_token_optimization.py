@@ -805,6 +805,45 @@ def test_snip_messages_removes_orphaned_tool_result_when_pair_is_split():
     assert result == [{"role": "user", "content": "recent message", "id": "u1"}]
 
 
+def test_snip_messages_keeps_history_starting_on_user_turn():
+    """Regression for #84: snipping must not leave a function call turn first.
+
+    Gemini rejects a history where an assistant tool-call turn follows the
+    system prompt directly, so the snipped body has to start on a user turn.
+    """
+    from pantheon.utils.token_optimization import SnipConfig, snip_messages_to_budget
+
+    def call(call_id):
+        return {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [{"id": call_id, "function": {"name": "shell", "arguments": "{}"}}],
+        }
+
+    def result(call_id):
+        return {"role": "tool", "tool_call_id": call_id, "tool_name": "shell", "content": "ok"}
+
+    messages = [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "x" * 4000, "id": "u0"},
+        call("call_1"),
+        result("call_1"),
+        call("call_2"),
+        result("call_2"),
+        {"role": "assistant", "content": "done", "id": "a3"},
+        {"role": "user", "content": "next", "id": "u4"},
+        {"role": "assistant", "content": "ok", "id": "a5"},
+    ]
+    config = SnipConfig(enabled=True, token_budget=200, keep_recent=2)
+
+    result_msgs, freed = snip_messages_to_budget(messages, config=config)
+
+    assert freed > 0
+    assert result_msgs[0]["role"] == "system"
+    assert result_msgs[1]["role"] == "user"
+    assert [m.get("id") for m in result_msgs[1:]] == ["u4", "a5"]
+
+
 def test_ensure_tool_history_consistency_inserts_placeholder_for_missing_tool_response():
     from pantheon.utils.token_optimization import ensure_tool_history_consistency
     from pantheon.utils.tool_pairing import INCOMPLETE_TOOL_RESULT_PLACEHOLDER

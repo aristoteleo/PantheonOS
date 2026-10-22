@@ -1036,7 +1036,8 @@ def snip_messages_to_budget(
 
     Returns (new_messages, tokens_freed).
     Protected tail (last *keep_recent* messages) and the system message are
-    never dropped.
+    never dropped. When anything is dropped, the kept history resumes at a
+    user message so it never opens with a tool-call turn.
     """
     resolved = config or get_snip_config()
     if not resolved.enabled:
@@ -1069,6 +1070,12 @@ def snip_messages_to_budget(
 
     if tokens_freed == 0:
         return messages, 0
+
+    # Cut at a turn boundary: drop kept candidates until the first user
+    # message. Otherwise the history can open with an assistant tool-call
+    # turn, which Gemini rejects (issue #84).
+    while kept_candidates and kept_candidates[0].get("role") != "user":
+        tokens_freed += _estimate_message_tokens(kept_candidates.pop(0))
 
     result = ensure_tool_history_consistency(system_msgs + kept_candidates + tail)
     logger.info(
