@@ -258,7 +258,7 @@ func (a *App) open(cols, rows int, cwd, shell string) map[string]any {
 
 	cmd := exec.Command(shellPath, "-i")
 	cmd.Dir = target
-	env := childenv.Environ() // a terminal gets none of the node's credentials
+	env := childenv.Workspace() // a terminal gets none of the node's credentials
 	if os.Getenv("TERM") == "" {
 		env = append(env, "TERM=xterm-256color")
 	}

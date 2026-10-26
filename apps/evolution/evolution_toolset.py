@@ -1685,7 +1685,7 @@ class EvolutionToolSet(ToolSet):
     @tool
     async def evolution_manage(
         self,
-        evolution_id: str,
+        evolution_id: str = "",
         action: str = "status",
         include_code: bool = False,
     ) -> Dict[str, Any]:
@@ -1693,16 +1693,22 @@ class EvolutionToolSet(ToolSet):
         Manage and monitor evolution sessions.
 
         Args:
-            evolution_id: Unique evolution identifier from evolve()
+            evolution_id: Unique evolution identifier from evolve() or the
+                list action. Not used by "list".
             action: Operation to perform:
+                - "list": This workspace's evolution sessions, newest first,
+                  with their status (the 20 most recent; `total` counts all)
                 - "status": Get evolution status and progress (default)
                 - "cancel": Cancel a running evolution
             include_code: For status action: include files and evaluator_code (default: False)
 
         Returns:
-            dict with evolution status or cancellation result
+            dict with the session list, evolution status or cancellation result
 
         Examples:
+            # Find earlier runs and their ids
+            evolution_manage(action="list")
+
             # Check progress
             evolution_manage(evolution_id, action="status")
 
@@ -1712,17 +1718,24 @@ class EvolutionToolSet(ToolSet):
             # Cancel a running evolution
             evolution_manage(evolution_id, action="cancel")
         """
+        if action == "list":
+            return await self.list_evolutions(limit=20)
+        if action not in ("status", "cancel"):
+            return error_response(
+                "INVALID_INPUT",
+                f"Unknown action '{action}'. Must be 'list', 'status' or 'cancel'."
+            )
+        if not evolution_id:
+            return error_response(
+                "INVALID_INPUT",
+                f"The {action} action needs an evolution_id; "
+                "evolution_manage(action=\"list\") lists them."
+            )
         if action == "status":
             return await self.get_evolution_status(
                 evolution_id=evolution_id,
                 include_code=include_code,
             )
-        elif action == "cancel":
-            return await self.cancel_evolution(
-                evolution_id=evolution_id,
-            )
-        else:
-            return error_response(
-                "INVALID_INPUT",
-                f"Unknown action '{action}'. Must be 'status' or 'cancel'."
-            )
+        return await self.cancel_evolution(
+            evolution_id=evolution_id,
+        )

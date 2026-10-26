@@ -67,6 +67,11 @@ async def test_public_evolve_status_report_and_reopen(tmp_path, monkeypatch, kin
         await asyncio.wait_for(asyncio.shield(service.manager.get_session(identity).task), 30)
         status = await ctx._methods['evolution_manage'](evolution_id=identity, include_code=True)
         assert status['status'] == 'completed' and status['result']['files']['main.py'] == 'x=8', status
+        listing = await ctx._methods['evolution_manage'](action='list')
+        assert listing['data']['total'] == 1, listing
+        assert [(e['evolution_id'], e['status']) for e in listing['data']['evolutions']] == [(identity, 'completed')]
+        missing = await ctx._methods['evolution_manage'](action='status')
+        assert not missing['success'] and 'action="list"' in missing['error']['message'], missing
         report = await ctx._methods['get_evolution_html_report'](evolution_id=identity)
         assert report['success'] and '<html' in str(report).lower(), report
         assert len(placements) == 2 and all(p.process.returncode == 0 for p in placements)

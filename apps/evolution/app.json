@@ -23,13 +23,13 @@
       },
       {
         "name": "evolution_manage",
-        "description": "\n        Manage and monitor evolution sessions.\n\n        Args:\n            evolution_id: Unique evolution identifier from evolve()\n            action: Operation to perform:\n                - \"status\": Get evolution status and progress (default)\n                - \"cancel\": Cancel a running evolution\n            include_code: For status action: include files and evaluator_code (default: False)\n\n        Returns:\n            dict with evolution status or cancellation result\n\n        Examples:\n            # Check progress\n            evolution_manage(evolution_id, action=\"status\")\n\n            # Get full results when completed\n            evolution_manage(evolution_id, action=\"status\", include_code=True)\n\n            # Cancel a running evolution\n            evolution_manage(evolution_id, action=\"cancel\")\n        ",
+        "description": "\n        Manage and monitor evolution sessions.\n\n        Args:\n            evolution_id: Unique evolution identifier from evolve() or the\n                list action. Not used by \"list\".\n            action: Operation to perform:\n                - \"list\": This workspace's evolution sessions, newest first,\n                  with their status (the 20 most recent; `total` counts all)\n                - \"status\": Get evolution status and progress (default)\n                - \"cancel\": Cancel a running evolution\n            include_code: For status action: include files and evaluator_code (default: False)\n\n        Returns:\n            dict with the session list, evolution status or cancellation result\n\n        Examples:\n            # Find earlier runs and their ids\n            evolution_manage(action=\"list\")\n\n            # Check progress\n            evolution_manage(evolution_id, action=\"status\")\n\n            # Get full results when completed\n            evolution_manage(evolution_id, action=\"status\", include_code=True)\n\n            # Cancel a running evolution\n            evolution_manage(evolution_id, action=\"cancel\")\n        ",
         "params": [
           {
             "name": "evolution_id",
             "type": "str",
             "required": false,
-            "default": "not_defined"
+            "default": ""
           },
           {
             "name": "action",

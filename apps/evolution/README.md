@@ -6,7 +6,7 @@ Run and monitor iterative code-improvement experiments with LLM-guided mutations
 
 Supply a starting program, an evaluator and the experiment configuration to `evolve`. The evaluator defines what a successful candidate means; inspect its outputs and scoring before starting a longer run.
 
-Use `evolution_manage` to inspect and manage sessions. Keep experiment artifacts in a dedicated workspace directory so candidate code, scores and reports can be traced back to the run. Model availability, evaluation dependencies and compute capacity come from the configured workspace.
+Use `evolution_manage` to inspect and manage sessions: `action="list"` lists this workspace's sessions, newest first, with their ids and status; `status` and `cancel` take an `evolution_id`. Keep experiment artifacts in a dedicated workspace directory so candidate code, scores and reports can be traced back to the run. Model availability, evaluation dependencies and compute capacity come from the configured workspace.
 
 ## Agent interface
 

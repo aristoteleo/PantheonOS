@@ -14,6 +14,7 @@
 - 钩子：`before_install/after_install/before_start/after_start/before_stop/after_stop/before_uninstall/after_uninstall`，argv 而非 shell 字符串，超时 1–600 秒；stdout 是结构化 receipt。`after_uninstall` 在安装目录移除后执行，钩子代码应引用 `${PACKAGE}`。
 - 进程钩子通过 stdin 接收用户 Fleet、node_id、instance_id、digest、阶段与目录。容器钩子可以指定 `component`，仅用于 after_start/before_stop，在拥有归属标签的运行中容器内执行。
 - 组件身份通过 Runner 注入的 `PANTHEON_FLEET_ID/NODE_ID/INSTANCE_ID/APP_REVISION/INSTANCE_GENERATION` 环境变量传入，App manifest 不能伪造这些值。
+- Process environment: a native process starts from a minimal environment (PATH, locale, its own HOME under DATA), not the node's. An App that runs users' commands (the managed Shell) sets an env value to exactly `${WORKSPACE_ENV}`; the Runner replaces it with the node's own environment, credentials withheld (`os/childenv`), which the App hands to those commands via `childenv.Workspace()` so they see what the node's Terminal sees (PATH, PYTHONPATH, HOME). An older Runner passes the placeholder through and the commands keep the App's environment.
 - 原生进程服务声明 `ports: {"http": 0}`；Runner 分配 loopback 端口，通过 `PANTHEON_PORT_HTTP` 注入，并记录实例服务地址。进程必须绑定该端口并通过自身 readiness；不能复用碰巧占用该端口的其他服务。进程不声明固定端口或容器挂载。
 - drain 期间保留正在运行的 generation 与已有连接；由 App 拒绝新会话，同时允许保存完成。Fleet 的新建窗口入口只开放 ready；已有连接可续期以完成保存，真正停止成功才推进 generation。
 - before_stop 必须返回 `status=succeeded, safe_to_stop=true`；其 checkpoints 必须指向实例 DATA 内真实文件。失败保留资源并显示 stop_blocked，不自动强杀。

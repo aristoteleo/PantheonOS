@@ -38,7 +38,7 @@ type session struct {
 }
 
 func defaultShell() string {
-	if sh := os.Getenv("SHELL"); sh != "" {
+	if sh := childenv.Getenv("SHELL"); sh != "" {
 		if _, err := os.Stat(sh); err == nil {
 			return sh
 		}
@@ -58,13 +58,14 @@ func newMarker() string {
 }
 
 // startSession launches the shell in workdir with stderr merged into stdout,
-// mirroring AsyncShell (PS1 cleared; parent env inherited).
+// mirroring AsyncShell (PS1 cleared; the node's workspace environment).
 func startSession(workdir string) (*session, error) {
 	cmd := exec.Command(defaultShell())
 	cmd.Dir = workdir
-	// Commands in a session are the user's and the agent's: none of the
-	// node's or the App's credentials (childenv.Withheld).
-	cmd.Env = append(childenv.Environ(), "PS1=")
+	// Commands in a session are the user's and the agent's: they get the
+	// node's workspace environment, as its Terminal does (PATH, PYTHONPATH,
+	// HOME), and none of the node's or the App's credentials (childenv.Withheld).
+	cmd.Env = append(childenv.Workspace(), "PS1=")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err

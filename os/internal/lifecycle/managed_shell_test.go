@@ -74,6 +74,9 @@ func TestManagedShellNativeLifecycle(t *testing.T) {
 	}
 	sum := sha256.Sum256(archive.Bytes())
 	digest := hex.EncodeToString(sum[:])
+	// The node's own environment, which its users' commands should see.
+	t.Setenv("PYTHONPATH", "/node/python")
+	t.Setenv("FLEET_KEY", "node-secret")
 	m, err := Open(t.TempDir(), "owner", "node", proto.Capability{OS: runtime.GOOS, Arch: runtime.GOARCH, Caps: []string{"proc"}}, NativeDriver{})
 	if err != nil {
 		t.Fatal(err)
@@ -175,6 +178,13 @@ func TestManagedShellNativeLifecycle(t *testing.T) {
 	output := call(first, "run_command_in_shell", map[string]any{"shell_id": session["session_id"], "command": "export APP_TEST_VALUE=first; printf 'saved' > retained.txt; printf '%s:%s\\n' \"${PANTHEON_APP_RPC_TOKEN-unset}\" \"${PANTHEON_APP_CONFIG-unset}\"", "timeout": 2})
 	if output["success"] != true || output["output"] != "unset:unset\n" {
 		t.Fatal("control credentials leaked or command failed", output)
+	}
+	// Commands run in the node's workspace environment, as its Terminal's do,
+	// though the App process itself starts from a minimal one; the node's
+	// credentials stay withheld.
+	output = call(first, "run_command_in_shell", map[string]any{"shell_id": session["session_id"], "command": "printf '%s:%s:%s\\n' \"${PYTHONPATH-unset}\" \"${FLEET_KEY-unset}\" \"${PANTHEON_WORKSPACE_ENV-unset}\"; printf '%s\\n' \"$HOME\"", "timeout": 2})
+	if output["output"] != "/node/python:unset:unset\n"+os.Getenv("HOME")+"\n" {
+		t.Fatal("commands did not get the node's workspace environment", output)
 	}
 	other := call(second, "new_shell", nil)
 	output = call(second, "run_command_in_shell", map[string]any{"shell_id": other["shell_id"], "command": "printf '%s\\n' \"${APP_TEST_VALUE-unset}\"", "timeout": 2})

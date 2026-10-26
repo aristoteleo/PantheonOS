@@ -38,6 +38,8 @@ def build(output: Path, target_os: str, arch: str, go: str = "go") -> None:
             "protocol": 1, "app_id": manifest["id"], "version": manifest["version"],
             "requires": {"os": [target_os], "arch": [arch], "caps": ["proc"]},
             "components": [{"name": "backend", "runtime": "process", "argv": command("start"),
+                            # The commands it runs get the node's environment, not the App's.
+                            "env": {"PANTHEON_WORKSPACE_ENV": "${WORKSPACE_ENV}"},
                             "configuration": {"values": {"shell": {"required": False}}},
                             "ports": {"http": 0}, "stop_seconds": 30,
                             "readiness": {"argv": command("ready"), "timeout_seconds": 15}}],

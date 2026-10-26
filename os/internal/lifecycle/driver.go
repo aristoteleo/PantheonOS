@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"github.com/aristoteleo/pantheonos/os/childenv"
 	"github.com/aristoteleo/pantheonos/os/internal/groupcredentials"
 	"github.com/aristoteleo/pantheonos/os/internal/nativecapture"
 
@@ -144,6 +145,13 @@ func cleanEnv() []string {
 func (d NativeDriver) environment() []string {
 	return append(cleanEnv(), d.Environment...)
 }
+
+// workspaceEnvironment, as a process component's whole env value, is this
+// node's own environment without its credentials (childenv.EncodeWorkspace):
+// what an App that runs users' commands hands them, while its own process
+// keeps the minimal environment above.
+const workspaceEnvironment = "${WORKSPACE_ENV}"
+
 func expand(argv []string, p Paths) []string {
 	r := strings.NewReplacer("${PACKAGE}", p.Package, "${INSTALL}", p.Install, "${DATA}", p.Data)
 	out := make([]string, len(argv))
@@ -215,6 +223,10 @@ func (d NativeDriver) Start(ctx context.Context, c Component, p Paths, id string
 	cmd.Env = append(d.environment(), "HOME="+p.Data)
 	for k, v := range c.Env {
 		if c.Resources != nil && deviceEnvironment(k) {
+			continue
+		}
+		if v == workspaceEnvironment {
+			cmd.Env = append(cmd.Env, k+"="+childenv.EncodeWorkspace())
 			continue
 		}
 		cmd.Env = append(cmd.Env, k+"="+expand([]string{v}, p)[0])
