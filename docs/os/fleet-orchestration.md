@@ -396,9 +396,9 @@ Production is untouched until staging has run on this for an agreed period.
   `POST /api/fleet/apps/agent-setup` on the Hub fills it, stores the secrets
   (platform key minted only when missing; LiteLLM budget key) and saves the
   `general-team` deployment.
-- **Step 6 in progress.** The desktop's Agent setup, status, start, window
-  successor, deployed Store Apps and release switching use the deployment.
-  Fleet → Startup apps (the preset editor) is still the old view.
+- **Step 6 done.** The desktop's Agent setup, status, start, window
+  successor, deployed Store Apps and release switching use the deployment;
+  the Startup apps editor went with step 9.
 - **Late references.** An App whose configuration names other Apps only to
   use them at request time marks those references late
   (`{"$app": X, "late": true}`); the controller renders them as

@@ -32,8 +32,8 @@ uses the ordinary App SDK rather than private desktop stores.
 
 The repository follows this split (2026-10-19): `os/` is the Go core (formerly
 `fleet/`), `os/python/pantheonos/` the platform's Python side (App SDK and hosting, local
-owner, Store client, model access, shared infrastructure), `pantheon/` the
-Agent, `apps/` the first-party Apps. `tests/test_package_boundary.py` holds
+owner, Store client, model access, shared infrastructure), `apps/agent/pantheon/`
+the Agent, `apps/` the first-party Apps. `tests/test_package_boundary.py` holds
 `pantheonos` to never importing `pantheon`; the few places that look for an
 installed Agent by name say why. Former `pantheon.*` names of platform modules
 resolve to the same modules (`apps/agent/pantheon/_moved.py`), also in App releases that
@@ -42,19 +42,70 @@ install/autostart Agent, but platform login and readiness do not depend on it.
 
 ## Milestones and acceptance
 
+Status 2026-10-27, development only. Staging runs the target architecture
+(`TOPOLOGY_AGENT_APPS=runner`, Agent 0.9.95); production is unchanged. The
+sections after "Remaining development work" are earlier evidence, newest first.
+
 | Stage | Required work and evidence | Current status |
 | --- | --- | --- |
-| P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | Ownership, RPC and data inventories exist; exhaustive caller coverage and comparative performance/memory baselines remain incomplete |
-| P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Production desktop with real native Fleet placement verifies Files, PTY Terminal, Fleet, Store library/details/trash/restore, model directory and window synchronization without Agent imports; combined installed-Agent install/chat/stop/uninstall/reinstall/reconnect and independent Files/model inference now pass; Notebook execution/widgets/reopen/kernel shutdown and Browser stream/input/tabs/close/reopen now pass after Agent uninstall in a combined native Linux Desktop gate; exhaustive all-App joint lifetime coverage, cross-node acceptance and default cutover remain pending |
-| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Native Agent/allocator/Shell/shared-Files/migrated-MCP joint calls, logical-owner retirement, generation-bound restart and shared-provider survival verified locally; cross-replica fencing and full deployed lifetime/failure acceptance remain pending |
-| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Paired native package with locked dependencies, prepared configuration, owned storage, original Model Services inference, tools, history and restart verified locally, including full Agent conversation/tool recovery after a clean entire local Fleet profile restart; an opt-in local profile host now composes clean startup/reopen/shutdown, and the original General Team runs with all default plugins; the complete preset now works through CLI and native Desktop control entry points; graphical first-run setup and native macOS chat/tool/history/reopen/close flow pass with the complete preset; final installed-product capability parity remains pending |
-| P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Production packaged GUI, independent entry, attached panes, scoped Files/image previews and transient resource intents verified locally; native macOS chat/reopen/close compatibility is verified with a debug bundle; same-Fleet two-deployment DesktopView history/draft isolation and sibling-stop survival are verified; production Atrium multi-window/cross-node failure coverage, distribution packaging and default cutover remain pending |
-| P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Inventory, local fencing, backup/import/admission, saved-team identities, settings/credentials/budget, MCP conversion, template paths and historical images verified in focused local gates; exhaustive configuration/OAuth coverage, representative real-data upgrade, injected failure and distributed cutover/rollback remain pending |
-| P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Paired POSIX release builder and generic compatible upgrade/data-copy/retained-source rollback verified on real native Fleet, including actual paired Agent versions, history and Shell calls; partial-start abort and rollback after terminal readiness failure also pass for an actual Agent package; declared format admission and Agent on-disk checks are implemented; Agent-authored backend/Vue build, rendered rollback and local Store API publication/review/download now pass; actual paired Agent coordinator-exit recovery now passes for healthy and failed candidates; Runner/distributed unknown-outcome recovery, schema transformations, remote publication/default cutover and broader self-edit acceptance remain pending |
-| P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Opt-in platform startup and owner/profile-scoped Hub recipe delivery implemented locally; a saved complete Hub recipe now starts 13 actual Apps and the original General Team through PlatformService, with service replacement/no-replay and explicit-stop preservation verified; on staging, one-click remote first-run starts all 13 Apps on the owner's workspace node and the Agent chats and calls tools; production provisioning, default cutover, legacy-path removal and cross-node acceptance pending |
+| P0 | Classify every public ChatRoom RPC, UI dependency, durable data root; record functional and performance baseline | Inventories exist (`agent-app-rpc-inventory.json`, data roots in `agent-app-migration.md`). Not done: a performance and memory comparison of the ChatRoom brain against the App deployment |
+| P1 | Move platform RPCs out of ChatRoom; connect desktop independently; stop Agent and exercise Files, Terminal, Fleet, Store, Jupyter, Browser, Model Services | Done on staging. Platform RPCs live with their owners (`docs/os/fleet-orchestration.md` §11); the desktop connects as a Fleet deployment; the 2026-10-19/20 browser sweeps exercised every App with and without the Agent. Open: the bugs in "Remaining development work" |
+| P2 | Generic owner references, interface bindings, grants, sessions and leases; two Agents have independent Shell state and share stateless files | Done: deployments, start units, late references, hosted allocator and in-process grants in the controller; a conversation can choose its node. Open: the scripted cross-node failure scenarios of `fleet-orchestration.md` §13 have not been run as a suite |
+| P3 | Package Agent runtime, configs, instances, conversations, runs and replayable events; preserve inference routes and cancellation | Done: the Agent is a release-set App (General Team in agent mode) with history, tools, stop and restart on staging. Importing legacy data is P5 |
+| P4 | Package GUI; independent client/store per deployment; remove static Agent imports from Atrium; support App intents | Done except three static edges from Atrium to Agent code (listed below); the Agent GUI ships in its release and loads lazily |
+| P5 | Inventory, backup, import and validate data; fence old writer; preserve project asset references; test failed migration recovery | Import, fencing and recovery are implemented and tested on synthetic data. Open: no entry point runs them (`agent-migrate` was never wired, and local mode cannot hold an App prepared but not started); no rehearsal on a copy of real user data |
+| P6 | Publish one frontend/backend release; isolated candidate, drain, schema checks, cutover and rollback; self-edit demonstration | Done: Store release sets, controller upgrade/rollback with data copy, fork and run-as-my-Agent. Open: data-format transformations between Agent versions |
+| P7 | Replace Hub brain-specific bootstrap with generic App deployment; remove transitional paths; complete cross-node acceptance | Generic deployment and Runner-only pods work; `pantheon.platform` is deleted; model services are hosted by the controller. Open: `runner` is not the Hub default, and the ChatRoom paths below remain |
 
 M1 completes P0/P1, M2 completes P2/P3/P4, M3 completes P5/P6, M4 completes P7.
 No milestone is complete merely because its files or manifest exist.
+
+## Remaining development work (2026-10-27)
+
+Bugs found on staging:
+
+1. A restored window of an on-demand App (Spatial 3D, Browser) shows "not
+   running" after a workspace restart, and Retry does not start the App.
+2. The Browser shows nginx's raw HTML on an error.
+3. Model Services: long model names overlap the context column.
+4. Workspace cold start (68 s): the brain's NATS-credential restart, serial
+   installs and pip environment builds remain.
+5. Hosted/installed Apps cannot come from a private package.
+
+Cutover in code:
+
+6. Make `runner` the Hub default (`pantheon_hub/core/config.py`), then remove
+   the ChatRoom-only branches: Hub topology selection, `_ping` readiness and
+   health, `/chatroom/local-command` (and `stores/auth.ts`), the `.pantheon`
+   tarball sync, the entrypoint's ChatRoom start, the UI's
+   `legacyPodConnection.ts` and `LegacyWindowChatPane.vue`.
+7. Decide the old Desktop/CLI ChatRoom path (`pantheon ui`, `claw`, the Tauri
+   `pantheon-backend` sidecar). Its build is already broken:
+   `build_backend.spec` still lists `pantheon/toolsets/...` data that no longer
+   exists. Either retire it in favour of `pantheon up`, or repair and test it.
+8. Delete now: the `PANTHEON_STATE_SYNC_OWNER` branches (nothing sets it), the
+   `sys.modules` aliases `chatroom/llm_playground*.py` and
+   `internal/learning_system/{store,types}.py` (repoint their tests), stale
+   `platform` comments in the Hub.
+9. Atrium's static edges to Agent code: `desktop/main.ts` →
+   `legacyAgentHost.ts`, and `FilesApp.vue`/`DesktopIcons.vue` →
+   `desktop/apps/agent/chatWith.ts` (use App view events).
+10. `apps/mcp` imports `pantheon.chatroom` for its migration exports; move them
+    out of the Agent package.
+
+Acceptance:
+
+11. A migration entry point for cloud and local owners, rehearsed on staging
+    with a copy of real data, including rollback.
+12. The `fleet-orchestration.md` §13 staging scenarios as a scripted suite.
+13. Performance and memory baseline against the ChatRoom brain.
+14. A data-format transformation exercised across an Agent upgrade and
+    rollback.
+
+Kept until users have migrated (not remaining work): the migration modules and
+`data_fence.py`, the `_moved.py` aliases, the `pantheonos.appkit.builtin`
+bridge, Runner protocol fences against older nodes, v1 manifest reading, and
+the `fleet` wire names.
 
 ### Brain/body placement, preset resume and release update on staging
 
