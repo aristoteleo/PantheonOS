@@ -86,8 +86,10 @@ Bugs found on staging (browser sweeps 2026-10-19/20):
     "<source> (fork)"; check what the sidebar shows).
 11. Settings keeps the previous tab's scroll position on a tab switch.
 12. Files: folder tiles are not drop targets, and the menu has no Move/Copy.
-13. Node log warnings: a NATS `$JS.API.INFO` permissions violation and
-    "appsvc: kv registration skipped … context deadline exceeded".
+13. Fixed (runtime 82ccd59f): node log warnings, a NATS `$JS.API.INFO`
+    permissions violation and "appsvc: kv registration skipped … context
+    deadline exceeded". The discovery registration that node and App
+    credentials cannot make held every shell, pty and node-files start for 5 s.
 14. Check on a running workspace: `python -c "from pantheon import packages"`
     (the packages prompt) after the node-environment fix of 4c159fcc.
 15. PhyloTree (a Store App outside this repository) draws its tree clipped at
