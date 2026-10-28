@@ -58,8 +58,8 @@ var Catalog = []Agent{
 		ID: "claude", Label: "Claude Code", Commands: []string{"claude"},
 		ModelFlag: "--model", Install: "curl -fsSL https://claude.ai/install.sh | bash",
 		Instructions: func(text string) []string { return []string{"--append-system-prompt", text} },
-		AutoFlags: []string{"--dangerously-skip-permissions"},
-		Resume:    func(id string) []string { return ids(id, "--resume") },
+		AutoFlags:    []string{"--dangerously-skip-permissions"},
+		Resume:       func(id string) []string { return ids(id, "--resume") },
 		Headless: &Headless{
 			Args: func(t Turn) []string {
 				a := []string{"-p", "--output-format", "stream-json", "--verbose"}
@@ -81,8 +81,8 @@ var Catalog = []Agent{
 		ID: "codex", Label: "Codex", Commands: []string{"codex"},
 		ModelFlag: "-m", Install: "npm install -g @openai/codex",
 		Instructions: func(text string) []string { return []string{"-c", "developer_instructions=" + tomlString(text)} },
-		AutoFlags: []string{"--dangerously-bypass-approvals-and-sandbox"},
-		Resume:    func(id string) []string { return []string{"resume", id} },
+		AutoFlags:    []string{"--dangerously-bypass-approvals-and-sandbox"},
+		Resume:       func(id string) []string { return []string{"resume", id} },
 		Headless: &Headless{
 			Args: func(t Turn) []string {
 				a := []string{"exec"}
