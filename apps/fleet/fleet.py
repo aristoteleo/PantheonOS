@@ -495,7 +495,7 @@ class FleetToolSet(ToolSet):
 
     @tool(exclude=True)
     async def node_service(self, service: str, node_id: str, restore: bool = False) -> dict:
-        """Find (or start) a node's Files or PTY service for the owner's desktop.
+        """Find (or start) a node's Files, PTY or Coding Agents service for the owner's desktop.
 
         The desktop then calls it directly on the App namespace of the Fleet
         bus. restore=True after a call found no receiver: the node lost the
@@ -517,13 +517,19 @@ class FleetToolSet(ToolSet):
                 'node_id': node_id, 'invocation': 'file_transfer' if service == 'file_transfer' else 'direct'}
 
     @tool(exclude=True)
-    async def node_call(self, node_id: str, method: str, args: dict | None = None, timeout: int = 30) -> dict:
-        """Call one Files method on a file service of one of the owner's nodes.
+    async def node_call(self, node_id: str, method: str, args: dict | None = None, timeout: int = 30,
+                        service: str = 'file_manager') -> dict:
+        """Call one method on a node service of one of the owner's nodes.
 
-        Starts the node's file service when needed. Methods: read_file,
-        write_file, stat_path, list_files, manage_path, get_cwd (the node's
-        Files App arguments). The result carries node_id.
+        Starts the service when needed. service "file_manager" (default):
+        read_file, write_file, stat_path, list_files, manage_path, get_cwd
+        (the node's Files App arguments). service "coding_agent":
+        agents_detect, agent_send, agent_stop, agent_conversation,
+        agent_conversations. The result carries node_id.
         """
+        if service == 'coding_agent':
+            # The Coding Agents builtin is reached through the controller's Fleet App.
+            return {'success': False, 'error': 'Coding agents need the Fleet App the controller hosts'}
         if method not in _NODE_FILE_METHODS or not isinstance(node_id, str) or not node_id:
             return {'success': False, 'error': 'Call a Files method (read_file, write_file, stat_path, list_files, manage_path, get_cwd) on one of your nodes'}
         service = await self.node_service('file_manager', node_id)

@@ -529,12 +529,6 @@
             "required": true
           },
           {
-            "name": "service",
-            "type": "str",
-            "required": false,
-            "default": "file_manager"
-          },
-          {
             "name": "method",
             "type": "str",
             "required": true
@@ -549,6 +543,12 @@
             "type": "int",
             "required": false,
             "default": 30
+          },
+          {
+            "name": "service",
+            "type": "str",
+            "required": false,
+            "default": "file_manager"
           }
         ],
         "hidden": true
