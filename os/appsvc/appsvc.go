@@ -20,7 +20,9 @@ package appsvc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -86,7 +88,10 @@ type Service struct {
 	tools       map[string]*Tool
 	order       []string
 	sub         *nats.Subscription
-	kv          jetstream.KeyValue
+
+	mu      sync.Mutex
+	kv      jetstream.KeyValue
+	stopped bool
 }
 
 // New builds a service. serviceID is the sha256 hex the control plane
@@ -124,12 +129,44 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 	s.sub = sub
 	// KV registration is discovery sugar, not the contract — clients
-	// negotiate via _ping and discover tools via list_tools, and a node's
-	// scoped NATS creds may not reach the JetStream API at all. Best effort.
-	if err := s.registerKV(ctx); err != nil {
-		fmt.Printf("appsvc: kv registration skipped for %s: %v\n", s.serviceID[:12], err)
+	// negotiate via _ping and discover tools via list_tools. Where the
+	// JetStream API is reachable it takes milliseconds and is done before
+	// Start returns, as before. Node and App credentials do not reach it, so
+	// the request waits out its timeout: that part runs on in the background,
+	// and quietly, instead of holding the App's start.
+	done := make(chan struct{})
+	go func() { s.register(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(registerWait):
+	case <-ctx.Done():
 	}
 	return nil
+}
+
+const (
+	registerWait    = time.Second
+	registerTimeout = 5 * time.Second
+)
+
+func (s *Service) register() {
+	ctx, cancel := context.WithTimeout(context.Background(), registerTimeout)
+	defer cancel()
+	kv, err := s.registerKV(ctx)
+	if err != nil {
+		if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, nats.ErrPermissionViolation) &&
+			!errors.Is(err, nats.ErrNoResponders) && !errors.Is(err, jetstream.ErrJetStreamNotEnabled) {
+			fmt.Printf("appsvc: kv registration skipped for %s: %v\n", s.serviceID[:12], err)
+		}
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stopped {
+		_ = kv.Delete(ctx, s.serviceID)
+		return
+	}
+	s.kv = kv
 }
 
 // Stop unsubscribes and removes the KV registration.
@@ -138,24 +175,27 @@ func (s *Service) Stop(ctx context.Context) {
 		_ = s.sub.Unsubscribe()
 		s.sub = nil
 	}
-	if s.kv != nil {
-		_ = s.kv.Delete(ctx, s.serviceID)
+	s.mu.Lock()
+	kv := s.kv
+	s.kv, s.stopped = nil, true
+	s.mu.Unlock()
+	if kv != nil {
+		_ = kv.Delete(ctx, s.serviceID)
 	}
 }
 
-func (s *Service) registerKV(ctx context.Context) error {
+func (s *Service) registerKV(ctx context.Context) (jetstream.KeyValue, error) {
 	js, err := jetstream.New(s.nc)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	kv, err := js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{
 		Bucket:      DiscoveryBucket,
 		Description: "Pantheon service discovery",
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	s.kv = kv
 	funcs := map[string]any{}
 	for name, t := range s.tools {
 		funcs[name] = t.desc()
@@ -171,10 +211,12 @@ func (s *Service) registerKV(ctx context.Context) error {
 	}
 	b, err := json.Marshal(reg)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	_, err = kv.Put(ctx, s.serviceID, b)
-	return err
+	if _, err = kv.Put(ctx, s.serviceID, b); err != nil {
+		return nil, err
+	}
+	return kv, nil
 }
 
 type request struct {
