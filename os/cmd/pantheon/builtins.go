@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	codingagentsapp "github.com/aristoteleo/pantheon-apps/coding_agents"
 	shellapp "github.com/aristoteleo/pantheon-apps/shell"
 	"github.com/aristoteleo/pantheonos/os/appsvc"
 	"github.com/aristoteleo/pantheonos/os/internal/apps"
@@ -73,6 +74,40 @@ func registerBuiltins(r *runner.Runner, nc *nats.Conn) {
 			"Shell toolset for running shell commands (Go builtin).",
 			builtinVersion, builtinPrefix(spec))
 		tools, err := shellapp.Tools(app)
+		if err == nil {
+			for _, t := range tools {
+				svc.Register(t)
+			}
+			err = svc.Start(ctx)
+		}
+		if err != nil {
+			app.Close()
+			if owned {
+				svcNc.Close()
+			}
+			return nil, err
+		}
+		return func() {
+			svc.Stop(context.Background())
+			app.Close()
+			if owned {
+				svcNc.Close()
+			}
+		}, nil
+	})
+
+	r.Apps().RegisterBuiltin("coding-agents", func(ctx context.Context, spec apps.Spec) (func(), error) {
+		svcNc, owned, err := builtinConn(spec, nc)
+		if err != nil {
+			return nil, err
+		}
+		prefix := builtinPrefix(spec)
+		// Conversation events ride the service-plane connection the UI
+		// listens on (pantheon.stream.coding_*).
+		app := codingagentsapp.NewApp(svcNc, prefix, codingagentsapp.DefaultRoot())
+		svc := appsvc.New(svcNc, spec.ServiceID, "coding-agents",
+			"Coding-agent CLIs on this node (Go builtin).", builtinVersion, prefix)
+		tools, err := codingagentsapp.Tools(app)
 		if err == nil {
 			for _, t := range tools {
 				svc.Register(t)

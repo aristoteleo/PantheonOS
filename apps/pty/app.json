@@ -1,7 +1,7 @@
 {
   "id": "pty",
   "name": "Pty",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "description": "Interactive terminal sessions (the Terminal app's backend).",
   "provides": {
     "tools": [
@@ -39,7 +39,7 @@
       },
       {
         "name": "pty_open",
-        "description": "Start a shell on a new pseudo-terminal.\n\n        Args:\n            cols: Terminal width in columns.\n            rows: Terminal height in rows.\n            cwd: Working directory. Defaults to the toolset's workdir.\n            shell: Shell to run. Defaults to bash where present.\n\n        Returns:\n            dict with success, session_id, stream_id — the NATS stream to\n            subscribe to for output — and initial_output, base64 bytes the\n            shell produced before the caller could possibly have subscribed.\n            Write those to the terminal first, then attach to the stream.\n        ",
+        "description": "Start a shell on a new pseudo-terminal.\n\n        Args:\n            cols: Terminal width in columns.\n            rows: Terminal height in rows.\n            cwd: Working directory. Defaults to the toolset's workdir.\n            shell: Shell to run. Defaults to bash where present.\n            command: A command line to run first, in the user's login\n                shell (a coding agent's interface); an interactive shell\n                takes over when it exits.\n\n        Returns:\n            dict with success, session_id, stream_id — the NATS stream to\n            subscribe to for output — and initial_output, base64 bytes the\n            shell produced before the caller could possibly have subscribed.\n            Write those to the terminal first, then attach to the stream.\n        ",
         "params": [
           {
             "name": "cols",
@@ -60,6 +60,11 @@
           },
           {
             "name": "shell",
+            "type": "str | None",
+            "required": false
+          },
+          {
+            "name": "command",
             "type": "str | None",
             "required": false
           }

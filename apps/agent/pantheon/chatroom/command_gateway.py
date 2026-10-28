@@ -434,6 +434,14 @@ async def execute(agent, op: str, params: dict, live: LiveCall | None):
         return await tool('fleet__fleet_node_info', {'node_id': p['node']})
     if op == 'run':
         return await tool('fleet__run_on_node', {k: p[k] for k in ('node_id', 'code', 'kind', 'timeout') if k in p})
+    if op == 'coding_agent':
+        # A coding agent on one of the owner's nodes (pantheon coding-agent).
+        # Starting or stopping a turn shows under the command; the polling
+        # reads that follow it do not.
+        args = {'node_id': p['node_id'], 'service': 'coding_agent', 'method': p['method'],
+                'args': p.get('args') or {}, 'timeout': p.get('timeout', 60)}
+        result = await agent.call_tool('fleet__node_call', args)
+        return result, (('fleet__node_call', args) if p['method'] in ('agent_send', 'agent_stop') else None)
     if op == 'transfer':
         return await tool('fleet__transfer', {k: p[k] for k in ('src_node', 'src_path', 'dst_node', 'dst_path',
                                                                 'wait', 'timeout') if k in p})

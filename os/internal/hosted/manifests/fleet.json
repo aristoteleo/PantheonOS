@@ -521,12 +521,18 @@
       },
       {
         "name": "node_call",
-        "description": "Call one Files method on a file service of one of the owner's nodes.\n\n        Starts the node's file service when needed. Methods: read_file,\n        write_file, stat_path, list_files, manage_path, get_cwd (the node's\n        Files App arguments). The result carries node_id.\n        ",
+        "description": "Call one method on a node service of one of the owner's nodes.\n\n        Starts the service when needed. service \"file_manager\" (default):\n        read_file, write_file, stat_path, list_files, manage_path, get_cwd\n        (the node's Files App arguments). service \"coding_agent\":\n        agents_detect, agent_send, agent_stop, agent_conversation,\n        agent_conversations. The result carries node_id.\n        ",
         "params": [
           {
             "name": "node_id",
             "type": "str",
             "required": true
+          },
+          {
+            "name": "service",
+            "type": "str",
+            "required": false,
+            "default": "file_manager"
           },
           {
             "name": "method",
@@ -549,7 +555,7 @@
       },
       {
         "name": "node_service",
-        "description": "Find (or start) a node's Files or PTY service for the owner's desktop.\n\n        The desktop then calls it directly on the App namespace of the Fleet\n        bus. restore=True after a call found no receiver: the node lost the\n        service (e.g. its Runner restarted), so it is started there again.\n        ",
+        "description": "Find (or start) a node's Files, PTY or Coding Agents service for the owner's desktop.\n\n        The desktop then calls it directly on the App namespace of the Fleet\n        bus. restore=True after a call found no receiver: the node lost the\n        service (e.g. its Runner restarted), so it is started there again.\n        ",
         "params": [
           {
             "name": "service",

@@ -1,0 +1,6 @@
+{"type":"init","timestamp":"2026-10-28T22:17:20.000Z","session_id":"3f6c2a1e-0d6b-4e43-9c55-6b0f4d1d2a10","model":"gemini-3-pro"}
+{"type":"message","timestamp":"2026-10-28T22:17:20.100Z","role":"user","content":"Run: cat a.txt, then reply with one word."}
+{"type":"tool_use","timestamp":"2026-10-28T22:17:21.000Z","tool_name":"run_shell_command","tool_id":"run_shell_command-1","parameters":{"command":"cat a.txt"}}
+{"type":"tool_result","timestamp":"2026-10-28T22:17:21.500Z","tool_id":"run_shell_command-1","status":"success","output":"hello"}
+{"type":"message","timestamp":"2026-10-28T22:17:22.000Z","role":"assistant","content":"Hello","delta":true}
+{"type":"result","timestamp":"2026-10-28T22:17:22.100Z","status":"success","stats":{"total_tokens":120,"input_tokens":100,"output_tokens":20}}

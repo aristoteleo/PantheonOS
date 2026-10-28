@@ -301,6 +301,7 @@ func (r *Runner) Heartbeat(ctx context.Context, interval time.Duration) {
 			record.Capability = node.RefreshNativeCapture(record.Capability)
 			inventory := node.DetectResources()
 			record.Capability.Resources = &inventory
+			record.Capability.CodingAgents = node.CodingAgents()
 			_ = r.reg.Put(ctx, record)
 		}
 	}

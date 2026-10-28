@@ -1,0 +1,167 @@
+{
+  "apiVersion": 2,
+  "id": "coding-agents",
+  "name": "Coding Agents Service",
+  "version": "0.1.0",
+  "kind": "service",
+  "runtime": "builtin",
+  "description": "Finds coding-agent CLIs on a node and runs their headless mode as conversations.",
+  "provides": {
+    "tools": [
+      {
+        "name": "agents_detect",
+        "description": "The coding-agent CLIs installed on this node and the ways PantheonOS can run each.\n\nArgs:\n    refresh: Detect again now instead of using the result from the last five minutes.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "refresh",
+            "type": "bool",
+            "default": false
+          }
+        ]
+      },
+      {
+        "name": "agent_terminal_command",
+        "description": "The shell command that opens an agent's own interactive interface, for pty_open.\n\nArgs:\n    agent: Catalog id (claude, codex, gemini, cursor, ...).\n    resume: The agent's session id to reopen.\n    auto: Start in full-auto mode (no approval prompts).",
+        "hidden": true,
+        "params": [
+          {
+            "name": "agent",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "resume",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "auto",
+            "type": "bool",
+            "default": true
+          }
+        ]
+      },
+      {
+        "name": "agent_send",
+        "description": "Send a message to a coding agent and start its turn. Events stream on pantheon.stream.coding_<conversation_id>.\n\nArgs:\n    prompt: The message.\n    agent: Catalog id; needed for a new conversation.\n    cwd: Folder the agent works in; a new conversation only. Defaults to home.\n    conversation_id: Continue this conversation.\n    model: Model name the agent understands.\n    auto: Full-auto mode for a new conversation.\n    origin: Who started it (ui, agent, cli).",
+        "hidden": true,
+        "params": [
+          {
+            "name": "prompt",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "agent",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "cwd",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "conversation_id",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "model",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "auto",
+            "type": "bool",
+            "default": true
+          },
+          {
+            "name": "origin",
+            "type": "str",
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "agent_stop",
+        "description": "Interrupt a conversation's running turn.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "conversation_id",
+            "type": "str",
+            "required": true
+          }
+        ]
+      },
+      {
+        "name": "agent_conversations",
+        "description": "Conversations on this node, newest first.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "agent",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "cwd",
+            "type": "str",
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "agent_conversation",
+        "description": "A conversation and its events after seq `after`; `more` means call again from the last seq.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "conversation_id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "after",
+            "type": "int",
+            "default": 0
+          }
+        ]
+      },
+      {
+        "name": "agent_delete",
+        "description": "Remove a conversation's record on this node. The agent's own session is kept.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "conversation_id",
+            "type": "str",
+            "required": true
+          }
+        ]
+      }
+    ],
+    "interfaces": [
+      {
+        "name": "coding-agents",
+        "tools": [
+          "agents_detect",
+          "agent_terminal_command",
+          "agent_send",
+          "agent_stop",
+          "agent_conversations",
+          "agent_conversation",
+          "agent_delete"
+        ]
+      }
+    ]
+  },
+  "placement": {
+    "requires": [
+      "proc"
+    ]
+  },
+  "notes": "Go implementation compiled into the fleet runner (this directory's .go files); see docs/apps/coding-agents.md."
+}

@@ -218,7 +218,20 @@ func summarize(n map[string]any) map[string]any {
 		"gpu": gpu, "ram_gb": field(n, "capability", "ram_gb"), "disk_free_gb": field(n, "capability", "disk_free_gb"),
 		"load": orEmpty(field(n, "state", "load")), "reachability": field(n, "net", "reachability"),
 		"last_seen": n["last_seen"], "fleet_version": version, "is_self": false,
+		"coding_agents": codingAgentIDs(field(n, "capability", "coding_agents")),
 	}
+}
+
+// codingAgentIDs names the coding agents a node has, for the Agent's node
+// list; paths stay in the inventory.
+func codingAgentIDs(v any) []string {
+	out := []string{}
+	for _, item := range orList(v) {
+		if a, ok := item.(map[string]any); ok && str(a["id"]) != "" {
+			out = append(out, str(a["id"]))
+		}
+	}
+	return out
 }
 
 func orListNil(v any) any {
@@ -448,7 +461,7 @@ func (f *Fleet) appsCredential(fleet string) (auth.AppsCredential, error) {
 	return c, nil
 }
 
-var builtinVersions = map[string]string{"node-files": "0.1.0", "pty": "0.6.6"}
+var builtinVersions = map[string]string{"node-files": "0.1.0", "pty": "0.6.7", "coding-agents": "0.1.0"}
 
 func (f *Fleet) nodeService(ctx context.Context, c *Call) (any, error) {
 	var a struct {
@@ -459,8 +472,8 @@ func (f *Fleet) nodeService(ctx context.Context, c *Call) (any, error) {
 	if err := c.Decode(&a); err != nil {
 		return nil, err
 	}
-	if (a.Service != "file_manager" && a.Service != "file_transfer" && a.Service != "pty") || a.NodeID == "" {
-		return map[string]any{"success": false, "error": "Node services are Files and PTY on one of your nodes"}, nil
+	if (a.Service != "file_manager" && a.Service != "file_transfer" && a.Service != "pty" && a.Service != "coding_agent") || a.NodeID == "" {
+		return map[string]any{"success": false, "error": "Node services are Files, PTY and Coding Agents on one of your nodes"}, nil
 	}
 	credential, err := f.appsCredential(c.Fleet)
 	if err != nil {
@@ -489,11 +502,17 @@ type ServiceCaller interface {
 var nodeFileMethods = map[string]bool{"read_file": true, "write_file": true, "stat_path": true, "list_files": true,
 	"manage_path": true, "get_cwd": true}
 
+// nodeCodingAgentMethods are the Coding Agents methods node_call forwards
+// (service "coding_agent"): the Pantheon Agent hands tasks to them.
+var nodeCodingAgentMethods = map[string]bool{"agents_detect": true, "agent_send": true, "agent_stop": true,
+	"agent_conversation": true, "agent_conversations": true}
+
 // nodeCall invokes one Files method on a node's file service, starting the
 // service when needed: an owner's Agent works on files of any of its nodes.
 func (f *Fleet) nodeCall(ctx context.Context, c *Call) (any, error) {
 	var a struct {
 		NodeID  string         `json:"node_id"`
+		Service string         `json:"service"`
 		Method  string         `json:"method"`
 		Args    map[string]any `json:"args"`
 		Timeout int            `json:"timeout"`
@@ -501,7 +520,13 @@ func (f *Fleet) nodeCall(ctx context.Context, c *Call) (any, error) {
 	if err := c.Decode(&a); err != nil {
 		return nil, err
 	}
-	if a.NodeID == "" || !nodeFileMethods[a.Method] {
+	service := "file_manager"
+	if a.Service == "coding_agent" {
+		service = a.Service
+		if a.NodeID == "" || !nodeCodingAgentMethods[a.Method] {
+			return map[string]any{"success": false, "error": "Call a Coding Agents method (agents_detect, agent_send, agent_stop, agent_conversation, agent_conversations) on one of your nodes"}, nil
+		}
+	} else if a.NodeID == "" || !nodeFileMethods[a.Method] {
 		return map[string]any{"success": false, "error": "Call a Files method (read_file, write_file, stat_path, list_files, manage_path, get_cwd) on one of your nodes"}, nil
 	}
 	caller, ok := f.Bus.(ServiceCaller)
@@ -512,7 +537,7 @@ func (f *Fleet) nodeCall(ctx context.Context, c *Call) (any, error) {
 	if err != nil {
 		return Failure(err), nil
 	}
-	serviceID, err := f.ensureNodeService(ctx, c.Fleet, "file_manager", a.NodeID, false, credential)
+	serviceID, err := f.ensureNodeService(ctx, c.Fleet, service, a.NodeID, false, credential)
 	if err != nil {
 		return Failure(err), nil
 	}
@@ -577,7 +602,15 @@ func (f *Fleet) ensureNodeService(ctx context.Context, fleet, service, nodeID st
 	}
 	caps, _ := n["caps"].([]string)
 	appID := "pty"
-	if service == "pty" {
+	if service == "coding_agent" {
+		if !slices.Contains(caps, "proc") {
+			return "", fmt.Errorf("This node does not allow process execution (proc capability required)")
+		}
+		if runtimes, _ := n["runtimes"].(map[string]any); runtimes["coding-agents"] != "1" {
+			return "", fmt.Errorf("Update Fleet on this node to run coding agents")
+		}
+		appID = "coding-agents"
+	} else if service == "pty" {
 		if !slices.Contains(caps, "proc") {
 			return "", fmt.Errorf("This node does not allow process execution (proc capability required)")
 		}
@@ -615,7 +648,7 @@ func (f *Fleet) ensureNodeService(ctx context.Context, fleet, service, nodeID st
 	seed := fleet + "-app-" + appID + "-" + scope
 	idSum := sha256.Sum256([]byte(seed))
 	serviceID := hex.EncodeToString(idSum[:])
-	if service == "pty" && !restore {
+	if (service == "pty" || service == "coding_agent") && !restore {
 		for _, i := range inv["instances"].([]map[string]any) {
 			if i["node_id"] == nodeID && i["service_id"] == serviceID && i["health"] == "healthy" {
 				return serviceID, nil

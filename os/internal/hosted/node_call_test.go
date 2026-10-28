@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -81,6 +82,53 @@ func TestNodeCallReachesANodesFileServiceAndRunOnNodeTakesCwd(t *testing.T) {
 	// run_on_node passes cwd and keeps the end of long output.
 	out = call("run_on_node", `{"node_id": "n_mac", "code": "ls", "cwd": "/Users/me", "max_output": 10}`)
 	if out["cwd_seen"] != "/Users/me" || !strings.HasSuffix(out["stdout"].(string), "xxxxxxxEND") || !strings.Contains(out["stdout"].(string), "earlier bytes of output omitted") {
+		t.Fatalf("%v", out)
+	}
+}
+
+// The Pantheon Agent hands a task to a coding agent on a node: node_call
+// starts the node's Coding Agents builtin and forwards the method; a node
+// whose Fleet predates the builtin is told to update.
+func TestNodeCallStartsTheCodingAgentsService(t *testing.T) {
+	store := storeWith(t, map[string]deployments.AppSpec{"fleet": {Hosted: "fleet", Scope: "s", Intent: deployments.Running}})
+	mac := record("n_mac", "Mac", "machine", []string{"proc", "fs:local"})
+	mac["capability"].(map[string]any)["runtimes"] = map[string]any{"coding-agents": "1"}
+	old := record("n_old", "Old", "machine", []string{"proc"})
+	bus := &serviceBus{fakeBus: &fakeBus{records: []map[string]any{mac, old}}}
+	var started []map[string]any
+	bus.handle = func(node string, p map[string]any) map[string]any {
+		if p["type"] == "app_start" {
+			started = append(started, p["app"].(map[string]any))
+		}
+		return map[string]any{"ok": true}
+	}
+	bus.answer = func(method string, params map[string]any) map[string]any {
+		if method == "agent_send" && params["agent"] == "claude" {
+			return map[string]any{"result": map[string]any{"success": true, "conversation_id": "c1"}}
+		}
+		return map[string]any{"error": "unexpected " + method}
+	}
+	f := &Fleet{Bus: bus, Store: store, NATSURL: "nats://bus.test:4222", MintApps: func(fleet string, ttl time.Duration) (auth.AppsCredential, error) {
+		return auth.AppsCredential{JWT: "jwt", Seed: "seed", SubjectPrefix: "fleet." + fleet + ".apps", Expires: time.Now().Add(ttl).Unix()}, nil
+	}}
+	call := func(args string) map[string]any {
+		out, err := f.Call(context.Background(), &Call{Fleet: fleetID, Deployment: "general-team", App: "fleet", Method: "node_call", Args: json.RawMessage(args)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out.(map[string]any)
+	}
+	out := call(`{"node_id": "n_mac", "service": "coding_agent", "method": "agent_send", "args": {"agent": "claude", "prompt": "hi"}}`)
+	if out["success"] != true || out["conversation_id"] != "c1" || out["node_id"] != "n_mac" {
+		t.Fatalf("%v", out)
+	}
+	if len(started) != 1 || started[0]["app_id"] != "coding-agents" || started[0]["runtime"] != "builtin" {
+		t.Fatalf("started %v", started)
+	}
+	if out := call(`{"node_id": "n_mac", "service": "coding_agent", "method": "agent_delete", "args": {}}`); out["success"] != false {
+		t.Fatalf("only the listed methods are forwarded: %v", out)
+	}
+	if out := call(`{"node_id": "n_old", "service": "coding_agent", "method": "agents_detect"}`); out["success"] != false || !strings.Contains(fmt.Sprint(out["error"]), "Update Fleet") {
 		t.Fatalf("%v", out)
 	}
 }

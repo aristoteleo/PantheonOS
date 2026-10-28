@@ -19,7 +19,7 @@ import (
 func IsCommand(name string) bool {
 	switch name {
 	case "login", "logout", "whoami", "apps", "dev", "desktop", "browser", "nodes", "run", "transfer", "task",
-		"agent", "skills", "jobs":
+		"agent", "skills", "jobs", "coding-agent":
 		return true
 	}
 	return false
@@ -45,6 +45,13 @@ Nodes
   pantheon nodes list | info <node>
   pantheon run --node N [--kind shell|python] -- <command>
   pantheon transfer <src-node>:<path> <dst-node>:<path>
+
+Coding agents on your nodes (Claude Code, Codex, Gemini CLI, Cursor Agent, ...)
+  pantheon coding-agent list [--node N]                     which agents each node has
+  pantheon coding-agent run --node N --agent ID [--cwd DIR] [--model M] [--manual] [--detach] -- PROMPT
+                                                            a new conversation; waits and prints the reply
+  pantheon coding-agent run --node N --conversation ID -- PROMPT   continue one
+  pantheon coding-agent conversations --node N | show ID --node N [--wait] | stop ID --node N
 
 Your Agent
   pantheon agent chat [-i MESSAGE] [--chat ID] [--resume [N]]   chat in the terminal (-i: one message)
@@ -178,6 +185,8 @@ func (r *runner) signedIn(group string) error {
 		return r.run()
 	case "transfer":
 		return r.transfer()
+	case "coding-agent":
+		return r.codingAgent(r.directCodingAgents())
 	}
 	return fmt.Errorf("unknown command %q", group)
 }

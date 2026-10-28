@@ -370,6 +370,8 @@ func cmdUp(args []string) {
 		capa.Runtimes = map[string]string{}
 	}
 	capa.Runtimes["runner"] = version
+	capa.Runtimes["coding-agents"] = "1" // the coding-agents builtin
+	capa.CodingAgents = node.CodingAgents() // starts detection; heartbeats carry it
 	// An HPC login node starts compute nodes through Slurm (hpc_* commands).
 	var launcher *hpc.Launcher
 	if *kind == proto.KindMachine && *controllerURL != "" && hpc.Available() {

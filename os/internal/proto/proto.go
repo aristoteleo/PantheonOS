@@ -69,6 +69,19 @@ type Capability struct {
 	// inclusion against an App's placement.requires.
 	Caps      []string `json:"caps,omitempty"`
 	FileRoots []string `json:"file_roots,omitempty"`
+	// CodingAgents are the coding-agent CLIs installed here, re-detected
+	// every few minutes (docs/apps/coding-agents.md).
+	CodingAgents []CodingAgent `json:"coding_agents,omitempty"`
+}
+
+// CodingAgent is one coding-agent CLI found on a Node. Terminal and
+// Conversation say which ways PantheonOS can run it there.
+type CodingAgent struct {
+	ID           string `json:"id"`
+	Label        string `json:"label"`
+	Path         string `json:"path"`
+	Terminal     bool   `json:"terminal"`
+	Conversation bool   `json:"conversation"`
 }
 
 // AppInstance is one running App on this Node, as its supervisor reports it.

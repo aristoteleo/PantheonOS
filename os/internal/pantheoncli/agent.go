@@ -148,6 +148,8 @@ func (r *runner) viaAgent(link *agentLink, group string) error {
 			def = 120 * time.Second
 		}
 		return send(group, map[string]any{"action": strings.ReplaceAll(arg(0), "-", "_"), "args": r.p.args}, def)
+	case "coding-agent":
+		return r.codingAgent(r.linkedCodingAgents(link))
 	case "nodes":
 		if arg(0) == "info" {
 			return send("nodes.info", map[string]any{"node": arg(1)}, 60*time.Second)

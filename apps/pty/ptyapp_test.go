@@ -23,7 +23,7 @@ func TestOpenWriteAttachClose(t *testing.T) {
 	app := NewApp(nil, "", t.TempDir())
 	defer app.Close()
 
-	res := app.open(100, 30, "", "")
+	res := app.open(100, 30, "", "", "")
 	if ok, _ := res["success"].(bool); !ok {
 		t.Fatalf("open failed: %v", res)
 	}
@@ -76,7 +76,7 @@ func TestBannerInInitialOutput(t *testing.T) {
 	t.Setenv("PANTHEON_PTY_BANNER", "")
 	app := NewApp(nil, "", t.TempDir())
 	defer app.Close()
-	res := app.open(80, 24, "", "")
+	res := app.open(80, 24, "", "", "")
 	if ok, _ := res["success"].(bool); !ok {
 		t.Fatalf("open failed: %v", res)
 	}
@@ -85,6 +85,39 @@ func TestBannerInInitialOutput(t *testing.T) {
 		t.Fatalf("banner missing from initial output: %q", initial[:min(len(initial), 200)])
 	}
 	app.Close()
+}
+
+// A command (a coding agent's interface) runs in the login shell, and a
+// shell takes over the window when it exits.
+func TestOpenRunsACommandThenAShell(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("SHELL", "/bin/sh")
+	app := NewApp(nil, "", t.TempDir())
+	defer app.Close()
+	res := app.open(80, 24, "", "/bin/sh", "echo 'agent '\"ran\"")
+	if ok, _ := res["success"].(bool); !ok {
+		t.Fatalf("open failed: %v", res)
+	}
+	sid := res["session_id"].(string)
+	if strings.Contains(decode(t, res["initial_output"].(string)), "an agent operating system") {
+		t.Fatal("a command session has no banner")
+	}
+	app.write(sid, base64.StdEncoding.EncodeToString([]byte("echo still-$((40+2))\r")))
+	deadline := time.Now().Add(5 * time.Second)
+	var scroll string
+	for time.Now().Before(deadline) {
+		if att := app.attach(sid, 0, 0); att["success"] == true {
+			scroll = decode(t, att["scrollback"].(string))
+			if strings.Contains(scroll, "still-42") {
+				break
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !strings.Contains(scroll, "agent ran") || !strings.Contains(scroll, "still-42") {
+		t.Fatalf("scrollback %q", scroll)
+	}
 }
 
 func min(a, b int) int {

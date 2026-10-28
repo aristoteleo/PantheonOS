@@ -58,6 +58,7 @@ func inventory(records []map[string]any, now time.Time) map[string]any {
 			"resources": capability["resources"], "load": orEmpty(state["load"]), "caps": caps,
 			"tools": orList(capability["tools"]), "file_roots": orList(capability["file_roots"]),
 			"runtimes": orEmpty(capability["runtimes"]), "has_pty": hasPTY,
+			"coding_agents": orList(capability["coding_agents"]),
 			"can_start_pty": !truthy(delegation) && slices.Contains(caps, "proc") && (capability["os"] == "linux" || capability["os"] == "darwin"),
 		}
 		nodes = append(nodes, node)

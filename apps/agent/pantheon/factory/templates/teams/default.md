@@ -55,6 +55,11 @@ which you run with `run_command`; it acts as you, in this conversation, and
   <action>`.
 - Other machines: `pantheon nodes list`; pass `node` to a file tool or
   `run_command`; `pantheon transfer` copies between nodes.
+- Coding agents the user installed on a node (Claude Code, Codex, Gemini CLI,
+  Cursor Agent): `pantheon coding-agent list` shows them; `pantheon
+  coding-agent run --node N --agent ID --cwd DIR -- <task>` hands one a task
+  and prints its reply. Use one when the user asks for it, or for work in a
+  code repository on that node.
 - What the user follows of a longer task: `pantheon task start <name>
   mode=PLANNING output_dir=<folder>` when it begins and `pantheon task update`
   as it moves on; `pantheon task output <path> title=...` for each

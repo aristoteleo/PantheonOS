@@ -14,8 +14,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/aristoteleo/pantheonos/os/childenv"
+	"github.com/aristoteleo/pantheonos/os/codingagents"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -236,7 +239,22 @@ func (s *ptySession) readLoop() {
 
 // ---- tools ----------------------------------------------------------------
 
-func (a *App) open(cols, rows int, cwd, shell string) map[string]any {
+// commandShell runs command in the user's login shell and leaves an
+// interactive shell behind when it exits, so a window that ran a coding
+// agent drops to a prompt instead of closing.
+func commandShell(shellPath, command string) *exec.Cmd {
+	flag := "-ilc"
+	if base := filepath.Base(shellPath); base == "sh" || base == "dash" {
+		flag = "-ic"
+	}
+	return exec.Command(shellPath, flag, command+"\nexec "+shellQuote(shellPath)+" -i")
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+func (a *App) open(cols, rows int, cwd, shell, command string) map[string]any {
 	a.reapIdle()
 	if cols <= 0 {
 		cols = 80
@@ -252,11 +270,17 @@ func (a *App) open(cols, rows int, cwd, shell string) map[string]any {
 		target, _ = os.Getwd()
 	}
 	shellPath := shell
+	if shellPath == "" && command != "" {
+		shellPath = codingagents.UserShell()
+	}
 	if shellPath == "" {
 		shellPath = pickShell()
 	}
 
 	cmd := exec.Command(shellPath, "-i")
+	if command != "" {
+		cmd = commandShell(shellPath, command)
+	}
 	cmd.Dir = target
 	env := childenv.Workspace() // a terminal gets none of the node's credentials
 	if os.Getenv("TERM") == "" {
@@ -306,7 +330,11 @@ func (a *App) open(cols, rows int, cwd, shell string) map[string]any {
 
 	// Whatever the shell says before the caller could possibly subscribe —
 	// the prompt — is returned, not streamed (core NATS has no replay).
-	initial := append(banner(), drainInitial(s)...)
+	var initial []byte
+	if command == "" {
+		initial = banner()
+	}
+	initial = append(initial, drainInitial(s)...)
 	s.remember(initial)
 	go a.pump(s)
 

@@ -39,7 +39,7 @@ func Tools(app *App) ([]*appsvc.Tool, error) {
 	return appsvc.ManifestTools(manifestJSON, map[string]appsvc.Handler{
 		"pty_open": func(_ context.Context, p map[string]any) (any, error) {
 			return app.open(intP(p, "cols", 80), intP(p, "rows", 24),
-				strP(p, "cwd"), strP(p, "shell")), nil
+				strP(p, "cwd"), strP(p, "shell"), strP(p, "command")), nil
 		},
 		"pty_write": func(_ context.Context, p map[string]any) (any, error) {
 			return app.write(strP(p, "session_id"), strP(p, "data")), nil
