@@ -20,7 +20,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aristoteleo/pantheonos/os/childenv"
 	"github.com/aristoteleo/pantheonos/os/codingagents"
 	"github.com/nats-io/nats.go"
 )
@@ -48,12 +47,22 @@ type Conversation struct {
 	Status    string  `json:"status"` // idle|running|error
 	LastError string  `json:"last_error,omitempty"`
 	Seq       int64   `json:"seq"`
+	// Limits is the account quota the agent last reported, with its time.
+	Limits   map[string]codingagents.Limit `json:"limits,omitempty"`
+	LimitsAt float64                       `json:"limits_at,omitempty"`
+}
+
+// agentLimits is the last quota an agent reported on this node.
+type agentLimits struct {
+	Limits map[string]codingagents.Limit `json:"limits"`
+	At     float64                       `json:"at"`
 }
 
 type turn struct {
 	cmd     *exec.Cmd
 	done    chan struct{}
 	stopped bool
+	started time.Time
 }
 
 // App holds the conversations on this node and the turns running now.
@@ -65,6 +74,7 @@ type App struct {
 	mu      sync.Mutex
 	convs   map[string]*Conversation
 	running map[string]*turn
+	limits  map[string]agentLimits
 	logMu   sync.Mutex // serialises event-log appends
 }
 
@@ -80,7 +90,8 @@ func DefaultRoot() string {
 // NewApp loads the conversations under root. A turn that was running when
 // the service last stopped is marked interrupted.
 func NewApp(nc *nats.Conn, prefix, root string) *App {
-	a := &App{root: root, nc: nc, prefix: prefix, convs: map[string]*Conversation{}, running: map[string]*turn{}}
+	a := &App{root: root, nc: nc, prefix: prefix, convs: map[string]*Conversation{}, running: map[string]*turn{},
+		limits: map[string]agentLimits{}}
 	if b, err := os.ReadFile(a.indexPath()); err == nil {
 		var list []*Conversation
 		if json.Unmarshal(b, &list) == nil {
@@ -89,6 +100,9 @@ func NewApp(nc *nats.Conn, prefix, root string) *App {
 					c.Status, c.LastError = "error", "Interrupted: the node's Coding Agents service restarted"
 				}
 				a.convs[c.ID] = c
+				if c.Limits != nil && c.LimitsAt > a.limits[c.Agent].At {
+					a.limits[c.Agent] = agentLimits{c.Limits, c.LimitsAt}
+				}
 			}
 		}
 	}
@@ -142,9 +156,35 @@ func failure(format string, args ...any) map[string]any {
 
 // ---- detection -------------------------------------------------------------
 
+// AgentInfo is a detected agent with its status and last reported quota.
+type AgentInfo struct {
+	codingagents.Found
+	codingagents.Status
+	Limits   map[string]codingagents.Limit `json:"limits,omitempty"`
+	LimitsAt float64                       `json:"limits_at,omitempty"`
+}
+
 func (a *App) detect(refresh bool) map[string]any {
 	home, _ := os.UserHomeDir()
-	return map[string]any{"success": true, "agents": codingagents.Detect(refresh), "home": home}
+	found := codingagents.Detect(refresh)
+	infos := make([]AgentInfo, len(found))
+	var wg sync.WaitGroup
+	for i, f := range found {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			infos[i] = AgentInfo{Found: f, Status: codingagents.Inspect(f)}
+		}()
+	}
+	wg.Wait()
+	a.mu.Lock()
+	for i := range infos {
+		if l, ok := a.limits[infos[i].ID]; ok {
+			infos[i].Limits, infos[i].LimitsAt = l.Limits, l.At
+		}
+	}
+	a.mu.Unlock()
+	return map[string]any{"success": true, "agents": infos, "home": home}
 }
 
 // terminalCommand is the shell command line that opens an agent's own
@@ -160,20 +200,11 @@ func (a *App) terminalCommand(agentID, resume string, auto bool) map[string]any 
 	}
 	argv := agent.TerminalArgv(path, resume, auto)
 	line := shellJoin(argv)
-	if env := agentEnv(agentID); len(env) > 0 {
+	if env := codingagents.ExtraEnv(agentID); len(env) > 0 {
 		line = strings.Join(env, " ") + " " + line
 	}
-	return map[string]any{"success": true, "command": line, "argv": argv, "label": agent.Label}
-}
-
-// agentEnv is what an agent needs beyond the user's environment. Claude
-// Code refuses full-auto as root unless told it is in a sandbox; a node
-// running as root is a disposable workspace container.
-func agentEnv(agentID string) []string {
-	if agentID == "claude" && os.Geteuid() == 0 {
-		return []string{"IS_SANDBOX=1"}
-	}
-	return nil
+	home, _ := os.UserHomeDir()
+	return map[string]any{"success": true, "command": line, "argv": argv, "label": agent.Label, "home": home}
 }
 
 func shellQuote(s string) string {
@@ -262,7 +293,7 @@ func (a *App) send(p SendArgs) map[string]any {
 	t := codingagents.Turn{Prompt: prompt, Session: c.Session, Model: c.Model, Cwd: c.Cwd, Auto: c.Auto}
 	cmd := exec.Command(path, agent.Headless.Args(t)...)
 	cmd.Dir = c.Cwd
-	cmd.Env = turnEnv(c.Agent)
+	cmd.Env = codingagents.AgentEnv(c.Agent)
 	if !agent.Headless.PromptArg {
 		cmd.Stdin = strings.NewReader(prompt)
 	}
@@ -277,7 +308,7 @@ func (a *App) send(p SendArgs) map[string]any {
 
 	c.Status, c.LastError, c.Updated = "running", "", now()
 	userSeq := c.Seq + 1
-	tr := &turn{cmd: cmd, done: make(chan struct{})}
+	tr := &turn{cmd: cmd, done: make(chan struct{}), started: time.Now()}
 	a.running[c.ID] = tr
 	_ = a.saveLocked()
 	a.mu.Unlock()
@@ -292,22 +323,6 @@ func (a *App) send(p SendArgs) map[string]any {
 		"from_seq": userSeq, "conversation": a.snapshot(c.ID)}
 }
 
-// turnEnv is the workspace environment with PATH as the login shell sets it:
-// an agent installed through npm starts with `#!/usr/bin/env node`, and node
-// is often only on the login shell's PATH.
-func turnEnv(agentID string) []string {
-	env := childenv.Workspace()
-	path := strings.Join(codingagents.SearchDirs(false), string(os.PathListSeparator))
-	out := make([]string, 0, len(env)+2)
-	for _, kv := range env {
-		if !strings.HasPrefix(kv, "PATH=") {
-			out = append(out, kv)
-		}
-	}
-	out = append(out, "PATH="+path)
-	return append(out, agentEnv(agentID)...)
-}
-
 func (a *App) pump(id string, tr *turn, agent codingagents.Agent, stdout io.Reader, stderr *tailBuffer) {
 	parser := agent.Headless.Parser()
 	sc := bufio.NewScanner(stdout)
@@ -319,6 +334,14 @@ func (a *App) pump(id string, tr *turn, agent codingagents.Agent, stdout io.Read
 				ev := e
 				last = &ev
 				continue // emitted once the process has exited
+			}
+			if e.Type == "limits" {
+				a.mu.Lock()
+				if c := a.convs[id]; c != nil {
+					c.Limits, c.LimitsAt = e.Limits, now()
+					a.limits[c.Agent] = agentLimits{e.Limits, c.LimitsAt}
+				}
+				a.mu.Unlock()
 			}
 			if e.Type == "session" {
 				a.mu.Lock()
@@ -341,6 +364,9 @@ func (a *App) pump(id string, tr *turn, agent codingagents.Agent, stdout io.Read
 	end := codingagents.Event{Type: "done"}
 	if last != nil {
 		end = *last
+	}
+	if end.DurationMs == 0 {
+		end.DurationMs = time.Since(tr.started).Milliseconds()
 	}
 	switch {
 	case tr.stopped:

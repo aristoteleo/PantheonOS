@@ -23,6 +23,29 @@ type Event struct {
 	Usage     map[string]any `json:"usage,omitempty"`
 	CostUSD   float64        `json:"cost_usd,omitempty"`
 	Time      float64        `json:"time,omitempty"`
+	// A turn's size, the same for every agent (done events): tokens read
+	// (cached included), of those served from cache, and written; the
+	// tokens in the last request against the model's window; wall time.
+	InputTokens   int64 `json:"input_tokens,omitempty"`
+	CachedTokens  int64 `json:"cached_tokens,omitempty"`
+	OutputTokens  int64 `json:"output_tokens,omitempty"`
+	ContextTokens int64 `json:"context_tokens,omitempty"`
+	ContextWindow int64 `json:"context_window,omitempty"`
+	DurationMs    int64 `json:"duration_ms,omitempty"`
+	// Limits (limits events) is the account's subscription quota as the
+	// agent reports it: window name -> share used and reset time.
+	Limits map[string]Limit `json:"limits,omitempty"`
+}
+
+// Limit is one quota window of the agent's account.
+type Limit struct {
+	Used     float64 `json:"used"`               // 0..1
+	ResetsAt int64   `json:"resets_at,omitempty"` // unix seconds
+}
+
+func num(v any) int64 {
+	f, _ := v.(float64)
+	return int64(f)
 }
 
 // Parser reads one agent's stdout, a JSON object per line.
@@ -168,8 +191,34 @@ func (p *claudeParser) Parse(line []byte) []Event {
 				Output: capText(contentText(c["content"]))})
 		}
 		return out
+	case "rate_limit_event":
+		windows := obj(obj(m["rate_limit_info"])["unifiedWindows"])
+		limits := map[string]Limit{}
+		for name, w := range windows {
+			if wm := obj(w); wm != nil {
+				used, _ := wm["utilization"].(float64)
+				limits[name] = Limit{Used: used, ResetsAt: num(wm["resetsAt"])}
+			}
+		}
+		if len(limits) > 0 {
+			return []Event{{Type: "limits", Limits: limits}}
+		}
 	case "result":
-		e := Event{Type: "done", Usage: obj(m["usage"])}
+		u := obj(m["usage"])
+		e := Event{Type: "done", Usage: u, DurationMs: num(m["duration_ms"]),
+			CachedTokens: num(u["cache_read_input_tokens"]), OutputTokens: num(u["output_tokens"])}
+		e.InputTokens = num(u["input_tokens"]) + num(u["cache_creation_input_tokens"]) + e.CachedTokens
+		// The last request's prompt is what the conversation now fills.
+		if its, _ := u["iterations"].([]any); len(its) > 0 {
+			last := obj(its[len(its)-1])
+			e.ContextTokens = num(last["input_tokens"]) + num(last["cache_read_input_tokens"]) +
+				num(last["cache_creation_input_tokens"]) + num(last["output_tokens"])
+		}
+		for _, mu := range obj(m["modelUsage"]) {
+			if w := num(obj(mu)["contextWindow"]); w > e.ContextWindow {
+				e.ContextWindow = w
+			}
+		}
 		if c, ok := m["total_cost_usd"].(float64); ok {
 			e.CostUSD = c
 		}
@@ -257,7 +306,9 @@ func (p *codexParser) Parse(line []byte) []Event {
 			return []Event{{Type: "text", Text: "⚠ " + str(it["message"])}}
 		}
 	case "turn.completed":
-		return []Event{{Type: "done", Usage: obj(m["usage"])}}
+		u := obj(m["usage"])
+		return []Event{{Type: "done", Usage: u, InputTokens: num(u["input_tokens"]),
+			CachedTokens: num(u["cached_input_tokens"]), OutputTokens: num(u["output_tokens"])}}
 	case "turn.failed":
 		return []Event{{Type: "done", Error: firstNonEmpty(str(obj(m["error"])["message"]), "The turn failed")}}
 	case "error":
@@ -305,7 +356,10 @@ func (p *cursorParser) Parse(line []byte) []Event {
 		}
 		return []Event{e}
 	case "result":
-		e := Event{Type: "done", Usage: obj(m["usage"])}
+		u := obj(m["usage"])
+		e := Event{Type: "done", Usage: u, DurationMs: num(m["duration_ms"]),
+			CachedTokens: num(u["cacheReadTokens"]), OutputTokens: num(u["outputTokens"])}
+		e.InputTokens = num(u["inputTokens"]) + num(u["cacheWriteTokens"]) + e.CachedTokens
 		if m["is_error"] == true {
 			e.Error = firstNonEmpty(str(m["result"]), "The turn failed")
 		}
@@ -371,7 +425,9 @@ func (p *geminiParser) Parse(line []byte) []Event {
 	case "error":
 		return []Event{{Type: "text", Text: "⚠ " + str(m["message"])}}
 	case "result":
-		e := Event{Type: "done", Usage: obj(m["stats"])}
+		st := obj(m["stats"])
+		e := Event{Type: "done", Usage: st, InputTokens: num(st["input_tokens"]), CachedTokens: num(st["cached"]),
+			OutputTokens: num(st["output_tokens"]), DurationMs: num(st["duration_ms"])}
 		if str(m["status"]) == "error" {
 			e.Error = firstNonEmpty(str(obj(m["error"])["message"]), "The turn failed")
 		}

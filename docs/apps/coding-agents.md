@@ -47,8 +47,11 @@ A node finds an agent by looking for its command, without running it:
    bun, Homebrew, `/usr/local/bin`, nix, snap.
 
 A hit must be a regular file with the executable bit. Detection reads no
-credentials and does not report whether the user is signed in; the agent asks
-for that itself when it starts.
+credentials. The Coding Agents service adds each agent's version
+(`--version`, cached until the binary changes) and whether a sign-in exists:
+a credential file or API key variable, the Keychain item's presence for Claude
+Code on macOS, `cursor-agent status` for Cursor. It never reads a credential;
+when it cannot tell it says nothing.
 
 The node reports what it found as `capability.coding_agents`
 (`[{id, label, path}]`). It detects again every five minutes, so an agent
@@ -100,9 +103,12 @@ Every agent's stream is mapped to one shape:
 | `text` | `text`, `delta` when the agent streams pieces |
 | `thinking` | `text`, `delta` |
 | `tool` | `id`, `name`, `input` (a one-line summary), `status` (`running`, `done`, `error`), `output` (capped at 4 KB) |
-| `done` | `error` when the turn failed, `usage`, `cost_usd` |
+| `done` | `error` when the turn failed; `duration_ms`; `input_tokens` (cached included), `cached_tokens`, `output_tokens`; `context_tokens` and `context_window` where the agent reports them; `cost_usd` (Claude Code: the price at API rates, not a charge on a subscription) |
+| `limits` | `limits`: the account's quota windows (`five_hour`, `seven_day`, …), each `used` (0–1) and `resets_at` |
 
-Lines a parser does not recognise are dropped. A turn without a `done` from
+Lines a parser does not recognise are dropped. A quota (`limits`) is kept
+with the conversation and with the agent, so the agent list shows the last
+one reported on that node. A turn without a `done` from
 the agent gets one from the service when the process exits, carrying the exit
 status and the tail of stderr.
 
@@ -112,7 +118,14 @@ status and the tail of stderr.
 shell as `$SHELL -ilc '<command>; exec $SHELL -i'`, so the agent sees the same
 environment as in a terminal, and the window drops to a shell when the agent
 exits instead of closing. The command is built by the Coding Agents service
-from the catalog: the detected path, the full-auto flag and a resume id.
+from the catalog: the detected path, the full-auto flag and a resume id. A
+launch without a folder starts in the user's home directory.
+
+An agent runs with the workspace environment minus the markers of another
+agent session (`CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`, …): a node started from
+a terminal inside such a session would otherwise pass them on, and the agent
+would treat itself as that session's child. Configuration the user sets, such
+as `CLAUDE_CONFIG_DIR`, is kept.
 
 ## Permissions
 
@@ -131,8 +144,8 @@ for Claude there.
   and buttons to start a conversation or open a terminal in a chosen
   directory. A conversation view streams events and has a composer, Stop, and
   "Continue in terminal", which resumes the same session interactively.
-- **Fleet.** Each node row lists the agents found on it; the node menu opens a
-  terminal with one.
+- **Fleet.** Each node row lists the agents found on it; a name opens a
+  terminal with that agent, and the node menu opens Coding Agents there.
 - **Terminal.** The new-session menu offers the agents found on the selected
   node.
 

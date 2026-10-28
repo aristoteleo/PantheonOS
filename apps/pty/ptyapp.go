@@ -263,6 +263,11 @@ func (a *App) open(cols, rows int, cwd, shell, command string) map[string]any {
 		rows = 24
 	}
 	target := cwd
+	if target == "" && command != "" {
+		// A coding agent asked for without a folder works in home, not in
+		// the service's own directory (/ on a node).
+		target, _ = os.UserHomeDir()
+	}
 	if target == "" {
 		target = a.workdir
 	}
@@ -282,7 +287,9 @@ func (a *App) open(cols, rows int, cwd, shell, command string) map[string]any {
 		cmd = commandShell(shellPath, command)
 	}
 	cmd.Dir = target
-	env := childenv.Workspace() // a terminal gets none of the node's credentials
+	// A terminal gets none of the node's credentials, nor the markers of an
+	// agent session the node itself was started from.
+	env := codingagents.CleanEnv(childenv.Workspace())
 	if os.Getenv("TERM") == "" {
 		env = append(env, "TERM=xterm-256color")
 	}

@@ -118,6 +118,9 @@ func TestOpenRunsACommandThenAShell(t *testing.T) {
 	if !strings.Contains(scroll, "agent ran") || !strings.Contains(scroll, "still-42") {
 		t.Fatalf("scrollback %q", scroll)
 	}
+	if res["cwd"] != home {
+		t.Fatalf("an agent without a folder starts in home, got %v", res["cwd"])
+	}
 }
 
 func min(a, b int) int {

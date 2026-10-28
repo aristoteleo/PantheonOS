@@ -179,3 +179,36 @@ func TestUnknownAndTerminalOnlyAgents(t *testing.T) {
 		t.Fatalf("missing cwd: %v", r)
 	}
 }
+
+// The quota an agent reports during a turn shows with the agent afterwards,
+// also after the service restarts.
+func TestQuotaFollowsTheAgent(t *testing.T) {
+	fakeAgent(t, "claude", `cat <<'EOF'
+{"type":"system","subtype":"init","session_id":"s"}
+{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"five_hour":{"utilization":0.2,"resetsAt":1}}}}
+{"type":"result","subtype":"success","is_error":false,"result":"ok","duration_ms":1200,"usage":{"input_tokens":10,"output_tokens":5}}
+EOF
+`)
+	a := NewApp(nil, "", t.TempDir())
+	id := a.send(SendArgs{Agent: "claude", Prompt: "hi"})["conversation_id"].(string)
+	waitIdle(t, a, id)
+	info := func(app *App) AgentInfo {
+		for _, i := range app.detect(false)["agents"].([]AgentInfo) {
+			if i.ID == "claude" {
+				return i
+			}
+		}
+		t.Fatal("claude not detected")
+		return AgentInfo{}
+	}
+	if l := info(a).Limits["five_hour"]; l.Used != 0.2 {
+		t.Fatalf("limits %+v", info(a))
+	}
+	ev := a.conversation(id, 0)["events"].([]codingagents.Event)
+	if done := ev[len(ev)-1]; done.DurationMs != 1200 || done.InputTokens != 10 || done.OutputTokens != 5 {
+		t.Fatalf("done %+v", done)
+	}
+	if l := info(NewApp(nil, "", a.root)).Limits["five_hour"]; l.Used != 0.2 {
+		t.Fatal("the quota is forgotten after a restart")
+	}
+}

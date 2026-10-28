@@ -195,3 +195,35 @@ func TestOneLine(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+// Every agent's turn reports its size the same way; Claude Code also reports
+// its account quota and how full the context is.
+func TestTurnUsageAndQuota(t *testing.T) {
+	last := func(events []Event) Event { return events[len(events)-1] }
+	claude := last(parseFixture(t, "claude"))
+	if claude.InputTokens == 0 || claude.OutputTokens == 0 || claude.CachedTokens == 0 ||
+		claude.ContextWindow != 1_000_000 || claude.ContextTokens == 0 || claude.DurationMs == 0 || claude.CostUSD == 0 {
+		t.Errorf("claude done %+v", claude)
+	}
+	codex := last(parseFixture(t, "codex"))
+	if codex.InputTokens != 36303 || codex.CachedTokens != 31616 || codex.OutputTokens != 61 {
+		t.Errorf("codex done %+v", codex)
+	}
+	cursor := last(parseFixture(t, "cursor"))
+	if cursor.OutputTokens != 178 || cursor.DurationMs != 5373 || cursor.InputTokens < cursor.CachedTokens {
+		t.Errorf("cursor done %+v", cursor)
+	}
+	ev := (&claudeParser{}).Parse([]byte(`{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{` +
+		`"five_hour":{"utilization":0.09,"resetsAt":1793239800},"seven_day":{"utilization":0.65,"resetsAt":1793523600}}}}`))
+	if len(ev) != 1 || ev[0].Type != "limits" || ev[0].Limits["five_hour"].Used != 0.09 || ev[0].Limits["seven_day"].ResetsAt != 1793523600 {
+		t.Fatalf("limits %+v", ev)
+	}
+}
+
+func TestCleanEnvKeepsConfigurationDropsSessionMarkers(t *testing.T) {
+	got := CleanEnv([]string{"HOME=/h", "CLAUDECODE=1", "CLAUDE_CODE_CHILD_SESSION=1", "CLAUDE_CONFIG_DIR=/c",
+		"CLAUDE_CODE_USE_BEDROCK=1", "CODEX_THREAD_ID=x"})
+	if !slices.Equal(got, []string{"HOME=/h", "CLAUDE_CONFIG_DIR=/c", "CLAUDE_CODE_USE_BEDROCK=1"}) {
+		t.Fatalf("got %v", got)
+	}
+}
