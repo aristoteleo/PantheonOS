@@ -23,6 +23,12 @@ type Found struct {
 	Path     string `json:"path"`
 	Terminal bool   `json:"terminal"`
 	Headless bool   `json:"conversation"`
+	// From the node's settings: hidden from launchers, a user-defined
+	// agent (Path is then its command line), or a replaced command that is
+	// not there.
+	Hidden  bool `json:"hidden,omitempty"`
+	Custom  bool `json:"custom,omitempty"`
+	Missing bool `json:"missing,omitempty"`
 }
 
 const (
@@ -268,4 +274,52 @@ func nvmDirs(home string) []string {
 		dirs[i] = filepath.Join(root, v, "bin")
 	}
 	return dirs
+}
+
+// Apply puts the node's settings on a detection: a replaced command, hidden
+// agents and the user's own agents.
+func Apply(found []Found, s Settings) []Found {
+	return applyIn(found, s, SearchDirs(false), runtime.GOOS)
+}
+
+func applyIn(found []Found, s Settings, dirs []string, goos string) []Found {
+	byID := map[string]int{}
+	out := slices.Clone(found)
+	for i, f := range out {
+		byID[f.ID] = i
+	}
+	for _, a := range Catalog {
+		set, ok := s.Agents[a.ID]
+		if !ok {
+			continue
+		}
+		i, detected := byID[a.ID]
+		if set.Command != "" {
+			path := set.Command
+			if !filepath.IsAbs(path) {
+				path = findCommand([]string{path}, dirs, goos)
+			} else if !executable(path, goos) {
+				path = ""
+			}
+			f := Found{ID: a.ID, Label: a.Label, Path: path, Terminal: goos != "windows", Headless: a.Headless != nil}
+			if path == "" {
+				f.Path, f.Missing = set.Command, true
+			}
+			if detected {
+				out[i] = f
+			} else {
+				byID[a.ID] = len(out)
+				out = append(out, f)
+				i, detected = len(out)-1, true
+			}
+		}
+		if detected {
+			out[i].Hidden = set.Hidden
+		}
+	}
+	for _, c := range s.Custom {
+		out = append(out, Found{ID: c.ID, Label: c.Label, Path: c.Command, Terminal: goos != "windows", Custom: true,
+			Hidden: s.Agents[c.ID].Hidden})
+	}
+	return out
 }

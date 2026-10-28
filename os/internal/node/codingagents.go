@@ -22,7 +22,10 @@ func CodingAgents() []proto.CodingAgent {
 		}()
 	}
 	out := make([]proto.CodingAgent, 0, len(found))
-	for _, f := range found {
+	for _, f := range codingagents.Apply(found, codingagents.LoadSettings()) {
+		if f.Hidden || f.Missing {
+			continue
+		}
 		out = append(out, proto.CodingAgent{ID: f.ID, Label: f.Label, Path: f.Path,
 			Terminal: f.Terminal, Conversation: f.Headless})
 	}

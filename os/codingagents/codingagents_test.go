@@ -2,11 +2,13 @@ package codingagents
 
 import (
 	"bufio"
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func parseFixture(t *testing.T, id string) []Event {
@@ -238,5 +240,105 @@ func TestUnwrapShell(t *testing.T) {
 		if got := unwrapShell(in); got != want {
 			t.Errorf("%s: got %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestApplySettings(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "my-codex"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	found := []Found{{ID: "claude", Label: "Claude Code", Path: "/x/claude", Terminal: true, Headless: true}}
+	s := Settings{Agents: map[string]AgentSettings{
+		"claude": {Hidden: true}, "codex": {Command: "my-codex"}, "gemini": {Command: "/no/gemini"}},
+		Custom: []CustomAgent{{ID: "mine", Label: "Mine", Command: "mine --tui"}}}
+	got := map[string]Found{}
+	for _, f := range applyIn(found, s, []string{dir}, "linux") {
+		got[f.ID] = f
+	}
+	if !got["claude"].Hidden || got["codex"].Path != filepath.Join(dir, "my-codex") || !got["codex"].Headless ||
+		!got["gemini"].Missing || !got["mine"].Custom || got["mine"].Path != "mine --tui" {
+		t.Fatalf("%+v", got)
+	}
+	if err := s.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	bad := Settings{Custom: []CustomAgent{{ID: "claude", Label: "x", Command: "y"}}}
+	if bad.Validate() == nil {
+		t.Fatal("a custom agent may not take a catalog id")
+	}
+}
+
+func TestClaudeSessions(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "-work-repo")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(project, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("s1.jsonl", `{"type":"user","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-10-28T10:00:00Z","message":{"role":"user","content":"<command-name>/clear</command-name>"}}
+{"type":"user","cwd":"/work/repo","gitBranch":"main","timestamp":"2026-10-28T10:00:01Z","message":{"role":"user","content":[{"type":"text","text":"Fix the parser\nplease"}]}}
+{"type":"ai-title","aiTitle":"Parser fix"}
+`)
+	write("s2.jsonl", `{"type":"summary","summary":"nothing"}`+"\n")
+	write("agent-1.jsonl", `{"type":"user","message":{"content":"sub"}}`+"\n")
+	got := claudeSessionsIn(root, 10)
+	if len(got) != 1 || got[0].ID != "s1" || got[0].Title != "Parser fix" || got[0].Preview != "Fix the parser …" ||
+		got[0].Cwd != "/work/repo" || got[0].Branch != "main" || got[0].CreatedAt == 0 {
+		t.Fatalf("%+v", got)
+	}
+}
+
+// Codex answers through its app-server; a fake one stands in.
+func TestCodexAppServer(t *testing.T) {
+	dir := t.TempDir()
+	codex := filepath.Join(dir, "codex")
+	script := `#!/bin/sh
+while read -r line; do
+  case "$line" in
+    *'"id":2'*rateLimits*) printf '%s\n' '{"id":2,"result":{"rateLimits":{"primary":{"usedPercent":20,"windowDurationMins":10080,"resetsAt":9},"secondary":{"usedPercent":5,"windowDurationMins":300,"resetsAt":3},"planType":"pro"}}}' ;;
+    *'"id":2'*thread/list*) printf '%s\n' '{"id":2,"result":{"data":[{"id":"th1","name":"","preview":"Check NAS\nrights","cwd":"/srv","model":"gpt-x","source":"cli","createdAt":1,"updatedAt":2,"gitInfo":{"branch":"dev"}}]}}' ;;
+    *'"id":1'*) printf '%s\n' '{"id":1,"result":{}}' ;;
+  esac
+done
+`
+	if err := os.WriteFile(codex, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	q, err := CodexQuota(ctx, codex, os.Environ())
+	if err != nil || q.Plan != "pro" || q.Limits["seven_day"].Used != 0.2 || q.Limits["five_hour"].ResetsAt != 3 {
+		t.Fatalf("%+v %v", q, err)
+	}
+	s, err := CodexSessions(ctx, codex, os.Environ(), 5)
+	if err != nil || len(s) != 1 || s[0].Title != "Check NAS …" || s[0].Branch != "dev" || s[0].Agent != "codex" {
+		t.Fatalf("%+v %v", s, err)
+	}
+}
+
+func TestHookStates(t *testing.T) {
+	cases := []struct {
+		agent, event string
+		payload      map[string]any
+		want         string
+	}{
+		{"claude", "PreToolUse", map[string]any{"tool_name": "AskUserQuestion"}, "waiting"},
+		{"claude", "PreToolUse", map[string]any{"tool_name": "Bash"}, "working"},
+		{"claude", "Notification", map[string]any{"notification_type": "permission_prompt"}, "waiting"},
+		{"claude", "Notification", map[string]any{"notification_type": "auth_success"}, ""},
+		{"codex", "Notify", map[string]any{"type": "agent-turn-complete"}, "ready"},
+	}
+	for _, c := range cases {
+		if got := HookState(c.agent, c.event, c.payload); got != c.want {
+			t.Errorf("%s %s: got %q want %q", c.agent, c.event, got, c.want)
+		}
+	}
+	if l := StatusLineLimits(map[string]any{"rate_limits": map[string]any{"seven_day": map[string]any{"utilization": 0.3}}}); l["seven_day"].Used != 0.3 {
+		t.Errorf("%+v", l)
 	}
 }

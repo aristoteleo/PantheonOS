@@ -197,6 +197,11 @@ func (s *Session) request(ctx context.Context, method, target, bearer string, bo
 	if bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
+	// A coding agent's requests say so (PANTHEON_CLIENT is set where a node
+	// starts one), so they can be told from the user's own.
+	if client := os.Getenv("PANTHEON_CLIENT"); client != "" {
+		req.Header.Set("X-Pantheon-Client", client)
+	}
 	resp, err := s.http.Do(req)
 	if err != nil {
 		return err

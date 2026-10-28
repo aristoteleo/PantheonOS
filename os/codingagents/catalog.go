@@ -4,6 +4,8 @@
 // its output as events. See docs/apps/coding-agents.md.
 package codingagents
 
+import "strings"
+
 // Agent is one catalog entry.
 type Agent struct {
 	ID    string
@@ -20,6 +22,13 @@ type Agent struct {
 	Resume func(id string) []string
 	// Headless is set for agents whose conversation mode is supported.
 	Headless *Headless
+	// ModelFlag selects a model at launch ("--model", "-m").
+	ModelFlag string
+	// Instructions turns a note from PantheonOS into launch arguments, for
+	// agents that take extra system instructions that way.
+	Instructions func(text string) []string
+	// Install is the command that installs the agent where it is missing.
+	Install string
 }
 
 // Headless describes one agent's machine-readable mode.
@@ -47,6 +56,8 @@ func ids(id string, flag string) []string { return []string{flag, id} }
 var Catalog = []Agent{
 	{
 		ID: "claude", Label: "Claude Code", Commands: []string{"claude"},
+		ModelFlag: "--model", Install: "curl -fsSL https://claude.ai/install.sh | bash",
+		Instructions: func(text string) []string { return []string{"--append-system-prompt", text} },
 		AutoFlags: []string{"--dangerously-skip-permissions"},
 		Resume:    func(id string) []string { return ids(id, "--resume") },
 		Headless: &Headless{
@@ -68,6 +79,8 @@ var Catalog = []Agent{
 	},
 	{
 		ID: "codex", Label: "Codex", Commands: []string{"codex"},
+		ModelFlag: "-m", Install: "npm install -g @openai/codex",
+		Instructions: func(text string) []string { return []string{"-c", "developer_instructions=" + tomlString(text)} },
 		AutoFlags: []string{"--dangerously-bypass-approvals-and-sandbox"},
 		Resume:    func(id string) []string { return []string{"resume", id} },
 		Headless: &Headless{
@@ -90,6 +103,7 @@ var Catalog = []Agent{
 	},
 	{
 		ID: "gemini", Label: "Gemini CLI", Commands: []string{"gemini"},
+		ModelFlag: "-m", Install: "npm install -g @google/gemini-cli",
 		AutoFlags: []string{"--yolo"},
 		Resume:    func(id string) []string { return ids(id, "--resume") },
 		Headless: &Headless{
@@ -112,6 +126,7 @@ var Catalog = []Agent{
 	},
 	{
 		ID: "cursor", Label: "Cursor Agent", Commands: []string{"cursor-agent"},
+		ModelFlag: "--model", Install: "curl https://cursor.com/install -fsS | bash",
 		AutoFlags: []string{"--force"},
 		Resume:    func(id string) []string { return ids(id, "--resume") },
 		Headless: &Headless{
@@ -132,13 +147,15 @@ var Catalog = []Agent{
 			Parser: func() Parser { return &cursorParser{} },
 		},
 	},
-	{ID: "opencode", Label: "OpenCode", Commands: []string{"opencode"}},
+	{ID: "opencode", Label: "OpenCode", Commands: []string{"opencode"}, ModelFlag: "--model",
+		Install: "curl -fsSL https://opencode.ai/install | bash"},
 	{ID: "copilot", Label: "GitHub Copilot CLI", Commands: []string{"copilot"},
-		AutoFlags: []string{"--allow-all-tools"}},
+		AutoFlags: []string{"--allow-all-tools"}, Install: "npm install -g @github/copilot"},
 	{ID: "aider", Label: "Aider", Commands: []string{"aider"}, AutoFlags: []string{"--yes-always"}},
 	{ID: "goose", Label: "Goose", Commands: []string{"goose"}},
 	{ID: "amp", Label: "Amp", Commands: []string{"amp"}},
-	{ID: "qwen", Label: "Qwen Code", Commands: []string{"qwen"}, AutoFlags: []string{"--yolo"}},
+	{ID: "qwen", Label: "Qwen Code", Commands: []string{"qwen"}, AutoFlags: []string{"--yolo"}, ModelFlag: "-m",
+		Install: "npm install -g @qwen-code/qwen-code"},
 	{ID: "kimi", Label: "Kimi CLI", Commands: []string{"kimi", "kimi-code"}},
 	{ID: "crush", Label: "Crush", Commands: []string{"crush"}},
 	{ID: "droid", Label: "Droid", Commands: []string{"droid"}},
@@ -167,4 +184,10 @@ func (a Agent) TerminalArgv(path, resume string, auto bool) []string {
 		argv = append(argv, a.AutoFlags...)
 	}
 	return argv
+}
+
+// tomlString quotes s as a TOML basic string (for codex -c key=value).
+func tomlString(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`, "\r", `\r`, "\t", `\t`)
+	return `"` + r.Replace(s) + `"`
 }

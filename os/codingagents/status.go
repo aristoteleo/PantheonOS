@@ -170,7 +170,7 @@ func CleanEnv(env []string) []string {
 // sandbox; a node running as root is a disposable workspace container.
 func AgentEnv(agentID string) []string {
 	env := CleanEnv(workspaceEnv())
-	path := strings.Join(SearchDirs(false), string(os.PathListSeparator))
+	path := strings.Join(cliPath(SearchDirs(false)), string(os.PathListSeparator))
 	out := make([]string, 0, len(env)+2)
 	for _, kv := range env {
 		if !strings.HasPrefix(kv, "PATH=") {

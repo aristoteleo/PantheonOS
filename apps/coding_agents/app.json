@@ -2,7 +2,7 @@
   "apiVersion": 2,
   "id": "coding-agents",
   "name": "Coding Agents Service",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "kind": "service",
   "runtime": "builtin",
   "description": "Finds coding-agent CLIs on a node and runs their headless mode as conversations.",
@@ -22,7 +22,7 @@
       },
       {
         "name": "agent_terminal_command",
-        "description": "The shell command that opens an agent's own interactive interface, for pty_open.\n\nArgs:\n    agent: Catalog id (claude, codex, gemini, cursor, ...).\n    resume: The agent's session id to reopen.\n    auto: Start in full-auto mode (no approval prompts).",
+        "description": "The shell command that opens an agent's own interface, for pty_open, and the terminal session it reports to.\n\nArgs:\n    agent: Catalog id (claude, codex, gemini, cursor, ...) or a custom agent's id.\n    resume: The agent's session id to reopen.\n    auto: Start in full-auto mode (no approval prompts).\n    cwd: The folder, recorded with the terminal session.",
         "hidden": true,
         "params": [
           {
@@ -39,12 +39,17 @@
             "name": "auto",
             "type": "bool",
             "default": true
+          },
+          {
+            "name": "cwd",
+            "type": "str",
+            "default": ""
           }
         ]
       },
       {
         "name": "agent_send",
-        "description": "Send a message to a coding agent and start its turn. Events stream on pantheon.stream.coding_<conversation_id>.\n\nArgs:\n    prompt: The message.\n    agent: Catalog id; needed for a new conversation.\n    cwd: Folder the agent works in; a new conversation only. Defaults to home.\n    conversation_id: Continue this conversation.\n    model: Model name the agent understands.\n    auto: Full-auto mode for a new conversation.\n    origin: Who started it (ui, agent, cli).",
+        "description": "Send a message to a coding agent and start its turn. Events stream on pantheon.stream.coding_<conversation_id>.\n\nArgs:\n    prompt: The message.\n    agent: Catalog id; needed for a new conversation.\n    cwd: Folder the agent works in; a new conversation only. Defaults to home.\n    conversation_id: Continue this conversation.\n    model: Model name the agent understands.\n    auto: Full-auto mode for a new conversation.\n    origin: Who started it (ui, agent, cli).\n    session_id: Continue this session of the agent's own (one started outside PantheonOS) as a new conversation.\n    title: The new conversation's title.",
         "hidden": true,
         "params": [
           {
@@ -79,6 +84,16 @@
           },
           {
             "name": "origin",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "session_id",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "title",
             "type": "str",
             "default": ""
           }
@@ -141,6 +156,74 @@
             "required": true
           }
         ]
+      },
+      {
+        "name": "agent_sessions",
+        "description": "The sessions the agents keep themselves on this node (also those started outside PantheonOS), newest first, with the conversation that continues each.\n\nArgs:\n    agent: Only this agent's sessions.\n    limit: How many (default 50, at most 200).",
+        "hidden": true,
+        "params": [
+          {
+            "name": "agent",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "limit",
+            "type": "int",
+            "default": 50
+          }
+        ]
+      },
+      {
+        "name": "agent_terminals",
+        "description": "Agents opened in Terminal windows in the last day, with what each is doing (ready, working, waiting for the user, ended).",
+        "hidden": true,
+        "params": []
+      },
+      {
+        "name": "agents_settings",
+        "description": "How the agents on this node are set up: per agent (hidden, command, args, env, model, auto), custom agents, and whether agents may use PantheonOS. The key itself is never returned.",
+        "hidden": true,
+        "params": []
+      },
+      {
+        "name": "agents_configure",
+        "description": "Replace the agents' settings and the custom agents on this node.\n\nArgs:\n    agents: {agent id: {hidden, command, args, env, model, auto}}.\n    custom: [{id, label, command, env}] — agents run in a terminal by a command line.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "agents",
+            "type": "dict | None",
+            "default": null
+          },
+          {
+            "name": "custom",
+            "type": "list | None",
+            "default": null
+          }
+        ]
+      },
+      {
+        "name": "agents_access",
+        "description": "Let agents on this node use PantheonOS through the pantheon command with a platform key made for the node; an empty key turns it off. Returns replaced_key_id when another key was in place, for the caller to revoke.\n\nArgs:\n    key: The platform key (pbk_...).\n    key_id: Its id, for revoking it later.\n    hub_url: The Hub it belongs to.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "key",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "key_id",
+            "type": "int",
+            "default": 0
+          },
+          {
+            "name": "hub_url",
+            "type": "str",
+            "default": ""
+          }
+        ]
       }
     ],
     "interfaces": [
@@ -153,7 +236,12 @@
           "agent_stop",
           "agent_conversations",
           "agent_conversation",
-          "agent_delete"
+          "agent_delete",
+          "agent_sessions",
+          "agent_terminals",
+          "agents_settings",
+          "agents_configure",
+          "agents_access"
         ]
       }
     ]

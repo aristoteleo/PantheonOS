@@ -138,6 +138,77 @@ Claude Code refuses its full-auto flag as root. A node running as root is
 normally a disposable workspace container, so the service sets `IS_SANDBOX=1`
 for Claude there.
 
+## Agents using PantheonOS
+
+An agent can use PantheonOS itself through the `pantheon` command: the
+user's desktop and its windows, Apps (notebooks, model services and others),
+the other Fleet nodes and their files, models, and the Pantheon Agent.
+
+- **Key.** The user turns this on per node in Coding Agents. The desktop
+  makes a platform key named `Coding agents · <node>` and hands it to the
+  node's service (`agents_access`), which keeps it in its settings file
+  (mode 600). Settings → API keys lists it; turning access off, or revoking
+  it there, ends it. A platform key only reaches workload routes (deployment
+  Apps, model services), not keys or the account.
+- **Environment.** Every turn and terminal launch gets `PANTHEON_KEY`,
+  `PANTHEON_HUB_URL`, `PANTHEON_CLIENT=coding-agent/<id>` (sent by the CLI as
+  `X-Pantheon-Client`), `PANTHEON_CODING_AGENT`, the conversation or terminal
+  id and the node id. The node's own `pantheon` comes first on PATH.
+- **Note.** A short note says what the command is for and to run
+  `pantheon --help`: Claude Code gets it through `--append-system-prompt`,
+  Codex through `-c developer_instructions=…`; Gemini CLI and Cursor Agent
+  get it before the first prompt of a conversation. Nothing is written into
+  the agents' own configuration or the project.
+
+A terminal launch never carries the key in its command line: the line reads
+the variables from a file only the user can read, removes it, and runs the
+agent in a subshell, so the shell left when the agent exits has none of them.
+
+## Settings
+
+Per node, `agents_settings` / `agents_configure` keep, for each agent: hidden,
+a replacement command (an absolute path or a name on PATH), extra arguments,
+environment variables, a default model (passed with the agent's model flag)
+and whether full auto is the default. Custom agents are a name and a command
+line; they open in a terminal. Hidden agents leave the node's report. For a
+known agent that is missing, detection returns the command that installs it,
+which the desktop runs in a Terminal window on that node.
+
+## Terminal sessions
+
+A terminal launch is a terminal session of the service, reported on the
+`pantheon.stream.coding_terminals` stream and by `agent_terminals`. Its state
+— starting, ready, working, waiting (for a permission or an answer), ended —
+comes from hooks given to that launch only:
+
+- Claude Code: `--settings <file>` with hooks for its session, prompt, tool,
+  permission, notification and stop events, and, when the user has no status
+  line of their own, a status line that forwards the account's limits at
+  most every 15 s.
+- Codex: `-c notify=…`, which reports each finished turn.
+
+Each hook posts the event to a listener of the service on 127.0.0.1 with a
+token from the launch. The desktop shows the state and notifies the user
+when an agent waits for them.
+
+## Quota
+
+- Claude Code: the limits in its stream (`rate_limit_event`) during a turn,
+  and in its status line in a terminal.
+- Codex: `codex app-server` answers `account/rateLimits/read` (windows, plan);
+  the service asks at most every five minutes. Codex reads its own sign-in.
+
+The agent list shows the last quota with its time.
+
+## Sessions
+
+`agent_sessions` lists the sessions the agents keep themselves, including
+those started outside PantheonOS: Claude Code's session files under
+`~/.claude/projects` (only each file's head and tail are read: first prompt,
+folder, branch, title) and Codex's threads through `codex app-server`
+(`thread/list`). A session opens in a terminal with its resume argument, or
+continues as a new conversation (`agent_send` with `session_id`).
+
 ## Where it shows
 
 - **Coding Agents App.** Agents grouped by node; per agent, its conversations

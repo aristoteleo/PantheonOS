@@ -189,4 +189,6 @@ func exposeCommand(stateDir string) {
 		}
 	}
 	_ = os.Setenv("PATH", os.Getenv("PATH")+string(os.PathListSeparator)+dir)
+	// Coding agents this node starts find this command before any other.
+	_ = os.Setenv("PANTHEON_CLI_BIN", dir)
 }

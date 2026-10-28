@@ -3,6 +3,8 @@
 package codingagentsapp
 
 import (
+	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,6 +25,7 @@ func fakeAgent(t *testing.T, name, body string) string {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Setenv("SHELL", "/bin/sh")
 	t.Setenv("PATH", dir+":/usr/bin:/bin")
 	codingagents.Detect(true)
@@ -147,13 +150,33 @@ func TestStopInterruptsTheTurn(t *testing.T) {
 	}
 }
 
+// A terminal launch reads its secrets from a file only the user can read
+// (and removes it), runs the agent in a subshell, and gives it hooks that
+// report to this service.
 func TestTerminalCommand(t *testing.T) {
 	fakeAgent(t, "codex", "")
 	a := NewApp(nil, "", t.TempDir())
-	res := a.terminalCommand("codex", "it's-1", true)
+	defer a.Close()
+	if r := a.setAccess("pbk_test", 7, "https://hub.test/"); r["success"] != true {
+		t.Fatal(r)
+	}
+	res := a.terminalCommand(TerminalArgs{Agent: "codex", Resume: "it's-1", Auto: true, Cwd: "/w"})
 	cmd, _ := res["command"].(string)
-	if !strings.HasSuffix(cmd, `/codex resume 'it'\''s-1' --dangerously-bypass-approvals-and-sandbox`) {
+	if !strings.HasPrefix(cmd, "( set -a; . ") || !strings.Contains(cmd, `/codex resume 'it'\''s-1' --dangerously-bypass-approvals-and-sandbox`) ||
+		!strings.Contains(cmd, "developer_instructions=") || !strings.Contains(cmd, "notify=") || strings.Contains(cmd, "pbk_test") {
 		t.Fatalf("command %q", cmd)
+	}
+	envFile := strings.Trim(strings.Fields(cmd)[4], "';")
+	st, err := os.Stat(envFile)
+	if err != nil || st.Mode().Perm() != 0o600 {
+		t.Fatalf("env file %s: %v %v", envFile, st, err)
+	}
+	env, _ := os.ReadFile(envFile)
+	for _, want := range []string{"PANTHEON_KEY=pbk_test", "PANTHEON_HUB_URL=https://hub.test", "PANTHEON_CLIENT=coding-agent/codex",
+		"PANTHEON_AGENT_HOOK_URL=http://127.0.0.1:", "PANTHEON_AGENT_TERMINAL=" + res["terminal_id"].(string)} {
+		if !strings.Contains(string(env), want) {
+			t.Errorf("env file lacks %s:\n%s", want, env)
+		}
 	}
 	installed := map[string]bool{}
 	for _, f := range codingagents.Detect(false) {
@@ -161,14 +184,131 @@ func TestTerminalCommand(t *testing.T) {
 	}
 	for _, agent := range codingagents.Catalog {
 		if !installed[agent.ID] {
-			if r := a.terminalCommand(agent.ID, "", true); r["success"] != false {
+			if r := a.terminalCommand(TerminalArgs{Agent: agent.ID}); r["success"] != false {
 				t.Fatalf("%s is not installed: %v", agent.ID, r)
 			}
 			break
 		}
 	}
-	if r := a.terminalCommand("no-such-agent", "", true); r["success"] != false {
+	if r := a.terminalCommand(TerminalArgs{Agent: "no-such-agent"}); r["success"] != false {
 		t.Fatalf("unknown agent: %v", r)
+	}
+}
+
+// Claude Code reports through the hooks of its launch: the terminal session
+// follows it, and the status line's limits become the agent's quota.
+func TestTerminalHooks(t *testing.T) {
+	fakeAgent(t, "claude", "")
+	a := NewApp(nil, "", t.TempDir())
+	defer a.Close()
+	res := a.terminalCommand(TerminalArgs{Agent: "claude", Auto: true})
+	id := res["terminal_id"].(string)
+	cmd := res["command"].(string)
+	i := strings.Index(cmd, "--settings ")
+	if i < 0 {
+		t.Fatalf("no settings: %s", cmd)
+	}
+	settings := strings.Trim(strings.Fields(cmd[i:])[1], "'")
+	doc, _ := os.ReadFile(settings)
+	if !strings.Contains(string(doc), `"PermissionRequest"`) || !strings.Contains(string(doc), "statusLine") {
+		t.Fatalf("settings %s", doc)
+	}
+	h, _ := a.hookServer()
+	post := func(event, body, token string) int {
+		req, _ := http.NewRequest("POST", h.url+"/hook/"+id+"/"+event, strings.NewReader(body))
+		req.Header.Set("X-Pantheon-Hook", token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	state := func() TerminalSession {
+		for _, s := range a.terminalList()["terminals"].([]TerminalSession) {
+			if s.ID == id {
+				return s
+			}
+		}
+		t.Fatal("terminal session gone")
+		return TerminalSession{}
+	}
+	if post("Stop", "{}", "wrong") != http.StatusForbidden {
+		t.Fatal("a hook without the token must be refused")
+	}
+	post("SessionStart", `{"session_id":"s-9"}`, h.token)
+	if s := state(); s.State != "ready" || s.SessionID != "s-9" {
+		t.Fatalf("%+v", s)
+	}
+	post("UserPromptSubmit", `{}`, h.token)
+	post("PermissionRequest", `{"tool_name":"Bash"}`, h.token)
+	if s := state(); s.State != "waiting" || s.Detail != "Bash" {
+		t.Fatalf("%+v", s)
+	}
+	post("StatusLine", `{"rate_limits":{"five_hour":{"used_percentage":42,"resets_at":5}}}`, h.token)
+	if l := state().Limits["five_hour"]; l.Used != 0.42 || l.ResetsAt != 5 {
+		t.Fatalf("limits %+v", l)
+	}
+	post("SessionEnd", `{}`, h.token)
+	if s := state(); s.State != "ended" {
+		t.Fatalf("%+v", s)
+	}
+	if _, err := os.Stat(settings); !os.IsNotExist(err) {
+		t.Error("an ended session's launch settings stay behind")
+	}
+}
+
+// Settings change every launch: a replaced command, added arguments and
+// variables, a default model; with PantheonOS access, the agent gets the key,
+// the pantheon command and a note on what it is for.
+func TestSettingsAndAccessShapeTurns(t *testing.T) {
+	record := fakeAgent(t, "claude", `env | grep -E '^(PANTHEON_|MY_VAR)' >> `+"\"$(dirname \"$0\")/env.txt\"\n"+claudeTurn)
+	dir := filepath.Dir(record)
+	if err := os.Rename(filepath.Join(dir, "claude"), filepath.Join(dir, "my-claude")); err != nil {
+		t.Fatal(err)
+	}
+	codingagents.Detect(true)
+	a := NewApp(nil, "", t.TempDir())
+	a.NodeID, a.NodeName = "n_mac", "My Mac"
+	if r := a.send(SendArgs{Agent: "claude", Prompt: "hi"}); r["success"] != false {
+		t.Fatalf("without its binary claude is not installed: %v", r)
+	}
+	r := a.configure(map[string]codingagents.AgentSettings{"claude": {Command: "my-claude", Args: []string{"--effort", "high"},
+		Env: map[string]string{"MY_VAR": "1"}, Model: "opus"}}, []codingagents.CustomAgent{{ID: "mine", Label: "Mine", Command: "echo hi"}})
+	if r["success"] != true {
+		t.Fatal(r)
+	}
+	a.setAccess("pbk_k", 3, "https://hub.test")
+	id := a.send(SendArgs{Agent: "claude", Prompt: "hi", Auto: true})["conversation_id"].(string)
+	waitIdle(t, a, id)
+	calls, _ := os.ReadFile(record)
+	for _, want := range []string{"--model opus", "--effort high", "--append-system-prompt You are running on My Mac"} {
+		if !strings.Contains(string(calls), want) {
+			t.Errorf("args lack %q:\n%s", want, calls)
+		}
+	}
+	env, _ := os.ReadFile(filepath.Join(dir, "env.txt"))
+	for _, want := range []string{"MY_VAR=1", "PANTHEON_KEY=pbk_k", "PANTHEON_CODING_CONVERSATION=" + id, "PANTHEON_NODE_ID=n_mac"} {
+		if !strings.Contains(string(env), want) {
+			t.Errorf("env lacks %s:\n%s", want, env)
+		}
+	}
+	agents := a.detect(false)["agents"].([]AgentInfo)
+	var custom bool
+	for _, i := range agents {
+		custom = custom || i.ID == "mine" && i.Custom && i.Terminal && !i.Headless
+	}
+	if !custom {
+		t.Errorf("the custom agent is not listed: %+v", agents)
+	}
+	if got := a.getSettings()["settings"].(map[string]any)["access"].(map[string]any); got["enabled"] != true || strings.Contains(fmt.Sprint(got), "pbk_k") {
+		t.Errorf("access %v", got)
+	}
+	if r := a.configure(map[string]codingagents.AgentSettings{"claude": {Env: map[string]string{"BAD NAME": "x"}}}, nil); r["success"] != false {
+		t.Errorf("a bad variable name must be refused: %v", r)
+	}
+	if r := a.setAccess("", 0, ""); r["replaced_key_id"] != int64(3) {
+		t.Errorf("turning access off hands back the key to revoke: %v", r)
 	}
 }
 

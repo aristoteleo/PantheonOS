@@ -461,7 +461,7 @@ func (f *Fleet) appsCredential(fleet string) (auth.AppsCredential, error) {
 	return c, nil
 }
 
-var builtinVersions = map[string]string{"node-files": "0.1.0", "pty": "0.6.7", "coding-agents": "0.1.0"}
+var builtinVersions = map[string]string{"node-files": "0.1.0", "pty": "0.6.7", "coding-agents": "0.2.0"}
 
 func (f *Fleet) nodeService(ctx context.Context, c *Call) (any, error) {
 	var a struct {

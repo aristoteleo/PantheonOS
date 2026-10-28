@@ -71,27 +71,31 @@ type App struct {
 	nc     *nats.Conn
 	prefix string
 
-	mu      sync.Mutex
-	convs   map[string]*Conversation
-	running map[string]*turn
-	limits  map[string]agentLimits
-	logMu   sync.Mutex // serialises event-log appends
+	// The node this service runs on, for what agents are told.
+	NodeID, NodeName string
+
+	mu        sync.Mutex
+	convs     map[string]*Conversation
+	running   map[string]*turn
+	limits    map[string]agentLimits
+	plans     map[string]string
+	terminals map[string]*TerminalSession
+	hooks     *hookServer
+	logMu     sync.Mutex // serialises event-log appends
+	quotaMu   sync.Mutex // one Codex quota read at a time
 }
 
 // DefaultRoot is where a node keeps its conversations.
-func DefaultRoot() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = os.TempDir()
-	}
-	return filepath.Join(home, ".pantheon", "coding-agents")
-}
+func DefaultRoot() string { return codingagents.Root() }
 
 // NewApp loads the conversations under root. A turn that was running when
 // the service last stopped is marked interrupted.
 func NewApp(nc *nats.Conn, prefix, root string) *App {
 	a := &App{root: root, nc: nc, prefix: prefix, convs: map[string]*Conversation{}, running: map[string]*turn{},
-		limits: map[string]agentLimits{}}
+		limits: map[string]agentLimits{}, plans: map[string]string{}, terminals: map[string]*TerminalSession{}}
+	if host, err := os.Hostname(); err == nil {
+		a.NodeName = host
+	}
 	if b, err := os.ReadFile(a.indexPath()); err == nil {
 		var list []*Conversation
 		if json.Unmarshal(b, &list) == nil {
@@ -156,57 +160,6 @@ func failure(format string, args ...any) map[string]any {
 
 // ---- detection -------------------------------------------------------------
 
-// AgentInfo is a detected agent with its status and last reported quota.
-type AgentInfo struct {
-	codingagents.Found
-	codingagents.Status
-	Limits   map[string]codingagents.Limit `json:"limits,omitempty"`
-	LimitsAt float64                       `json:"limits_at,omitempty"`
-}
-
-func (a *App) detect(refresh bool) map[string]any {
-	home, _ := os.UserHomeDir()
-	found := codingagents.Detect(refresh)
-	infos := make([]AgentInfo, len(found))
-	var wg sync.WaitGroup
-	for i, f := range found {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			infos[i] = AgentInfo{Found: f, Status: codingagents.Inspect(f)}
-		}()
-	}
-	wg.Wait()
-	a.mu.Lock()
-	for i := range infos {
-		if l, ok := a.limits[infos[i].ID]; ok {
-			infos[i].Limits, infos[i].LimitsAt = l.Limits, l.At
-		}
-	}
-	a.mu.Unlock()
-	return map[string]any{"success": true, "agents": infos, "home": home}
-}
-
-// terminalCommand is the shell command line that opens an agent's own
-// interface, for pty_open's command.
-func (a *App) terminalCommand(agentID, resume string, auto bool) map[string]any {
-	agent, ok := codingagents.Lookup(agentID)
-	if !ok {
-		return failure("Unknown coding agent %q", agentID)
-	}
-	path := codingagents.Path(agentID)
-	if path == "" {
-		return failure("%s is not installed on this node", agent.Label)
-	}
-	argv := agent.TerminalArgv(path, resume, auto)
-	line := shellJoin(argv)
-	if env := codingagents.ExtraEnv(agentID); len(env) > 0 {
-		line = strings.Join(env, " ") + " " + line
-	}
-	home, _ := os.UserHomeDir()
-	return map[string]any{"success": true, "command": line, "argv": argv, "label": agent.Label, "home": home}
-}
-
 func shellQuote(s string) string {
 	if s != "" && strings.IndexFunc(s, func(r rune) bool {
 		return !(r == '/' || r == '.' || r == '-' || r == '_' || r == '=' || r == ':' || r == '@' || r == '+' ||
@@ -236,6 +189,10 @@ type SendArgs struct {
 	Model          string
 	Auto           bool
 	Origin         string
+	// Session continues a session the agent already has (one started
+	// outside PantheonOS) as a new conversation; Title names it.
+	Session string
+	Title   string
 }
 
 func (a *App) send(p SendArgs) map[string]any {
@@ -264,6 +221,14 @@ func (a *App) send(p SendArgs) map[string]any {
 			a.mu.Unlock()
 			return failure("%q has no conversation mode; open it in a terminal", p.Agent)
 		}
+		if p.Session != "" {
+			for _, other := range a.convs {
+				if other.Agent == p.Agent && other.Session == p.Session && a.running[other.ID] != nil {
+					a.mu.Unlock()
+					return failure("That session is working in another conversation")
+				}
+			}
+		}
 		cwd := p.Cwd
 		if cwd == "" {
 			cwd, _ = os.UserHomeDir()
@@ -272,7 +237,7 @@ func (a *App) send(p SendArgs) map[string]any {
 			a.mu.Unlock()
 			return failure("%s is not a folder on this node", cwd)
 		}
-		title := firstLine(prompt)
+		title := firstLine(firstNonEmpty(p.Title, prompt))
 		if len([]rune(title)) > titleLimit {
 			title = string([]rune(title)[:titleLimit]) + "…"
 		}
@@ -281,21 +246,36 @@ func (a *App) send(p SendArgs) map[string]any {
 			origin = "ui"
 		}
 		c = &Conversation{ID: newID(), Agent: p.Agent, Cwd: cwd, Title: title, Model: p.Model, Auto: p.Auto,
-			Origin: origin, Created: now(), Status: "idle"}
+			Origin: origin, Created: now(), Status: "idle", Session: p.Session}
 		a.convs[c.ID] = c
 	}
 	agent, _ := codingagents.Lookup(c.Agent)
-	path := codingagents.Path(c.Agent)
-	if path == "" {
+	r, err := resolve(c.Agent)
+	if err != nil {
 		a.mu.Unlock()
-		return failure("%s is not installed on this node", agent.Label)
+		return failure("%v", err)
 	}
-	t := codingagents.Turn{Prompt: prompt, Session: c.Session, Model: c.Model, Cwd: c.Cwd, Auto: c.Auto}
-	cmd := exec.Command(path, agent.Headless.Args(t)...)
+	launch := codingagents.Launch{Agent: c.Agent, Conversation: c.ID, NodeID: a.NodeID, NodeName: a.NodeName}
+	note := codingagents.Note(r.settings, launch)
+	agentPrompt := prompt
+	if note != "" && agent.Instructions == nil && c.Seq == 0 && c.Session == "" {
+		// Without a way to add instructions, the first prompt carries them.
+		agentPrompt = "[" + note + "]\n\n" + prompt
+	}
+	model := c.Model
+	if model == "" {
+		model = r.settings.Agents[c.Agent].Model
+	}
+	t := codingagents.Turn{Prompt: agentPrompt, Session: c.Session, Model: model, Cwd: c.Cwd, Auto: c.Auto}
+	args := append(agent.Headless.Args(t), r.settings.Agents[c.Agent].Args...)
+	if note != "" && agent.Instructions != nil {
+		args = append(args, agent.Instructions(note)...)
+	}
+	cmd := exec.Command(r.path, args...)
 	cmd.Dir = c.Cwd
-	cmd.Env = codingagents.AgentEnv(c.Agent)
+	cmd.Env = codingagents.LaunchEnv(r.settings, launch)
 	if !agent.Headless.PromptArg {
-		cmd.Stdin = strings.NewReader(prompt)
+		cmd.Stdin = strings.NewReader(agentPrompt)
 	}
 	setProcessGroup(cmd)
 	stdout, err := cmd.StdoutPipe()
@@ -550,8 +530,9 @@ func (a *App) remove(id string) map[string]any {
 	return map[string]any{"success": true}
 }
 
-// Close stops every running turn.
+// Close stops every running turn and the hook endpoint.
 func (a *App) Close() {
+	defer a.closeHooks()
 	a.mu.Lock()
 	ids := make([]string, 0, len(a.running))
 	for id := range a.running {
