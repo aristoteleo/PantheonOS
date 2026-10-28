@@ -420,7 +420,8 @@ class ChatNameGenerator:
         self._name_agent_model: str | None = None
 
     # Default names that indicate the chat hasn't been meaningfully named yet
-    DEFAULT_NAMES = {"New Chat", "New Chat in Project", "新建聊天", "在项目中新建聊天", ""}
+    # ("repl-session" is what the terminal chat creates)
+    DEFAULT_NAMES = {"New Chat", "New Chat in Project", "新建聊天", "在项目中新建聊天", "repl-session", ""}
 
     async def generate_or_update_name(
         self,

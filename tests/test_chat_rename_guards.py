@@ -44,6 +44,8 @@ class TestIsDefaultName:
         assert self.gen._is_default_name("新建聊天") is True
         assert self.gen._is_default_name("在项目中新建聊天") is True
         assert self.gen._is_default_name("") is True
+        # The terminal chat's placeholder.
+        assert self.gen._is_default_name("repl-session") is True
 
     def test_whitespace_only_is_default(self):
         assert self.gen._is_default_name("   ") is True
