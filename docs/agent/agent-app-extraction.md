@@ -71,8 +71,9 @@ Bugs found on staging (browser sweeps 2026-10-19/20):
 2. Fixed (ui afcd0bea): HTTP error pages from proxies were shown as raw HTML.
 3. Fixed (ui afcd0bea): long model ids in Model Services ran into the context
    column.
-4. Workspace cold start (68 s): the brain's NATS-credential restart, serial
-   installs and pip environment builds remain.
+4. Workspace cold start (68 s): serial installs and pip environment builds
+   remain. Fixed (hub 54bfa3a): the Hub replaced a Runner-only Pod when the
+   hub NATS credentials it never uses expired, restarting the Agent.
 5. Hosted/installed Apps cannot come from a private package.
 6. Fixed (ui fd6febee): Settings showed "Chat messages 0/1000" and
    "Storage 0/10 GB" on a Fleet deployment. The Hub counts messages only from
@@ -81,11 +82,13 @@ Bugs found on staging (browser sweeps 2026-10-19/20):
 7. Fixed (runtime 402b712a): terminal chats kept the name `repl-session`.
 8. Clicking a file link in a chat while the side panel is closed does not open
    the preview.
-9. A reverted turn's follow-up suggestions stay visible.
+9. Fixed (ui 4c675663): a reverted turn's follow-up suggestions stayed
+   visible.
 10. A forked chat looks like it kept its source's title (the runtime names it
     "<source> (fork)"; check what the sidebar shows).
-11. Settings keeps the previous tab's scroll position on a tab switch.
-12. Files: folder tiles are not drop targets, and the menu has no Move/Copy.
+11. Fixed (ui 38d7e89a): Settings kept the previous section's scroll position.
+12. Files: folder tiles are not drop targets, and the menu has no Move/Copy
+    (a missing feature, not a regression).
 13. Fixed (runtime 82ccd59f): node log warnings, a NATS `$JS.API.INFO`
     permissions violation and "appsvc: kv registration skipped … context
     deadline exceeded". The discovery registration that node and App
