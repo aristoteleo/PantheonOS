@@ -93,39 +93,47 @@ Bugs found on staging (browser sweeps 2026-10-19/20):
     permissions violation and "appsvc: kv registration skipped … context
     deadline exceeded". The discovery registration that node and App
     credentials cannot make held every shell, pty and node-files start for 5 s.
-14. Check on a running workspace: `python -c "from pantheon import packages"`
-    (the packages prompt) after the node-environment fix of 4c159fcc.
-15. PhyloTree (a Store App outside this repository) draws its tree clipped at
+14. `from pantheon import packages` (the packages prompt) works in the shell's
+    `python` since 4c159fcc, but not in `pantheon-base`, which has no `loguru`
+    and by design no `pantheon`; the prompt also offers it in
+    `python_interpreter`, whose kernel may be that environment. Align the
+    prompt with where it works.
+15. Fixed (hub e0af844): after an image change `/api/chatroom` returned 500
+    until the user's Pod was deleted by hand. The Hub will not adopt a Pod
+    with another image and asks for an explicit restart, which required an
+    assignment only adoption creates; the 500 itself was a loguru KeyError
+    hiding that reason.
+16. PhyloTree (a Store App outside this repository) draws its tree clipped at
     the top-left.
 
 Cutover in code:
 
-16. Make `runner` the Hub default (`pantheon_hub/core/config.py`), then remove
+17. Make `runner` the Hub default (`pantheon_hub/core/config.py`), then remove
    the ChatRoom-only branches: Hub topology selection, `_ping` readiness and
    health, `/chatroom/local-command` (and `stores/auth.ts`), the `.pantheon`
    tarball sync, the entrypoint's ChatRoom start, the UI's
    `legacyPodConnection.ts` and `LegacyWindowChatPane.vue`.
-17. Decide the old Desktop/CLI ChatRoom path (`pantheon ui`, `claw`, the Tauri
+18. Decide the old Desktop/CLI ChatRoom path (`pantheon ui`, `claw`, the Tauri
    `pantheon-backend` sidecar). Its build is already broken:
    `build_backend.spec` still lists `pantheon/toolsets/...` data that no longer
    exists. Either retire it in favour of `pantheon up`, or repair and test it.
-18. Delete now: the `PANTHEON_STATE_SYNC_OWNER` branches (nothing sets it), the
+19. Delete now: the `PANTHEON_STATE_SYNC_OWNER` branches (nothing sets it), the
    `sys.modules` aliases `chatroom/llm_playground*.py` and
    `internal/learning_system/{store,types}.py` (repoint their tests), stale
    `platform` comments in the Hub.
-19. Atrium's static edges to Agent code: `desktop/main.ts` →
+20. Atrium's static edges to Agent code: `desktop/main.ts` →
    `legacyAgentHost.ts`, and `FilesApp.vue`/`DesktopIcons.vue` →
    `desktop/apps/agent/chatWith.ts` (use App view events).
-20. `apps/mcp` imports `pantheon.chatroom` for its migration exports; move them
+21. `apps/mcp` imports `pantheon.chatroom` for its migration exports; move them
     out of the Agent package.
 
 Acceptance:
 
-21. A migration entry point for cloud and local owners, rehearsed on staging
+22. A migration entry point for cloud and local owners, rehearsed on staging
     with a copy of real data, including rollback.
-22. The `fleet-orchestration.md` §13 staging scenarios as a scripted suite.
-23. Performance and memory baseline against the ChatRoom brain.
-24. A data-format transformation exercised across an Agent upgrade and
+23. The `fleet-orchestration.md` §13 staging scenarios as a scripted suite.
+24. Performance and memory baseline against the ChatRoom brain.
+25. A data-format transformation exercised across an Agent upgrade and
     rollback.
 
 Kept until users have migrated (not remaining work): the migration modules and
