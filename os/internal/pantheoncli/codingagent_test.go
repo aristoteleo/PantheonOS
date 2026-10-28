@@ -61,3 +61,24 @@ func TestCodingAgentRunFollowsTheTurn(t *testing.T) {
 		t.Fatalf("send %#v", requests[1])
 	}
 }
+
+// A coding agent's node list names the node it runs on, not the Fleet's
+// own idea of "self".
+func TestNodesListMarksTheAgentsNode(t *testing.T) {
+	in := json.RawMessage(`{"success":true,"self_node_id":"n_agent","nodes":[{"node_id":"n_agent","is_self":true},{"node_id":"n_mac","is_self":false}]}`)
+	t.Setenv("PANTHEON_NODE_ID", "")
+	if string(markSelf(in)) != string(in) {
+		t.Fatal("without PANTHEON_NODE_ID the answer is unchanged")
+	}
+	t.Setenv("PANTHEON_NODE_ID", "n_mac")
+	var out struct {
+		Self  string           `json:"self_node_id"`
+		Nodes []map[string]any `json:"nodes"`
+	}
+	if err := json.Unmarshal(markSelf(in), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Self != "n_mac" || out.Nodes[0]["is_self"] != false || out.Nodes[1]["is_self"] != true {
+		t.Fatalf("%+v", out)
+	}
+}

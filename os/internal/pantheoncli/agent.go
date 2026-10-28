@@ -154,7 +154,11 @@ func (r *runner) viaAgent(link *agentLink, group string) error {
 		if arg(0) == "info" {
 			return send("nodes.info", map[string]any{"node": arg(1)}, 60*time.Second)
 		}
-		return send("nodes.list", nil, 60*time.Second)
+		result, err := link.do(r.ctx, "nodes.list", nil, 60*time.Second)
+		if err != nil {
+			return err
+		}
+		return r.print(markSelf(result))
 	case "run":
 		if r.p.flags["node"] == "" || len(r.p.rest) == 0 {
 			return errors.New("usage: pantheon run --node N [--kind shell|python] -- <command>")

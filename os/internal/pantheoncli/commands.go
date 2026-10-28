@@ -654,6 +654,7 @@ func (r *runner) nodes() error {
 		if err != nil {
 			return err
 		}
+		result = markSelf(result)
 		if r.json {
 			return r.print(result)
 		}
@@ -825,4 +826,33 @@ func valueOr(v any, def any) any {
 		return def
 	}
 	return v
+}
+
+// markSelf names the node this command runs on, when that node says so
+// (PANTHEON_NODE_ID, set where a node starts a coding agent): the Fleet
+// answers from its own side and cannot know.
+func markSelf(result json.RawMessage) json.RawMessage {
+	self := os.Getenv("PANTHEON_NODE_ID")
+	if self == "" {
+		return result
+	}
+	var reply map[string]any
+	if json.Unmarshal(result, &reply) != nil {
+		return result
+	}
+	nodes, ok := reply["nodes"].([]any)
+	if !ok {
+		return result
+	}
+	for _, item := range nodes {
+		if n, ok := item.(map[string]any); ok {
+			n["is_self"] = n["node_id"] == self
+		}
+	}
+	reply["self_node_id"] = self
+	out, err := json.Marshal(reply)
+	if err != nil {
+		return result
+	}
+	return out
 }
