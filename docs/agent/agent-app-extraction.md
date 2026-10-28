@@ -62,44 +62,65 @@ No milestone is complete merely because its files or manifest exist.
 
 ## Remaining development work (2026-10-27)
 
-Bugs found on staging:
+Bugs found on staging (browser sweeps 2026-10-19/20):
 
-1. A restored window of an on-demand App (Spatial 3D, Browser) shows "not
-   running" after a workspace restart, and Retry does not start the App.
-2. The Browser shows nginx's raw HTML on an error.
-3. Model Services: long model names overlap the context column.
+1. Fixed (ui afcd0bea): a restored window of an on-demand App (Spatial 3D,
+   Browser) showed "not running" after a workspace restart and Retry asked
+   for the same stopped instance; it now starts the window's own instance
+   (scope `app`) again on its node.
+2. Fixed (ui afcd0bea): HTTP error pages from proxies were shown as raw HTML.
+3. Fixed (ui afcd0bea): long model ids in Model Services ran into the context
+   column.
 4. Workspace cold start (68 s): the brain's NATS-credential restart, serial
    installs and pip environment builds remain.
 5. Hosted/installed Apps cannot come from a private package.
+6. Fixed (ui fd6febee): Settings showed "Chat messages 0/1000" and
+   "Storage 0/10 GB" on a Fleet deployment. The Hub counts messages only from
+   the classic chat and never measures storage; the bars are hidden there.
+   Metering either for Apps is new work.
+7. Fixed (runtime 402b712a): terminal chats kept the name `repl-session`.
+8. Clicking a file link in a chat while the side panel is closed does not open
+   the preview.
+9. A reverted turn's follow-up suggestions stay visible.
+10. A forked chat looks like it kept its source's title (the runtime names it
+    "<source> (fork)"; check what the sidebar shows).
+11. Settings keeps the previous tab's scroll position on a tab switch.
+12. Files: folder tiles are not drop targets, and the menu has no Move/Copy.
+13. Node log warnings: a NATS `$JS.API.INFO` permissions violation and
+    "appsvc: kv registration skipped … context deadline exceeded".
+14. Check on a running workspace: `python -c "from pantheon import packages"`
+    (the packages prompt) after the node-environment fix of 4c159fcc.
+15. PhyloTree (a Store App outside this repository) draws its tree clipped at
+    the top-left.
 
 Cutover in code:
 
-6. Make `runner` the Hub default (`pantheon_hub/core/config.py`), then remove
+16. Make `runner` the Hub default (`pantheon_hub/core/config.py`), then remove
    the ChatRoom-only branches: Hub topology selection, `_ping` readiness and
    health, `/chatroom/local-command` (and `stores/auth.ts`), the `.pantheon`
    tarball sync, the entrypoint's ChatRoom start, the UI's
    `legacyPodConnection.ts` and `LegacyWindowChatPane.vue`.
-7. Decide the old Desktop/CLI ChatRoom path (`pantheon ui`, `claw`, the Tauri
+17. Decide the old Desktop/CLI ChatRoom path (`pantheon ui`, `claw`, the Tauri
    `pantheon-backend` sidecar). Its build is already broken:
    `build_backend.spec` still lists `pantheon/toolsets/...` data that no longer
    exists. Either retire it in favour of `pantheon up`, or repair and test it.
-8. Delete now: the `PANTHEON_STATE_SYNC_OWNER` branches (nothing sets it), the
+18. Delete now: the `PANTHEON_STATE_SYNC_OWNER` branches (nothing sets it), the
    `sys.modules` aliases `chatroom/llm_playground*.py` and
    `internal/learning_system/{store,types}.py` (repoint their tests), stale
    `platform` comments in the Hub.
-9. Atrium's static edges to Agent code: `desktop/main.ts` →
+19. Atrium's static edges to Agent code: `desktop/main.ts` →
    `legacyAgentHost.ts`, and `FilesApp.vue`/`DesktopIcons.vue` →
    `desktop/apps/agent/chatWith.ts` (use App view events).
-10. `apps/mcp` imports `pantheon.chatroom` for its migration exports; move them
+20. `apps/mcp` imports `pantheon.chatroom` for its migration exports; move them
     out of the Agent package.
 
 Acceptance:
 
-11. A migration entry point for cloud and local owners, rehearsed on staging
+21. A migration entry point for cloud and local owners, rehearsed on staging
     with a copy of real data, including rollback.
-12. The `fleet-orchestration.md` §13 staging scenarios as a scripted suite.
-13. Performance and memory baseline against the ChatRoom brain.
-14. A data-format transformation exercised across an Agent upgrade and
+22. The `fleet-orchestration.md` §13 staging scenarios as a scripted suite.
+23. Performance and memory baseline against the ChatRoom brain.
+24. A data-format transformation exercised across an Agent upgrade and
     rollback.
 
 Kept until users have migrated (not remaining work): the migration modules and
