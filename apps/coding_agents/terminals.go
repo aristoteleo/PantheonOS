@@ -25,6 +25,7 @@ const terminalKeep = 24 * time.Hour
 // state comes from the hooks given to that launch.
 type TerminalSession struct {
 	ID        string                        `json:"id"`
+	NodeID    string                        `json:"node_id,omitempty"`
 	Agent     string                        `json:"agent"`
 	Label     string                        `json:"label"`
 	Cwd       string                        `json:"cwd,omitempty"`
@@ -43,7 +44,7 @@ type hookServer struct {
 }
 
 func (a *App) newTerminal(agent, label, cwd string) *TerminalSession {
-	t := &TerminalSession{ID: "t" + newID(), Agent: agent, Label: label, Cwd: cwd, State: "starting",
+	t := &TerminalSession{ID: "t" + newID(), NodeID: a.NodeID, Agent: agent, Label: label, Cwd: cwd, State: "starting",
 		Created: now(), Updated: now()}
 	a.mu.Lock()
 	for id, old := range a.terminals {
