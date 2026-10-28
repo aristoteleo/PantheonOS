@@ -20,6 +20,7 @@ type Event struct {
 	Status    string         `json:"status,omitempty"` // running|done|error
 	Output    string         `json:"output,omitempty"`
 	Error     string         `json:"error,omitempty"`
+	Stopped   bool           `json:"stopped,omitempty"` // done: the user stopped the turn
 	Usage     map[string]any `json:"usage,omitempty"`
 	CostUSD   float64        `json:"cost_usd,omitempty"`
 	Time      float64        `json:"time,omitempty"`
@@ -39,7 +40,7 @@ type Event struct {
 
 // Limit is one quota window of the agent's account.
 type Limit struct {
-	Used     float64 `json:"used"`               // 0..1
+	Used     float64 `json:"used"`                // 0..1
 	ResetsAt int64   `json:"resets_at,omitempty"` // unix seconds
 }
 
@@ -264,7 +265,7 @@ func (p *codexParser) Parse(line []byte) []Event {
 				return []Event{{Type: "thinking", Text: str(it["text"])}}
 			}
 		case "command_execution":
-			e := Event{Type: "tool", ID: str(it["id"]), Name: "shell", Input: firstLine(str(it["command"])), Status: "running"}
+			e := Event{Type: "tool", ID: str(it["id"]), Name: "shell", Input: firstLine(unwrapShell(str(it["command"]))), Status: "running"}
 			if done {
 				e.Status = "done"
 				if code, ok := it["exit_code"].(float64); ok && code != 0 {
@@ -434,4 +435,20 @@ func (p *geminiParser) Parse(line []byte) []Event {
 		return []Event{e}
 	}
 	return nil
+}
+
+// unwrapShell shows the command Codex ran rather than the login shell it
+// wraps every command in: /bin/zsh -lc 'ls -la' reads as ls -la.
+func unwrapShell(cmd string) string {
+	for _, flag := range []string{" -lc ", " -c "} {
+		shell, rest, ok := strings.Cut(cmd, flag)
+		if !ok || strings.ContainsAny(shell, " '\"") || !strings.HasSuffix(shell, "sh") {
+			continue
+		}
+		if len(rest) >= 2 && rest[0] == '\'' && rest[len(rest)-1] == '\'' {
+			return strings.ReplaceAll(rest[1:len(rest)-1], `'\''`, "'")
+		}
+		return rest
+	}
+	return cmd
 }

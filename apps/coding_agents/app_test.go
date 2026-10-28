@@ -139,8 +139,11 @@ func TestStopInterruptsTheTurn(t *testing.T) {
 		t.Fatal("stop took too long")
 	}
 	ev := a.conversation(id, 0)["events"].([]codingagents.Event)
-	if last := ev[len(ev)-1]; last.Error != "Stopped" {
+	if last := ev[len(ev)-1]; !last.Stopped || last.Error != "" {
 		t.Fatalf("last event %+v", last)
+	}
+	if c := a.snapshot(id); c["status"] != "idle" {
+		t.Fatalf("a stopped turn is not an error: %v", c)
 	}
 }
 

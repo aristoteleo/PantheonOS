@@ -293,6 +293,9 @@ func (r *runner) followConversation(c codingAgentCaller, node, id string, after 
 				}
 			case "done":
 				turnError, _ = e["error"].(string)
+				if e["stopped"] == true {
+					turnError = "stopped by the user"
+				}
 			}
 		}
 		meta, _ := out["conversation"].(map[string]any)

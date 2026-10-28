@@ -227,3 +227,16 @@ func TestCleanEnvKeepsConfigurationDropsSessionMarkers(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 }
+
+func TestUnwrapShell(t *testing.T) {
+	for in, want := range map[string]string{
+		`/bin/zsh -lc 'sleep 60; echo done'`: "sleep 60; echo done",
+		`/bin/bash -c 'echo '\''hi'\'''`:     "echo 'hi'",
+		`bash -lc ls`:                        "ls",
+		`python -c 'print(1)'`:               `python -c 'print(1)'`,
+	} {
+		if got := unwrapShell(in); got != want {
+			t.Errorf("%s: got %q, want %q", in, got, want)
+		}
+	}
+}

@@ -370,7 +370,7 @@ func (a *App) pump(id string, tr *turn, agent codingagents.Agent, stdout io.Read
 	}
 	switch {
 	case tr.stopped:
-		end.Error = "Stopped"
+		end.Error, end.Stopped = "", true
 	case end.Error == "" && waitErr != nil && last == nil:
 		end.Error = exitMessage(agent.Label, waitErr, stderr.String())
 	}
