@@ -229,6 +229,40 @@
             "default": ""
           }
         ]
+      },
+      {
+        "name": "agents_browse",
+        "description": "List the folders in a folder on this node (home when empty), for picking a project.\n\nArgs:\n    path: the folder to list.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "path",
+            "type": "str",
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "agents_create_project",
+        "description": "Make a new folder on this node for a project, optionally a git repository, and add it to the project list.\n\nArgs:\n    parent: where to make it (home when empty).\n    name: the folder name.\n    git: run git init in it.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "parent",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "git",
+            "type": "bool",
+            "default": false
+          }
+        ]
       }
     ],
     "interfaces": [
@@ -246,6 +280,8 @@
           "agent_terminals",
           "agents_settings",
           "agents_configure",
+          "agents_browse",
+          "agents_create_project",
           "agents_access"
         ]
       }

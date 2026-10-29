@@ -99,6 +99,12 @@ func Tools(app *App) ([]*appsvc.Tool, error) {
 			}
 			return app.configure(c), nil
 		},
+		"agents_browse": func(_ context.Context, p map[string]any) (any, error) {
+			return app.browse(strP(p, "path")), nil
+		},
+		"agents_create_project": func(_ context.Context, p map[string]any) (any, error) {
+			return app.createProject(strP(p, "parent"), strP(p, "name"), boolP(p, "git", false)), nil
+		},
 		"agents_access": func(_ context.Context, p map[string]any) (any, error) {
 			return app.setAccess(strP(p, "key"), intP(p, "key_id"), strP(p, "hub_url")), nil
 		},

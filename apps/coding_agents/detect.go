@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -293,6 +296,87 @@ func (a *App) configure(c Configure) map[string]any {
 		codingagents.Detect(true)
 	}
 	return map[string]any{"success": true, "settings": s.Redacted()}
+}
+
+// Folder is one folder the desktop can offer as a project.
+type Folder struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	Git  bool   `json:"git,omitempty"`
+}
+
+// browse lists the folders in path (home when empty), for picking a project
+// without typing its path. Hidden folders are left out.
+func (a *App) browse(path string) map[string]any {
+	home, _ := os.UserHomeDir()
+	if strings.TrimSpace(path) == "" {
+		path = home
+	}
+	path = filepath.Clean(expandHome(path))
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return failure("%s cannot be opened: %v", path, err)
+	}
+	dirs := []Folder{}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		full := filepath.Join(path, e.Name())
+		if !e.IsDir() {
+			// A link to a folder counts as one.
+			if info, err := os.Stat(full); err != nil || !info.IsDir() {
+				continue
+			}
+		}
+		_, gitErr := os.Stat(filepath.Join(full, ".git"))
+		dirs = append(dirs, Folder{Name: e.Name(), Path: full, Git: gitErr == nil})
+		if len(dirs) >= 500 {
+			break
+		}
+	}
+	sort.Slice(dirs, func(i, j int) bool { return strings.ToLower(dirs[i].Name) < strings.ToLower(dirs[j].Name) })
+	_, gitErr := os.Stat(filepath.Join(path, ".git"))
+	return map[string]any{"success": true, "path": path, "parent": filepath.Dir(path), "home": home,
+		"git": gitErr == nil, "folders": dirs}
+}
+
+var projectName = regexp.MustCompile(`^[^/\\\x00]{1,120}$`)
+
+// createProject makes a new folder for a project, optionally a git
+// repository, and adds it to the project list.
+func (a *App) createProject(parent, name string, git bool) map[string]any {
+	name = strings.TrimSpace(name)
+	if !projectName.MatchString(name) || name == "." || name == ".." {
+		return failure("A project name is one folder name, without /")
+	}
+	if strings.TrimSpace(parent) == "" {
+		parent, _ = os.UserHomeDir()
+	}
+	parent = filepath.Clean(expandHome(parent))
+	path := filepath.Join(parent, name)
+	if _, err := os.Stat(path); err == nil {
+		return failure("%s already exists; add it as a folder instead", path)
+	}
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return failure("%v", err)
+	}
+	if git {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "git", "init", "-q")
+		cmd.Dir = path
+		cmd.Env = codingagents.AgentEnv("")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return failure("The folder was made, but git init failed: %v %s", err, strings.TrimSpace(string(out)))
+		}
+	}
+	projects := append(codingagents.LoadSettings().Projects, codingagents.Project{Path: path})
+	res := a.configure(Configure{Projects: &projects})
+	if res["success"] == true {
+		res["path"] = path
+	}
+	return res
 }
 
 func projectPaths(list []codingagents.Project) []string {

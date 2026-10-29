@@ -372,3 +372,43 @@ EOF
 		t.Fatal("the quota is forgotten after a restart")
 	}
 }
+
+func TestBrowseAndCreateProject(t *testing.T) {
+	t.Setenv("PANTHEON_CODING_AGENTS_DIR", t.TempDir())
+	root := t.TempDir()
+	for _, d := range []string{"alpha", ".hidden", "Beta/.git"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "file.txt"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a := NewApp(nil, "", t.TempDir())
+	r := a.browse(root)
+	folders := r["folders"].([]Folder)
+	if len(folders) != 2 || folders[0].Name != "alpha" || folders[0].Git || folders[1].Name != "Beta" || !folders[1].Git {
+		t.Fatalf("folders only, hidden left out, git marked: %+v", folders)
+	}
+	if r["parent"] != filepath.Dir(root) {
+		t.Errorf("parent %v", r["parent"])
+	}
+
+	res := a.createProject(root, "new-thing", true)
+	if res["success"] != true {
+		t.Fatal(res)
+	}
+	path := filepath.Join(root, "new-thing")
+	if _, err := os.Stat(filepath.Join(path, ".git")); err != nil {
+		t.Errorf("git init: %v", err)
+	}
+	if got := codingagents.LoadSettings().Projects; len(got) != 1 || got[0].Path != path {
+		t.Errorf("the new folder is a project: %+v", got)
+	}
+	if res := a.createProject(root, "new-thing", false); res["success"] != false {
+		t.Errorf("an existing folder is refused: %v", res)
+	}
+	if res := a.createProject(root, "a/b", false); res["success"] != false {
+		t.Errorf("a name with / is refused: %v", res)
+	}
+}

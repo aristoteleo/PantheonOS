@@ -223,7 +223,10 @@ continues as a new conversation (`agent_send` with `session_id`).
   `projects`, folders on the node, set with `agents_configure`; a session
   belongs to the longest project path that holds its folder). Sessions in
   other folders are left out, apart from agents running now, and their
-  folders are offered to add; starting a session in a folder adds it. A node
+  folders are offered to add; starting a session in a folder adds it. Adding a
+  project needs no typed path: `agents_browse` lists a folder's folders (git
+  repositories marked) to pick from, and `agents_create_project` makes a new
+  folder there, optionally running `git init`, and adds it. A node
   whose service keeps no list shows every folder. Within a project, newest
   first: agents running in terminals (with
   their hook state), conversations started by the Pantheon Agent or the
