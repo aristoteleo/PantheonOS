@@ -78,6 +78,7 @@ type ptySession struct {
 	lastActive time.Time
 	scrollback []byte
 	exited     bool
+	terminated bool // this service ended it (close, reaping, shutdown)
 	exitCode   *int
 }
 
@@ -196,8 +197,15 @@ func (a *App) pump(s *ptySession) {
 		exitCode = *s.exitCode
 	}
 	s.exited = true
+	// Why it ended: the shell exited on its own, or this service ended it
+	// (pty_close, idle reaping, the node shutting down). A viewer closes its
+	// view of an exited session; a closed one may come back elsewhere.
+	reason := "exited"
+	if s.terminated {
+		reason = "closed"
+	}
 	s.mu.Unlock()
-	a.publish(s, map[string]any{"type": "pty.exit", "exit_code": exitCode})
+	a.publish(s, map[string]any{"type": "pty.exit", "exit_code": exitCode, "reason": reason})
 
 	a.mu.Lock()
 	if a.sessions[s.id] == s {
@@ -479,6 +487,9 @@ func (a *App) list() map[string]any {
 }
 
 func (a *App) terminate(s *ptySession) {
+	s.mu.Lock()
+	s.terminated = true
+	s.mu.Unlock()
 	if pgid, err := syscall.Getpgid(s.cmd.Process.Pid); err == nil {
 		_ = syscall.Kill(-pgid, syscall.SIGHUP)
 	}
