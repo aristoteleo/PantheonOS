@@ -211,10 +211,20 @@ continues as a new conversation (`agent_send` with `session_id`).
 
 ## Where it shows
 
-- **Coding Agents App.** Agents grouped by node; per agent, its conversations
-  and buttons to start a conversation or open a terminal in a chosen
-  directory. A conversation view streams events and has a composer, Stop, and
-  "Continue in terminal", which resumes the same session interactively.
+- **Coding Agents App.** One computer at a time. The sidebar lists its
+  sessions by project folder, newest first: agents running in terminals (with
+  their hook state), conversations started by the Pantheon Agent or the
+  `pantheon` command, and the sessions the agents keep themselves. Each opens
+  in a tab that holds a real terminal on that computer running the agent's own
+  interface, resumed with its session id; the App does not reimplement the
+  agents' interfaces. Tabs keep their pty, so switching tabs or reloading the
+  desktop rejoins it; closing a tab or the window ends it. A conversation whose
+  turn is still running opens in a read-only view that streams its events
+  until it finishes. "New session" picks an agent, a folder and full auto, and
+  lists agents the computer could install. The status bar shows each agent's
+  quota windows and reset times, and whether the agents may use PantheonOS.
+  An agent in a background tab raises a notice when it needs the user or
+  finishes.
 - **Fleet.** Each node row lists the agents found on it; a name opens a
   terminal with that agent, and the node menu opens Coding Agents there.
 - **Terminal.** The new-session menu offers the agents found on the selected
