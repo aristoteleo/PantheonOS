@@ -146,11 +146,32 @@ func (n *natsNodes) CallService(ctx context.Context, fleet, subject string, payl
 	if err != nil {
 		return nil, err
 	}
-	response, err := nc.RequestWithContext(ctx, subject, data)
+	return requestApp(ctx, nc, fleet, subject, data)
+}
+
+// requestApp asks an App service and waits for its answer on an inbox in
+// the App namespace: an App's credential may only answer callers there
+// (_INBOX_<fleet>.apps.>), so a reply to this connection's own inbox prefix
+// is refused by the bus and the call times out.
+func requestApp(ctx context.Context, nc *nats.Conn, fleet, subject string, data []byte) (json.RawMessage, error) {
+	inbox := "_INBOX_" + fleet + ".apps.ctl." + nats.NewInbox()[len(nats.InboxPrefix):]
+	sub, err := nc.SubscribeSync(inbox)
 	if err != nil {
 		return nil, err
 	}
-	return response.Data, nil
+	defer func() { _ = sub.Unsubscribe() }()
+	if err := nc.PublishRequest(subject, inbox, data); err != nil {
+		return nil, err
+	}
+	msg, err := sub.NextMsgWithContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// The server answers a request nobody serves with an empty 503.
+	if len(msg.Data) == 0 && msg.Header.Get("Status") == "503" {
+		return nil, nats.ErrNoResponders
+	}
+	return msg.Data, nil
 }
 
 // Subscribe delivers a fleet subject's messages until stopped.
