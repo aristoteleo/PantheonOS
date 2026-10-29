@@ -438,9 +438,14 @@ async def execute(agent, op: str, params: dict, live: LiveCall | None):
         # A coding agent on one of the owner's nodes (pantheon coding-agent).
         # Starting or stopping a turn shows under the command; the polling
         # reads that follow it do not.
+        from pantheon.agent_nodes import fleet_of
+        fleet = fleet_of(agent)
+        if fleet is None:
+            raise ValueError('This agent has no Fleet App to reach your nodes')
         args = {'node_id': p['node_id'], 'service': 'coding_agent', 'method': p['method'],
                 'args': p.get('args') or {}, 'timeout': p.get('timeout', 60)}
-        result = await agent.call_tool('fleet__node_call', args)
+        # node_call is hidden from the model; the Fleet App answers it directly.
+        result = await fleet.call_tool('node_call', args)
         return result, (('fleet__node_call', args) if p['method'] in ('agent_send', 'agent_stop') else None)
     if op == 'transfer':
         return await tool('fleet__transfer', {k: p[k] for k in ('src_node', 'src_path', 'dst_node', 'dst_path',

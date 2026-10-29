@@ -268,3 +268,39 @@ async def test_a_command_starts_a_sub_agent_in_the_leaders_run_and_waits_for_its
     gateway.close("t1")
     stopped = await gateway.handle(token, {"op": "agent.wait", "params": {"run_id": again["run_id"], "timeout": 2}})
     assert stopped["done"] and "stopped" in stopped["error"]
+
+
+class FleetProvider:
+    """The Fleet App as an agent's provider: node_call is hidden from the
+    model but answers the agent's commands."""
+
+    def __init__(self):
+        self.calls = []
+
+    async def call_tool(self, name, args):
+        self.calls.append((name, args))
+        if args["method"] == "agent_send":
+            return {"success": True, "conversation_id": "c1", "from_seq": 1}
+        return {"success": True, "conversation": {"status": "idle"}, "events": []}
+
+
+async def test_a_command_reaches_a_coding_agent_through_the_fleet_app():
+    agent, shell, gateway = await agent_with_gateway()
+    fleet = FleetProvider()
+    agent.providers["fleet"] = fleet
+    steps = []
+
+    async def show(message):
+        steps.append(message)
+    token = gateway.mint(chat_id="c1", agent="leader", tool_call_id="t1")
+    gateway._live["t1"] = command_gateway.LiveCall(agent, "c1", "t1", SimpleNamespace(process_step_message=show))
+    sent = await gateway.handle(token, {"op": "coding_agent", "params": {
+        "node_id": "n_mac", "method": "agent_send", "args": {"agent": "claude", "prompt": "fix it"}, "timeout": 60}})
+    assert sent["conversation_id"] == "c1"
+    assert fleet.calls[0] == ("node_call", {"node_id": "n_mac", "service": "coding_agent", "method": "agent_send",
+                                            "args": {"agent": "claude", "prompt": "fix it"}, "timeout": 60})
+    shown = len(steps)
+    assert shown == 2  # starting a turn shows under the command
+    await gateway.handle(token, {"op": "coding_agent", "params": {
+        "node_id": "n_mac", "method": "agent_conversation", "args": {"conversation_id": "c1"}}})
+    assert len(steps) == shown  # following it does not
