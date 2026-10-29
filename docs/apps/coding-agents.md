@@ -207,6 +207,21 @@ when an agent waits for them.
 
 The agent list shows the last quota with its time.
 
+
+Cursor Agent and Gemini CLI report no quota of their own, so the service
+reads it from the provider with the sign-in the CLI keeps, read-only:
+
+- **Cursor**: the token cursor-agent keeps in the macOS Keychain (or its
+  `auth.json`), sent as the cursor.com dashboard's session cookie to
+  `/api/usage-summary`: the plan's share used this billing cycle (`monthly`,
+  reset at the cycle's end) and the membership as the plan.
+- **Gemini**: Gemini CLI's `~/.gemini/oauth_creds.json` while its access
+  token is valid (the CLI renews it as it runs; the service never refreshes
+  or writes it): Code Assist `loadCodeAssist` for the project and tier, then
+  `retrieveUserQuota`; the model closest to its limit is shown (`daily`). An
+  account with no Code Assist tier has no quota.
+
+When a provider will not say, `agents_detect` carries why as `quota_note`.
 ## Sessions
 
 `agent_sessions` lists the sessions the agents keep themselves, including

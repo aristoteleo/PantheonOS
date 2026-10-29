@@ -81,8 +81,9 @@ type App struct {
 	plans     map[string]string
 	terminals map[string]*TerminalSession
 	hooks     *hookServer
-	logMu     sync.Mutex // serialises event-log appends
-	quotaMu   sync.Mutex // one Codex quota read at a time
+	logMu     sync.Mutex        // serialises event-log appends
+	quotaNote map[string]string // why an agent's quota is unknown
+	quotaBusy map[string]bool   // a quota read under way, per agent
 }
 
 // DefaultRoot is where a node keeps its conversations.
@@ -92,7 +93,8 @@ func DefaultRoot() string { return codingagents.Root() }
 // the service last stopped is marked interrupted.
 func NewApp(nc *nats.Conn, prefix, root string) *App {
 	a := &App{root: root, nc: nc, prefix: prefix, convs: map[string]*Conversation{}, running: map[string]*turn{},
-		limits: map[string]agentLimits{}, plans: map[string]string{}, terminals: map[string]*TerminalSession{}}
+		limits: map[string]agentLimits{}, plans: map[string]string{}, terminals: map[string]*TerminalSession{},
+		quotaNote: map[string]string{}, quotaBusy: map[string]bool{}}
 	if host, err := os.Hostname(); err == nil {
 		a.NodeName = host
 	}

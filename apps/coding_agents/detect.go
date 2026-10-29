@@ -57,6 +57,8 @@ type AgentInfo struct {
 	Limits   map[string]codingagents.Limit `json:"limits,omitempty"`
 	LimitsAt float64                       `json:"limits_at,omitempty"`
 	Plan     string                        `json:"plan,omitempty"`
+	// QuotaNote says why the quota is unknown when its provider would not tell.
+	QuotaNote string `json:"quota_note,omitempty"`
 }
 
 // Installable is a known agent missing here, with the command that installs it.
@@ -82,8 +84,8 @@ func (a *App) detect(refresh bool) map[string]any {
 			defer wg.Done()
 			infos[i].Status = codingagents.Inspect(f)
 		}()
-		if f.ID == "codex" {
-			a.refreshCodexQuota(f.Path, refresh)
+		if fetch := quotaReader(f); fetch != nil {
+			a.refreshQuota(f.ID, fetch, refresh)
 		}
 	}
 	wg.Wait()
@@ -95,6 +97,9 @@ func (a *App) detect(refresh bool) map[string]any {
 			infos[i].Limits, infos[i].LimitsAt = l.Limits, l.At
 		}
 		infos[i].Plan = a.plans[infos[i].ID]
+		if _, ok := a.limits[infos[i].ID]; !ok {
+			infos[i].QuotaNote = a.quotaNote[infos[i].ID]
+		}
 	}
 	a.mu.Unlock()
 	installable := []Installable{}
@@ -107,32 +112,56 @@ func (a *App) detect(refresh bool) map[string]any {
 		"pantheon": s.Access.Key != "", "projects": projectPaths(s.Projects)}
 }
 
-// refreshCodexQuota asks Codex for its account's limits when the last answer
-// is old, without making the caller wait more than a few seconds.
-func (a *App) refreshCodexQuota(path string, force bool) {
+// quotaReader is how an agent's account quota is read, for agents whose turns
+// do not report it (Claude Code's do, as they run).
+func quotaReader(f codingagents.Found) func(context.Context) (codingagents.Quota, error) {
+	switch f.ID {
+	case "codex":
+		path := f.Path
+		return func(ctx context.Context) (codingagents.Quota, error) {
+			return codingagents.CodexQuota(ctx, path, codingagents.AgentEnv("codex"))
+		}
+	case "cursor":
+		return codingagents.CursorQuota
+	case "gemini":
+		return codingagents.GeminiQuota
+	}
+	return nil
+}
+
+// refreshQuota reads an agent's quota when the last answer is old, without
+// making the caller wait more than a few seconds; one read per agent at a time.
+func (a *App) refreshQuota(id string, fetch func(context.Context) (codingagents.Quota, error), force bool) {
 	a.mu.Lock()
-	fresh := a.limits["codex"].At > float64(time.Now().Add(-quotaTTL).Unix())
+	fresh := a.limits[id].At > float64(time.Now().Add(-quotaTTL).Unix())
+	busy := a.quotaBusy[id]
+	if !busy && (force || !fresh) {
+		a.quotaBusy[id] = true
+	}
 	a.mu.Unlock()
-	if fresh && !force {
+	if busy || (fresh && !force) {
 		return
 	}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		if !a.quotaMu.TryLock() {
-			return
-		}
-		defer a.quotaMu.Unlock()
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		q, err := codingagents.CodexQuota(ctx, path, codingagents.AgentEnv("codex"))
+		q, err := fetch(ctx)
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		a.quotaBusy[id] = false
+		if q.Plan != "" {
+			a.plans[id] = q.Plan
+		}
 		if err != nil || len(q.Limits) == 0 {
+			if err != nil {
+				a.quotaNote[id] = err.Error()
+			}
 			return
 		}
-		a.mu.Lock()
-		a.limits["codex"] = agentLimits{q.Limits, q.At}
-		a.plans["codex"] = q.Plan
-		a.mu.Unlock()
+		delete(a.quotaNote, id)
+		a.limits[id] = agentLimits{q.Limits, q.At}
 	}()
 	select {
 	case <-done:
