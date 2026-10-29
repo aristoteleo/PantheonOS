@@ -33,6 +33,13 @@ session from a later process. Claude Code, Codex and Cursor Agent were checked
 against their current releases. Gemini CLI follows its documented format; its
 parser has a fixture but no live run behind it.
 
+
+The first entry is the user's own **Pantheon Agent**: the terminal chat of the
+node's own `pantheon` command (`pantheon agent chat`, resumed with
+`--chat ID`). Detection takes the node's command (`PANTHEON_CLI_BIN`) rather
+than whatever `pantheon` is on PATH, so the chat matches the node. It signs in
+with the node's key, so it counts as signed in only while agents on that node
+may use PantheonOS. It has no conversation mode and no hooks.
 ## Detection
 
 A node finds an agent by looking for its command, without running it:

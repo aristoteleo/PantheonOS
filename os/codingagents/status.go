@@ -89,6 +89,9 @@ func anyEnv(names ...string) bool {
 func signedIn(id, path string) *bool {
 	home, _ := os.UserHomeDir()
 	switch id {
+	case PantheonAgent:
+		// Signed in with the node's key, once the user lets agents here use PantheonOS.
+		return yes(LoadSettings().Access.Key != "")
 	case "claude":
 		dir := os.Getenv("CLAUDE_CONFIG_DIR")
 		if dir == "" {

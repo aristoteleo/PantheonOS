@@ -70,6 +70,13 @@ func detectIn(dirs []string, goos string) []Found {
 	var out []Found
 	for _, a := range Catalog {
 		path := findCommand(a.Commands, dirs, goos)
+		if a.ID == PantheonAgent {
+			// This node's own command, whatever it is installed as, so the
+			// chat matches the node; another pantheon on PATH otherwise.
+			if bin := os.Getenv("PANTHEON_CLI_BIN"); bin != "" && filepath.IsAbs(bin) && executable(bin, goos) {
+				path = bin
+			}
+		}
 		if path == "" {
 			continue
 		}

@@ -52,8 +52,19 @@ type Turn struct {
 
 func ids(id string, flag string) []string { return []string{flag, id} }
 
+// PantheonAgent is the catalog id of the user's own Pantheon Agent.
+const PantheonAgent = "pantheon"
+
+
 // Catalog is every agent PantheonOS looks for, in display order.
 var Catalog = []Agent{
+	{
+		// The user's own Pantheon Agent, in the terminal chat of this node's
+		// pantheon command. It signs in with the node's key (PantheonOS access).
+		ID: PantheonAgent, Label: "Pantheon Agent", Commands: []string{"pantheon"},
+		TerminalArgs: []string{"agent", "chat"},
+		Resume:       func(id string) []string { return ids(id, "--chat") },
+	},
 	{
 		ID: "claude", Label: "Claude Code", Commands: []string{"claude"},
 		ModelFlag: "--model", Install: "curl -fsSL https://claude.ai/install.sh | bash",

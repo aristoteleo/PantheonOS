@@ -125,6 +125,28 @@ func TestTerminalArgv(t *testing.T) {
 	}
 }
 
+func TestPantheonAgentIsThisNodesCommand(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "fleet")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PANTHEON_CLI_BIN", bin)
+	var found *Found
+	for _, f := range detectIn(nil, "darwin") {
+		if f.ID == PantheonAgent {
+			found = &f
+		}
+	}
+	if found == nil || found.Path != bin || !found.Terminal || found.Headless {
+		t.Fatalf("the node's own command is the Pantheon Agent's terminal: %+v", found)
+	}
+	agent, _ := Lookup(PantheonAgent)
+	if got := agent.TerminalArgv(bin, "chat-1", true); !slices.Equal(got, []string{bin, "agent", "chat", "--chat", "chat-1"}) {
+		t.Errorf("resume reopens the chat: %v", got)
+	}
+}
+
 func TestDetectFindsExecutablesOnly(t *testing.T) {
 	a, b := t.TempDir(), t.TempDir()
 	write := func(dir, name string, mode os.FileMode) {
