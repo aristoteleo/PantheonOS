@@ -101,7 +101,7 @@ func (a *App) detect(refresh bool) map[string]any {
 		}
 	}
 	return map[string]any{"success": true, "agents": infos, "installable": installable, "home": home,
-		"pantheon": s.Access.Key != ""}
+		"pantheon": s.Access.Key != "", "projects": projectPaths(s.Projects)}
 }
 
 // refreshCodexQuota asks Codex for its account's limits when the last answer
@@ -244,12 +244,39 @@ func (a *App) getSettings() map[string]any {
 	return map[string]any{"success": true, "settings": codingagents.LoadSettings().Redacted()}
 }
 
-// configure replaces the agents' settings and the custom agents; access is
-// set apart (setAccess).
-func (a *App) configure(agents map[string]codingagents.AgentSettings, custom []codingagents.CustomAgent) map[string]any {
+// Configure is what agents_configure changes; a field left nil keeps what the
+// node has, so the project list and the agents' settings are saved apart.
+type Configure struct {
+	Agents   map[string]codingagents.AgentSettings
+	Custom   *[]codingagents.CustomAgent
+	Projects *[]codingagents.Project
+}
+
+// configure replaces the agents' settings and the custom agents, or the
+// project list; access is set apart (setAccess). A new project must be a
+// folder on this node.
+func (a *App) configure(c Configure) map[string]any {
+	if c.Projects != nil {
+		for i, p := range *c.Projects {
+			path := filepath.Clean(expandHome(strings.TrimSpace(p.Path)))
+			if info, err := os.Stat(path); err != nil || !info.IsDir() {
+				return failure("%s is not a folder on this computer", p.Path)
+			}
+			(*c.Projects)[i].Path = path
+		}
+	}
+	agentsChanged := c.Agents != nil || c.Custom != nil
 	s, err := codingagents.UpdateSettings(func(s *codingagents.Settings) error {
 		next := *s
-		next.Agents, next.Custom = agents, custom
+		if c.Agents != nil {
+			next.Agents = c.Agents
+		}
+		if c.Custom != nil {
+			next.Custom = *c.Custom
+		}
+		if c.Projects != nil {
+			next.Projects = *c.Projects
+		}
 		if next.Agents == nil {
 			next.Agents = map[string]codingagents.AgentSettings{}
 		}
@@ -262,8 +289,27 @@ func (a *App) configure(agents map[string]codingagents.AgentSettings, custom []c
 	if err != nil {
 		return failure("%v", err)
 	}
-	codingagents.Detect(true)
+	if agentsChanged {
+		codingagents.Detect(true)
+	}
 	return map[string]any{"success": true, "settings": s.Redacted()}
+}
+
+func projectPaths(list []codingagents.Project) []string {
+	out := make([]string, 0, len(list))
+	for _, p := range list {
+		out = append(out, p.Path)
+	}
+	return out
+}
+
+func expandHome(p string) string {
+	if p == "~" || strings.HasPrefix(p, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, strings.TrimPrefix(p, "~"))
+		}
+	}
+	return p
 }
 
 // setAccess stores (or with an empty key, removes) the platform key agents

@@ -212,7 +212,13 @@ continues as a new conversation (`agent_send` with `session_id`).
 ## Where it shows
 
 - **Coding Agents App.** One computer at a time. The sidebar lists its
-  sessions by project folder, newest first: agents running in terminals (with
+  sessions under the projects the user keeps for that computer (settings
+  `projects`, folders on the node, set with `agents_configure`; a session
+  belongs to the longest project path that holds its folder). Sessions in
+  other folders are left out, apart from agents running now, and their
+  folders are offered to add; starting a session in a folder adds it. A node
+  whose service keeps no list shows every folder. Within a project, newest
+  first: agents running in terminals (with
   their hook state), conversations started by the Pantheon Agent or the
   `pantheon` command, and the sessions the agents keep themselves. Each opens
   in a tab that holds a real terminal on that computer running the agent's own

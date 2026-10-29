@@ -74,15 +74,30 @@ func Tools(app *App) ([]*appsvc.Tool, error) {
 			return app.getSettings(), nil
 		},
 		"agents_configure": func(_ context.Context, p map[string]any) (any, error) {
-			var agents map[string]codingagents.AgentSettings
-			var custom []codingagents.CustomAgent
-			if err := remarshal(p["agents"], &agents); err != nil {
-				return failure("agents: %v", err), nil
+			var c Configure
+			if raw, ok := p["agents"]; ok && raw != nil {
+				if err := remarshal(raw, &c.Agents); err != nil {
+					return failure("agents: %v", err), nil
+				}
+				if c.Agents == nil {
+					c.Agents = map[string]codingagents.AgentSettings{}
+				}
 			}
-			if err := remarshal(p["custom"], &custom); err != nil {
-				return failure("custom: %v", err), nil
+			if raw, ok := p["custom"]; ok {
+				custom := []codingagents.CustomAgent{}
+				if err := remarshal(raw, &custom); err != nil {
+					return failure("custom: %v", err), nil
+				}
+				c.Custom = &custom
 			}
-			return app.configure(agents, custom), nil
+			if raw, ok := p["projects"]; ok {
+				projects := []codingagents.Project{}
+				if err := remarshal(raw, &projects); err != nil {
+					return failure("projects: %v", err), nil
+				}
+				c.Projects = &projects
+			}
+			return app.configure(c), nil
 		},
 		"agents_access": func(_ context.Context, p map[string]any) (any, error) {
 			return app.setAccess(strP(p, "key"), intP(p, "key_id"), strP(p, "hub_url")), nil

@@ -57,6 +57,14 @@ type Settings struct {
 	Agents map[string]AgentSettings `json:"agents,omitempty"`
 	Custom []CustomAgent            `json:"custom,omitempty"`
 	Access Access                   `json:"access,omitempty"`
+	// Projects are the folders the user works in on this node; the desktop
+	// lists the agents' sessions in them and leaves the rest out.
+	Projects []Project `json:"projects,omitempty"`
+}
+
+// Project is a folder on the node the user added to the list.
+type Project struct {
+	Path string `json:"path"`
 }
 
 var settingsMu sync.Mutex
@@ -142,6 +150,16 @@ func (s Settings) Validate() error {
 		}
 		seen[c.ID] = true
 	}
+	paths := map[string]bool{}
+	for _, p := range s.Projects {
+		if !filepath.IsAbs(p.Path) || filepath.Clean(p.Path) != p.Path {
+			return fmt.Errorf("project %q: a project is an absolute, clean path", p.Path)
+		}
+		if paths[p.Path] {
+			return fmt.Errorf("project %q is listed twice", p.Path)
+		}
+		paths[p.Path] = true
+	}
 	return nil
 }
 
@@ -192,6 +210,10 @@ func (s Settings) Redacted() map[string]any {
 	if custom == nil {
 		custom = []CustomAgent{}
 	}
-	return map[string]any{"agents": agents, "custom": custom,
+	projects := s.Projects
+	if projects == nil {
+		projects = []Project{}
+	}
+	return map[string]any{"agents": agents, "custom": custom, "projects": projects,
 		"access": map[string]any{"enabled": s.Access.Key != "", "key_id": s.Access.KeyID, "hub_url": s.Access.HubURL}}
 }

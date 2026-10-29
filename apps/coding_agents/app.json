@@ -188,7 +188,7 @@
       },
       {
         "name": "agents_configure",
-        "description": "Replace the agents' settings and the custom agents on this node.\n\nArgs:\n    agents: {agent id: {hidden, command, args, env, model, auto}}.\n    custom: [{id, label, command, env}] — agents run in a terminal by a command line.",
+        "description": "Change the agents' settings, the custom agents, or the project list on this node; a field left out keeps what the node has.\n\nArgs:\n    agents: {agent id: {hidden, command, args, env, model, auto}}.\n    custom: [{id, label, command, env}] — agents run in a terminal by a command line.\n    projects: [{path}] — folders on this node whose sessions the desktop lists.",
         "hidden": true,
         "params": [
           {
@@ -198,6 +198,11 @@
           },
           {
             "name": "custom",
+            "type": "list | None",
+            "default": null
+          },
+          {
+            "name": "projects",
             "type": "list | None",
             "default": null
           }

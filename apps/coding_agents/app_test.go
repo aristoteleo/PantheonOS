@@ -273,8 +273,9 @@ func TestSettingsAndAccessShapeTurns(t *testing.T) {
 	if r := a.send(SendArgs{Agent: "claude", Prompt: "hi"}); r["success"] != false {
 		t.Fatalf("without its binary claude is not installed: %v", r)
 	}
-	r := a.configure(map[string]codingagents.AgentSettings{"claude": {Command: "my-claude", Args: []string{"--effort", "high"},
-		Env: map[string]string{"MY_VAR": "1"}, Model: "opus"}}, []codingagents.CustomAgent{{ID: "mine", Label: "Mine", Command: "echo hi"}})
+	mine := []codingagents.CustomAgent{{ID: "mine", Label: "Mine", Command: "echo hi"}}
+	r := a.configure(Configure{Agents: map[string]codingagents.AgentSettings{"claude": {Command: "my-claude", Args: []string{"--effort", "high"},
+		Env: map[string]string{"MY_VAR": "1"}, Model: "opus"}}, Custom: &mine})
 	if r["success"] != true {
 		t.Fatal(r)
 	}
@@ -304,11 +305,27 @@ func TestSettingsAndAccessShapeTurns(t *testing.T) {
 	if got := a.getSettings()["settings"].(map[string]any)["access"].(map[string]any); got["enabled"] != true || strings.Contains(fmt.Sprint(got), "pbk_k") {
 		t.Errorf("access %v", got)
 	}
-	if r := a.configure(map[string]codingagents.AgentSettings{"claude": {Env: map[string]string{"BAD NAME": "x"}}}, nil); r["success"] != false {
+	if r := a.configure(Configure{Agents: map[string]codingagents.AgentSettings{"claude": {Env: map[string]string{"BAD NAME": "x"}}}}); r["success"] != false {
 		t.Errorf("a bad variable name must be refused: %v", r)
 	}
 	if r := a.setAccess("", 0, ""); r["replaced_key_id"] != int64(3) {
 		t.Errorf("turning access off hands back the key to revoke: %v", r)
+	}
+
+	// The project list is saved apart from the agents' settings, and only folders on the node are taken.
+	project := t.TempDir()
+	if r := a.configure(Configure{Projects: &[]codingagents.Project{{Path: project + "/"}}}); r["success"] != true {
+		t.Fatal(r)
+	}
+	if r := a.configure(Configure{Projects: &[]codingagents.Project{{Path: project}, {Path: filepath.Join(project, "missing")}}}); r["success"] != false {
+		t.Errorf("a folder that is not there must be refused: %v", r)
+	}
+	saved := codingagents.LoadSettings()
+	if len(saved.Projects) != 1 || saved.Projects[0].Path != project || saved.Agents["claude"].Model != "opus" || len(saved.Custom) != 1 {
+		t.Errorf("projects %+v, agents %+v, custom %+v", saved.Projects, saved.Agents, saved.Custom)
+	}
+	if got := a.detect(false)["projects"].([]string); len(got) != 1 || got[0] != project {
+		t.Errorf("detection lists the projects: %v", got)
 	}
 }
 
