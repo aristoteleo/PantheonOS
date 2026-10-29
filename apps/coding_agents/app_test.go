@@ -412,3 +412,29 @@ func TestBrowseAndCreateProject(t *testing.T) {
 		t.Errorf("a name with / is refused: %v", res)
 	}
 }
+
+func TestKnownSessions(t *testing.T) {
+	t.Setenv("PANTHEON_CODING_AGENTS_DIR", t.TempDir())
+	a := NewApp(nil, "", t.TempDir())
+	if err := a.remember(knownSession{Agent: "claude", ID: "s1"}, knownSession{Agent: "codex", ID: "t1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.forget(knownSession{Agent: "claude", ID: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	k := a.knownSet()
+	if _, ok := k["claude/s1"]; ok || len(k) != 1 {
+		t.Fatalf("forgotten sessions leave the list: %v", k)
+	}
+	// A session an agent in a terminal here reports joins the list; Codex says thread-id.
+	term := a.newTerminal("codex", "Codex", "/w")
+	a.onHook(term.ID, "Notify", map[string]any{"type": "agent-turn-complete", "thread-id": "t2"})
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := a.knownSet()["codex/t2"]; ok {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("codex/t2 was not remembered: %v", a.knownSet())
+}

@@ -105,6 +105,26 @@ func Tools(app *App) ([]*appsvc.Tool, error) {
 		"agents_create_project": func(_ context.Context, p map[string]any) (any, error) {
 			return app.createProject(strP(p, "parent"), strP(p, "name"), boolP(p, "git", false)), nil
 		},
+		"agent_sessions_import": func(_ context.Context, p map[string]any) (any, error) {
+			var refs []knownSession
+			if err := remarshal(p["sessions"], &refs); err != nil {
+				return failure("sessions: %v", err), nil
+			}
+			if err := app.remember(refs...); err != nil {
+				return failure("%v", err), nil
+			}
+			return map[string]any{"success": true}, nil
+		},
+		"agent_sessions_forget": func(_ context.Context, p map[string]any) (any, error) {
+			var refs []knownSession
+			if err := remarshal(p["sessions"], &refs); err != nil {
+				return failure("sessions: %v", err), nil
+			}
+			if err := app.forget(refs...); err != nil {
+				return failure("%v", err), nil
+			}
+			return map[string]any{"success": true}, nil
+		},
 		"agents_access": func(_ context.Context, p map[string]any) (any, error) {
 			return app.setAccess(strP(p, "key"), intP(p, "key_id"), strP(p, "hub_url")), nil
 		},

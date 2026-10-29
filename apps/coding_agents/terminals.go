@@ -95,8 +95,15 @@ func (a *App) onHook(id, event string, payload map[string]any) {
 		return
 	}
 	changed := false
-	if sid, _ := payload["session_id"].(string); sid != "" && sid != t.SessionID {
+	// Claude Code's hooks say session_id; Codex's notify, thread-id.
+	sid, _ := payload["session_id"].(string)
+	if sid == "" {
+		sid, _ = payload["thread-id"].(string)
+	}
+	if sid != "" && sid != t.SessionID {
 		t.SessionID, changed = sid, true
+		agent := t.Agent
+		go func() { _ = a.remember(knownSession{Agent: agent, ID: sid}) }()
 	}
 	if event == "StatusLine" {
 		if limits := codingagents.StatusLineLimits(payload); len(limits) > 0 {

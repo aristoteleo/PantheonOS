@@ -263,6 +263,30 @@
             "default": false
           }
         ]
+      },
+      {
+        "name": "agent_sessions_import",
+        "description": "List these agents' own sessions in the desktop, as if started here.\n\nArgs:\n    sessions: [{agent, id}].",
+        "hidden": true,
+        "params": [
+          {
+            "name": "sessions",
+            "type": "list | None",
+            "default": null
+          }
+        ]
+      },
+      {
+        "name": "agent_sessions_forget",
+        "description": "Stop listing these sessions in the desktop; the sessions stay with their agents.\n\nArgs:\n    sessions: [{agent, id}].",
+        "hidden": true,
+        "params": [
+          {
+            "name": "sessions",
+            "type": "list | None",
+            "default": null
+          }
+        ]
       }
     ],
     "interfaces": [
@@ -280,6 +304,8 @@
           "agent_terminals",
           "agents_settings",
           "agents_configure",
+          "agent_sessions_import",
+          "agent_sessions_forget",
           "agents_browse",
           "agents_create_project",
           "agents_access"

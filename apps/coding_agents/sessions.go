@@ -13,6 +13,8 @@ import (
 type SessionRow struct {
 	codingagents.NativeSession
 	ConversationID string `json:"conversation_id,omitempty"`
+	// Known: started or resumed in a PantheonOS terminal, or imported.
+	Known bool `json:"known,omitempty"`
 }
 
 // sessions lists the sessions the agents keep themselves on this node —
@@ -52,11 +54,14 @@ func (a *App) sessions(agent string, limit int) map[string]any {
 		}
 	}
 	a.mu.Unlock()
+	known := a.knownSet()
 	out := make([]SessionRow, len(rows))
 	for i, r := range rows {
-		out[i] = SessionRow{NativeSession: r, ConversationID: linked[r.Agent+"/"+r.ID]}
+		_, k := known[r.Agent+"/"+r.ID]
+		out[i] = SessionRow{NativeSession: r, ConversationID: linked[r.Agent+"/"+r.ID], Known: k}
 	}
-	res := map[string]any{"success": true, "sessions": out}
+	// known_sessions: this service marks the desktop's sessions (Known).
+	res := map[string]any{"success": true, "sessions": out, "known_sessions": true}
 	if len(errs) > 0 {
 		res["warnings"] = errs
 	}

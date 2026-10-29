@@ -83,6 +83,7 @@ type App struct {
 	hooks     *hookServer
 	logMu     sync.Mutex        // serialises event-log appends
 	quotaNote map[string]string // why an agent's quota is unknown
+	knownMu   sync.Mutex        // the known-sessions file
 	quotaBusy map[string]bool   // a quota read under way, per agent
 }
 
