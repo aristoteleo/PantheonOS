@@ -25,22 +25,39 @@ func TestCursorQuota(t *testing.T) {
 	token := "h." + payload + ".s"
 	os.MkdirAll(filepath.Join(home, ".cursor"), 0o700)
 	os.WriteFile(filepath.Join(home, ".cursor", "auth.json"), []byte(`{"accessToken":"`+token+`"}`), 0o600)
+	period := true
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.Header.Get("Cookie"), "auth0%7Cuser_1%3A%3A"+token) || r.Header.Get("Origin") != "https://cursor.com" {
 			w.WriteHeader(403)
 			return
 		}
-		io.WriteString(w, `{"billingCycleEnd":"2026-11-01T00:00:00.000Z","membershipType":"premium","isUnlimited":false,
-			"individualUsage":{"plan":{"enabled":true,"used":1200,"limit":4800,"totalPercentUsed":0}}}`)
+		switch r.URL.Path {
+		case "/summary":
+			io.WriteString(w, `{"billingCycleEnd":"2026-11-01T00:00:00.000Z","membershipType":"premium","isUnlimited":false,
+				"individualUsage":{"plan":{"enabled":true,"used":1200,"limit":4800,"totalPercentUsed":0}}}`)
+		case "/period":
+			if !period || r.Method != http.MethodPost {
+				w.WriteHeader(404)
+				return
+			}
+			io.WriteString(w, `{"billingCycleStart":"1793037531180","billingCycleEnd":"1793642331180","enabled":true,
+				"planUsage":{"autoPercentUsed":28.0173,"apiPercentUsed":0,"totalPercentUsed":28.0173}}`)
+		}
 	}))
 	defer srv.Close()
-	cursorUsageURL = srv.URL
+	cursorUsageURL, cursorPeriodURL = srv.URL+"/summary", srv.URL+"/period"
 	q, err := CursorQuota(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if q.Plan != "premium" || q.Limits["monthly"].Used != 0.25 || q.Limits["monthly"].ResetsAt != time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC).Unix() {
+	// The current period's figures win over the summary's, which lag.
+	if m := q.Limits["monthly"]; q.Plan != "premium" || m.Used < 0.28 || m.Used > 0.281 || m.ResetsAt != 1793642331 {
 		t.Errorf("%+v", q)
+	}
+	period = false
+	q, _ = CursorQuota(context.Background())
+	if q.Limits["monthly"].Used != 0.25 || q.Limits["monthly"].ResetsAt != time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC).Unix() {
+		t.Errorf("without the current period, the summary: %+v", q)
 	}
 }
 

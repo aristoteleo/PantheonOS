@@ -23,13 +23,16 @@ import (
 
 var (
 	cursorUsageURL   = "https://cursor.com/api/usage-summary"
+	cursorPeriodURL  = "https://cursor.com/api/dashboard/get-current-period-usage"
 	geminiAssistURL  = "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
 	geminiQuotaURL   = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota"
 	quotaHTTP        = &http.Client{Timeout: 10 * time.Second}
 	cursorKeychainFn = cursorKeychain
 )
 
-// CursorQuota is the Cursor account's usage this billing cycle.
+// CursorQuota is the Cursor account's usage this billing cycle: the
+// dashboard's current-period figures (the usage summary lags behind them),
+// with the membership from the summary as the plan.
 func CursorQuota(ctx context.Context) (Quota, error) {
 	token, err := cursorToken(ctx)
 	if err != nil {
@@ -39,16 +42,29 @@ func CursorQuota(ctx context.Context) (Quota, error) {
 	if err != nil {
 		return Quota{}, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cursorUsageURL, nil)
-	if err != nil {
-		return Quota{}, err
+	request := func(method, u string) (*http.Request, error) {
+		var body *bytes.Reader
+		if method == http.MethodPost {
+			body = bytes.NewReader([]byte("{}"))
+		} else {
+			body = bytes.NewReader(nil)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, u, body)
+		if err != nil {
+			return nil, err
+		}
+		// The dashboard's own session cookie, and the origin it checks.
+		req.Header.Set("Cookie", "WorkosCursorSessionToken="+url.QueryEscape(sub)+"%3A%3A"+token)
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Origin", "https://cursor.com")
+		req.Header.Set("Referer", "https://cursor.com/dashboard")
+		if method == http.MethodPost {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		return req, nil
 	}
-	// The dashboard's own session cookie, and the origin it checks.
-	req.Header.Set("Cookie", "WorkosCursorSessionToken="+url.QueryEscape(sub)+"%3A%3A"+token)
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Origin", "https://cursor.com")
-	req.Header.Set("Referer", "https://cursor.com/dashboard")
-	var body struct {
+	q := Quota{At: float64(time.Now().Unix())}
+	var summary struct {
 		BillingCycleEnd string `json:"billingCycleEnd"`
 		MembershipType  string `json:"membershipType"`
 		IsUnlimited     bool   `json:"isUnlimited"`
@@ -61,12 +77,39 @@ func CursorQuota(ctx context.Context) (Quota, error) {
 			} `json:"plan"`
 		} `json:"individualUsage"`
 	}
-	if err := getJSON(req, &body); err != nil {
-		return Quota{}, fmt.Errorf("cursor usage: %w", err)
+	summaryErr := errors.New("no usage summary")
+	if req, err := request(http.MethodGet, cursorUsageURL); err == nil {
+		summaryErr = getJSON(req, &summary)
 	}
-	q := Quota{Plan: body.MembershipType, At: float64(time.Now().Unix())}
-	plan := body.IndividualUsage.Plan
-	if body.IsUnlimited || !plan.Enabled {
+	q.Plan = summary.MembershipType
+	if summaryErr == nil && summary.IsUnlimited {
+		return q, nil
+	}
+	var period struct {
+		BillingCycleEnd json.Number `json:"billingCycleEnd"` // unix ms, as a string
+		Enabled         *bool       `json:"enabled"`
+		PlanUsage       *struct {
+			TotalPercentUsed float64 `json:"totalPercentUsed"`
+		} `json:"planUsage"`
+	}
+	req, err := request(http.MethodPost, cursorPeriodURL)
+	if err == nil {
+		err = getJSON(req, &period)
+	}
+	if err == nil && period.PlanUsage != nil && (period.Enabled == nil || *period.Enabled) {
+		l := Limit{Used: clamp01(period.PlanUsage.TotalPercentUsed / 100)}
+		if ms, err := period.BillingCycleEnd.Int64(); err == nil && ms > 0 {
+			l.ResetsAt = ms / 1000
+		}
+		q.Limits = map[string]Limit{"monthly": l}
+		return q, nil
+	}
+	// Older accounts: the summary alone.
+	if summaryErr != nil {
+		return q, fmt.Errorf("cursor usage: %w", summaryErr)
+	}
+	plan := summary.IndividualUsage.Plan
+	if !plan.Enabled {
 		return q, nil
 	}
 	used := plan.TotalPercentUsed / 100
@@ -74,7 +117,7 @@ func CursorQuota(ctx context.Context) (Quota, error) {
 		used = plan.Used / plan.Limit
 	}
 	l := Limit{Used: clamp01(used)}
-	if t, err := time.Parse(time.RFC3339, body.BillingCycleEnd); err == nil {
+	if t, err := time.Parse(time.RFC3339, summary.BillingCycleEnd); err == nil {
 		l.ResetsAt = t.Unix()
 	}
 	q.Limits = map[string]Limit{"monthly": l}
