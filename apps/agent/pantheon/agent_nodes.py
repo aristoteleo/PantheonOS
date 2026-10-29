@@ -88,6 +88,8 @@ def describe_node(node: dict, *, default: bool, workdir: str | None = None) -> s
         if workdir:
             lines.append(f"Working directory: {workdir}.")
     else:
+        if workdir:
+            lines.append(f"Working directory: {workdir} (relative paths and commands start there).")
         roots = node.get("file_roots") or []
         if roots:
             lines.append("Files you can reach there: " + ", ".join(str(r) for r in roots) + ".")
@@ -101,9 +103,10 @@ def _node(nodes: list[dict], node_id: str) -> dict | None:
     return next((n for n in nodes if n.get("node_id") == node_id or n.get("name") == node_id), None)
 
 
-async def route(agent, name: str, args: dict, node_id: str) -> Any:
+async def route(agent, name: str, args: dict, node_id: str, workdir: str = "") -> Any:
     """Run a core node tool on node_id, or return None to run it as usual
-    (node_id is the Agent's own node)."""
+    (node_id is the Agent's own node). workdir is the conversation's working
+    directory on that node: where commands start and relative paths lead."""
     default = await default_node(agent)
     if not node_id or node_id == default:
         return None
@@ -119,8 +122,12 @@ async def route(agent, name: str, args: dict, node_id: str) -> Any:
         return None
     if node.get("status") == "offline":
         return {"success": False, "error": f"Node {node.get('name') or node_id} is offline.", "node_id": node_id}
+    if workdir:
+        path = args.get("file_path")
+        if isinstance(path, str) and path and not path.startswith(("/", "~")) and ":" not in path[:3]:
+            args = {**args, "file_path": workdir.rstrip("/") + "/" + path}
     if name == "shell__run_command":
-        return await _run(fleet, node, args)
+        return await _run(fleet, node, args, workdir)
     return await _files(fleet, node, name.split("__", 1)[1], args)
 
 
@@ -180,7 +187,7 @@ async def _update(fleet, node_id: str, args: dict) -> dict:
     return {"success": True, "file_path": path, "replacements": count if args.get("replace_all") else 1, "node_id": node_id}
 
 
-async def _run(fleet, node: dict, args: dict) -> dict:
+async def _run(fleet, node: dict, args: dict, workdir: str = "") -> dict:
     node_id = node["node_id"]
     caps = node.get("caps")
     if caps is not None and "proc" not in caps:  # older controllers list no caps
@@ -191,7 +198,7 @@ async def _run(fleet, node: dict, args: dict) -> dict:
         return {"success": False, "error": "Give a command.", "node_id": node_id}
     roots = node.get("file_roots") or []
     call = {"node_id": node_id, "code": command, "kind": "shell",
-            "timeout": int(args.get("timeout") or 120), "cwd": str(roots[0]) if roots else "",
+            "timeout": int(args.get("timeout") or 120), "cwd": workdir or (str(roots[0]) if roots else ""),
             "max_output": int(args.get("max_output") or _RUN_OUTPUT)}
     if args.get("env") and not node.get("delegation") and not node_id.startswith("hpc_"):
         # The pantheon command reaches the Agent from this node too. A
@@ -210,13 +217,13 @@ async def _run(fleet, node: dict, args: dict) -> dict:
             "status": "completed", "node_id": node_id}
 
 
-async def note_for(agent, node_id: str) -> str | None:
+async def note_for(agent, node_id: str, workdir: str = "") -> str | None:
     """The environment note for node_id, unless it is the Agent's own node."""
     default = await default_node(agent)
     if not node_id or node_id == default:
         return None
     node = next((n for n in await list_nodes(agent) if node_id in (n.get("node_id"), n.get("name"))), None)
-    return describe_node(node, default=False) if node is not None else None
+    return describe_node(node, default=False, workdir=workdir or None) if node is not None else None
 
 
 def with_note(message: list[dict], note: str) -> list[dict]:

@@ -214,3 +214,19 @@ async def test_a_command_on_another_node_can_reach_the_agent_but_not_through_a_d
     node = next(n for n in listed["nodes"] if n["node_id"] == "mac")
     await agent_nodes._run(fleet, node, {"command": "pantheon nodes list", "env": {"PANTHEON_TOKEN": "x"}})
     assert "env" not in [a for n, a in fleet.calls if n == "run_on_node"][-1]
+
+
+@pytest.mark.asyncio
+async def test_a_conversations_working_directory_on_its_node():
+    agent = await agent_on()
+    fleet = agent.providers["fleet"]
+    cv = {"chat_node": "mac", "chat_workdir": "/Users/me/proj"}
+    await agent.call_tool("shell__run_command", {"command": "ls"}, context_variables=dict(cv))
+    assert [a for n, a in fleet.calls if n == "run_on_node"][-1]["cwd"] == "/Users/me/proj"
+    # Relative paths lead there too.
+    fleet.files["/Users/me/proj/README.md"] = "hi"
+    read = await agent.call_tool("file_manager__read_file", {"file_path": "README.md"}, context_variables=dict(cv))
+    assert read["content"] == "hi"
+    # Another node named in the call does not take this one's folder.
+    await agent.call_tool("shell__run_command", {"command": "ls", "node": "off"}, context_variables=dict(cv))
+    assert describe_node({"node_id": "mac", "name": "Mac"}, default=False, workdir="/Users/me/proj").count("/Users/me/proj") == 1

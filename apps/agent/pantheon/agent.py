@@ -1195,10 +1195,14 @@ class Agent:
             from .agent_nodes import NODE_TOOLS, route
 
             if prefixed_name in NODE_TOOLS:
-                # The conversation's working node, or one the call names.
-                node = args.pop("node", "") or (context_variables or {}).get("chat_node") or ""
+                # The conversation's working node, or one the call names; the
+                # conversation's working directory goes with its own node.
+                cv = context_variables or {}
+                named = args.pop("node", "")
+                node = named or cv.get("chat_node") or ""
+                workdir = (cv.get("chat_workdir") or "") if not named or named == cv.get("chat_node") else ""
                 if node:
-                    routed = await route(self, prefixed_name, args, str(node))
+                    routed = await route(self, prefixed_name, args, str(node), str(workdir))
                     if routed is not None:
                         return routed
         # Prepare context_variables if needed

@@ -982,11 +982,13 @@ class AgentRuntime(AgentLifetime, ToolSet):
             from pantheon.agent_nodes import default_node, describe_node, list_nodes, with_note
             default = await asyncio.wait_for(default_node(agent), timeout=5)
             node_id = (memory.extra_data or {}).get("chat_node") or default
-            if not node_id or (memory.extra_data or {}).get("announced_node") == node_id:
+            chat_workdir = (memory.extra_data or {}).get("chat_workdir") or ""
+            announce = f"{node_id}:{chat_workdir}" if chat_workdir else node_id
+            if not node_id or (memory.extra_data or {}).get("announced_node") == announce:
                 return message
             node = next((n for n in await list_nodes(agent) if n.get("node_id") == node_id), {"node_id": node_id})
-            memory.set_metadata("announced_node", node_id)
-            return with_note(message, describe_node(node, default=node_id == default, workdir=workdir))
+            memory.set_metadata("announced_node", announce)
+            return with_note(message, describe_node(node, default=node_id == default, workdir=chat_workdir or workdir))
         except Exception as e:
             logger.debug(f"No environment note for {chat_id}: {e}")
             return message
@@ -1007,13 +1009,15 @@ class AgentRuntime(AgentLifetime, ToolSet):
             nodes = [summarize(n, default) for n in await list_nodes(agent)
                      if n.get("node_id") != host or n.get("node_id") == default]
             return {"success": True, "supported": True, "default_node_id": default,
-                    "node_id": (memory.extra_data or {}).get("chat_node") or default, "nodes": nodes}
+                    "node_id": (memory.extra_data or {}).get("chat_node") or default,
+                    "workdir": (memory.extra_data or {}).get("chat_workdir") or "", "nodes": nodes}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
     @tool
-    async def set_chat_node(self, chat_id: str, node_id: str = "") -> dict:
-        """Switch the conversation's working node ("" = back to the default)."""
+    async def set_chat_node(self, chat_id: str, node_id: str = "", workdir: str = "") -> dict:
+        """Switch the conversation's working node ("" = back to the default),
+        optionally with a working directory there (another node only)."""
         try:
             team = await self.get_team_for_chat(chat_id)
             agent = team.team_agents[0]
@@ -1026,6 +1030,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
                     return {"success": False, "error": "That node is not one of your nodes."}
             chosen = None if not node_id or node_id == default else node_id
             memory.set_metadata("chat_node", chosen)
+            memory.set_metadata("chat_workdir", (workdir or None) if chosen else None)
             await run_func(self.memory_manager.save_one, chat_id)
             return {"success": True, "node_id": chosen or default}
         except Exception as e:
@@ -2773,6 +2778,9 @@ class AgentRuntime(AgentLifetime, ToolSet):
         chat_node = (memory.extra_data or {}).get("chat_node")
         if chat_node:
             context_variables["chat_node"] = chat_node
+            chat_workdir = (memory.extra_data or {}).get("chat_workdir")
+            if chat_workdir:
+                context_variables["chat_workdir"] = chat_workdir
         if not sub_agent:
             message = await self._with_environment_note(chat_id, memory, message, project_dir)
             # What the user said to sub-agents directly since the lead's last turn.

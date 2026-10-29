@@ -118,3 +118,21 @@ def test_the_terminal_frontend_is_the_release_package_read_in_chunks(tmp_path, m
     assert {"terminal.py", "requirements.txt", "app.json", "backend/_vendor/pantheon/repl/remote.py"} <= set(names)
     assert not any("__pycache__" in n or n.startswith("frontend") for n in names)
     terminal_frontend.bundle.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_a_terminal_on_another_node_puts_its_conversations_there():
+    rpc = FakeRPC([])
+    async def call(method, args=None, timeout=120):
+        rpc.calls.append((method, args))
+        return {"chat_id": "c1"} if method == "create_chat" else {"success": True}
+    rpc.call = call
+    room = RemoteChatRoom(rpc)
+    room.work_node, room.work_dir = "mac", "/Users/me/proj"
+    assert (await room.create_chat("repl-session"))["chat_id"] == "c1"
+    assert ("set_chat_node", {"chat_id": "c1", "node_id": "mac", "workdir": "/Users/me/proj"}) in rpc.calls
+    # Without a node, conversations stay where the Agent puts them.
+    rpc.calls.clear()
+    room.work_node = ""
+    await room.create_chat("repl-session")
+    assert [m for m, _ in rpc.calls] == ["create_chat"]

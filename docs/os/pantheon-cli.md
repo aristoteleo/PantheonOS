@@ -326,6 +326,11 @@ the desktop opens the web one.
   4. runs it with the connection (endpoint and token) in its environment.
 
   Upgrading the Agent upgrades its terminal chat, as with the web window.
+* **On a node.** `pantheon agent chat --node <node> [--workdir <dir>]` puts
+  the conversations it opens or continues on that node (`set_chat_node`), so
+  the Agent's files and commands are there rather than on the workspace. The
+  Coding Agents App starts the Pantheon Agent this way, with the computer and
+  folder it was started from.
 * **One-shot.** `pantheon agent chat -i "<message>"` sends one message,
   prints the answer and exits. This is today's `pantheon cli -i`, now against
   any of the owner's Agents. Scripts and outside agents use it.

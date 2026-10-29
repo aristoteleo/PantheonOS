@@ -438,3 +438,17 @@ func TestKnownSessions(t *testing.T) {
 	}
 	t.Fatalf("codex/t2 was not remembered: %v", a.knownSet())
 }
+
+// The Pantheon Agent started from a computer works on that computer, in the
+// chosen folder.
+func TestPantheonAgentWorksWhereItStarts(t *testing.T) {
+	fakeAgent(t, "pantheon", "")
+	a := NewApp(nil, "", t.TempDir())
+	defer a.Close()
+	a.NodeID = "n_mac"
+	res := a.terminalCommand(TerminalArgs{Agent: codingagents.PantheonAgent, Resume: "chat-1", Cwd: "/Users/me/proj"})
+	cmd, _ := res["command"].(string)
+	if !strings.Contains(cmd, "agent chat --chat chat-1 --node n_mac --workdir /Users/me/proj") {
+		t.Fatalf("command %q", cmd)
+	}
+}

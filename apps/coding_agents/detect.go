@@ -205,6 +205,14 @@ func (a *App) terminalCommand(p TerminalArgs) map[string]any {
 		agent, _ := codingagents.Lookup(p.Agent)
 		set := r.settings.Agents[p.Agent]
 		argv = agent.TerminalArgv(r.path, p.Resume, p.Auto)
+		if p.Agent == codingagents.PantheonAgent && a.NodeID != "" {
+			// The Pantheon Agent works on the computer it was started from, in
+			// the chosen folder, rather than on the workspace.
+			argv = append(argv, "--node", a.NodeID)
+			if p.Cwd != "" {
+				argv = append(argv, "--workdir", p.Cwd)
+			}
+		}
 		if set.Model != "" && agent.ModelFlag != "" {
 			argv = append(argv, agent.ModelFlag, set.Model)
 		}

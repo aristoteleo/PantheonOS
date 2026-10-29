@@ -138,11 +138,23 @@ class RemoteChatRoom:
     async def list_chats(self, project_name: str | None = None, **_kwargs) -> dict:
         return await self.rpc.call("list_chats", {"project_name": project_name} if project_name else {})
 
+    #: Where this terminal's conversations work: a node, and a folder on it.
+    work_node: str = ""
+    work_dir: str = ""
+
+    async def place(self, chat_id: str) -> None:
+        """Put a conversation on this terminal's node and folder, when it has one."""
+        if self.work_node and chat_id:
+            await self.rpc.call("set_chat_node", {"chat_id": chat_id, "node_id": self.work_node, "workdir": self.work_dir})
+
     async def create_chat(self, chat_name: str | None = None, **kwargs) -> dict:
         args = {k: v for k, v in kwargs.items() if v is not None}
         if chat_name:
             args["chat_name"] = chat_name
-        return await self.rpc.call("create_chat", args)
+        result = await self.rpc.call("create_chat", args)
+        if isinstance(result, dict):
+            await self.place(result.get("chat_id", ""))
+        return result
 
     async def delete_chat(self, chat_id: str) -> dict:
         self._memories.pop(chat_id, None)
@@ -306,10 +318,14 @@ async def run(url: str, token: str, args: argparse.Namespace) -> None:
     from .core import Repl
     set_level("CRITICAL")
     room = RemoteChatRoom(AgentRPC(url, token))
+    room.work_node, room.work_dir = args.node or "", args.workdir or ""
     chat_id = args.chat
     if args.resume is not None and chat_id is None:
         chats = await room.list_chats()
         chat_id = select_resume(chats.get("chats", []), args.resume)
+    if chat_id:
+        # A conversation continued from another computer works there now.
+        await room.place(chat_id)
     repl = Repl(chatroom=room, chat_id=chat_id)
     repl.resume_command = "pantheon agent chat --resume"
     await repl.run(message=args.message, once=args.message is not None, disable_logging=True,
@@ -323,6 +339,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--chat", help="Continue this conversation (its id).")
     parser.add_argument("--resume", nargs="?", const=True,
                         help="Continue the latest conversation, or one by number, id or name.")
+    parser.add_argument("--node", help="Work on this Fleet node (its files and commands), not the workspace.")
+    parser.add_argument("--workdir", help="With --node: the folder there that commands start in.")
     args = parser.parse_args(argv)
     url, token = os.environ.get("PANTHEON_AGENT_RPC"), os.environ.get("PANTHEON_AGENT_RPC_TOKEN")
     if not url or not token:

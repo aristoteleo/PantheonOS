@@ -107,8 +107,10 @@ can name a node with the optional `node` argument. On another node:
 
 * files go through that node's file service via the Fleet App's `node_call`
   (read_file, write_file; update_file is read, exact replace, write; 256 KiB);
-* `run_command` goes through `run_on_node` in the node's first shared folder,
-  output bounded to its end. There is no shell session: each command is fresh.
+* `run_command` goes through `run_on_node` in the conversation's working
+  directory there (`set_chat_node`'s `workdir`), else the node's first shared
+  folder, output bounded to its end. There is no shell session: each command
+  is fresh. Relative file paths lead to the working directory too.
 
 When the node is first known or changes, the model gets an `<environment>` note
 (node, OS, shell dialect, folders) in the user message's `_llm_content`; the
