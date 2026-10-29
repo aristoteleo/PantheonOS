@@ -105,6 +105,17 @@ Bugs found on staging (browser sweeps 2026-10-19/20):
     hiding that reason.
 16. PhyloTree (a Store App outside this repository) draws its tree clipped at
     the top-left.
+16a. Fixed (runtime 65cced39): `node_call` from the controller — Files and
+    Coding Agents on a node — always timed out. An App credential may only
+    answer inboxes under `_INBOX_<fleet>.apps`, and the controller waited on
+    its own inbox prefix, so the bus refused every answer.
+16b. A Desktop start that fails its readiness check (seen after the 0.9.98
+    release on 2026-10-28) can leave the node's lifecycle waiting for a
+    reconcile ("Runner restarted before operation acknowledgement; reconcile
+    before retrying"). The controller then logs "node lifecycle is busy" and
+    stops retrying, and the ledger survives a workspace restart. Recovered by
+    hand with `fleet_app_lifecycle` `reconcile` and an intent change; the
+    reconciler should reconcile such operations itself.
 
 Cutover in code:
 
