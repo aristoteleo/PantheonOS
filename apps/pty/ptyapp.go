@@ -293,6 +293,10 @@ func (a *App) open(cols, rows int, cwd, shell, command string) map[string]any {
 	if os.Getenv("TERM") == "" {
 		env = append(env, "TERM=xterm-256color")
 	}
+	// The desktop's terminal draws 24-bit colour; say so, as terminal apps do.
+	if os.Getenv("COLORTERM") == "" {
+		env = append(env, "COLORTERM=truecolor")
+	}
 	env = append(env, fmt.Sprintf("COLUMNS=%d", cols), fmt.Sprintf("LINES=%d", rows))
 	cmd.Env = env
 	// creack/pty starts the shell in its own session with the pty as its
