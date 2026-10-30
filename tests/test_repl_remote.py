@@ -136,3 +136,38 @@ async def test_a_terminal_on_another_node_puts_its_conversations_there():
     room.work_node = ""
     await room.create_chat("repl-session")
     assert [m for m, _ in rpc.calls] == ["create_chat"]
+
+
+@pytest.mark.asyncio
+async def test_a_turn_is_reported_to_the_coding_agents_app_that_started_the_terminal(monkeypatch):
+    import pantheon.repl.remote as remote
+    posts = []
+
+    class Client:
+        def __init__(self, **_kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            posts.append((url, json, headers))
+
+    import httpx
+    monkeypatch.setattr(httpx, "AsyncClient", Client)
+    monkeypatch.setenv("PANTHEON_AGENT_HOOK_URL", "http://127.0.0.1:1/hook/t1")
+    monkeypatch.setenv("PANTHEON_AGENT_HOOK_TOKEN", "tok")
+    done = {"type": "chat_finished", "data": {"chat_id": "c"}}
+    room = RemoteChatRoom(FakeRPC([{"events": fragments(done, 1), "cursor": {"epoch": "a", "sequence": 2}, "has_more": False}]))
+    await room.chat("c", [{"role": "user", "content": [{"type": "text", "text": "fix the test"}]}])
+    assert [(u.rsplit("/", 1)[1], body) for u, body, _ in posts] == [
+        ("UserPromptSubmit", {"session_id": "c", "title": "fix the test"}), ("Stop", {"session_id": "c"})]
+    assert all(h == {"X-Pantheon-Hook": "tok"} for *_, h in posts)
+    # Without the App's hook nothing is sent.
+    monkeypatch.delenv("PANTHEON_AGENT_HOOK_URL")
+    posts.clear()
+    await remote.report_turn("Stop", "c")
+    assert posts == []

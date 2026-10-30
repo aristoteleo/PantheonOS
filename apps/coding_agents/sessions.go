@@ -60,6 +60,17 @@ func (a *App) sessions(agent string, limit int) map[string]any {
 		_, k := known[r.Agent+"/"+r.ID]
 		out[i] = SessionRow{NativeSession: r, ConversationID: linked[r.Agent+"/"+r.ID], Known: k}
 	}
+	// The Pantheon Agent's chats live with the Agent, not on this computer:
+	// the ones started here are listed from what their terminals reported.
+	if agent == "" || agent == codingagents.PantheonAgent {
+		for _, k := range known {
+			if k.Agent == codingagents.PantheonAgent {
+				out = append(out, SessionRow{NativeSession: codingagents.NativeSession{Agent: k.Agent, ID: k.ID,
+					Title: firstNonEmpty(k.Title, "Pantheon Agent chat"), Cwd: k.Cwd, UpdatedAt: k.At}, Known: true})
+			}
+		}
+		sort.SliceStable(out, func(i, j int) bool { return out[i].UpdatedAt > out[j].UpdatedAt })
+	}
 	// known_sessions: this service marks the desktop's sessions (Known).
 	res := map[string]any{"success": true, "sessions": out, "known_sessions": true}
 	if len(errs) > 0 {

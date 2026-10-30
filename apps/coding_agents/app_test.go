@@ -439,6 +439,33 @@ func TestKnownSessions(t *testing.T) {
 	t.Fatalf("codex/t2 was not remembered: %v", a.knownSet())
 }
 
+// A Pantheon Agent chat started in a terminal here is listed under its
+// folder, titled by its first prompt, though the chat lives with the Agent.
+func TestPantheonChatsListed(t *testing.T) {
+	t.Setenv("PANTHEON_CODING_AGENTS_DIR", t.TempDir())
+	a := NewApp(nil, "", t.TempDir())
+	term := a.newTerminal(codingagents.PantheonAgent, "Pantheon Agent", "/w/proj")
+	a.onHook(term.ID, "UserPromptSubmit", map[string]any{"session_id": "chat-9", "title": "  fix the\n flaky   test "})
+	if got := a.terminals[term.ID]; got.State != "working" || got.Title != "fix the flaky test" {
+		t.Fatalf("the terminal works on its first prompt: %+v", got)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := a.knownSet()["pantheon/chat-9"]; ok {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	a.onHook(term.ID, "Stop", map[string]any{"session_id": "chat-9"})
+	if got := a.terminals[term.ID].State; got != "ready" {
+		t.Errorf("a finished turn leaves it ready: %s", got)
+	}
+	rows, _ := a.sessions(codingagents.PantheonAgent, 10)["sessions"].([]SessionRow)
+	if len(rows) != 1 || rows[0].ID != "chat-9" || rows[0].Cwd != "/w/proj" || rows[0].Title != "fix the flaky test" || !rows[0].Known {
+		t.Fatalf("the chat is listed: %+v", rows)
+	}
+}
+
 // The Pantheon Agent started from a computer works on that computer, in the
 // chosen folder.
 func TestPantheonAgentWorksWhereItStarts(t *testing.T) {

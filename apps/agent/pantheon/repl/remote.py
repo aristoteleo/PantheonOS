@@ -21,6 +21,38 @@ POLL_SECONDS = 0.25
 _ALL = object()
 
 
+async def report_turn(event: str, chat_id: str, message: list[dict] | None = None) -> None:
+    """Tell the Coding Agents App a turn began or ended, when it started this
+    terminal (it set PANTHEON_AGENT_HOOK_URL): it lists the chat under its
+    folder and shows whether the Agent is working. Never fails the turn."""
+    url, token = os.environ.get("PANTHEON_AGENT_HOOK_URL"), os.environ.get("PANTHEON_AGENT_HOOK_TOKEN")
+    if not url or not token or not chat_id:
+        return
+    payload: dict = {"session_id": chat_id}
+    if message:
+        payload["title"] = _prompt_text(message)[:200]
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=3) as client:
+            await client.post(f"{url}/{event}", json=payload, headers={"X-Pantheon-Hook": token})
+    except Exception:  # noqa: BLE001 - the App may be gone
+        pass
+
+
+def _prompt_text(message: list[dict]) -> str:
+    """The text of a user message in OpenAI form (content a string or parts)."""
+    texts = []
+    for m in message:
+        if not isinstance(m, dict) or m.get("role", "user") != "user":
+            continue
+        content = m.get("content")
+        if isinstance(content, str):
+            texts.append(content)
+        elif isinstance(content, list):
+            texts += [p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"]
+    return " ".join(t for t in texts if t).strip()
+
+
 class AgentRPC:
     """One Agent App method call, through the pantheon command's loopback."""
 
@@ -232,6 +264,7 @@ class RemoteChatRoom:
         if context_variables:
             args["context_variables"] = context_variables
         turn = asyncio.create_task(self.rpc.call("chat", args, timeout=600))
+        await report_turn("UserPromptSubmit", chat_id, message)
         pending: dict | None = None
         status = None
         try:
@@ -275,6 +308,7 @@ class RemoteChatRoom:
             result = turn.result()
         elif not turn.done():
             turn.cancel()  # the turn ended; only its long request is still open
+        await report_turn("Stop", chat_id)
         await self.refresh(chat_id)
         return result
 

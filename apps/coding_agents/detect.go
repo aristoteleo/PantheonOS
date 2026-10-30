@@ -192,7 +192,7 @@ func (a *App) terminalCommand(p TerminalArgs) map[string]any {
 	term := a.newTerminal(p.Agent, r.found.Label, p.Cwd)
 	if p.Resume != "" {
 		// A session resumed here is the desktop's from now on.
-		_ = a.remember(knownSession{Agent: p.Agent, ID: p.Resume})
+		_ = a.remember(knownSession{Agent: p.Agent, ID: p.Resume, Cwd: p.Cwd})
 	}
 	launch := codingagents.Launch{Agent: p.Agent, Terminal: term.ID, NodeID: a.NodeID, NodeName: a.NodeName}
 	env := codingagents.LaunchExtras(r.settings, launch)

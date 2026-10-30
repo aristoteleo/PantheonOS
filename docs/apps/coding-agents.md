@@ -193,8 +193,12 @@ comes from hooks given to that launch only:
   line of their own, a status line that forwards the account's limits at
   most every 15 s.
 - Codex: `-c notify=…`, which reports each finished turn.
+- Pantheon Agent: the terminal chat posts `UserPromptSubmit` (with the chat
+  id and its prompt) and `Stop` around each turn when the launch gave it the
+  hook address.
 
-Each hook posts the event to a listener of the service on 127.0.0.1 with a
+The first prompt a hook carries (Claude Code's `prompt`, Codex's
+`input-messages`, the Pantheon Agent's `title`) titles the session. Each hook posts the event to a listener of the service on 127.0.0.1 with a
 token from the launch. The desktop shows the state and notifies the user
 when an agent waits for them.
 
@@ -228,34 +232,41 @@ When a provider will not say, `agents_detect` carries why as `quota_note`.
 those started outside PantheonOS: Claude Code's session files under
 `~/.claude/projects` (only each file's head and tail are read: first prompt,
 folder, branch, title) and Codex's threads through `codex app-server`
-(`thread/list`). A session opens in a terminal with its resume argument, or
+(`thread/list`). The Pantheon Agent's chats live with the Agent, so the ones
+started in a terminal here are listed from what their hooks reported (chat
+id, folder, first prompt), kept with the desktop's known sessions. A session opens in a terminal with its resume argument, or
 continues as a new conversation (`agent_send` with `session_id`).
 
 ## Where it shows
 
-- **Coding Agents App.** One computer at a time. The sidebar lists its
-  sessions under the projects the user keeps for that computer (settings
-  `projects`, folders on the node, set with `agents_configure`; a session
-  belongs to the longest project path that holds its folder). Sessions in
-  other folders are left out, apart from agents running now, and their
-  folders are offered to add; starting a session in a folder adds it. Adding a
-  project needs no typed path: `agents_browse` lists a folder's folders (git
-  repositories marked) to pick from, and `agents_create_project` makes a new
-  folder there, optionally running `git init`, and adds it. A node
-  whose service keeps no list shows every folder. Within a project, newest
-  first: agents running in terminals (with
-  their hook state), conversations started by the Pantheon Agent or the
-  `pantheon` command, and the sessions the agents keep themselves. Each opens
-  in a tab that holds a real terminal on that computer running the agent's own
-  interface, resumed with its session id; the App does not reimplement the
-  agents' interfaces. Tabs keep their pty, so switching tabs or reloading the
-  desktop rejoins it; closing a tab or the window ends it. A conversation whose
-  turn is still running opens in a read-only view that streams its events
-  until it finishes. "New session" picks an agent, a folder and full auto, and
-  lists agents the computer could install. The status bar shows each agent's
-  quota windows and reset times, and whether the agents may use PantheonOS.
-  An agent in a background tab raises a notice when it needs the user or
-  finishes.
+- **Coding Agents App.** One computer at a time. The sidebar lists the
+  projects the user keeps for that computer (settings `projects`, folders on
+  the node, set with `agents_configure`; a session belongs to the longest
+  project path that holds its folder). Adding a project needs no typed path:
+  `agents_browse` lists a folder's folders (git repositories marked) to pick
+  from, and `agents_create_project` makes a new folder there, optionally
+  running `git init`, and adds it. A node whose service keeps no list shows
+  every folder with sessions as a project.
+
+  A project is a workspace. It holds tabs, each a real terminal on that
+  computer: an agent running its own interface (resumed with its session id
+  when it has one), or a plain shell in the project's folder. The tab bar
+  shows the current project's tabs after the project's own page, which starts
+  an agent (with full auto or not) or a terminal, lists the project's
+  sessions, and offers agents the computer could install; `+` starts the same
+  things. Under each project the sidebar lists its open tabs (with their hook
+  state) and then its past sessions, newest first: the agents' own sessions
+  started, resumed or imported here, Pantheon Agent chats, and conversations
+  started by the Pantheon Agent or the `pantheon` command. Closing a tab ends
+  its terminal; its session stays listed under the project, to resume. Tabs
+  keep their pty, so switching tabs or projects or reloading the desktop
+  rejoins it; closing the window ends them. Sessions in folders outside the
+  projects are left out and their folders offered to add; sessions started
+  outside PantheonOS wait on the Import page. A conversation whose turn is
+  still running opens in a read-only view that streams its events until it
+  finishes. The status bar shows each agent's quota windows and reset times,
+  and whether the agents may use PantheonOS. An agent in a background tab
+  raises a notice when it needs the user or finishes.
 - **Fleet.** Each node row lists the agents found on it; a name opens a
   terminal with that agent, and the node menu opens Coding Agents there.
 - **Terminal.** The new-session menu offers the agents found on the selected

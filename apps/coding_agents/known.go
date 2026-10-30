@@ -18,6 +18,10 @@ type knownSession struct {
 	Agent string  `json:"agent"`
 	ID    string  `json:"id"`
 	At    float64 `json:"at"`
+	// The folder and first prompt, for agents that keep no session list of
+	// their own the service can read (the Pantheon Agent).
+	Cwd   string `json:"cwd,omitempty"`
+	Title string `json:"title,omitempty"`
 }
 
 func (a *App) knownPath() string { return filepath.Join(a.root, "known_sessions.json") }
@@ -72,6 +76,9 @@ func (a *App) remember(refs ...knownSession) error {
 			continue
 		}
 		r.At = now
+		if old, ok := m[r.Agent+"/"+r.ID]; ok {
+			r.Cwd, r.Title = firstNonEmpty(r.Cwd, old.Cwd), firstNonEmpty(old.Title, r.Title)
+		}
 		m[r.Agent+"/"+r.ID] = r
 	}
 	return a.saveKnown(m)

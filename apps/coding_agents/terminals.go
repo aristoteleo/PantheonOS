@@ -32,6 +32,7 @@ type TerminalSession struct {
 	State     string                        `json:"state"` // starting|ready|working|waiting|ended
 	Detail    string                        `json:"detail,omitempty"`
 	SessionID string                        `json:"session_id,omitempty"` // the agent's own id
+	Title     string                        `json:"title,omitempty"`      // the first prompt
 	Created   float64                       `json:"created"`
 	Updated   float64                       `json:"updated"`
 	Limits    map[string]codingagents.Limit `json:"limits,omitempty"`
@@ -100,10 +101,15 @@ func (a *App) onHook(id, event string, payload map[string]any) {
 	if sid == "" {
 		sid, _ = payload["thread-id"].(string)
 	}
-	if sid != "" && sid != t.SessionID {
+	if t.Title == "" {
+		if title := promptTitle(payload); title != "" {
+			t.Title, changed = title, true
+		}
+	}
+	if sid != "" && (sid != t.SessionID || changed) {
 		t.SessionID, changed = sid, true
-		agent := t.Agent
-		go func() { _ = a.remember(knownSession{Agent: agent, ID: sid}) }()
+		k := knownSession{Agent: t.Agent, ID: sid, Cwd: t.Cwd, Title: t.Title}
+		go func() { _ = a.remember(k) }()
 	}
 	if event == "StatusLine" {
 		if limits := codingagents.StatusLineLimits(payload); len(limits) > 0 {
@@ -129,6 +135,21 @@ func (a *App) onHook(id, event string, payload map[string]any) {
 		_ = os.Remove(filepath.Join(a.root, "terminals", snap.ID+".settings.json"))
 	}
 	a.publish(TerminalStream, map[string]any{"type": "coding.terminal", "terminal": snap})
+}
+
+// promptTitle is a session's title from a hook: the prompt that began it.
+// Claude Code's UserPromptSubmit says prompt, Codex's notify input-messages,
+// the Pantheon Agent title.
+func promptTitle(payload map[string]any) string {
+	text := firstNonEmpty(str(payload["title"]), str(payload["prompt"]))
+	if msgs, ok := payload["input-messages"].([]any); text == "" && ok && len(msgs) > 0 {
+		text = str(msgs[0])
+	}
+	text = strings.Join(strings.Fields(text), " ")
+	if r := []rune(text); len(r) > 80 {
+		text = string(r[:79]) + "…"
+	}
+	return text
 }
 
 func str(v any) string {

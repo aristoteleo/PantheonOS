@@ -94,6 +94,13 @@ func HookState(agent, event string, payload map[string]any) string {
 		case "SessionEnd":
 			return "ended"
 		}
+	case PantheonAgent:
+		switch event {
+		case "UserPromptSubmit":
+			return "working"
+		case "Stop":
+			return "ready"
+		}
 	case "codex":
 		if event == "Notify" && str(payload["type"]) == "agent-turn-complete" {
 			return "ready"
