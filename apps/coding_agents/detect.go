@@ -287,9 +287,11 @@ func (a *App) terminalCommand(p TerminalArgs) map[string]any {
 		// The agent runs as the subshell's child, so the subshell outlives it
 		// and reports how it exited: an agent that updated itself, crashed or
 		// was quit leaves only the shell, and the desktop offers it back. Ctrl-C
-		// reaches the agent; the subshell waits on.
-		command += "trap : INT\n" + line + "\npantheon_exit=$?; " + codingagents.ExitReportCommand("pantheon_exit") +
-			"; exit $pantheon_exit )"
+		// reaches the agent; the subshell waits on. The report itself ignores
+		// it: a second Ctrl-C quitting an agent often lands just after the
+		// agent let go of the terminal, and would kill the report on its way.
+		command += "trap : INT\n" + line + "\npantheon_exit=$?; trap '' INT; " +
+			codingagents.ExitReportCommand("pantheon_exit") + "; exit $pantheon_exit )"
 	case r.found.Custom:
 		// A user's command line may itself be several commands.
 		command += line + " )"

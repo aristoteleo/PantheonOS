@@ -253,6 +253,10 @@ before the window drops to the shell. Whatever ended the agent (the user
 quit it, it crashed, it updated itself), the service knows, and the desktop
 offers it back in the same tab (Coding Agents App, below). The subshell
 ignores Ctrl-C while it waits (`trap : INT`); the agent gets it as usual.
+The report ignores it too (`trap '' INT`): the second Ctrl-C that quits an
+agent often lands just after the agent let go of the terminal. The desktop
+follows the states on `coding_terminals` and also reads `agent_terminals` with
+its poll, so a state published while it was not listening still arrives.
 
 An agent runs with the workspace environment minus the markers of another
 agent session (`CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`, …): a node started from

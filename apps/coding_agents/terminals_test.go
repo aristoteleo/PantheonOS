@@ -3,8 +3,13 @@
 package codingagentsapp
 
 import (
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os/exec"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -53,6 +58,44 @@ func TestTerminalReportsTheAgentExit(t *testing.T) {
 	s := terminalRecord(t, a, id)
 	if !s.Exited || s.State != "ended" || s.ExitCode == nil || *s.ExitCode != 3 || s.Detail != "exit status 3" {
 		t.Fatalf("%+v", s)
+	}
+}
+
+// Quitting an agent with Ctrl-C twice often sends the second one just after
+// the agent let go of the terminal, to the whole foreground job: the report
+// on its way must not die of it.
+func TestExitReportSurvivesALateCtrlC(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("the exit report needs curl")
+	}
+	fakeAgent(t, "codex", "exit 0\n")
+	a := NewApp(nil, "", t.TempDir())
+	defer a.Close()
+	var job *exec.Cmd
+	// A listener that is hit by the Ctrl-C while the report is in flight, and
+	// takes it only from a report still alive.
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = syscall.Kill(-job.Process.Pid, syscall.SIGINT)
+		select {
+		case <-r.Context().Done():
+			return
+		case <-time.After(300 * time.Millisecond):
+		}
+		var payload map[string]any
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &payload)
+		parts := strings.Split(r.URL.Path, "/")
+		a.onHook(parts[2], parts[3], payload)
+	}))
+	defer slow.Close()
+	a.hooks = &hookServer{url: slow.URL, token: "tok", srv: &http.Server{}}
+	res := a.terminalCommand(TerminalArgs{Agent: "codex"})
+	id := res["terminal_id"].(string)
+	job = exec.Command("/bin/sh", "-c", res["command"].(string))
+	job.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	_ = job.Run()
+	if s := terminalRecord(t, a, id); !s.Exited {
+		t.Fatalf("the report died of the Ctrl-C: %+v", s)
 	}
 }
 
