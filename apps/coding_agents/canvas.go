@@ -146,9 +146,6 @@ func (ct *CanvasTurn) prepare(cwd string) (canvasLaunch, error) {
 	if len(l.focus) > 0 {
 		sys = append(sys, "Focus on these folders:\n- "+strings.Join(l.focus, "\n- "))
 	}
-	if len(l.files) > 0 {
-		sys = append(sys, "The user pinned these files for this turn; start from them:\n- "+strings.Join(l.files, "\n- "))
-	}
 	if len(roster) > 0 {
 		sys = append(sys, "You may delegate to these sub-agents with the Agent tool:\n"+strings.Join(roster, "\n")+
 			"\nLaunch independent ones in parallel (several Agent calls in one message), and when they finish, "+
@@ -170,12 +167,16 @@ func (ct *CanvasTurn) prepare(cwd string) (canvasLaunch, error) {
 	return l, nil
 }
 
-// prompt adds the reference images to what the user wrote.
+// prompt adds the pinned files and the reference images to what the user
+// wrote: said in the message itself, a resumed session does not miss them.
 func (l canvasLaunch) prompt(text string) string {
-	if len(l.images) == 0 {
-		return text
+	if len(l.files) > 0 {
+		text += "\n\nFiles I pinned for this turn (start from them):\n- " + strings.Join(l.files, "\n- ")
 	}
-	return text + "\n\nReference images (read each with the Read tool):\n- " + strings.Join(l.images, "\n- ")
+	if len(l.images) > 0 {
+		text += "\n\nReference images (read each with the Read tool):\n- " + strings.Join(l.images, "\n- ")
+	}
+	return text
 }
 
 func (l canvasLaunch) apply(t *codingagents.Turn) {

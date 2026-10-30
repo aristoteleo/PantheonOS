@@ -887,7 +887,7 @@ func TestCanvasTurnStatesItsSettings(t *testing.T) {
 	}
 }
 
-// Pinned files are named to the agent; one outside the workspace opens its folder to it.
+// Pinned files are named in the message; one outside the workspace opens its folder to it.
 func TestCanvasTurnPinnedFiles(t *testing.T) {
 	cwd, other := t.TempDir(), t.TempDir()
 	for _, p := range []string{filepath.Join(cwd, "a.go"), filepath.Join(other, "b.md")} {
@@ -899,8 +899,9 @@ func TestCanvasTurnPinnedFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(l.system, filepath.Join(cwd, "a.go")) || !strings.Contains(l.system, filepath.Join(other, "b.md")) {
-		t.Errorf("pinned files missing: %q", l.system)
+	if p := l.prompt("go"); !strings.HasPrefix(p, "go\n\nFiles I pinned") || !strings.Contains(p, filepath.Join(cwd, "a.go")) ||
+		!strings.Contains(p, filepath.Join(other, "b.md")) {
+		t.Errorf("pinned files missing from the prompt: %q", p)
 	}
 	if !slices.Equal(l.addDirs, []string{other}) {
 		t.Errorf("add dirs %v, want %v", l.addDirs, []string{other})
