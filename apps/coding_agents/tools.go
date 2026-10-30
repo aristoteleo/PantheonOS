@@ -59,10 +59,39 @@ func Tools(app *App) ([]*appsvc.Tool, error) {
 				Auto: boolP(p, "auto", true), Cwd: strP(p, "cwd")}), nil
 		},
 		"agent_send": func(_ context.Context, p map[string]any) (any, error) {
-			return app.send(SendArgs{Agent: strP(p, "agent"), Cwd: strP(p, "cwd"), Prompt: strP(p, "prompt"),
+			args := SendArgs{Agent: strP(p, "agent"), Cwd: strP(p, "cwd"), Prompt: strP(p, "prompt"),
 				ConversationID: strP(p, "conversation_id"), Model: strP(p, "model"),
 				Auto: boolP(p, "auto", true), Origin: strP(p, "origin"),
-				Session: strP(p, "session_id"), Title: strP(p, "title")}), nil
+				Session: strP(p, "session_id"), Title: strP(p, "title")}
+			ct := &CanvasTurn{Effort: strP(p, "effort"), Research: boolP(p, "research", true)}
+			for name, into := range map[string]any{"subagents": &ct.Subagents, "focus": &ct.Focus, "images": &ct.Images} {
+				if err := remarshal(p[name], into); err != nil {
+					return failure("%s: %v", name, err), nil
+				}
+			}
+			if args.Origin == "canvas" || ct.Effort != "" || !ct.Research || len(ct.Subagents)+len(ct.Focus)+len(ct.Images) > 0 {
+				args.Canvas = ct
+			}
+			return app.send(args), nil
+		},
+		"agents_skills": func(_ context.Context, p map[string]any) (any, error) {
+			return skills(strP(p, "cwd")), nil
+		},
+		"agents_repo_info": func(_ context.Context, p map[string]any) (any, error) {
+			return repoInfo(strP(p, "path")), nil
+		},
+		"agents_folder_tree": func(_ context.Context, p map[string]any) (any, error) {
+			return folderTree(strP(p, "path"), strP(p, "dir")), nil
+		},
+		"agents_reference_put": func(_ context.Context, p map[string]any) (any, error) {
+			return referencePut(ReferenceChunk{Cwd: strP(p, "cwd"), UploadID: strP(p, "upload_id"), Name: strP(p, "name"),
+				Offset: intP(p, "offset"), Data: strP(p, "data"), Final: boolP(p, "final", false)}), nil
+		},
+		"agents_reference_list": func(_ context.Context, p map[string]any) (any, error) {
+			return referenceList(strP(p, "cwd")), nil
+		},
+		"agents_reference_thumb": func(_ context.Context, p map[string]any) (any, error) {
+			return referenceThumb(strP(p, "cwd"), strP(p, "path")), nil
 		},
 		"agent_sessions": func(_ context.Context, p map[string]any) (any, error) {
 			return app.sessions(strP(p, "agent"), int(intP(p, "limit"))), nil

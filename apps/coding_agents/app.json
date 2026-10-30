@@ -49,7 +49,7 @@
       },
       {
         "name": "agent_send",
-        "description": "Send a message to a coding agent and start its turn. Events stream on pantheon.stream.coding_<conversation_id>.\n\nArgs:\n    prompt: The message.\n    agent: Catalog id; needed for a new conversation.\n    cwd: Folder the agent works in; a new conversation only. Defaults to home.\n    conversation_id: Continue this conversation.\n    model: Model name the agent understands.\n    auto: Full-auto mode for a new conversation.\n    origin: Who started it (ui, agent, cli).\n    session_id: Continue this session of the agent's own (one started outside PantheonOS) as a new conversation.\n    title: The new conversation's title.",
+        "description": "Send a message to a coding agent and start its turn. Events stream on pantheon.stream.coding_<conversation_id>.\n\nArgs:\n    prompt: The message.\n    agent: Catalog id; needed for a new conversation.\n    cwd: Folder the agent works in; a new conversation only. Defaults to home.\n    conversation_id: Continue this conversation.\n    model: Model name the agent understands.\n    auto: Full-auto mode for a new conversation.\n    origin: Who started it (ui, agent, cli).\n    session_id: Continue this session of the agent's own (one started outside PantheonOS) as a new conversation.\n    title: The new conversation's title.\n\nClaude Code only (other agents ignore them):\n    effort: low, medium, high, xhigh or max.\n    subagents: [{name, description, prompt, write, model}] — roles it may delegate to; read-only unless write.\n    focus: folders to focus on; any outside cwd become reachable.\n    research: allow web search and fetch.\n    images: absolute paths of reference images it should read.",
         "hidden": true,
         "params": [
           {
@@ -96,6 +96,31 @@
             "name": "title",
             "type": "str",
             "default": ""
+          },
+          {
+            "name": "effort",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "subagents",
+            "type": "list | None",
+            "default": null
+          },
+          {
+            "name": "focus",
+            "type": "list | None",
+            "default": null
+          },
+          {
+            "name": "research",
+            "type": "bool",
+            "default": true
+          },
+          {
+            "name": "images",
+            "type": "list | None",
+            "default": null
           }
         ]
       },
@@ -326,6 +351,113 @@
             "default": false
           }
         ]
+      },
+      {
+        "name": "agents_skills",
+        "description": "The Claude Code skills on this node: the user's and the project's, from each SKILL.md front matter.\n\nArgs:\n    cwd: the project folder whose .claude/skills to include.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "cwd",
+            "type": "str",
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "agents_repo_info",
+        "description": "A folder's git state: the commit checked out (hash, short, subject), the branch, and the local branches. git is false for a folder outside git.\n\nArgs:\n    path: the folder.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "path",
+            "type": "str",
+            "required": true
+          }
+        ]
+      },
+      {
+        "name": "agents_folder_tree",
+        "description": "The subfolders of a folder in a project, each with its files counted recursively, leaving out .git, node_modules and hidden folders. Counting stops at 100,000 files or 2 s (approx).\n\nArgs:\n    path: the project's folder.\n    dir: the folder to list, inside path (relative or absolute); path itself when empty.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "path",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "dir",
+            "type": "str",
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "agents_reference_put",
+        "description": "Upload a reference image in chunks of at most 48 KB, sent in order, into <cwd>/.pantheon/references. PNG, JPEG, WebP or GIF, up to 20 MB and 40 million pixels. The final chunk returns the file's path.\n\nArgs:\n    cwd: the workspace.\n    upload_id: names the upload across its chunks.\n    name: the file name.\n    offset: where this chunk starts; 0 starts over.\n    data: the chunk, base64.\n    final: the last chunk.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "cwd",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "upload_id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "offset",
+            "type": "int",
+            "default": 0
+          },
+          {
+            "name": "data",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "final",
+            "type": "bool",
+            "default": false
+          }
+        ]
+      },
+      {
+        "name": "agents_reference_list",
+        "description": "The reference images uploaded to a workspace, newest first.\n\nArgs:\n    cwd: the workspace.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "cwd",
+            "type": "str",
+            "required": true
+          }
+        ]
+      },
+      {
+        "name": "agents_reference_thumb",
+        "description": "A small JPEG preview (at most 256 px, 40 KB, base64) of a reference image.\n\nArgs:\n    cwd: the workspace.\n    path: the image, in <cwd>/.pantheon/references.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "cwd",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "path",
+            "type": "str",
+            "required": true
+          }
+        ]
       }
     ],
     "interfaces": [
@@ -349,7 +481,13 @@
           "agents_create_project",
           "agents_workspace_create",
           "agents_workspace_remove",
-          "agents_access"
+          "agents_access",
+          "agents_skills",
+          "agents_repo_info",
+          "agents_folder_tree",
+          "agents_reference_put",
+          "agents_reference_list",
+          "agents_reference_thumb"
         ]
       }
     ]

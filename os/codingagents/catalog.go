@@ -48,13 +48,18 @@ type Turn struct {
 	Model   string
 	Cwd     string
 	Auto    bool
+	// Claude Code only: reasoning effort (low…max); sub-agent definitions
+	// as --agents JSON; more folders the tools may reach; tools denied.
+	Effort     string
+	Subagents  string
+	AddDirs    []string
+	Disallowed []string
 }
 
 func ids(id string, flag string) []string { return []string{flag, id} }
 
 // PantheonAgent is the catalog id of the user's own Pantheon Agent.
 const PantheonAgent = "pantheon"
-
 
 // Catalog is every agent PantheonOS looks for, in display order.
 var Catalog = []Agent{
@@ -82,6 +87,18 @@ var Catalog = []Agent{
 				}
 				if t.Auto {
 					a = append(a, "--dangerously-skip-permissions")
+				}
+				if t.Effort != "" {
+					a = append(a, "--effort", t.Effort)
+				}
+				if t.Subagents != "" {
+					a = append(a, "--agents", t.Subagents)
+				}
+				for _, d := range t.AddDirs {
+					a = append(a, "--add-dir", d)
+				}
+				if len(t.Disallowed) > 0 {
+					a = append(a, "--disallowedTools", strings.Join(t.Disallowed, ","))
 				}
 				return a
 			},

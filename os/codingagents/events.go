@@ -24,6 +24,18 @@ type Event struct {
 	Usage     map[string]any `json:"usage,omitempty"`
 	CostUSD   float64        `json:"cost_usd,omitempty"`
 	Time      float64        `json:"time,omitempty"`
+	// Parent is the sub-agent launch (its tool id) an event came from;
+	// empty for the main agent's own steps.
+	Parent string `json:"parent,omitempty"`
+	// Subagent is set on a sub-agent's launch tool: the type it runs as.
+	// Its Text is the task it was given and Activity what it does now; the
+	// launch turns done or error when the sub-agent finishes.
+	Subagent string `json:"subagent,omitempty"`
+	Activity string `json:"activity,omitempty"`
+	// Images and Branch (user events) are the reference images the turn
+	// was given and the branch its folder was on.
+	Images []string `json:"images,omitempty"`
+	Branch string   `json:"branch,omitempty"`
 	// A turn's size, the same for every agent (done events): tokens read
 	// (cached included), of those served from cache, and written; the
 	// tokens in the last request against the model's window; wall time.
@@ -54,13 +66,18 @@ type Parser interface {
 	Parse(line []byte) []Event
 }
 
-const outputCap = 4096
+const (
+	outputCap = 4096
+	reportCap = 64 << 10 // a sub-agent's final report
+)
 
-func capText(s string) string {
-	if len(s) <= outputCap {
+func capText(s string) string { return capAt(s, outputCap) }
+
+func capAt(s string, n int) string {
+	if len(s) <= n {
 		return s
 	}
-	return s[:outputCap] + "\n…"
+	return s[:n] + "\n…"
 }
 
 // oneLine summarises a tool input: the field a person would recognise
@@ -74,7 +91,7 @@ func oneLine(input any) string {
 		b, _ := json.Marshal(input)
 		return firstLine(string(b))
 	}
-	for _, k := range []string{"command", "cmd", "file_path", "path", "filePath", "pattern", "query", "url", "prompt", "description"} {
+	for _, k := range []string{"command", "cmd", "file_path", "path", "filePath", "pattern", "query", "url", "skill", "prompt", "description"} {
 		if v, ok := m[k]; ok {
 			switch t := v.(type) {
 			case string:
@@ -142,17 +159,102 @@ func contentText(v any) string {
 
 // ---- Claude Code (-p --output-format stream-json --verbose) ----------------
 
-type claudeParser struct{}
+// Claude Code runs sub-agents through its Agent tool (Task in older
+// versions). Every line a sub-agent produces carries parent_tool_use_id, the
+// launch's tool id. A launch may run in the background: its tool result then
+// only says it started, and a task_notification reports the end. -p keeps
+// the process (and the turn) going until background sub-agents end, with a
+// result line after each of the main agent's follow-ups.
+type claudeParser struct {
+	launches map[string]string // launch tool id -> sub-agent type
+	ended    map[string]bool   // launches whose end was reported
+	results  int
+	prev     Event
+	session  string // the session reported already
+}
+
+func isLaunchTool(name string) bool { return name == "Agent" || name == "Task" }
+
+// subagentReport is the report a foreground sub-agent handed back, without
+// the frame Claude Code puts around it for the model: the structured
+// result's text blocks when there are some, else the tool result's text
+// with the frame cut off.
+func subagentReport(result, content any) string {
+	var parts []string
+	blocks, _ := obj(result)["content"].([]any)
+	for _, b := range blocks {
+		if t := str(obj(b)["text"]); str(obj(b)["type"]) == "text" && !strings.HasPrefix(strings.TrimSpace(t), "<tools-used-before-summary>") {
+			parts = append(parts, t)
+		}
+	}
+	if len(parts) > 0 {
+		return strings.TrimSpace(strings.Join(parts, "\n"))
+	}
+	return stripHandBack(contentText(content))
+}
+
+const handBackMark = "The report follows:\n"
+
+// stripHandBack cuts the frame off a sub-agent's report as the model sees
+// it: a tools-used note, a preamble ending in "The report follows:", the
+// report indented by two spaces, then an agentId line and a usage block.
+func stripHandBack(s string) string {
+	if i := strings.Index(s, handBackMark); i >= 0 {
+		s = s[i+len(handBackMark):]
+		var lines []string
+		for _, l := range strings.Split(s, "\n") {
+			if strings.HasPrefix(l, "agentId: ") || strings.HasPrefix(l, "<usage>") {
+				break
+			}
+			lines = append(lines, strings.TrimPrefix(l, "  "))
+		}
+		s = strings.Join(lines, "\n")
+	} else if i := strings.Index(s, "</tools-used-before-summary>"); i >= 0 {
+		s = s[i+len("</tools-used-before-summary>"):]
+	}
+	return strings.TrimSpace(s)
+}
 
 func (p *claudeParser) Parse(line []byte) []Event {
 	m := decode(line)
 	if m == nil {
 		return nil
 	}
+	if p.launches == nil {
+		p.launches, p.ended = map[string]string{}, map[string]bool{}
+	}
+	parent := str(m["parent_tool_use_id"])
 	switch str(m["type"]) {
 	case "system":
-		if str(m["subtype"]) == "init" {
-			return []Event{{Type: "session", SessionID: str(m["session_id"]), Model: str(m["model"])}}
+		switch str(m["subtype"]) {
+		case "init":
+			// Sent again after each background sub-agent ends; once a turn.
+			if id := str(m["session_id"]); id != p.session || id == "" {
+				p.session = id
+				return []Event{{Type: "session", SessionID: id, Model: str(m["model"])}}
+			}
+		case "task_progress":
+			id := str(m["tool_use_id"])
+			if kind, ok := p.launches[id]; ok && !p.ended[id] {
+				return []Event{{Type: "tool", ID: id, Subagent: kind, Status: "running",
+					Activity: firstLine(str(m["description"]))}}
+			}
+		case "task_notification":
+			id := str(m["tool_use_id"])
+			kind, ok := p.launches[id]
+			if !ok || p.ended[id] {
+				return nil // a background command's, or already reported
+			}
+			p.ended[id] = true
+			e := Event{Type: "tool", ID: id, Subagent: kind, Status: "done", Output: capAt(str(m["summary"]), reportCap)}
+			switch str(m["status"]) {
+			case "completed":
+			case "stopped", "killed":
+				e.Status, e.Stopped, e.Error = "error", true, "Stopped"
+			default:
+				e.Status, e.Error = "error", firstLine(firstNonEmpty(str(m["summary"]), "The sub-agent failed"))
+			}
+			return []Event{e}
 		}
 	case "assistant":
 		var out []Event
@@ -163,15 +265,22 @@ func (p *claudeParser) Parse(line []byte) []Event {
 			switch str(c["type"]) {
 			case "text":
 				if t := str(c["text"]); t != "" {
-					out = append(out, Event{Type: "text", Text: t})
+					out = append(out, Event{Type: "text", Text: t, Parent: parent})
 				}
 			case "thinking":
 				if t := str(c["thinking"]); t != "" {
-					out = append(out, Event{Type: "thinking", Text: t})
+					out = append(out, Event{Type: "thinking", Text: t, Parent: parent})
 				}
 			case "tool_use":
-				out = append(out, Event{Type: "tool", ID: str(c["id"]), Name: str(c["name"]),
-					Input: oneLine(c["input"]), Status: "running"})
+				e := Event{Type: "tool", ID: str(c["id"]), Name: str(c["name"]),
+					Input: oneLine(c["input"]), Status: "running", Parent: parent}
+				if in := obj(c["input"]); isLaunchTool(e.Name) && in != nil {
+					e.Subagent = firstNonEmpty(str(in["subagent_type"]), "general-purpose")
+					e.Input = firstLine(firstNonEmpty(str(in["description"]), e.Subagent))
+					e.Text = capText(str(in["prompt"]))
+					p.launches[e.ID] = e.Subagent
+				}
+				out = append(out, e)
 			}
 		}
 		return out
@@ -184,12 +293,22 @@ func (p *claudeParser) Parse(line []byte) []Event {
 			if str(c["type"]) != "tool_result" {
 				continue
 			}
-			status := "done"
+			id := str(c["tool_use_id"])
+			e := Event{Type: "tool", ID: id, Status: "done", Output: capText(contentText(c["content"])), Parent: parent}
 			if c["is_error"] == true {
-				status = "error"
+				e.Status = "error"
 			}
-			out = append(out, Event{Type: "tool", ID: str(c["tool_use_id"]), Status: status,
-				Output: capText(contentText(c["content"]))})
+			if kind, ok := p.launches[id]; ok {
+				if p.ended[id] || str(obj(m["tool_use_result"])["status"]) == "async_launched" {
+					continue // the notification has the end, or will
+				}
+				p.ended[id] = true
+				e.Subagent, e.Output = kind, capAt(subagentReport(m["tool_use_result"], c["content"]), reportCap)
+				if e.Status == "error" {
+					e.Error = firstLine(e.Output)
+				}
+			}
+			out = append(out, e)
 		}
 		return out
 	case "rate_limit_event":
@@ -226,6 +345,20 @@ func (p *claudeParser) Parse(line []byte) []Event {
 		if m["is_error"] == true {
 			e.Error = firstNonEmpty(str(m["result"]), str(m["subtype"]), "The turn failed")
 		}
+		// A follow-up after background sub-agents: the turn is the sum, and
+		// its wall time is the runner's to measure.
+		if p.results++; p.results > 1 {
+			e.InputTokens += p.prev.InputTokens
+			e.CachedTokens += p.prev.CachedTokens
+			e.OutputTokens += p.prev.OutputTokens
+			e.CostUSD = max(e.CostUSD, p.prev.CostUSD)
+			e.ContextWindow = max(e.ContextWindow, p.prev.ContextWindow)
+			if e.ContextTokens == 0 {
+				e.ContextTokens = p.prev.ContextTokens
+			}
+			e.DurationMs = 0
+		}
+		p.prev = e
 		return []Event{e}
 	}
 	return nil

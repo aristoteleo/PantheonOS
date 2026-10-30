@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -47,6 +48,11 @@ type Conversation struct {
 	Status    string  `json:"status"` // idle|running|error
 	LastError string  `json:"last_error,omitempty"`
 	Seq       int64   `json:"seq"`
+	// Interrupted: the last turn ended because the service stopped; a
+	// new message resumes the agent's session.
+	Interrupted bool `json:"interrupted,omitempty"`
+	// Canvas is what the latest canvas turn asked for.
+	Canvas *CanvasTurn `json:"canvas,omitempty"`
 	// Limits is the account quota the agent last reported, with its time.
 	Limits   map[string]codingagents.Limit `json:"limits,omitempty"`
 	LimitsAt float64                       `json:"limits_at,omitempty"`
@@ -62,6 +68,7 @@ type turn struct {
 	cmd     *exec.Cmd
 	done    chan struct{}
 	stopped bool
+	closing bool // the service is stopping, not the user
 	started time.Time
 }
 
@@ -90,8 +97,11 @@ type App struct {
 // DefaultRoot is where a node keeps its conversations.
 func DefaultRoot() string { return codingagents.Root() }
 
+const interruptedNote = "Interrupted: the node's Coding Agents service stopped. Send a message to continue."
+
 // NewApp loads the conversations under root. A turn that was running when
-// the service last stopped is marked interrupted.
+// the service last stopped is marked interrupted, and its event log ends
+// with that.
 func NewApp(nc *nats.Conn, prefix, root string) *App {
 	a := &App{root: root, nc: nc, prefix: prefix, convs: map[string]*Conversation{}, running: map[string]*turn{},
 		limits: map[string]agentLimits{}, plans: map[string]string{}, terminals: map[string]*TerminalSession{},
@@ -102,18 +112,50 @@ func NewApp(nc *nats.Conn, prefix, root string) *App {
 	if b, err := os.ReadFile(a.indexPath()); err == nil {
 		var list []*Conversation
 		if json.Unmarshal(b, &list) == nil {
+			var cut []string
 			for _, c := range list {
 				if c.Status == "running" {
-					c.Status, c.LastError = "error", "Interrupted: the node's Coding Agents service restarted"
+					cut = append(cut, c.ID)
 				}
 				a.convs[c.ID] = c
 				if c.Limits != nil && c.LimitsAt > a.limits[c.Agent].At {
 					a.limits[c.Agent] = agentLimits{c.Limits, c.LimitsAt}
 				}
 			}
+			for _, id := range cut {
+				c := a.convs[id]
+				// The index is saved at turn boundaries; the log has every event.
+				c.Seq = max(c.Seq, a.lastSeq(id))
+				a.emit(id, codingagents.Event{Type: "done", Error: interruptedNote, Stopped: true})
+				c.Status, c.LastError, c.Interrupted = "error", interruptedNote, true
+			}
+			if len(cut) > 0 {
+				_ = a.saveLocked()
+			}
 		}
 	}
 	return a
+}
+
+// lastSeq is the number of the last event in a conversation's log.
+func (a *App) lastSeq(id string) int64 {
+	f, err := os.Open(a.logPath(id))
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	var last int64
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 64*1024), maxLine)
+	for sc.Scan() {
+		var e struct {
+			Seq int64 `json:"seq"`
+		}
+		if json.Unmarshal(sc.Bytes(), &e) == nil && e.Seq > last {
+			last = e.Seq
+		}
+	}
+	return last
 }
 
 func (a *App) indexPath() string            { return filepath.Join(a.root, "conversations.json") }
@@ -196,6 +238,8 @@ type SendArgs struct {
 	// outside PantheonOS) as a new conversation; Title names it.
 	Session string
 	Title   string
+	// Canvas: a turn composed on the Agent Canvas (Claude Code only).
+	Canvas *CanvasTurn
 }
 
 func (a *App) send(p SendArgs) map[string]any {
@@ -252,6 +296,18 @@ func (a *App) send(p SendArgs) map[string]any {
 			Origin: origin, Created: now(), Status: "idle", Session: p.Session}
 		a.convs[c.ID] = c
 	}
+	var canvas canvasLaunch
+	if p.Canvas != nil && c.Agent == "claude" {
+		l, err := p.Canvas.prepare(c.Cwd)
+		if err != nil {
+			if p.ConversationID == "" {
+				delete(a.convs, c.ID)
+			}
+			a.mu.Unlock()
+			return failure("%v", err)
+		}
+		canvas, c.Canvas = l, p.Canvas
+	}
 	agent, _ := codingagents.Lookup(c.Agent)
 	r, err := resolve(c.Agent)
 	if err != nil {
@@ -260,7 +316,7 @@ func (a *App) send(p SendArgs) map[string]any {
 	}
 	launch := codingagents.Launch{Agent: c.Agent, Conversation: c.ID, NodeID: a.NodeID, NodeName: a.NodeName}
 	note := codingagents.Note(r.settings, launch)
-	agentPrompt := prompt
+	agentPrompt := canvas.prompt(prompt)
 	if note != "" && agent.Instructions == nil && c.Seq == 0 && c.Session == "" {
 		// Without a way to add instructions, the first prompt carries them.
 		agentPrompt = "[" + note + "]\n\n" + prompt
@@ -270,9 +326,10 @@ func (a *App) send(p SendArgs) map[string]any {
 		model = r.settings.Agents[c.Agent].Model
 	}
 	t := codingagents.Turn{Prompt: agentPrompt, Session: c.Session, Model: model, Cwd: c.Cwd, Auto: c.Auto}
+	canvas.apply(&t)
 	args := append(agent.Headless.Args(t), r.settings.Agents[c.Agent].Args...)
-	if note != "" && agent.Instructions != nil {
-		args = append(args, agent.Instructions(note)...)
+	if extra := strings.TrimSpace(note + "\n\n" + canvas.system); extra != "" && agent.Instructions != nil {
+		args = append(args, agent.Instructions(extra)...)
 	}
 	cmd := exec.Command(r.path, args...)
 	cmd.Dir = c.Cwd
@@ -289,14 +346,25 @@ func (a *App) send(p SendArgs) map[string]any {
 	stderr := &tailBuffer{max: stderrKeep}
 	cmd.Stderr = stderr
 
-	c.Status, c.LastError, c.Updated = "running", "", now()
+	c.Status, c.LastError, c.Interrupted, c.Updated = "running", "", false, now()
 	userSeq := c.Seq + 1
 	tr := &turn{cmd: cmd, done: make(chan struct{}), started: time.Now()}
 	a.running[c.ID] = tr
 	_ = a.saveLocked()
+	cwd := c.Cwd
 	a.mu.Unlock()
 
-	a.emit(c.ID, codingagents.Event{Type: "user", Text: prompt})
+	user := codingagents.Event{Type: "user", Text: prompt, Images: canvas.images}
+	if p.Canvas != nil && c.Agent == "claude" {
+		user.Branch, _ = gitBranch(cwd)
+	}
+	a.emit(c.ID, user)
+	if c.Agent == "claude" {
+		// A skill named at the start is expanded before the agent runs.
+		for _, name := range slashSkills(prompt, cwd) {
+			a.emit(c.ID, codingagents.Event{Type: "tool", ID: "slash-" + newID(), Name: "Skill", Input: name, Status: "done"})
+		}
+	}
 	if err := cmd.Start(); err != nil {
 		a.finish(c.ID, tr, codingagents.Event{Type: "done", Error: fmt.Sprintf("Could not start %s: %v", agent.Label, err)})
 		return failure("Could not start %s: %v", agent.Label, err)
@@ -311,8 +379,15 @@ func (a *App) pump(id string, tr *turn, agent codingagents.Agent, stdout io.Read
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 64*1024), maxLine)
 	var last *codingagents.Event
+	var open []codingagents.Event // sub-agents launched and not yet ended
 	for sc.Scan() {
 		for _, e := range parser.Parse(sc.Bytes()) {
+			if e.Type == "tool" && e.Subagent != "" {
+				open = slices.DeleteFunc(open, func(o codingagents.Event) bool { return o.ID == e.ID })
+				if e.Status == "running" {
+					open = append(open, codingagents.Event{Type: "tool", ID: e.ID, Subagent: e.Subagent})
+				}
+			}
 			if e.Type == "done" {
 				ev := e
 				last = &ev
@@ -351,11 +426,26 @@ func (a *App) pump(id string, tr *turn, agent codingagents.Agent, stdout io.Read
 	if end.DurationMs == 0 {
 		end.DurationMs = time.Since(tr.started).Milliseconds()
 	}
+	a.mu.Lock()
+	closing, stopped := tr.closing, tr.stopped
+	a.mu.Unlock()
 	switch {
-	case tr.stopped:
+	case closing:
+		end.Error, end.Stopped = interruptedNote, true
+	case stopped:
 		end.Error, end.Stopped = "", true
 	case end.Error == "" && waitErr != nil && last == nil:
 		end.Error = exitMessage(agent.Label, waitErr, stderr.String())
+	}
+	// Sub-agents end with the turn; say so before it ends.
+	for _, o := range open {
+		o.Status = "error"
+		if o.Stopped = stopped; o.Stopped {
+			o.Error = "Stopped"
+		} else {
+			o.Error = "The turn ended before this sub-agent finished"
+		}
+		a.emit(id, o)
 	}
 	a.finish(id, tr, end)
 }
@@ -380,6 +470,7 @@ func (a *App) finish(id string, tr *turn, end codingagents.Event) {
 		if end.Error != "" {
 			c.Status, c.LastError = "error", firstLine(end.Error)
 		}
+		c.Interrupted = tr.closing
 		_ = a.saveLocked()
 	}
 	if a.running[id] == tr {
@@ -538,7 +629,8 @@ func (a *App) Close() {
 	defer a.closeHooks()
 	a.mu.Lock()
 	ids := make([]string, 0, len(a.running))
-	for id := range a.running {
+	for id, tr := range a.running {
+		tr.closing = true
 		ids = append(ids, id)
 	}
 	a.mu.Unlock()

@@ -11,3 +11,7 @@ func kill(cmd *exec.Cmd) {
 		_ = cmd.Process.Kill()
 	}
 }
+
+// noFollow: Windows has no such flag; upload parts get fresh random names
+// and are checked with Lstat instead.
+const noFollow = 0

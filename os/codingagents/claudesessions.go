@@ -26,6 +26,9 @@ func claudeDir() string {
 	return filepath.Join(home, ".claude")
 }
 
+// ClaudeDir is where Claude Code keeps its state (and the user's skills).
+func ClaudeDir() string { return claudeDir() }
+
 // ClaudeSessions lists Claude Code's sessions on this machine, newest first,
 // from its own session files: the first prompt, the folder and branch it ran
 // in, and the title Claude Code gave it. Only each file's head and tail are

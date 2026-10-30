@@ -24,3 +24,6 @@ func kill(cmd *exec.Cmd) {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
 }
+
+// noFollow makes opening a link fail instead of reaching its target.
+const noFollow = syscall.O_NOFOLLOW

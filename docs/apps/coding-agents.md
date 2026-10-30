@@ -81,6 +81,11 @@ PTY services are (`node_service` with `service: "coding_agent"`). It needs the
 | `agent_conversations(agent, cwd)` | Conversations on this node, newest first. |
 | `agent_conversation(conversation_id, after)` | One conversation's events, for replay. |
 | `agent_delete(conversation_id)` | Removes a conversation's record. The agent's own session stays. |
+| `agents_skills(cwd)` | Claude Code skills: the user's, the project's, and the skills and commands of the plugins enabled there (`source: plugin`, named `<plugin>:<name>`). |
+| `agents_repo_info(path)` | A folder's commit (hash, short, subject), branch and local branches. |
+| `agents_folder_tree(path, dir)` | A folder's subfolders with recursive file counts (no `.git`, `node_modules`, hidden folders; bounded at 100k files / 2 s). |
+| `agents_reference_put(cwd, upload_id, name, offset, data, final)` | Uploads a reference image in ≤ 48 KB chunks into `<cwd>/.pantheon/references` (PNG, JPEG, WebP, GIF; ≤ 20 MB and 40 M pixels). |
+| `agents_reference_list(cwd)` / `agents_reference_thumb(cwd, path)` | The uploaded images; a ≤ 40 KB JPEG preview of one. |
 
 A turn is one process: the agent's headless command with the prompt on stdin
 (as an argument for agents that do not read stdin), resuming the agent's own
@@ -92,7 +97,19 @@ when a turn fails.
 Conversations live under `~/.pantheon/coding-agents/` on the node: an index
 and one event log per conversation. A conversation records the agent, the
 directory, a title (the first prompt), the agent's session id and the time of
-its last turn.
+its last turn. A turn running when the service stops (or dies) ends with a
+`done` event saying it was interrupted, and the conversation is marked
+`interrupted`; the next message resumes the agent's session.
+
+A Claude Code turn may also carry the Agent Canvas options of `agent_send`:
+`effort` (`--effort`), `subagents` (`[{name, description, prompt, write,
+model}]`, passed as `--agents`; read-only roles get Read, Grep, Glob and, with
+research on, WebSearch and WebFetch), `focus` (folders, named in the appended
+system prompt; those outside the directory also `--add-dir`), `research`
+(off: `--disallowedTools WebSearch,WebFetch`) and `images` (paths listed after
+the prompt). The conversation keeps the latest as `canvas`. Skills a Claude Code
+prompt starts with (`/name …`) are expanded by Claude Code without a tool call,
+so the service adds a `Skill` tool event (done) for each after the `user` event.
 
 ### Events
 
@@ -105,13 +122,21 @@ Every agent's stream is mapped to one shape:
 
 | Type | Fields |
 |---|---|
-| `user` | `text` — the prompt that started the turn |
+| `user` | `text` — the prompt that started the turn; `images` and `branch` for a canvas turn |
 | `session` | `session_id`, `model` |
 | `text` | `text`, `delta` when the agent streams pieces |
 | `thinking` | `text`, `delta` |
 | `tool` | `id`, `name`, `input` (a one-line summary), `status` (`running`, `done`, `error`), `output` (capped at 4 KB) |
 | `done` | `error` when the turn failed; `duration_ms`; `input_tokens` (cached included), `cached_tokens`, `output_tokens`; `context_tokens` and `context_window` where the agent reports them; `cost_usd` (Claude Code: the price at API rates, not a charge on a subscription) |
 | `limits` | `limits`: the account's quota windows (`five_hour`, `seven_day`, …), each `used` (0–1) and `resets_at` |
+
+Claude Code's sub-agents: every event from inside one has `parent`, the id of
+the tool call that launched it. The launch (tool `Agent`, `Task` in older
+versions) has `subagent` (its type), `input` (the description) and `text` (the
+task). Progress reports update its `activity`; it turns `done` or `error` when
+the sub-agent ends (`stopped` when the turn was stopped), with the final report
+as `output` (up to 64 KB). Background sub-agents end by notification, not by the
+launch's tool result.
 
 Lines a parser does not recognise are dropped. A quota (`limits`) is kept
 with the conversation and with the agent, so the agent list shows the last
