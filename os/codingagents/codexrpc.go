@@ -9,14 +9,20 @@ import (
 	"io"
 	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 )
 
 // codexCall runs `codex app-server`, Codex's own JSON-RPC interface, for one
 // request. Codex reads its sign-in itself; PantheonOS sees only the answer.
+// It returns by ctx's deadline: the server runs in a process group of its
+// own, all of which is killed then (an npm launcher's child would otherwise
+// keep its output open).
 func codexCall(ctx context.Context, path string, env []string, method string, params any) (json.RawMessage, error) {
 	cmd := exec.CommandContext(ctx, path, "app-server")
 	cmd.Env = env
+	cmd.Cancel = func() error { killGroup(cmd); return nil }
+	cmd.WaitDelay = time.Second
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -31,7 +37,7 @@ func codexCall(ctx context.Context, path string, env []string, method string, pa
 	}
 	defer func() {
 		_ = stdin.Close()
-		_ = cmd.Process.Kill()
+		killGroup(cmd)
 		_ = cmd.Wait()
 	}()
 	send := func(v any) error {
@@ -51,28 +57,43 @@ func codexCall(ctx context.Context, path string, env []string, method string, pa
 	if err := send(req); err != nil {
 		return nil, err
 	}
-	sc := bufio.NewScanner(io.LimitReader(stdout, 64<<20))
-	sc.Buffer(make([]byte, 64*1024), 16<<20)
-	for sc.Scan() {
-		var m struct {
-			ID     json.RawMessage `json:"id"`
-			Result json.RawMessage `json:"result"`
-			Error  *struct {
-				Message string `json:"message"`
-			} `json:"error"`
-		}
-		if json.Unmarshal(sc.Bytes(), &m) != nil || string(m.ID) != "2" {
-			continue
-		}
-		if m.Error != nil {
-			return nil, errors.New(m.Error.Message)
-		}
-		return m.Result, nil
+	type answer struct {
+		result json.RawMessage
+		err    error
 	}
-	if ctx.Err() != nil {
+	got := make(chan answer, 1)
+	go func() {
+		sc := bufio.NewScanner(io.LimitReader(stdout, 64<<20))
+		sc.Buffer(make([]byte, 64*1024), 16<<20)
+		for sc.Scan() {
+			var m struct {
+				ID     json.RawMessage `json:"id"`
+				Result json.RawMessage `json:"result"`
+				Error  *struct {
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if json.Unmarshal(sc.Bytes(), &m) != nil || string(m.ID) != "2" {
+				continue
+			}
+			if m.Error != nil {
+				got <- answer{err: errors.New(m.Error.Message)}
+			} else {
+				got <- answer{result: m.Result}
+			}
+			return
+		}
+		got <- answer{err: errors.New("codex app-server closed without an answer")}
+	}()
+	select {
+	case a := <-got:
+		if a.err != nil && ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return a.result, a.err
+	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
-	return nil, errors.New("codex app-server closed without an answer")
 }
 
 // Quota is an account's limits as an agent reports them.
@@ -173,6 +194,54 @@ func CodexSessions(ctx context.Context, path string, env []string, limit int) ([
 			s.Branch = t.GitInfo.Branch
 		}
 		out = append(out, s)
+	}
+	return out, nil
+}
+
+// CodexSkill is a skill Codex loads for a folder.
+type CodexSkill struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Path        string `json:"path"`
+	Scope       string `json:"scope"` // user, repo, system, admin
+	Plugin      string `json:"plugin,omitempty"`
+}
+
+// CodexSkills asks Codex which skills it loads in cwd (the user's, the
+// repository's, its own and its plugins'), the enabled ones.
+func CodexSkills(ctx context.Context, path string, env []string, cwd string) ([]CodexSkill, error) {
+	raw, err := codexCall(ctx, path, env, "skills/list", map[string]any{"cwds": []string{cwd}})
+	if err != nil {
+		return nil, err
+	}
+	var r struct {
+		Data []struct {
+			Skills []struct {
+				Name        string  `json:"name"`
+				Description string  `json:"description"`
+				Path        string  `json:"path"`
+				Scope       string  `json:"scope"`
+				Enabled     bool    `json:"enabled"`
+				PluginID    *string `json:"pluginId"`
+			} `json:"skills"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return nil, fmt.Errorf("codex skills: %w", err)
+	}
+	out := []CodexSkill{}
+	for _, d := range r.Data {
+		for _, s := range d.Skills {
+			if !s.Enabled {
+				continue
+			}
+			k := CodexSkill{Name: s.Name, Description: s.Description, Path: s.Path, Scope: s.Scope}
+			if s.PluginID != nil {
+				// A plugin id is <plugin>@<marketplace>.
+				k.Plugin, _, _ = strings.Cut(*s.PluginID, "@")
+			}
+			out = append(out, k)
+		}
 	}
 	return out, nil
 }

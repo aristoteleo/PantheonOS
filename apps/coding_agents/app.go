@@ -238,8 +238,17 @@ type SendArgs struct {
 	// outside PantheonOS) as a new conversation; Title names it.
 	Session string
 	Title   string
-	// Canvas: a turn composed on the Agent Canvas (Claude Code only).
+	// Canvas: a turn composed on the Agent Canvas, applied as far as the
+	// agent's canvas capabilities go.
 	Canvas *CanvasTurn
+}
+
+// agentLabel names an agent the way people know it.
+func agentLabel(id string) string {
+	if a, ok := codingagents.Lookup(id); ok {
+		return a.Label
+	}
+	return id
 }
 
 func (a *App) send(p SendArgs) map[string]any {
@@ -255,6 +264,10 @@ func (a *App) send(p SendArgs) map[string]any {
 			a.mu.Unlock()
 			return failure("No conversation %s on this node", p.ConversationID)
 		}
+		if p.Agent != "" && p.Agent != c.Agent {
+			a.mu.Unlock()
+			return failure("This conversation runs %s; start a new one to use %s", agentLabel(c.Agent), agentLabel(p.Agent))
+		}
 		if a.running[c.ID] != nil {
 			a.mu.Unlock()
 			return failure("The agent is still working on the previous message")
@@ -264,9 +277,13 @@ func (a *App) send(p SendArgs) map[string]any {
 		}
 	} else {
 		agent, ok := codingagents.Lookup(p.Agent)
-		if !ok || agent.Headless == nil {
+		if !ok {
 			a.mu.Unlock()
-			return failure("%q has no conversation mode; open it in a terminal", p.Agent)
+			return failure("Unknown coding agent %q", p.Agent)
+		}
+		if agent.Headless == nil {
+			a.mu.Unlock()
+			return failure("%s has no conversation mode; open it in a terminal", agent.Label)
 		}
 		if p.Session != "" {
 			for _, other := range a.convs {
@@ -296,9 +313,14 @@ func (a *App) send(p SendArgs) map[string]any {
 			Origin: origin, Created: now(), Status: "idle", Session: p.Session}
 		a.convs[c.ID] = c
 	}
+	agent, _ := codingagents.Lookup(c.Agent)
 	var canvas canvasLaunch
-	if p.Canvas != nil && c.Agent == "claude" {
+	onCanvas := p.Canvas != nil && agent.Headless != nil
+	if onCanvas {
 		l, err := p.Canvas.prepare(c.Cwd)
+		if err == nil {
+			l, err = l.forAgent(agent)
+		}
 		if err != nil {
 			if p.ConversationID == "" {
 				delete(a.convs, c.ID)
@@ -306,9 +328,8 @@ func (a *App) send(p SendArgs) map[string]any {
 			a.mu.Unlock()
 			return failure("%v", err)
 		}
-		canvas, c.Canvas = l, p.Canvas
+		canvas, c.Canvas = l, &l.applied
 	}
-	agent, _ := codingagents.Lookup(c.Agent)
 	r, err := resolve(c.Agent)
 	if err != nil {
 		a.mu.Unlock()
@@ -317,9 +338,19 @@ func (a *App) send(p SendArgs) map[string]any {
 	launch := codingagents.Launch{Agent: c.Agent, Conversation: c.ID, NodeID: a.NodeID, NodeName: a.NodeName}
 	note := codingagents.Note(r.settings, launch)
 	agentPrompt := canvas.prompt(prompt)
-	if note != "" && agent.Instructions == nil && c.Seq == 0 && c.Session == "" {
-		// Without a way to add instructions, the first prompt carries them.
-		agentPrompt = "[" + note + "]\n\n" + prompt
+	if agent.Instructions == nil {
+		// Without a way to add instructions, the message carries them: the
+		// note in a conversation's first, a canvas turn's settings in each.
+		var lead []string
+		if note != "" && c.Seq == 0 && c.Session == "" {
+			lead = append(lead, note)
+		}
+		if canvas.system != "" {
+			lead = append(lead, canvas.system)
+		}
+		if len(lead) > 0 {
+			agentPrompt = "[" + strings.Join(lead, "\n\n") + "]\n\n" + agentPrompt
+		}
 	}
 	model := c.Model
 	if model == "" {
@@ -333,7 +364,7 @@ func (a *App) send(p SendArgs) map[string]any {
 	}
 	cmd := exec.Command(r.path, args...)
 	cmd.Dir = c.Cwd
-	cmd.Env = codingagents.LaunchEnv(r.settings, launch)
+	cmd.Env = withDefaults(codingagents.LaunchEnv(r.settings, launch), agent.Headless.Env)
 	if !agent.Headless.PromptArg {
 		cmd.Stdin = strings.NewReader(agentPrompt)
 	}
@@ -355,26 +386,32 @@ func (a *App) send(p SendArgs) map[string]any {
 	a.mu.Unlock()
 
 	user := codingagents.Event{Type: "user", Text: prompt, Images: canvas.images}
-	if p.Canvas != nil && c.Agent == "claude" {
+	if onCanvas {
 		user.Branch, _ = gitBranch(cwd)
 	}
 	a.emit(c.ID, user)
+	for _, s := range canvas.skills {
+		// Pinned: the agent is told to read it first.
+		a.emit(c.ID, codingagents.Event{Type: "tool", ID: "pin-" + newID(), Name: "skill", Input: s.Name,
+			Kind: codingagents.KindSkill, Path: s.Path, Status: "done"})
+	}
 	if c.Agent == "claude" {
 		// A skill named at the start is expanded before the agent runs.
 		for _, name := range slashSkills(prompt, cwd) {
-			a.emit(c.ID, codingagents.Event{Type: "tool", ID: "slash-" + newID(), Name: "Skill", Input: name, Status: "done"})
+			a.emit(c.ID, codingagents.Event{Type: "tool", ID: "slash-" + newID(), Name: "Skill", Input: name,
+				Kind: codingagents.KindSkill, Status: "done"})
 		}
 	}
 	if err := cmd.Start(); err != nil {
 		a.finish(c.ID, tr, codingagents.Event{Type: "done", Error: fmt.Sprintf("Could not start %s: %v", agent.Label, err)})
 		return failure("Could not start %s: %v", agent.Label, err)
 	}
-	go a.pump(c.ID, tr, agent, stdout, stderr)
+	go a.pump(c.ID, tr, agent, r.found, stdout, stderr)
 	return map[string]any{"success": true, "conversation_id": c.ID, "stream_id": streamID(c.ID),
 		"from_seq": userSeq, "conversation": a.snapshot(c.ID)}
 }
 
-func (a *App) pump(id string, tr *turn, agent codingagents.Agent, stdout io.Reader, stderr *tailBuffer) {
+func (a *App) pump(id string, tr *turn, agent codingagents.Agent, found codingagents.Found, stdout io.Reader, stderr *tailBuffer) {
 	parser := agent.Headless.Parser()
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 64*1024), maxLine)
@@ -435,7 +472,8 @@ func (a *App) pump(id string, tr *turn, agent codingagents.Agent, stdout io.Read
 	case stopped:
 		end.Error, end.Stopped = "", true
 	case end.Error == "" && waitErr != nil && last == nil:
-		end.Error = exitMessage(agent.Label, waitErr, stderr.String())
+		signedIn := codingagents.SignedIn(found)
+		end.Error = exitMessage(agent.Label, waitErr, stderr.String(), signedIn != nil && !*signedIn)
 	}
 	// Sub-agents end with the turn; say so before it ends.
 	for _, o := range open {
@@ -450,8 +488,25 @@ func (a *App) pump(id string, tr *turn, agent codingagents.Agent, stdout io.Read
 	a.finish(id, tr, end)
 }
 
-func exitMessage(label string, err error, stderr string) string {
+// exitMessage is why a turn ended without the agent saying so: its exit,
+// whether it is signed in (when that is known to be not), and the tail of
+// what it printed on stderr.
+// withDefaults adds each KEY=VALUE of defaults that env does not set.
+func withDefaults(env, defaults []string) []string {
+	for _, kv := range defaults {
+		key, _, _ := strings.Cut(kv, "=")
+		if !slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, key+"=") }) {
+			env = append(env, kv)
+		}
+	}
+	return env
+}
+
+func exitMessage(label string, err error, stderr string, signedOut bool) string {
 	msg := fmt.Sprintf("%s exited: %v", label, err)
+	if signedOut {
+		msg += "; it is not signed in on this node"
+	}
 	if s := strings.TrimSpace(stderr); s != "" {
 		lines := strings.Split(s, "\n")
 		if len(lines) > 12 {

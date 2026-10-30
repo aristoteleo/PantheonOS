@@ -12,9 +12,12 @@ import (
 	"github.com/aristoteleo/pantheonos/os/codingagents"
 )
 
-// A turn composed on the Agent Canvas: Claude Code with an effort level,
-// sub-agents it may delegate to, folders to focus on, files to start from, web research on or
-// off, and reference images. Other agents ignore these.
+// A turn composed on the Agent Canvas: an effort level, sub-agents it may
+// delegate to, folders to focus on, files and skills to start from, web
+// research on or off, and reference images. prepare checks a turn the same way for every
+// agent; forAgent keeps what the agent's canvas capabilities
+// (codingagents.Canvas) take and says it in the agent's terms. What an agent
+// cannot take is left out of its turn, never half-applied.
 
 // CanvasTurn is what a canvas send asks for; a conversation keeps the
 // latest so a reload can show it.
@@ -25,6 +28,9 @@ type CanvasTurn struct {
 	Files     []string   `json:"files,omitempty"`
 	Research  bool       `json:"research"`
 	Images    []string   `json:"images,omitempty"`
+	// Skills are skills pinned for the turn, by name (agents other than
+	// Claude Code, whose skills are typed as /name in the message).
+	Skills []string `json:"skills,omitempty"`
 }
 
 // Subagent is one role Claude Code may hand work to.
@@ -45,22 +51,28 @@ var (
 	webTools     = []string{"WebSearch", "WebFetch"}
 )
 
-// canvasLaunch is a canvas turn turned into Claude Code's terms.
+// canvasLaunch is a canvas turn checked, then (forAgent) in one agent's terms.
 type canvasLaunch struct {
 	effort     string
-	subagents  string // --agents JSON
+	subagents  string   // Claude Code's --agents JSON
+	roster     []string // the roles, one line each
 	addDirs    []string
-	disallowed []string
-	system     string // appended to the system prompt
+	noWeb      bool
+	system     string // the turn's settings, told as instructions
 	images     []string
+	imagesNote string
 	focus      []string // absolute
 	files      []string // absolute
+	cwd        string
+	skills     []Skill // pinned, as the agent has them
+	// turn is the turn as asked; applied, as the agent takes it, for the
+	// conversation.
+	turn, applied CanvasTurn
 }
 
-// prepare checks a canvas turn and builds its launch for a conversation
-// working in cwd.
+// prepare checks a canvas turn for a conversation working in cwd.
 func (ct *CanvasTurn) prepare(cwd string) (canvasLaunch, error) {
-	var l canvasLaunch
+	l := canvasLaunch{cwd: cwd, turn: *ct}
 	if ct.Effort != "" && !efforts[ct.Effort] {
 		return l, fmt.Errorf("effort must be low, medium, high, xhigh or max, not %q", ct.Effort)
 	}
@@ -101,7 +113,7 @@ func (ct *CanvasTurn) prepare(cwd string) (canvasLaunch, error) {
 		if err != nil {
 			return l, err
 		}
-		l.subagents = string(b)
+		l.subagents, l.roster = string(b), roster
 	}
 	for _, f := range ct.Focus {
 		f = filepath.Clean(expandHome(f))
@@ -138,49 +150,103 @@ func (ct *CanvasTurn) prepare(cwd string) (canvasLaunch, error) {
 		}
 		l.images = append(l.images, filepath.Clean(img))
 	}
-	if !ct.Research {
-		l.disallowed = webTools
+	l.noWeb = !ct.Research
+	// Worded for Claude Code, which takes all of it, until forAgent says
+	// it for another agent.
+	claude, _ := codingagents.Lookup("claude")
+	return l.forAgent(claude)
+}
+
+// forAgent keeps what an agent takes of the turn, by its canvas
+// capabilities, and words the turn's settings for it. Pinned skills are
+// found among the agent's own.
+func (l canvasLaunch) forAgent(a codingagents.Agent) (canvasLaunch, error) {
+	c := a.Headless.Canvas
+	if c.DirSeparator != "" {
+		for _, d := range l.addDirs {
+			if strings.Contains(d, c.DirSeparator) {
+				return l, fmt.Errorf("%s cannot be given the folder %s: it splits folder lists at %q", a.Label, d, c.DirSeparator)
+			}
+		}
 	}
+	applied := l.turn
+	if c.Effort == nil {
+		l.effort, applied.Effort = "", ""
+	}
+	if !c.Roles {
+		l.subagents, l.roster, applied.Subagents = "", nil, nil
+	}
+	if !c.Research {
+		// It cannot be switched off: the agent may search.
+		l.noWeb, applied.Research = false, true
+	}
+	if !c.Images {
+		l.images, applied.Images = nil, nil
+	}
+	l.imagesNote = c.ImagesNote
+	l.skills, applied.Skills = nil, nil
+	if c.Skills && c.PinSkills {
+		for _, name := range l.turn.Skills {
+			s, ok := findSkill(l.cwd, a.ID, name)
+			if !ok {
+				return l, fmt.Errorf("%s is not a %s skill on this node", name, a.Label)
+			}
+			if !slices.ContainsFunc(l.skills, func(p Skill) bool { return p.Name == s.Name }) {
+				l.skills = append(l.skills, s)
+				applied.Skills = append(applied.Skills, s.Name)
+			}
+		}
+	}
+	l.applied = applied
 
 	var sys []string
 	if len(l.focus) > 0 {
 		sys = append(sys, "Focus on these folders:\n- "+strings.Join(l.focus, "\n- "))
 	}
-	if len(roster) > 0 {
-		sys = append(sys, "You may delegate to these sub-agents with the Agent tool:\n"+strings.Join(roster, "\n")+
+	if len(l.roster) > 0 {
+		sys = append(sys, "You may delegate to these sub-agents with the Agent tool:\n"+strings.Join(l.roster, "\n")+
 			"\nLaunch independent ones in parallel (several Agent calls in one message), and when they finish, "+
 			"report each one's outcome.")
 	}
 	// A resumed session remembers earlier turns' settings, so each turn says
 	// where it stands, including what was switched back on or off.
-	if len(roster) == 0 {
+	if c.Roles && len(l.roster) == 0 {
 		sys = append(sys, "No sub-agent roles are set up for this turn, and any from earlier turns are gone. "+
 			"You may still use the Agent tool's built-in agents when the task calls for it, or when the user asks.")
 	}
-	if ct.Research {
+	if c.Research && !l.noWeb {
 		sys = append(sys, "Web research is on for this turn: you may search and fetch from the web.")
-	} else {
-		sys = append(sys, "Web research is off for this turn: do not search or fetch from the web.")
+	} else if c.Research {
+		sys = append(sys, firstNonEmpty(c.ResearchOff, "Web research is off for this turn: do not search or fetch from the web."))
 	}
-	sys = append(sys, "These settings are for this turn and replace any from earlier turns.")
+	if len(sys) > 0 {
+		sys = append(sys, "These settings are for this turn and replace any from earlier turns.")
+	}
 	l.system = strings.Join(sys, "\n\n")
 	return l, nil
 }
 
-// prompt adds the pinned files and the reference images to what the user
-// wrote: said in the message itself, a resumed session does not miss them.
+// prompt adds the pinned files and skills and the reference images to what
+// the user wrote: said in the message itself, a resumed session does not
+// miss them.
 func (l canvasLaunch) prompt(text string) string {
 	if len(l.files) > 0 {
 		text += "\n\nFiles I pinned for this turn (start from them):\n- " + strings.Join(l.files, "\n- ")
 	}
+	if len(l.skills) > 0 {
+		text += "\n\nSkills I pinned for this turn (read each SKILL.md first and follow it):"
+		for _, s := range l.skills {
+			text += "\n- " + s.Name + ": " + s.Path
+		}
+	}
 	if len(l.images) > 0 {
-		text += "\n\nReference images (read each with the Read tool):\n- " + strings.Join(l.images, "\n- ")
+		text += "\n\n" + l.imagesNote + "\n- " + strings.Join(l.images, "\n- ")
 	}
 	return text
 }
 
 func (l canvasLaunch) apply(t *codingagents.Turn) {
-	t.Effort, t.Subagents, t.AddDirs, t.Disallowed = l.effort, l.subagents, l.addDirs, l.disallowed
+	t.Effort, t.Subagents, t.AddDirs, t.NoWeb, t.Images = l.effort, l.subagents, l.addDirs, l.noWeb, l.images
 }
 
 // within reports whether path is dir or inside it.

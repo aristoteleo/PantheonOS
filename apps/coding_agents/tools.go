@@ -64,18 +64,19 @@ func Tools(app *App) ([]*appsvc.Tool, error) {
 				Auto: boolP(p, "auto", true), Origin: strP(p, "origin"),
 				Session: strP(p, "session_id"), Title: strP(p, "title")}
 			ct := &CanvasTurn{Effort: strP(p, "effort"), Research: boolP(p, "research", true)}
-			for name, into := range map[string]any{"subagents": &ct.Subagents, "focus": &ct.Focus, "files": &ct.Files, "images": &ct.Images} {
+			for name, into := range map[string]any{"subagents": &ct.Subagents, "focus": &ct.Focus, "files": &ct.Files,
+				"images": &ct.Images, "skills": &ct.Skills} {
 				if err := remarshal(p[name], into); err != nil {
 					return failure("%s: %v", name, err), nil
 				}
 			}
-			if args.Origin == "canvas" || ct.Effort != "" || !ct.Research || len(ct.Subagents)+len(ct.Focus)+len(ct.Files)+len(ct.Images) > 0 {
+			if args.Origin == "canvas" || ct.Effort != "" || !ct.Research || len(ct.Subagents)+len(ct.Focus)+len(ct.Files)+len(ct.Images)+len(ct.Skills) > 0 {
 				args.Canvas = ct
 			}
 			return app.send(args), nil
 		},
 		"agents_skills": func(_ context.Context, p map[string]any) (any, error) {
-			return skills(strP(p, "cwd")), nil
+			return skills(strP(p, "cwd"), strP(p, "agent")), nil
 		},
 		"agents_repo_info": func(_ context.Context, p map[string]any) (any, error) {
 			return repoInfo(strP(p, "path")), nil

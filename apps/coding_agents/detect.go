@@ -59,6 +59,8 @@ type AgentInfo struct {
 	Plan     string                        `json:"plan,omitempty"`
 	// QuotaNote says why the quota is unknown when its provider would not tell.
 	QuotaNote string `json:"quota_note,omitempty"`
+	// Canvas is what a canvas turn can ask of an agent with a headless mode.
+	Canvas *codingagents.Canvas `json:"canvas,omitempty"`
 }
 
 // Installable is a known agent missing here, with the command that installs it.
@@ -78,6 +80,10 @@ func (a *App) detect(refresh bool) map[string]any {
 		infos[i].Found = f
 		if f.Custom || f.Missing {
 			continue
+		}
+		if c, ok := codingagents.Lookup(f.ID); ok && c.Headless != nil {
+			canvas := c.Headless.Canvas
+			infos[i].Canvas = &canvas
 		}
 		wg.Add(1)
 		go func() {

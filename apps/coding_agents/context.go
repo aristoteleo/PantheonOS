@@ -16,27 +16,23 @@ import (
 	"github.com/aristoteleo/pantheonos/os/codingagents"
 )
 
-// What the Agent Canvas shows around a turn: the Claude Code skills it can
+// What the Agent Canvas shows around a turn: the skills its agent can
 // call, the repository it works in, and the folders it may focus on.
 
-// Skill is one Claude Code skill on this node.
+// Skill is one agent skill on this node.
 type Skill struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
-	Source      string `json:"source"` // user|project|plugin
+	Source      string `json:"source"` // user|project|plugin|system|admin
 	Path        string `json:"path"`
 	// Plugin is the plugin a plugin skill comes with; its Name is
 	// "<plugin>:<skill>", as typed after the slash.
 	Plugin string `json:"plugin,omitempty"`
 }
 
-// skills lists the user's skills, the project's (cwd's) and those of the
-// plugins enabled there, each from its front matter, the file or folder
-// name standing in for a missing name.
-func skills(cwd string) map[string]any {
-	return map[string]any{"success": true, "skills": skillList(cwd)}
-}
-
+// skillList is Claude Code's skills: the user's, the project's (cwd's) and
+// those of the plugins enabled there, each from its front matter, the file
+// or folder name standing in for a missing name.
 func skillList(cwd string) []Skill {
 	out := skillsIn(filepath.Join(codingagents.ClaudeDir(), "skills"), "user", "")
 	if cwd != "" {

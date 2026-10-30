@@ -1,6 +1,7 @@
 package codingagents
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -8,22 +9,27 @@ import (
 
 // Event is one step of a conversation, the same shape for every agent.
 type Event struct {
-	Seq       int64          `json:"seq"`
-	Type      string         `json:"type"` // user|session|text|thinking|tool|done
-	Text      string         `json:"text,omitempty"`
-	Delta     bool           `json:"delta,omitempty"`
-	SessionID string         `json:"session_id,omitempty"`
-	Model     string         `json:"model,omitempty"`
-	ID        string         `json:"id,omitempty"`
-	Name      string         `json:"name,omitempty"`
-	Input     string         `json:"input,omitempty"`
-	Status    string         `json:"status,omitempty"` // running|done|error
-	Output    string         `json:"output,omitempty"`
-	Error     string         `json:"error,omitempty"`
-	Stopped   bool           `json:"stopped,omitempty"` // done: the user stopped the turn
-	Usage     map[string]any `json:"usage,omitempty"`
-	CostUSD   float64        `json:"cost_usd,omitempty"`
-	Time      float64        `json:"time,omitempty"`
+	Seq       int64  `json:"seq"`
+	Type      string `json:"type"` // user|session|text|thinking|tool|done
+	Text      string `json:"text,omitempty"`
+	Delta     bool   `json:"delta,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	Model     string `json:"model,omitempty"`
+	ID        string `json:"id,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Input     string `json:"input,omitempty"`
+	// Kind is what a tool call does, the same words for every agent (see
+	// the Kind constants); Path is the file a read or write is about, as the
+	// agent gave it. Both come with the event that names the tool.
+	Kind    string         `json:"kind,omitempty"`
+	Path    string         `json:"path,omitempty"`
+	Status  string         `json:"status,omitempty"` // running|done|error
+	Output  string         `json:"output,omitempty"`
+	Error   string         `json:"error,omitempty"`
+	Stopped bool           `json:"stopped,omitempty"` // done: the user stopped the turn
+	Usage   map[string]any `json:"usage,omitempty"`
+	CostUSD float64        `json:"cost_usd,omitempty"`
+	Time    float64        `json:"time,omitempty"`
 	// Parent is the sub-agent launch (its tool id) an event came from;
 	// empty for the main agent's own steps.
 	Parent string `json:"parent,omitempty"`
@@ -54,6 +60,160 @@ type Event struct {
 type Limit struct {
 	Used     float64 `json:"used"`                // 0..1
 	ResetsAt int64   `json:"resets_at,omitempty"` // unix seconds
+}
+
+// What a tool call does (Event.Kind). Searching means the web; a search
+// through the code is other, and so is anything a kind does not name.
+const (
+	KindRead   = "read"
+	KindWrite  = "write"
+	KindShell  = "shell"
+	KindSearch = "search"
+	KindFetch  = "fetch"
+	KindSkill  = "skill"
+	KindAgent  = "agent"
+	KindOther  = "other"
+)
+
+// skillFile is the skill a SKILL.md path belongs to, or "": the path must
+// be <…>/skills/<name>/SKILL.md (or skills/.system/<name>, Codex's own).
+func skillFile(path string) string {
+	parts := strings.Split(strings.ReplaceAll(path, `\`, "/"), "/")
+	n := len(parts)
+	if n < 3 || parts[n-1] != "SKILL.md" {
+		return ""
+	}
+	name, parent := parts[n-2], parts[n-3]
+	if parent == ".system" && n >= 4 {
+		parent = parts[n-4]
+	}
+	if parent != "skills" || name == "" || name == "." || name == ".." {
+		return ""
+	}
+	return name
+}
+
+// shellReaders are the commands an agent reads a file with in a shell.
+var shellReaders = map[string]bool{"cat": true, "sed": true, "head": true, "tail": true, "nl": true,
+	"less": true, "more": true, "bat": true, "type": true, "Get-Content": true}
+
+// shellSkill is the skill a shell command reads (an agent without a skill
+// tool opens a skill's SKILL.md itself): its name and the path as written.
+// Each command of a list or pipeline counts on its own; only a plain read
+// does (sed only with -n and not -i), never one with an output redirection.
+func shellSkill(cmd string) (name, path string) {
+	for _, seg := range shellCommands(cmd) {
+		if seg.redirect || len(seg.words) < 2 || !shellReaders[seg.words[0]] {
+			continue
+		}
+		if seg.words[0] == "sed" && !sedPrints(seg.words[1:]) {
+			continue
+		}
+		for _, w := range seg.words[1:] {
+			if n := skillFile(w); n != "" {
+				return n, w
+			}
+		}
+	}
+	return "", ""
+}
+
+// sedPrints is whether sed's arguments only print: -n, and no in-place edit.
+func sedPrints(args []string) bool {
+	quiet := false
+	for _, a := range args {
+		if strings.HasPrefix(a, "--in-place") || strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.Contains(a, "i") {
+			return false
+		}
+		if a == "-n" || a == "--quiet" || a == "--silent" || strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.Contains(a, "n") {
+			quiet = true
+		}
+	}
+	return quiet
+}
+
+// shellCommand is one simple command of a shell line: its words, unquoted,
+// and whether it redirects its output.
+type shellCommand struct {
+	words    []string
+	redirect bool
+}
+
+// shellCommands splits a shell line into its simple commands (at ;, &, |,
+// && and ||), with words unquoted as the shell would ('…', "…" and \).
+// Good enough to read the commands an agent runs, not a full shell.
+func shellCommands(line string) []shellCommand {
+	var out []shellCommand
+	var cur shellCommand
+	var word strings.Builder
+	inWord := false
+	endWord := func() {
+		if inWord {
+			cur.words = append(cur.words, word.String())
+			word.Reset()
+			inWord = false
+		}
+	}
+	endCommand := func() {
+		endWord()
+		if len(cur.words) > 0 {
+			out = append(out, cur)
+		}
+		cur = shellCommand{}
+	}
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		switch {
+		case c == '\\' && i+1 < len(line):
+			i++
+			word.WriteByte(line[i])
+			inWord = true
+		case c == '\'':
+			j := strings.IndexByte(line[i+1:], '\'')
+			if j < 0 {
+				j = len(line) - i - 1
+			}
+			word.WriteString(line[i+1 : i+1+j])
+			i += j + 1
+			inWord = true
+		case c == '"':
+			for i++; i < len(line) && line[i] != '"'; i++ {
+				if line[i] == '\\' && i+1 < len(line) && strings.IndexByte(`"\$`+"`", line[i+1]) >= 0 {
+					i++
+				}
+				word.WriteByte(line[i])
+			}
+			inWord = true
+		case c == ' ' || c == '\t' || c == '\n':
+			endWord()
+		case c == ';' || c == '&' || c == '|':
+			endCommand()
+		case c == '>':
+			// n> names a descriptor: 2> (stderr) writes nothing the
+			// command read.
+			fd := word.String()
+			if inWord && strings.Trim(fd, "0123456789") == "" {
+				word.Reset()
+				inWord = false
+			} else {
+				endWord()
+				fd = "1"
+			}
+			if i+1 < len(line) && line[i+1] == '>' {
+				i++
+			}
+			if i+1 < len(line) && line[i+1] == '&' {
+				for i++; i+1 < len(line) && line[i+1] >= '0' && line[i+1] <= '9'; i++ {
+				}
+			}
+			cur.redirect = cur.redirect || fd != "2"
+		default:
+			word.WriteByte(c)
+			inWord = true
+		}
+	}
+	endCommand()
+	return out
 }
 
 func num(v any) int64 {
@@ -91,7 +251,7 @@ func oneLine(input any) string {
 		b, _ := json.Marshal(input)
 		return firstLine(string(b))
 	}
-	for _, k := range []string{"command", "cmd", "file_path", "path", "filePath", "pattern", "query", "url", "skill", "prompt", "description"} {
+	for _, k := range []string{"command", "cmd", "file_path", "path", "filePath", "pattern", "query", "searchTerm", "url", "skill", "prompt", "description"} {
 		if v, ok := m[k]; ok {
 			switch t := v.(type) {
 			case string:
@@ -174,6 +334,30 @@ type claudeParser struct {
 }
 
 func isLaunchTool(name string) bool { return name == "Agent" || name == "Task" }
+
+// claudeKind is what one of Claude Code's tools does, and the file it is about.
+func claudeKind(name string, in map[string]any) (kind, path string) {
+	switch name {
+	case "Read":
+		return KindRead, str(in["file_path"])
+	case "Write", "Edit", "MultiEdit":
+		return KindWrite, str(in["file_path"])
+	case "NotebookEdit":
+		return KindWrite, str(in["notebook_path"])
+	case "Bash":
+		return KindShell, ""
+	case "WebSearch":
+		return KindSearch, ""
+	case "WebFetch":
+		return KindFetch, ""
+	case "Skill":
+		return KindSkill, ""
+	}
+	if isLaunchTool(name) {
+		return KindAgent, ""
+	}
+	return KindOther, ""
+}
 
 // subagentReport is the report a foreground sub-agent handed back, without
 // the frame Claude Code puts around it for the model: the structured
@@ -274,6 +458,7 @@ func (p *claudeParser) Parse(line []byte) []Event {
 			case "tool_use":
 				e := Event{Type: "tool", ID: str(c["id"]), Name: str(c["name"]),
 					Input: oneLine(c["input"]), Status: "running", Parent: parent}
+				e.Kind, e.Path = claudeKind(e.Name, obj(c["input"]))
 				if in := obj(c["input"]); isLaunchTool(e.Name) && in != nil {
 					e.Subagent = firstNonEmpty(str(in["subagent_type"]), "general-purpose")
 					e.Input = firstLine(firstNonEmpty(str(in["description"]), e.Subagent))
@@ -375,6 +560,11 @@ func firstNonEmpty(v ...string) string {
 
 // ---- Codex (exec --json) ---------------------------------------------------
 
+// Codex reads files and skills through its shell, so a command stays a
+// shell step unless it opens a skill's SKILL.md. A file change that touches
+// several files is one write event per file: the first keeps the item's id,
+// the others add #2, #3, … to it. Its sub-agents are not in the stream (see
+// testdata/README.md): a wait for them is an other step.
 type codexParser struct{}
 
 func (p *codexParser) Parse(line []byte) []Event {
@@ -388,6 +578,13 @@ func (p *codexParser) Parse(line []byte) []Event {
 	case "item.started", "item.updated", "item.completed":
 		done := str(m["type"]) == "item.completed"
 		it := obj(m["item"])
+		status := "running"
+		if done {
+			status = "done"
+			if str(it["status"]) == "failed" {
+				status = "error"
+			}
+		}
 		switch str(it["type"]) {
 		case "agent_message":
 			if done && str(it["text"]) != "" {
@@ -398,7 +595,11 @@ func (p *codexParser) Parse(line []byte) []Event {
 				return []Event{{Type: "thinking", Text: str(it["text"])}}
 			}
 		case "command_execution":
-			e := Event{Type: "tool", ID: str(it["id"]), Name: "shell", Input: firstLine(unwrapShell(str(it["command"]))), Status: "running"}
+			cmd := unwrapShell(str(it["command"]))
+			e := Event{Type: "tool", ID: str(it["id"]), Name: "shell", Input: firstLine(cmd), Kind: KindShell, Status: "running"}
+			if name, path := shellSkill(cmd); name != "" {
+				e.Kind, e.Input, e.Path = KindSkill, name, path
+			}
 			if done {
 				e.Status = "done"
 				if code, ok := it["exit_code"].(float64); ok && code != 0 {
@@ -408,34 +609,37 @@ func (p *codexParser) Parse(line []byte) []Event {
 			}
 			return []Event{e}
 		case "file_change":
-			var paths []string
+			var out []Event
 			changes, _ := it["changes"].([]any)
-			for _, c := range changes {
-				paths = append(paths, str(obj(c)["path"]))
-			}
-			e := Event{Type: "tool", ID: str(it["id"]), Name: "edit", Input: firstLine(strings.Join(paths, ", ")), Status: "running"}
-			if done {
-				e.Status = "done"
-				if str(it["status"]) == "failed" {
-					e.Status = "error"
+			for i, c := range changes {
+				path := str(obj(c)["path"])
+				id := str(it["id"])
+				if i > 0 {
+					id = fmt.Sprintf("%s#%d", id, i+1)
 				}
+				out = append(out, Event{Type: "tool", ID: id, Name: "edit", Input: firstLine(path), Kind: KindWrite, Path: path, Status: status})
 			}
-			return []Event{e}
+			return out
 		case "mcp_tool_call":
-			e := Event{Type: "tool", ID: str(it["id"]), Name: str(it["server"]) + "." + str(it["tool"]),
-				Input: oneLine(it["arguments"]), Status: "running"}
+			return []Event{{Type: "tool", ID: str(it["id"]), Name: str(it["server"]) + "." + str(it["tool"]),
+				Input: oneLine(it["arguments"]), Kind: KindOther, Status: status}}
+		case "web_search":
+			// Its item carries "id" twice (the item's, then the search
+			// call's); the item's is the one every other item uses. What it
+			// did is known only once it completes: a search, or a page
+			// opened (fetch), so a call that opened a page starts as a
+			// search and ends as a fetch.
+			e := Event{Type: "tool", ID: firstItemID(line), Name: "web_search", Input: firstLine(str(it["query"])), Kind: KindSearch, Status: "running"}
 			if done {
 				e.Status = "done"
-				if str(it["status"]) == "failed" {
-					e.Status = "error"
+				if a := obj(it["action"]); str(a["type"]) == "open_page" || str(a["type"]) == "find_in_page" {
+					e.Kind, e.Input = KindFetch, firstLine(str(a["url"]))
 				}
 			}
 			return []Event{e}
-		case "web_search":
-			if !done {
-				return []Event{{Type: "tool", ID: str(it["id"]), Name: "web_search", Input: firstLine(str(it["query"])), Status: "running"}}
-			}
-			return []Event{{Type: "tool", ID: str(it["id"]), Name: "web_search", Input: firstLine(str(it["query"])), Status: "done"}}
+		case "collab_tool_call":
+			return []Event{{Type: "tool", ID: str(it["id"]), Name: "agents." + str(it["tool"]),
+				Input: firstLine(str(it["prompt"])), Kind: KindOther, Status: status}}
 		case "error":
 			return []Event{{Type: "text", Text: "⚠ " + str(it["message"])}}
 		}
@@ -449,6 +653,37 @@ func (p *codexParser) Parse(line []byte) []Event {
 		return []Event{{Type: "done", Error: firstNonEmpty(str(m["message"]), "Codex reported an error")}}
 	}
 	return nil
+}
+
+// firstItemID is the first "id" of a Codex line's item, where a decoded
+// map would keep the last of a repeated key.
+func firstItemID(line []byte) string {
+	var m struct {
+		Item json.RawMessage `json:"item"`
+	}
+	if json.Unmarshal(line, &m) != nil {
+		return ""
+	}
+	dec := json.NewDecoder(bytes.NewReader(m.Item))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return ""
+	}
+	for dec.More() {
+		key, err := dec.Token()
+		if err != nil {
+			return ""
+		}
+		var v json.RawMessage
+		if dec.Decode(&v) != nil {
+			return ""
+		}
+		if key == "id" {
+			var id string
+			_ = json.Unmarshal(v, &id)
+			return id
+		}
+	}
+	return ""
 }
 
 // ---- Cursor Agent (-p --output-format stream-json) -------------------------
@@ -479,8 +714,15 @@ func (p *cursorParser) Parse(line []byte) []Event {
 		}
 		return out
 	case "tool_call":
-		name, input, output, failed := cursorTool(obj(m["tool_call"]))
-		e := Event{Type: "tool", ID: str(m["call_id"]), Name: name, Input: input, Status: "running"}
+		name, args, output, failed := cursorTool(obj(m["tool_call"]))
+		e := Event{Type: "tool", ID: str(m["call_id"]), Name: name, Status: "running"}
+		if args != nil {
+			e.Input = oneLine(args)
+		}
+		e.Kind, e.Path = cursorKind(name, obj(args))
+		if e.Kind == KindSkill {
+			e.Input = skillFile(e.Path)
+		}
 		if str(m["subtype"]) == "completed" {
 			e.Status = "done"
 			if failed {
@@ -502,15 +744,38 @@ func (p *cursorParser) Parse(line []byte) []Event {
 	return nil
 }
 
+// cursorKind is what one of Cursor Agent's tools does, and the file it is
+// about. It opens a skill by reading its SKILL.md.
+func cursorKind(name string, args map[string]any) (kind, path string) {
+	switch name {
+	case "read":
+		if path = str(args["path"]); skillFile(path) != "" {
+			return KindSkill, path
+		}
+		return KindRead, path
+	case "edit", "write", "delete":
+		return KindWrite, str(args["path"])
+	case "shell":
+		return KindShell, ""
+	case "webSearch":
+		return KindSearch, ""
+	case "webFetch", "fetch":
+		return KindFetch, ""
+	case "task":
+		return KindAgent, ""
+	}
+	return KindOther, ""
+}
+
 // cursorTool unwraps {"<kind>ToolCall": {"args": …, "result": …}}.
-func cursorTool(tc map[string]any) (name, input, output string, failed bool) {
+func cursorTool(tc map[string]any) (name string, args any, output string, failed bool) {
 	for k, v := range tc {
 		if !strings.HasSuffix(k, "ToolCall") {
 			continue
 		}
 		name = strings.TrimSuffix(k, "ToolCall")
 		body := obj(v)
-		input = oneLine(body["args"])
+		args = body["args"]
 		res := obj(body["result"])
 		if s := obj(res["success"]); s != nil {
 			output = firstNonEmpty(str(s["interleavedOutput"]), str(s["stdout"]), str(s["content"]))
@@ -527,7 +792,7 @@ func cursorTool(tc map[string]any) (name, input, output string, failed bool) {
 		}
 		return
 	}
-	return "tool", "", "", false
+	return "tool", nil, "", false
 }
 
 // ---- Gemini CLI (-p -o stream-json) ----------------------------------------
@@ -547,8 +812,14 @@ func (p *geminiParser) Parse(line []byte) []Event {
 			return []Event{{Type: "text", Text: str(m["content"]), Delta: m["delta"] == true}}
 		}
 	case "tool_use":
-		return []Event{{Type: "tool", ID: str(m["tool_id"]), Name: str(m["tool_name"]),
-			Input: oneLine(m["parameters"]), Status: "running"}}
+		e := Event{Type: "tool", ID: str(m["tool_id"]), Name: str(m["tool_name"]),
+			Input: oneLine(m["parameters"]), Status: "running"}
+		params := obj(m["parameters"])
+		e.Kind, e.Path = geminiKind(e.Name, params)
+		if e.Kind == KindSkill {
+			e.Input = str(params["name"])
+		}
+		return []Event{e}
 	case "tool_result":
 		e := Event{Type: "tool", ID: str(m["tool_id"]), Status: "done", Output: capText(str(m["output"]))}
 		if str(m["status"]) == "error" {
@@ -570,6 +841,31 @@ func (p *geminiParser) Parse(line []byte) []Event {
 	return nil
 }
 
+// geminiKind is what one of Gemini CLI's tools does, and the file it is
+// about; the names and parameters are the CLI's own (activate_skill opens
+// a skill by name).
+func geminiKind(name string, params map[string]any) (kind, path string) {
+	switch name {
+	case "read_file":
+		return KindRead, str(params["file_path"])
+	case "read_many_files":
+		return KindRead, ""
+	case "write_file", "replace":
+		return KindWrite, str(params["file_path"])
+	case "run_shell_command":
+		return KindShell, ""
+	case "google_web_search":
+		return KindSearch, ""
+	case "web_fetch":
+		return KindFetch, ""
+	case "activate_skill":
+		return KindSkill, ""
+	case "invoke_agent", "codebase_investigator":
+		return KindAgent, ""
+	}
+	return KindOther, ""
+}
+
 // unwrapShell shows the command Codex ran rather than the login shell it
 // wraps every command in: /bin/zsh -lc 'ls -la' reads as ls -la.
 func unwrapShell(cmd string) string {
@@ -580,6 +876,10 @@ func unwrapShell(cmd string) string {
 		}
 		if len(rest) >= 2 && rest[0] == '\'' && rest[len(rest)-1] == '\'' {
 			return strings.ReplaceAll(rest[1:len(rest)-1], `'\''`, "'")
+		}
+		if len(rest) >= 2 && rest[0] == '"' && rest[len(rest)-1] == '"' {
+			// A command with single quotes in it comes double-quoted.
+			return strings.NewReplacer(`\"`, `"`, `\\`, `\`, `\$`, `$`, "\\`", "`").Replace(rest[1 : len(rest)-1])
 		}
 		return rest
 	}

@@ -10,7 +10,7 @@
     "tools": [
       {
         "name": "agents_detect",
-        "description": "The coding-agent CLIs installed on this node and the ways PantheonOS can run each.\n\nArgs:\n    refresh: Detect again now instead of using the result from the last five minutes.",
+        "description": "The coding-agent CLIs installed on this node and the ways PantheonOS can run each; an agent with a headless mode has canvas, what a canvas turn can ask of it (effort levels, research, images, skills, roles, subagents, models).\n\nArgs:\n    refresh: Detect again now instead of using the result from the last five minutes.",
         "hidden": true,
         "params": [
           {
@@ -49,7 +49,7 @@
       },
       {
         "name": "agent_send",
-        "description": "Send a message to a coding agent and start its turn. Events stream on pantheon.stream.coding_<conversation_id>.\n\nArgs:\n    prompt: The message.\n    agent: Catalog id; needed for a new conversation.\n    cwd: Folder the agent works in; a new conversation only. Defaults to home.\n    conversation_id: Continue this conversation.\n    model: Model name the agent understands.\n    auto: Full-auto mode for a new conversation.\n    origin: Who started it (ui, agent, cli).\n    session_id: Continue this session of the agent's own (one started outside PantheonOS) as a new conversation.\n    title: The new conversation's title.\n\nClaude Code only (other agents ignore them):\n    effort: low, medium, high, xhigh or max.\n    subagents: [{name, description, prompt, write, model}] — roles it may delegate to; read-only unless write.\n    focus: folders to focus on; any outside cwd become reachable.\n    research: allow web search and fetch.\n    images: absolute paths of reference images it should read.",
+        "description": "Send a message to a coding agent and start its turn. Events stream on pantheon.stream.coding_<conversation_id>.\n\nArgs:\n    prompt: The message.\n    agent: Catalog id; needed for a new conversation. A conversation keeps its agent: naming another fails.\n    cwd: Folder the agent works in; a new conversation only. Defaults to home.\n    conversation_id: Continue this conversation.\n    model: Model name the agent understands.\n    auto: Full-auto mode for a new conversation.\n    origin: Who started it (ui, agent, cli, canvas).\n    session_id: Continue this session of the agent's own (one started outside PantheonOS) as a new conversation.\n    title: The new conversation's title.\n\nCanvas options, for Claude Code, Codex, Gemini CLI and Cursor Agent as far as each agent's canvas capabilities (agents_detect) go; what an agent cannot take is left out:\n    effort: low, medium, high, xhigh or max (Codex: max runs as xhigh).\n    subagents: [{name, description, prompt, write, model}] — roles it may delegate to; read-only unless write (Claude Code).\n    focus: folders to focus on; any outside cwd become reachable.\n    files: files pinned for the turn, named in the message; any outside cwd become reachable.\n    research: allow web search and fetch (Claude Code, Codex).\n    images: absolute paths of reference images (Claude Code, Codex, Cursor Agent).\n    skills: names of the agent's skills pinned for the turn, named in the message with their SKILL.md (Codex, Gemini CLI, Cursor Agent; Claude Code's are typed as /name).",
         "hidden": true,
         "params": [
           {
@@ -113,12 +113,22 @@
             "default": null
           },
           {
+            "name": "files",
+            "type": "list | None",
+            "default": null
+          },
+          {
             "name": "research",
             "type": "bool",
             "default": true
           },
           {
             "name": "images",
+            "type": "list | None",
+            "default": null
+          },
+          {
+            "name": "skills",
             "type": "list | None",
             "default": null
           }
@@ -354,11 +364,16 @@
       },
       {
         "name": "agents_skills",
-        "description": "The Claude Code skills on this node: the user's and the project's, from each SKILL.md front matter.\n\nArgs:\n    cwd: the project folder whose .claude/skills to include.",
+        "description": "An agent's skills on this node, from the places that agent loads them: Claude Code's (the user's, the project's, its plugins'), Codex's (as its app-server lists them), Gemini CLI's or Cursor Agent's. An agent without skills has none.\n\nArgs:\n    cwd: the project folder whose skills to include.\n    agent: claude (default), codex, gemini or cursor.",
         "hidden": true,
         "params": [
           {
             "name": "cwd",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "agent",
             "type": "str",
             "default": ""
           }

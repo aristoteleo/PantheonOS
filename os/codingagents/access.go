@@ -85,15 +85,19 @@ func mergeEnv(env []string, extra ...string) []string {
 // workspace environment, the agent's needs, the user's variables for it and
 // PantheonOS access.
 func LaunchEnv(s Settings, l Launch) []string {
-	env := AgentEnv(l.Agent)
+	return mergeEnv(UserEnv(s, l.Agent), AccessEnv(s, l)...)
+}
+
+// UserEnv is an agent's environment without PantheonOS access: the clean
+// workspace environment, the agent's needs and the user's variables for it.
+func UserEnv(s Settings, agentID string) []string {
 	var own map[string]string
-	if c, ok := s.CustomAgent(l.Agent); ok {
+	if c, ok := s.CustomAgent(agentID); ok {
 		own = c.Env
 	} else {
-		own = s.Agents[l.Agent].Env
+		own = s.Agents[agentID].Env
 	}
-	env = mergeEnv(env, EnvList(own)...)
-	return mergeEnv(env, AccessEnv(s, l)...)
+	return mergeEnv(AgentEnv(agentID), EnvList(own)...)
 }
 
 // LaunchExtras is the part of LaunchEnv a terminal does not already have:

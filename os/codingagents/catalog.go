@@ -39,6 +39,41 @@ type Headless struct {
 	PromptArg bool
 	// Parser turns the agent's stdout lines into events.
 	Parser func() Parser
+	// Env is set for headless turns only (KEY=VALUE), each variable only
+	// where the user's environment does not set it already.
+	Env []string
+	// Canvas is what a turn composed on the Agent Canvas can ask of it.
+	Canvas Canvas
+}
+
+// Canvas is what a canvas turn can ask of one agent; agents_detect reports
+// it, and a canvas option the agent cannot take is left out of its turn.
+type Canvas struct {
+	// Effort is the reasoning levels it takes; nil when it takes none.
+	Effort []string `json:"effort"`
+	// Research: web research can be switched off for a turn.
+	Research bool `json:"research"`
+	// Images: reference images reach it.
+	Images bool `json:"images"`
+	// Skills: it has skills, listed by agents_skills.
+	Skills bool `json:"skills"`
+	// Roles: sub-agent roles can be defined for a turn; Subagents: its own
+	// sub-agents show in its events (launch, parent, end).
+	Roles     bool `json:"roles"`
+	Subagents bool `json:"subagents"`
+	// Models is a short list a composer may offer besides the default.
+	Models []string `json:"models"`
+	// ImagesNote heads the reference images listed in the message.
+	ImagesNote string `json:"-"`
+	// PinSkills: skills pinned for a turn are named in its message, with
+	// their SKILL.md (Claude Code's are typed as /name instead).
+	PinSkills bool `json:"-"`
+	// ResearchOff is what a turn with research off tells it; empty: the
+	// common words.
+	ResearchOff string `json:"-"`
+	// DirSeparator is a character a folder it is given cannot hold: it
+	// splits its folder list there.
+	DirSeparator string `json:"-"`
 }
 
 // Turn is one headless run.
@@ -48,12 +83,26 @@ type Turn struct {
 	Model   string
 	Cwd     string
 	Auto    bool
-	// Claude Code only: reasoning effort (low…max); sub-agent definitions
-	// as --agents JSON; more folders the tools may reach; tools denied.
-	Effort     string
-	Subagents  string
-	AddDirs    []string
-	Disallowed []string
+	// A canvas turn, as far as the agent's Canvas allows: reasoning effort
+	// (low…max); sub-agent definitions (Claude Code's --agents JSON); more
+	// folders the tools may reach; web research off; reference images the
+	// agent takes as files.
+	Effort    string
+	Subagents string
+	AddDirs   []string
+	NoWeb     bool
+	Images    []string
+}
+
+// claudeWebTools are Claude Code's web tools, denied when research is off.
+var claudeWebTools = []string{"WebSearch", "WebFetch"}
+
+// codexEffort is Codex's word for an effort level: it stops at xhigh.
+func codexEffort(e string) string {
+	if e == "max" {
+		return "xhigh"
+	}
+	return e
 }
 
 func ids(id string, flag string) []string { return []string{flag, id} }
@@ -97,12 +146,15 @@ var Catalog = []Agent{
 				for _, d := range t.AddDirs {
 					a = append(a, "--add-dir", d)
 				}
-				if len(t.Disallowed) > 0 {
-					a = append(a, "--disallowedTools", strings.Join(t.Disallowed, ","))
+				if t.NoWeb {
+					a = append(a, "--disallowedTools", strings.Join(claudeWebTools, ","))
 				}
 				return a
 			},
 			Parser: func() Parser { return &claudeParser{} },
+			Canvas: Canvas{Effort: []string{"low", "medium", "high", "xhigh", "max"}, Research: true, Images: true,
+				Skills: true, Roles: true, Subagents: true, Models: []string{"opus", "sonnet", "haiku"},
+				ImagesNote: "Reference images (read each with the Read tool):"},
 		},
 	},
 	{
@@ -112,10 +164,18 @@ var Catalog = []Agent{
 		AutoFlags:    []string{"--dangerously-bypass-approvals-and-sandbox"},
 		Resume:       func(id string) []string { return []string{"resume", id} },
 		Headless: &Headless{
+			// exec resume takes no --add-dir of its own: exec's, before
+			// resume, holds for the resumed turn too.
 			Args: func(t Turn) []string {
 				a := []string{"exec"}
+				for _, d := range t.AddDirs {
+					a = append(a, "--add-dir", d)
+				}
 				if t.Session != "" {
 					a = append(a, "resume", t.Session)
+				}
+				for _, img := range t.Images {
+					a = append(a, "-i", img)
 				}
 				a = append(a, "--json", "--skip-git-repo-check")
 				if t.Model != "" {
@@ -124,9 +184,21 @@ var Catalog = []Agent{
 				if t.Auto {
 					a = append(a, "--dangerously-bypass-approvals-and-sandbox")
 				}
+				if t.Effort != "" {
+					a = append(a, "-c", "model_reasoning_effort="+tomlString(codexEffort(t.Effort)))
+				}
+				if t.NoWeb {
+					a = append(a, "-c", `web_search="disabled"`)
+				}
 				return append(a, "-")
 			},
 			Parser: func() Parser { return &codexParser{} },
+			// Without web_search its shell can still reach the network (in
+			// full auto, unsandboxed), so the turn says that is off too.
+			Canvas: Canvas{Effort: []string{"low", "medium", "high", "xhigh"}, Research: true, Images: true, Skills: true,
+				PinSkills: true, ImagesNote: "Reference images (attached to this message):",
+				ResearchOff: "Web research is off for this turn: do not search or fetch from the web, and do not reach " +
+					"the network any other way either (no curl, wget or other network commands in the shell)."},
 		},
 	},
 	{
@@ -137,7 +209,9 @@ var Catalog = []Agent{
 		Headless: &Headless{
 			PromptArg: true,
 			Args: func(t Turn) []string {
-				a := []string{"-p", t.Prompt, "-o", "stream-json"}
+				// The prompt joined to its flag: one that starts with a dash
+				// is not read as an option.
+				a := []string{"--prompt=" + t.Prompt, "-o", "stream-json"}
 				if t.Session != "" {
 					a = append(a, "--resume", t.Session)
 				}
@@ -147,9 +221,16 @@ var Catalog = []Agent{
 				if t.Auto {
 					a = append(a, "--yolo")
 				}
+				for _, d := range t.AddDirs {
+					a = append(a, "--include-directories", d)
+				}
 				return a
 			},
 			Parser: func() Parser { return &geminiParser{} },
+			// Headless, Gemini CLI refuses a folder not trusted yet; this
+			// trusts it for the run (versions before the check ignore it).
+			Env:    []string{"GEMINI_CLI_TRUST_WORKSPACE=true"},
+			Canvas: Canvas{Skills: true, PinSkills: true, DirSeparator: ","},
 		},
 	},
 	{
@@ -170,9 +251,14 @@ var Catalog = []Agent{
 				if t.Auto {
 					a = append(a, "--force")
 				}
-				return append(a, t.Prompt)
+				for _, d := range t.AddDirs {
+					a = append(a, "--add-dir", d)
+				}
+				// After --, a prompt that starts with a dash is not an option.
+				return append(a, "--", t.Prompt)
 			},
 			Parser: func() Parser { return &cursorParser{} },
+			Canvas: Canvas{Images: true, Skills: true, PinSkills: true, ImagesNote: "Reference images (read each one):"},
 		},
 	},
 	{ID: "opencode", Label: "OpenCode", Commands: []string{"opencode"}, ModelFlag: "--model",

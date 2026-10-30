@@ -137,9 +137,9 @@ func TestCanvasTurnRefusals(t *testing.T) {
 	if l := a.list("", "")["conversations"].([]*Conversation); len(l) != 0 {
 		t.Errorf("a refused send leaves no conversation: %+v", l)
 	}
-	// Other agents ignore canvas options.
+	// Every headless agent's canvas turn is checked the same way.
 	fakeAgent(t, "codex", `echo '{"type":"turn.completed","usage":{}}'`)
-	if r := a.send(SendArgs{Agent: "codex", Cwd: cwd, Prompt: "hi", Canvas: &CanvasTurn{Effort: "ultra"}}); r["success"] != true {
+	if r := a.send(SendArgs{Agent: "codex", Cwd: cwd, Prompt: "hi", Canvas: &CanvasTurn{Effort: "ultra"}}); r["success"] != false {
 		t.Errorf("codex: %v", r)
 	}
 }
@@ -271,7 +271,7 @@ func TestSkills(t *testing.T) {
 	writeFile(t, filepath.Join(proj, ".claude", "skills", "release", "SKILL.md"),
 		"---\nname: release\ndescription: |\n  Ship it.\n  Carefully.\n---\n")
 
-	got := skills(proj)["skills"].([]Skill)
+	got := skills(proj, "")["skills"].([]Skill)
 	want := []Skill{
 		{Name: "marp-deck", Description: "Build a deck as Markdown.", Source: "user"},
 		{Name: "nofront", Source: "user"},
@@ -289,7 +289,7 @@ func TestSkills(t *testing.T) {
 	}
 	// A new skill shows on the next call.
 	writeFile(t, filepath.Join(home, ".claude", "skills", "fresh", "SKILL.md"), "---\nname: fresh\ndescription: New\n---\n")
-	if n := len(skills(proj)["skills"].([]Skill)); n != 5 {
+	if n := len(skills(proj, "")["skills"].([]Skill)); n != 5 {
 		t.Errorf("after adding one: %d skills", n)
 	}
 }
@@ -813,7 +813,7 @@ func TestPluginSkills(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	pluginHome(t, home, proj)
 	var got []string
-	for _, s := range skills(proj)["skills"].([]Skill) {
+	for _, s := range skills(proj, "")["skills"].([]Skill) {
 		if s.Source == "plugin" {
 			got = append(got, s.Plugin+" "+s.Name+" "+s.Description)
 		}
@@ -823,7 +823,7 @@ func TestPluginSkills(t *testing.T) {
 		t.Errorf("plugin skills:\n got %q\nwant %q", got, want)
 	}
 	// Without the project, its settings do not apply.
-	if n := len(skills("")["skills"].([]Skill)); n != 6 {
+	if n := len(skills("", "")["skills"].([]Skill)); n != 6 {
 		t.Errorf("without a project: %d skills", n)
 	}
 }

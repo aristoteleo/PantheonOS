@@ -234,7 +234,7 @@ func TestSubagentsStoppedMidway(t *testing.T) {
 func TestClaudeCanvasArgs(t *testing.T) {
 	a, _ := Lookup("claude")
 	got := a.Headless.Args(Turn{Session: "s1", Model: "opus", Auto: true, Effort: "xhigh",
-		Subagents: `{"explorer":{}}`, AddDirs: []string{"/a", "/b c"}, Disallowed: []string{"WebSearch", "WebFetch"}})
+		Subagents: `{"explorer":{}}`, AddDirs: []string{"/a", "/b c"}, NoWeb: true})
 	want := []string{"-p", "--output-format", "stream-json", "--verbose", "--resume", "s1", "--model", "opus",
 		"--dangerously-skip-permissions", "--effort", "xhigh", "--agents", `{"explorer":{}}`,
 		"--add-dir", "/a", "--add-dir", "/b c", "--disallowedTools", "WebSearch,WebFetch"}

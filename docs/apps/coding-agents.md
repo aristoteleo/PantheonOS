@@ -30,8 +30,12 @@ and conversation launches use the fields an entry fills in.
 
 Conversation mode needs a stable machine-readable stream and a way to resume a
 session from a later process. Claude Code, Codex and Cursor Agent were checked
-against their current releases. Gemini CLI follows its documented format; its
-parser has a fixture but no live run behind it.
+against their current releases. Gemini CLI follows its documented format and
+the tool names of its source; its parser has fixtures but no live tool stream
+behind it (see `os/codingagents/testdata/README.md`). Headless, Gemini CLI
+refuses a folder it does not trust yet, so its turns run with
+`GEMINI_CLI_TRUST_WORKSPACE=true` (that run only, and only when the user's
+environment for it does not set the variable; a terminal launch still asks).
 
 
 The first entry is the user's own **Pantheon Agent**: the terminal chat of the
@@ -74,14 +78,14 @@ PTY services are (`node_service` with `service: "coding_agent"`). It needs the
 
 | Method | Does |
 |---|---|
-| `agents_detect(refresh)` | The detected agents, with which modes each supports. |
+| `agents_detect(refresh)` | The detected agents, with which modes each supports, and `canvas` for each with a headless mode (below). |
 | `agent_terminal_command(agent, resume, auto)` | The argv for a terminal launch. |
-| `agent_send(agent, cwd, prompt, conversation_id, model, auto)` | Starts a turn. A new conversation when `conversation_id` is empty. |
+| `agent_send(agent, cwd, prompt, conversation_id, model, auto)` | Starts a turn. A new conversation when `conversation_id` is empty. A conversation keeps its agent: a send naming another fails ("This conversation runs Codex; start a new one to use Gemini CLI"). |
 | `agent_stop(conversation_id)` | Interrupts the running turn. |
 | `agent_conversations(agent, cwd)` | Conversations on this node, newest first. |
 | `agent_conversation(conversation_id, after)` | One conversation's events, for replay. |
 | `agent_delete(conversation_id)` | Removes a conversation's record. The agent's own session stays. |
-| `agents_skills(cwd)` | Claude Code skills: the user's, the project's, and the skills and commands of the plugins enabled there (`source: plugin`, named `<plugin>:<name>`). |
+| `agents_skills(cwd, agent)` | One agent's skills (`agent` defaults to `claude`), from where that agent loads them, with the node's settings for it (its command and environment). Claude Code: the user's, the project's, and the skills and commands of the plugins enabled there (`source: plugin`, named `<plugin>:<name>`). Codex: what its app-server's `skills/list` says for `cwd` (`source` `user`, `project`, `system`, `admin` or `plugin`), or, when Codex cannot be asked, `.codex/skills` and `.agents/skills` of the project, `$CODEX_HOME/skills` (`.system` inside it as `system`; `CODEX_HOME` as Codex runs with it) and `~/.agents/skills`. Gemini CLI, in its order, a later one replacing an earlier one of the same name: its built-in skills (`bundle/builtin` next to the CLI, `system`), those of the extensions enabled for `cwd` (`~/.gemini/extensions`, a linked one where it points, `extension-enablement.json`; `source: extension`, `plugin` the extension), `~/.gemini/skills`, `~/.agents/skills`, then the project's `.gemini/skills` and `.agents/skills`; only skills whose front matter has a name and a description, none of those in its settings' `skills.disabled`, and none at all when `skills.enabled` is false (its home is `GEMINI_CLI_HOME` when set). Cursor Agent: `skills` under `.cursor`, `.claude`, `.codex`, `.grok` and `.agents`, in the project, then in the home directory, then its built-in `~/.cursor/skills-cursor` (`system`); its plugins' skills are not listed (which plugins are on is the account's to say). Another agent has none. |
 | `agents_repo_info(path)` | A folder's commit (hash, short, subject), branch and local branches. |
 | `agents_folder_tree(path, dir)` | A folder's subfolders with recursive file counts (no `.git`, `node_modules`, hidden folders; bounded at 100k files / 2 s). |
 | `agents_reference_put(cwd, upload_id, name, offset, data, final)` | Uploads a reference image in ≤ 48 KB chunks into `<cwd>/.pantheon/references` (PNG, JPEG, WebP, GIF; ≤ 20 MB and 40 M pixels). |
@@ -89,7 +93,9 @@ PTY services are (`node_service` with `service: "coding_agent"`). It needs the
 | `agents_file_read(conversation_id, path, offset, length)` | A ≤ 48 KB piece (base64, with `size` and `mime`) of a file the conversation worked with: inside its folder, or one its log names (the path, or the name and its folder). The node's file service reaches only shared folders; this reaches what the agent read or made, for the canvas's previews. |
 
 A turn is one process: the agent's headless command with the prompt on stdin
-(as an argument for agents that do not read stdin), resuming the agent's own
+(as an argument for agents that do not read stdin: Gemini CLI's joined to its
+flag, `--prompt=<text>`, Cursor Agent's last, after `--`, so a prompt that
+starts with a dash is never read as an option), resuming the agent's own
 session id from the previous turn. Its stdout is parsed line by line into
 events, appended to the conversation's log, and published on
 `pantheon.stream.coding_<conversation_id>`. stderr is kept for the error shown
@@ -102,15 +108,67 @@ its last turn. A turn running when the service stops (or dies) ends with a
 `done` event saying it was interrupted, and the conversation is marked
 `interrupted`; the next message resumes the agent's session.
 
-A Claude Code turn may also carry the Agent Canvas options of `agent_send`:
-`effort` (`--effort`), `subagents` (`[{name, description, prompt, write,
-model}]`, passed as `--agents`; read-only roles get Read, Grep, Glob and, with
-research on, WebSearch and WebFetch), `focus` (folders, named in the appended
-system prompt; those outside the directory also `--add-dir`), `research`
-(off: `--disallowedTools WebSearch,WebFetch`) and `images` (paths listed after
-the prompt). The conversation keeps the latest as `canvas`. Skills a Claude Code
-prompt starts with (`/name …`) are expanded by Claude Code without a tool call,
-so the service adds a `Skill` tool event (done) for each after the `user` event.
+### Canvas turns
+
+A turn may carry the Agent Canvas options of `agent_send`: `effort`,
+`subagents` (`[{name, description, prompt, write, model}]`), `focus`
+(folders), `files` (pinned files), `research`, `images` and `skills` (pinned
+skills, by name). They are checked the same way for every agent (folders and
+files exist, images are absolute paths on the node) and then said in the
+agent's own terms, as far as its capabilities go; an option the agent cannot
+take is left out of its turn, never half-applied. The conversation keeps the
+latest as `canvas`, as the agent took it (an option it cannot take left out;
+research on where it cannot be switched off).
+
+`agents_detect` reports each headless agent's capabilities as `canvas`:
+
+```json
+{"effort": ["low", "medium", "high", "xhigh"], "research": true, "images": true,
+ "skills": true, "roles": false, "subagents": false, "models": null}
+```
+
+`effort` is the levels it takes (null: none); `research`, whether web
+research can be switched off; `images`, whether reference images reach it;
+`skills`, whether it has skills (`agents_skills`); `roles`, whether sub-agent
+roles can be defined for a turn; `subagents`, whether its own sub-agents show
+in its events; `models`, a short list to offer besides the default (null:
+only the default).
+
+| | Claude Code | Codex | Gemini CLI | Cursor Agent |
+|---|---|---|---|---|
+| effort | `--effort` (low…max) | `-c model_reasoning_effort=…` (max runs as xhigh) | — | — |
+| research off | `--disallowedTools WebSearch,WebFetch` | `-c web_search="disabled"`, and told not to reach the network from the shell | — | — |
+| focus, files outside the folder | `--add-dir` | `--add-dir` (before `resume`) | `--include-directories` (a folder with a comma is refused: the CLI splits the list there) | `--add-dir` |
+| pinned files | listed after the prompt | same | same | same |
+| pinned skills | — (typed as `/name`) | listed after the prompt with their `SKILL.md` | same | same |
+| images | listed after the prompt, read with Read | `-i <path>` each, and listed | — | listed after the prompt |
+| the turn's settings (focus, roles, research) | `--append-system-prompt` | `-c developer_instructions=…` | before the prompt | before the prompt |
+| roles (`subagents`) | `--agents`; read-only roles get Read, Grep, Glob and, with research on, WebSearch and WebFetch | — | — | — |
+| models | opus, sonnet, haiku | — | — | — |
+| skills | yes | yes | yes | yes |
+| own sub-agents as nodes | yes | no | no | no |
+
+Each turn says its settings again (a resumed session remembers earlier
+ones), including research and roles switched back off. What is not in the
+table was not possible or could not be confirmed on the agent's current
+release: Gemini CLI's `--policy` (to deny its web tools) and `@path` images
+need a signed-in run to confirm; Cursor Agent has no switch for its web
+search; Codex's sub-agents do not show in `exec --json`
+(`os/codingagents/testdata/README.md`).
+
+Research off removes the agent's web tools and tells it not to use the web;
+it does not firewall the turn. An agent with a shell (Claude Code's Bash,
+Codex's, unsandboxed in full auto) could still reach the network from it.
+
+Pinned skills (`skills`, for agents other than Claude Code) are found among
+the agent's own skills for the folder, as `agents_skills` lists them, and
+named after the prompt: "Skills I pinned for this turn (read each SKILL.md
+first and follow it):" then `- <name>: <SKILL.md path>`. A name the agent
+has no skill of fails the send ("moon is not a Cursor Agent skill on this
+node"). Each pinned skill gets a `skill` tool event (done, `path` its
+`SKILL.md`) after the `user` event. Skills a Claude Code prompt starts with
+(`/name …`) are expanded by Claude Code without a tool call, so the service
+adds a `Skill` tool event (done) for each after the `user` event.
 
 ### Events
 
@@ -127,9 +185,29 @@ Every agent's stream is mapped to one shape:
 | `session` | `session_id`, `model` |
 | `text` | `text`, `delta` when the agent streams pieces |
 | `thinking` | `text`, `delta` |
-| `tool` | `id`, `name`, `input` (a one-line summary), `status` (`running`, `done`, `error`), `output` (capped at 4 KB) |
+| `tool` | `id`, `name`, `input` (a one-line summary), `kind`, `path`, `status` (`running`, `done`, `error`), `output` (capped at 4 KB) |
 | `done` | `error` when the turn failed; `duration_ms`; `input_tokens` (cached included), `cached_tokens`, `output_tokens`; `context_tokens` and `context_window` where the agent reports them; `cost_usd` (Claude Code: the price at API rates, not a charge on a subscription) |
 | `limits` | `limits`: the account's quota windows (`five_hour`, `seven_day`, …), each `used` (0–1) and `resets_at` |
+
+`kind` says what a tool call does, in the same words for every agent:
+`read`, `write`, `shell`, `search` (the web), `fetch` (a web page), `skill`,
+`agent` (a sub-agent launch: Claude Code's Agent, Cursor Agent's task, Gemini
+CLI's `invoke_agent` and `codebase_investigator`) or `other` (a search
+through the code among others); `path` is the file a `read` or `write` is about, as the agent gave
+it. Both come with the event that names the tool (a result that carries only
+the id has neither). Commands stay `shell`, also when they read files. A skill
+shows as `skill` with its name as `input`, whichever way the agent opens it:
+Claude Code's Skill tool, Gemini CLI's `activate_skill`, Codex reading its
+`SKILL.md` through the shell, Cursor Agent reading it with its read tool. A
+read counts as a skill only for a `…/skills/<name>/SKILL.md` path (or
+`skills/.system/<name>`, Codex's own); in a shell line, only a plain read
+(`cat`, `head`, `tail`, `nl`, `less`, `bat`, `sed -n` without `-i`) without an
+output redirection, in any command of a `;`, `&&`, `||` or `|` list, with
+quotes read as the shell reads them. A Codex file change is one `write` event
+per file: the first has the item's id, the others `#2`, `#3`, … after it. A
+Codex web search has its item's id (its line also carries the search call's,
+under the same key) and is known for a page opened only when it completes: it
+starts as `search` and ends as `fetch` then.
 
 Claude Code's sub-agents: every event from inside one has `parent`, the id of
 the tool call that launched it. The launch (tool `Agent`, `Task` in older
@@ -143,7 +221,10 @@ Lines a parser does not recognise are dropped. A quota (`limits`) is kept
 with the conversation and with the agent, so the agent list shows the last
 one reported on that node. A turn without a `done` from
 the agent gets one from the service when the process exits, carrying the exit
-status and the tail of stderr.
+status, that the agent is not signed in on the node when that is known, and
+the tail of stderr. Errors name the agent: "Codex is not installed on this
+node", "Could not start Codex: …", "Codex exited: exit status 1; it is not
+signed in on this node".
 
 ## Terminal launch
 
@@ -328,7 +409,7 @@ App like any other conversation.
 
 - Windows nodes are detected but have no terminal launch (the PTY backend is
   Unix only). Conversations run there.
-- Agents that ask to trust a folder before their first run in it (Gemini CLI)
-  may need one terminal run in that folder first.
+- Gemini CLI asks to trust a folder in a terminal; its conversations trust
+  the folder for their own runs only.
 - Subscription limits, sign-in and billing belong to the agent and the user's
   own account.

@@ -39,6 +39,9 @@ func Inspect(f Found) Status {
 	return Status{Version: version(f.Path), SignedIn: signedIn(f.ID, f.Path)}
 }
 
+// SignedIn is whether an agent has a sign-in, as Inspect reports it.
+func SignedIn(f Found) *bool { return signedIn(f.ID, f.Path) }
+
 func version(path string) string {
 	st, err := os.Stat(path)
 	if err != nil {

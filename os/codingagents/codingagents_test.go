@@ -254,10 +254,11 @@ func TestCleanEnvKeepsConfigurationDropsSessionMarkers(t *testing.T) {
 
 func TestUnwrapShell(t *testing.T) {
 	for in, want := range map[string]string{
-		`/bin/zsh -lc 'sleep 60; echo done'`: "sleep 60; echo done",
-		`/bin/bash -c 'echo '\''hi'\'''`:     "echo 'hi'",
-		`bash -lc ls`:                        "ls",
-		`python -c 'print(1)'`:               `python -c 'print(1)'`,
+		`/bin/zsh -lc 'sleep 60; echo done'`:   "sleep 60; echo done",
+		`/bin/bash -c 'echo '\''hi'\'''`:       "echo 'hi'",
+		`bash -lc ls`:                          "ls",
+		`/bin/zsh -lc "rg 'a b' -m 3 \"\$x\""`: `rg 'a b' -m 3 "$x"`,
+		`python -c 'print(1)'`:                 `python -c 'print(1)'`,
 	} {
 		if got := unwrapShell(in); got != want {
 			t.Errorf("%s: got %q, want %q", in, got, want)
@@ -324,6 +325,7 @@ while read -r line; do
   case "$line" in
     *'"id":2'*rateLimits*) printf '%s\n' '{"id":2,"result":{"rateLimits":{"primary":{"usedPercent":20,"windowDurationMins":10080,"resetsAt":9},"secondary":{"usedPercent":5,"windowDurationMins":300,"resetsAt":3},"planType":"pro"}}}' ;;
     *'"id":2'*thread/list*) printf '%s\n' '{"id":2,"result":{"data":[{"id":"th1","name":"","preview":"Check NAS\nrights","cwd":"/srv","model":"gpt-x","source":"cli","createdAt":1,"updatedAt":2,"gitInfo":{"branch":"dev"}}]}}' ;;
+    *'"id":2'*skills/list*) printf '%s\n' '{"id":2,"result":{"data":[{"cwd":"/w","errors":[],"skills":[{"name":"night-sky","description":"Stars","path":"/w/.agents/skills/night-sky/SKILL.md","scope":"repo","enabled":true,"pluginId":null},{"name":"pdf:pdf","description":"PDFs","path":"/p/SKILL.md","scope":"user","enabled":true,"pluginId":"pdf@acme"},{"name":"off","description":"","path":"/o/SKILL.md","scope":"user","enabled":false,"pluginId":null}]}]}}' ;;
     *'"id":1'*) printf '%s\n' '{"id":1,"result":{}}' ;;
   esac
 done
@@ -340,6 +342,26 @@ done
 	s, err := CodexSessions(ctx, codex, os.Environ(), 5)
 	if err != nil || len(s) != 1 || s[0].Title != "Check NAS …" || s[0].Branch != "dev" || s[0].Agent != "codex" {
 		t.Fatalf("%+v %v", s, err)
+	}
+	sk, err := CodexSkills(ctx, codex, os.Environ(), "/w")
+	if err != nil || len(sk) != 2 || sk[0].Scope != "repo" || sk[1].Plugin != "pdf" {
+		t.Fatalf("%+v %v", sk, err)
+	}
+}
+
+// A Codex that never answers, behind a launcher whose child keeps its
+// output open, still gives up at the deadline.
+func TestCodexAppServerDeadline(t *testing.T) {
+	codex := filepath.Join(t.TempDir(), "codex")
+	if err := os.WriteFile(codex, []byte("#!/bin/sh\nsleep 30 &\nsleep 30\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	start := time.Now()
+	_, err := CodexSkills(ctx, codex, os.Environ(), "/w")
+	if err == nil || time.Since(start) > 5*time.Second {
+		t.Fatalf("after %v: %v", time.Since(start), err)
 	}
 }
 
