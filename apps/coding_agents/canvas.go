@@ -138,7 +138,8 @@ func (ct *CanvasTurn) prepare(cwd string) (canvasLaunch, error) {
 	// A resumed session remembers earlier turns' settings, so each turn says
 	// where it stands, including what was switched back on or off.
 	if len(roster) == 0 {
-		sys = append(sys, "No sub-agents this turn: do the work yourself.")
+		sys = append(sys, "No sub-agent roles are set up for this turn, and any from earlier turns are gone. "+
+			"You may still use the Agent tool's built-in agents when the task calls for it, or when the user asks.")
 	}
 	if ct.Research {
 		sys = append(sys, "Web research is on for this turn: you may search and fetch from the web.")

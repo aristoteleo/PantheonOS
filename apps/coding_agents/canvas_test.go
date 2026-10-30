@@ -873,7 +873,7 @@ func TestCanvasTurnStatesItsSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Web research is on for this turn", "No sub-agents this turn", "replace any from earlier turns"} {
+	for _, want := range []string{"Web research is on for this turn", "No sub-agent roles are set up", "replace any from earlier turns"} {
 		if !strings.Contains(on.system, want) {
 			t.Errorf("research on, no roster: %q missing from %q", want, on.system)
 		}
@@ -882,7 +882,7 @@ func TestCanvasTurnStatesItsSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(off.system, "Web research is off for this turn") || strings.Contains(off.system, "No sub-agents") {
+	if !strings.Contains(off.system, "Web research is off for this turn") || strings.Contains(off.system, "No sub-agent roles") {
 		t.Errorf("research off, a roster: %q", off.system)
 	}
 }
