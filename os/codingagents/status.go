@@ -194,3 +194,29 @@ func ExtraEnv(agentID string) []string {
 	}
 	return nil
 }
+
+// CredentialTime is when an agent's sign-in files last changed (the newest
+// of them), zero when it keeps none PantheonOS knows of (a Keychain item,
+// an API key variable). It never reads them.
+func CredentialTime(id string) time.Time {
+	home, _ := os.UserHomeDir()
+	var files []string
+	switch id {
+	case "claude":
+		files = []string{filepath.Join(firstNonEmpty(os.Getenv("CLAUDE_CONFIG_DIR"), filepath.Join(home, ".claude")), ".credentials.json")}
+	case "codex":
+		files = []string{filepath.Join(firstNonEmpty(os.Getenv("CODEX_HOME"), filepath.Join(home, ".codex")), "auth.json")}
+	case "gemini":
+		gh := firstNonEmpty(os.Getenv("GEMINI_CLI_HOME"), home)
+		files = []string{filepath.Join(gh, ".gemini", "oauth_creds.json"), filepath.Join(gh, ".gemini", "settings.json")}
+	case "cursor":
+		files = []string{filepath.Join(home, ".cursor", "auth.json"), filepath.Join(home, ".config", "cursor", "auth.json")}
+	}
+	var t time.Time
+	for _, f := range files {
+		if st, err := os.Stat(f); err == nil && st.ModTime().After(t) {
+			t = st.ModTime()
+		}
+	}
+	return t
+}

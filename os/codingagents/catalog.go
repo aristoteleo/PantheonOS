@@ -71,6 +71,10 @@ type Canvas struct {
 	// ResearchOff is what a turn with research off tells it; empty: the
 	// common words.
 	ResearchOff string `json:"-"`
+	// SettingsInMessage: a turn's settings go in its message even though
+	// the agent takes instructions (Instructions), which it keeps from its
+	// session's first turn only.
+	SettingsInMessage bool `json:"-"`
 	// DirSeparator is a character a folder it is given cannot hold: it
 	// splits its folder list there.
 	DirSeparator string `json:"-"`
@@ -164,12 +168,18 @@ var Catalog = []Agent{
 		AutoFlags:    []string{"--dangerously-bypass-approvals-and-sandbox"},
 		Resume:       func(id string) []string { return []string{"resume", id} },
 		Headless: &Headless{
-			// exec resume takes no --add-dir of its own: exec's, before
-			// resume, holds for the resumed turn too.
+			// exec resume takes no --add-dir or --sandbox of its own: exec's,
+			// before resume, hold for the resumed turn too. Research off
+			// runs in the workspace-write sandbox with its network off
+			// (cwd and the --add-dir folders writable), full auto then
+			// meaning no approvals rather than no sandbox.
 			Args: func(t Turn) []string {
 				a := []string{"exec"}
 				for _, d := range t.AddDirs {
 					a = append(a, "--add-dir", d)
+				}
+				if t.NoWeb {
+					a = append(a, "--sandbox", "workspace-write")
 				}
 				if t.Session != "" {
 					a = append(a, "resume", t.Session)
@@ -181,22 +191,26 @@ var Catalog = []Agent{
 				if t.Model != "" {
 					a = append(a, "-m", t.Model)
 				}
-				if t.Auto {
+				switch {
+				case t.Auto && t.NoWeb:
+					a = append(a, "-c", `approval_policy="never"`)
+				case t.Auto:
 					a = append(a, "--dangerously-bypass-approvals-and-sandbox")
 				}
 				if t.Effort != "" {
 					a = append(a, "-c", "model_reasoning_effort="+tomlString(codexEffort(t.Effort)))
 				}
 				if t.NoWeb {
-					a = append(a, "-c", `web_search="disabled"`)
+					a = append(a, "-c", `web_search="disabled"`, "-c", "sandbox_workspace_write.network_access=false")
 				}
 				return append(a, "-")
 			},
 			Parser: func() Parser { return &codexParser{} },
-			// Without web_search its shell can still reach the network (in
-			// full auto, unsandboxed), so the turn says that is off too.
+			// A resumed thread keeps its first developer instructions
+			// (exec resume ignores new ones), so each turn's settings go in
+			// its message.
 			Canvas: Canvas{Effort: []string{"low", "medium", "high", "xhigh"}, Research: true, Images: true, Skills: true,
-				PinSkills: true, ImagesNote: "Reference images (attached to this message):",
+				PinSkills: true, SettingsInMessage: true, ImagesNote: "Reference images (attached to this message):",
 				ResearchOff: "Web research is off for this turn: do not search or fetch from the web, and do not reach " +
 					"the network any other way either (no curl, wget or other network commands in the shell)."},
 		},

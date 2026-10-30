@@ -204,6 +204,11 @@ func GeminiQuota(ctx context.Context) (Quota, error) {
 			ID   string `json:"id"`
 			Name string `json:"name"`
 		} `json:"currentTier"`
+		// What Gemini CLI refuses to start on (an account it no longer serves).
+		IneligibleTiers []struct {
+			ReasonCode    string `json:"reasonCode"`
+			ReasonMessage string `json:"reasonMessage"`
+		} `json:"ineligibleTiers"`
 	}
 	if err := postJSON(ctx, geminiAssistURL, creds.AccessToken, map[string]any{"metadata": map[string]string{
 		"ideType": "IDE_UNSPECIFIED", "platform": "PLATFORM_UNSPECIFIED", "pluginType": "GEMINI"}}, &assist); err != nil {
@@ -217,6 +222,11 @@ func GeminiQuota(ctx context.Context) (Quota, error) {
 		project = asObject.ID
 	}
 	q := Quota{Plan: firstNonEmpty(assist.CurrentTier.Name, assist.CurrentTier.ID), At: float64(time.Now().Unix())}
+	if assist.CurrentTier.ID == "" && len(assist.IneligibleTiers) > 0 {
+		in := assist.IneligibleTiers[0]
+		q.Refused = firstNonEmpty(in.ReasonMessage, in.ReasonCode)
+		return q, errors.New(q.Refused)
+	}
 	if project == "" {
 		return q, errors.New("this Google account has no Gemini Code Assist tier")
 	}

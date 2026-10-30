@@ -30,16 +30,32 @@ type Skill struct {
 	Plugin string `json:"plugin,omitempty"`
 }
 
-// skillList is Claude Code's skills: the user's, the project's (cwd's) and
-// those of the plugins enabled there, each from its front matter, the file
-// or folder name standing in for a missing name.
+// skillList is Claude Code's skills: the user's, the project's (cwd's),
+// those of the plugins enabled there and those synced from the account,
+// each from its front matter, the file or folder name standing in for a
+// missing name; then those that come with Claude Code, as it last listed
+// them (claudeskills.go). None its settings turn off.
 func skillList(cwd string) []Skill {
-	out := skillsIn(filepath.Join(codingagents.ClaudeDir(), "skills"), "user", "")
+	user := filepath.Join(codingagents.ClaudeDir(), "skills")
+	out := skillsIn(user, "user", "")
 	if cwd != "" {
 		cwd = filepath.Clean(expandHome(cwd))
-		out = append(out, skillsIn(filepath.Join(cwd, ".claude", "skills"), "project", "")...)
+		// In the home folder the project's skills are the user's.
+		if project := filepath.Join(cwd, ".claude", "skills"); project != user {
+			out = append(out, skillsIn(project, "project", "")...)
+		}
 	}
-	return append(out, pluginSkills(cwd)...)
+	out = append(out, pluginSkills(cwd)...)
+	out = append(out, claudeAccountSkills()...)
+	off, noBuiltin := claudeSkillSettings(cwd)
+	if !noBuiltin {
+		for _, s := range claudeBuiltinSkills(cwd) {
+			if !slices.ContainsFunc(out, func(o Skill) bool { return o.Name == s.Name }) {
+				out = append(out, s)
+			}
+		}
+	}
+	return slices.DeleteFunc(out, func(s Skill) bool { return off[s.Name] })
 }
 
 func skillsIn(dir, source, plugin string) []Skill {

@@ -120,7 +120,7 @@ func TestFailedStartReportsStderr(t *testing.T) {
 	res := a.send(SendArgs{Agent: "codex", Prompt: "hi"})
 	id := res["conversation_id"].(string)
 	c := waitIdle(t, a, id)
-	if c["status"] != "error" || !strings.Contains(c["last_error"].(string), "exited") {
+	if c["status"] != "error" || c["last_error"] != "Codex could not sign in: Not signed in. Run codex login." {
 		t.Fatalf("conversation: %v", c)
 	}
 	ev := a.conversation(id, 0)["events"].([]codingagents.Event)

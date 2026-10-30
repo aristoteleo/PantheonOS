@@ -101,6 +101,9 @@ type Quota struct {
 	Limits map[string]Limit `json:"limits,omitempty"`
 	Plan   string           `json:"plan,omitempty"`
 	At     float64          `json:"at"`
+	// Refused is why the provider will not serve this account through the
+	// agent, when it says so: signed in, but as good as not.
+	Refused string `json:"refused,omitempty"`
 }
 
 type codexWindow struct {

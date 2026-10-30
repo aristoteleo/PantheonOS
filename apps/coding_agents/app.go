@@ -92,6 +92,15 @@ type App struct {
 	quotaNote map[string]string // why an agent's quota is unknown
 	knownMu   sync.Mutex        // the known-sessions file
 	quotaBusy map[string]bool   // a quota read under way, per agent
+	// signInFailed is, per agent, the last turn that failed for its sign-in
+	// (or its account), until a turn succeeds or its sign-in files change.
+	signInFailed map[string]signInFailure
+}
+
+type signInFailure struct {
+	reason    string
+	at        time.Time
+	fromQuota bool // from the provider's answer to a quota read
 }
 
 // DefaultRoot is where a node keeps its conversations.
@@ -105,7 +114,7 @@ const interruptedNote = "Interrupted: the node's Coding Agents service stopped. 
 func NewApp(nc *nats.Conn, prefix, root string) *App {
 	a := &App{root: root, nc: nc, prefix: prefix, convs: map[string]*Conversation{}, running: map[string]*turn{},
 		limits: map[string]agentLimits{}, plans: map[string]string{}, terminals: map[string]*TerminalSession{},
-		quotaNote: map[string]string{}, quotaBusy: map[string]bool{}}
+		quotaNote: map[string]string{}, quotaBusy: map[string]bool{}, signInFailed: map[string]signInFailure{}}
 	if host, err := os.Hostname(); err == nil {
 		a.NodeName = host
 	}
@@ -338,19 +347,19 @@ func (a *App) send(p SendArgs) map[string]any {
 	launch := codingagents.Launch{Agent: c.Agent, Conversation: c.ID, NodeID: a.NodeID, NodeName: a.NodeName}
 	note := codingagents.Note(r.settings, launch)
 	agentPrompt := canvas.prompt(prompt)
-	if agent.Instructions == nil {
-		// Without a way to add instructions, the message carries them: the
-		// note in a conversation's first, a canvas turn's settings in each.
-		var lead []string
-		if note != "" && c.Seq == 0 && c.Session == "" {
-			lead = append(lead, note)
-		}
-		if canvas.system != "" {
-			lead = append(lead, canvas.system)
-		}
-		if len(lead) > 0 {
-			agentPrompt = "[" + strings.Join(lead, "\n\n") + "]\n\n" + agentPrompt
-		}
+	// Without a way to add instructions, or one that holds on a resumed
+	// session, the message carries them: the note in a conversation's
+	// first, a canvas turn's settings in each.
+	inMessage := agent.Instructions == nil || agent.Headless.Canvas.SettingsInMessage
+	var lead []string
+	if note != "" && agent.Instructions == nil && c.Seq == 0 && c.Session == "" {
+		lead = append(lead, note)
+	}
+	if canvas.system != "" && inMessage {
+		lead = append(lead, canvas.system)
+	}
+	if len(lead) > 0 {
+		agentPrompt = "[" + strings.Join(lead, "\n\n") + "]\n\n" + agentPrompt
 	}
 	model := c.Model
 	if model == "" {
@@ -359,7 +368,11 @@ func (a *App) send(p SendArgs) map[string]any {
 	t := codingagents.Turn{Prompt: agentPrompt, Session: c.Session, Model: model, Cwd: c.Cwd, Auto: c.Auto}
 	canvas.apply(&t)
 	args := append(agent.Headless.Args(t), r.settings.Agents[c.Agent].Args...)
-	if extra := strings.TrimSpace(note + "\n\n" + canvas.system); extra != "" && agent.Instructions != nil {
+	extra := note
+	if !inMessage {
+		extra += "\n\n" + canvas.system
+	}
+	if extra := strings.TrimSpace(extra); extra != "" && agent.Instructions != nil {
 		args = append(args, agent.Instructions(extra)...)
 	}
 	cmd := exec.Command(r.path, args...)
@@ -474,6 +487,11 @@ func (a *App) pump(id string, tr *turn, agent codingagents.Agent, found codingag
 	case end.Error == "" && waitErr != nil && last == nil:
 		signedIn := codingagents.SignedIn(found)
 		end.Error = exitMessage(agent.Label, waitErr, stderr.String(), signedIn != nil && !*signedIn)
+	case end.Error != "":
+		end.Error = agentError(agent.Label, end.Error)
+	}
+	if !closing && !stopped {
+		a.noteSignIn(agent.ID, end.Error, end.Error+"\n"+stderr.String())
 	}
 	// Sub-agents end with the turn; say so before it ends.
 	for _, o := range open {
@@ -488,9 +506,6 @@ func (a *App) pump(id string, tr *turn, agent codingagents.Agent, found codingag
 	a.finish(id, tr, end)
 }
 
-// exitMessage is why a turn ended without the agent saying so: its exit,
-// whether it is signed in (when that is known to be not), and the tail of
-// what it printed on stderr.
 // withDefaults adds each KEY=VALUE of defaults that env does not set.
 func withDefaults(env, defaults []string) []string {
 	for _, kv := range defaults {
@@ -502,19 +517,17 @@ func withDefaults(env, defaults []string) []string {
 	return env
 }
 
-func exitMessage(label string, err error, stderr string, signedOut bool) string {
-	msg := fmt.Sprintf("%s exited: %v", label, err)
-	if signedOut {
-		msg += "; it is not signed in on this node"
+// noteSignIn remembers a turn that failed for the agent's sign-in, for
+// agents_detect, and forgets it once a turn succeeds.
+func (a *App) noteSignIn(agent, errText, output string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	switch {
+	case errText == "":
+		delete(a.signInFailed, agent)
+	case signInError(output):
+		a.signInFailed[agent] = signInFailure{reason: firstLine(errText), at: time.Now()}
 	}
-	if s := strings.TrimSpace(stderr); s != "" {
-		lines := strings.Split(s, "\n")
-		if len(lines) > 12 {
-			lines = lines[len(lines)-12:]
-		}
-		msg += "\n" + strings.Join(lines, "\n")
-	}
-	return msg
 }
 
 func (a *App) finish(id string, tr *turn, end codingagents.Event) {

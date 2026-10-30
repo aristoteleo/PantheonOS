@@ -65,6 +65,7 @@ func TestGeminiQuota(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	os.MkdirAll(filepath.Join(home, ".gemini"), 0o700)
+	assist := `{"cloudaicompanionProject":{"id":"proj-1"},"currentTier":{"id":"standard-tier","name":"Gemini Code Assist"}}`
 	write := func(expiry time.Time) {
 		os.WriteFile(filepath.Join(home, ".gemini", "oauth_creds.json"),
 			[]byte(`{"access_token":"tok","refresh_token":"r","expiry_date":`+itoa(expiry.UnixMilli())+`}`), 0o600)
@@ -77,7 +78,7 @@ func TestGeminiQuota(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		switch r.URL.Path {
 		case "/assist":
-			io.WriteString(w, `{"cloudaicompanionProject":{"id":"proj-1"},"currentTier":{"id":"standard-tier","name":"Gemini Code Assist"}}`)
+			io.WriteString(w, assist)
 		case "/quota":
 			if !strings.Contains(string(body), `"proj-1"`) {
 				w.WriteHeader(403)
@@ -98,6 +99,13 @@ func TestGeminiQuota(t *testing.T) {
 	if d := q.Limits["daily"]; q.Plan != "Gemini Code Assist" || d.Used < 0.59 || d.Used > 0.61 ||
 		d.ResetsAt != time.Date(2026, 10, 29, 8, 0, 0, 0, time.UTC).Unix() {
 		t.Errorf("the model closest to its limit: %+v", q)
+	}
+	// An account Gemini CLI no longer serves: the answer it fails on.
+	assist = `{"allowedTiers":[],"ineligibleTiers":[{"reasonCode":"UNSUPPORTED_CLIENT","reasonMessage":"This client is no longer ` +
+		`supported. To continue, please migrate: https://antigravity.example","tierId":"free-tier"}]}`
+	q, err = GeminiQuota(context.Background())
+	if err == nil || q.Refused != "This client is no longer supported. To continue, please migrate: https://antigravity.example" {
+		t.Errorf("refused: %+v %v", q, err)
 	}
 	write(time.Now().Add(-time.Minute))
 	if _, err := GeminiQuota(context.Background()); err == nil || !strings.Contains(err.Error(), "lapsed") {

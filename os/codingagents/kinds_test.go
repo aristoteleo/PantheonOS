@@ -128,8 +128,8 @@ func TestCursorKinds(t *testing.T) {
 		"done read /work/acme/README.md /work/acme/README.md",
 		"done read /work/acme/src/calc.py /work/acme/src/calc.py",
 		"running write /work/acme/src/calc.py /work/acme/src/calc.py",
-		`running other  {"server":"cursor","toolCallId":"toolu_01Y8YrPJQSkYnyTtRPi3qfgk","toolName":"WebSearch"}`,
-		`done other  {"server":"cursor","toolCallId":"toolu_01Y8YrPJQSkYnyTtRPi3qfgk","toolName":"WebSearch"}`,
+		"running other  WebSearch",
+		"done other  WebSearch",
 		"done write /work/acme/src/calc.py /work/acme/src/calc.py",
 		"running shell  python3 src/calc.py",
 		"running search  Python 3 release October 2026 latest version name",
@@ -247,8 +247,9 @@ func TestCanvasArgsPerAgent(t *testing.T) {
 		Images: []string{"/work/red.png"}, Prompt: "hi"}
 	codex, _ := Lookup("codex")
 	got := codex.Headless.Args(turn)
-	want := []string{"exec", "--add-dir", "/work/outside", "resume", "s1", "-i", "/work/red.png", "--json", "--skip-git-repo-check",
-		"--dangerously-bypass-approvals-and-sandbox", "-c", `model_reasoning_effort="xhigh"`, "-c", `web_search="disabled"`, "-"}
+	want := []string{"exec", "--add-dir", "/work/outside", "--sandbox", "workspace-write", "resume", "s1", "-i", "/work/red.png",
+		"--json", "--skip-git-repo-check", "-c", `approval_policy="never"`, "-c", `model_reasoning_effort="xhigh"`,
+		"-c", `web_search="disabled"`, "-c", "sandbox_workspace_write.network_access=false", "-"}
 	wantSteps(t, "codex", got, want)
 	gemini, _ := Lookup("gemini")
 	wantSteps(t, "gemini", gemini.Headless.Args(turn), []string{"--prompt=hi", "-o", "stream-json", "--resume", "s1",
@@ -320,5 +321,67 @@ func TestAgentKindsAndIDs(t *testing.T) {
 	}
 	if !slices.Equal(ids, []string{"item_5", "item_5"}) {
 		t.Errorf("web search ids %q", ids)
+	}
+}
+
+// Codex's flags on a first and a resumed turn: --add-dir and --sandbox go
+// before resume (exec resume has neither); research off swaps the
+// unsandboxed full auto for the workspace-write sandbox without network and
+// without approvals; research on keeps full auto.
+func TestCodexArgsFirstAndResumed(t *testing.T) {
+	codex, _ := Lookup("codex")
+	for _, c := range []struct {
+		turn Turn
+		want string
+	}{
+		{Turn{Auto: true, Effort: "low"}, `exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox -c model_reasoning_effort="low" -`},
+		{Turn{Session: "th", Auto: true, Effort: "low"}, `exec resume th --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox -c model_reasoning_effort="low" -`},
+		{Turn{Auto: true, NoWeb: true, AddDirs: []string{"/o"}}, `exec --add-dir /o --sandbox workspace-write --json --skip-git-repo-check ` +
+			`-c approval_policy="never" -c web_search="disabled" -c sandbox_workspace_write.network_access=false -`},
+		{Turn{Session: "th", Auto: true, NoWeb: true, AddDirs: []string{"/o"}}, `exec --add-dir /o --sandbox workspace-write resume th --json ` +
+			`--skip-git-repo-check -c approval_policy="never" -c web_search="disabled" -c sandbox_workspace_write.network_access=false -`},
+		// Without full auto, Codex's own approval setting stays.
+		{Turn{Session: "th", NoWeb: true}, `exec --sandbox workspace-write resume th --json --skip-git-repo-check ` +
+			`-c web_search="disabled" -c sandbox_workspace_write.network_access=false -`},
+	} {
+		if got := strings.Join(codex.Headless.Args(c.turn), " "); got != c.want {
+			t.Errorf("%+v:\n got %s\nwant %s", c.turn, got, c.want)
+		}
+	}
+}
+
+// Other agents' tool inputs show what a call looks for before where; an
+// argument shape nobody knows shows its first short text. Claude Code's
+// inputs stay as they were.
+func TestToolInput(t *testing.T) {
+	cursor := &cursorParser{}
+	for line, want := range map[string]string{
+		`{"grepToolCall":{"args":{"pattern":"def mul","path":"/work/acme/src"}}}`:            "def mul",
+		`{"globToolCall":{"args":{"globPattern":"**/*.py","targetDirectory":"/work/acme"}}}`: "**/*.py",
+		`{"lsToolCall":{"args":{"path":"/work/acme"}}}`:                                      "/work/acme",
+		`{"oddToolCall":{"args":{"limit":3,"target":"night-sky","zone":"a"}}}`:               "night-sky",
+		`{"oddToolCall":{"args":{"limit":3}}}`:                                               `{"limit":3}`,
+	} {
+		ev := cursor.Parse([]byte(`{"type":"tool_call","subtype":"started","call_id":"c","tool_call":` + line + `}`))
+		if len(ev) != 1 || ev[0].Input != want {
+			t.Errorf("%s: %+v", line, ev)
+		}
+	}
+	gemini := &geminiParser{}
+	if ev := gemini.Parse([]byte(`{"type":"tool_use","tool_name":"grep_search","tool_id":"g","parameters":{"pattern":"def mul","dir_path":"/work/acme"}}`)); ev[0].Input != "def mul" {
+		t.Errorf("gemini grep: %+v", ev)
+	}
+	// Claude Code: unchanged, from the recorded runs.
+	var got []string
+	for _, e := range parseFile(t, "claude", "claude-subagents-parallel.jsonl") {
+		if e.Type == "tool" && e.Status == "running" && e.Name != "" && e.Name != "Agent" {
+			got = append(got, e.Name+" "+e.Input)
+		}
+	}
+	wantSteps(t, "claude", got, []string{"Read /tmp/calc/src/calc.py", "Read /tmp/calc/src/calc.py", "Read /tmp/calc/test_calc.py",
+		`Bash python3 test_calc.py && echo PASS; echo "EXIT_STATUS=$?"`, "Glob /tmp/calc"})
+	p := &claudeParser{}
+	if ev := p.Parse([]byte(`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t","name":"Grep","input":{"pattern":"def","path":"/w"}}]}}`)); ev[0].Input != "/w" {
+		t.Errorf("claude grep changed: %+v", ev)
 	}
 }

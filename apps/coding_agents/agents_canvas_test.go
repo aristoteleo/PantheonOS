@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aristoteleo/pantheonos/os/codingagents"
 )
@@ -36,9 +37,11 @@ func fullCanvas(outside, pinned, img string, research bool) *CanvasTurn {
 		Subagents: []Subagent{{Name: "explorer", Description: "Explores the code"}}}
 }
 
-// A canvas turn reaches Codex as its own flags: --add-dir before resume,
-// -i per image, effort (max as xhigh) and web search off by config, the
-// settings as developer instructions. Roles are not sent.
+// A canvas turn reaches Codex as its own flags: --add-dir and --sandbox
+// before resume, -i per image, effort (max as xhigh), web search and the
+// sandbox's network off by config; its settings in the message on every
+// turn (a resumed thread keeps its first developer instructions). Roles are
+// not sent.
 func TestCanvasTurnCodex(t *testing.T) {
 	record := fakeAgent(t, "codex", `echo '{"type":"thread.started","thread_id":"th-1"}'
 echo '{"type":"turn.completed","usage":{}}'`)
@@ -54,19 +57,18 @@ echo '{"type":"turn.completed","usage":{}}'`)
 	calls, _ := os.ReadFile(record)
 	first := string(calls)
 	for _, want := range []string{
-		"ARGS exec --add-dir " + outside + " -i " + img + " --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox " +
-			`-c model_reasoning_effort="xhigh" -c web_search="disabled" -`,
-		"-c developer_instructions=",
-		"Focus on these folders:", outside + "\n\nWeb research is off",
-		"Web research is off for this turn",
-		"fix it\n\nFiles I pinned for this turn (start from them):\n- " + pinned,
+		"ARGS exec --add-dir " + outside + " --sandbox workspace-write -i " + img + " --json --skip-git-repo-check " +
+			`-c approval_policy="never" -c model_reasoning_effort="xhigh" -c web_search="disabled" ` +
+			"-c sandbox_workspace_write.network_access=false -\n[Focus on these folders:\n- " + outside +
+			"\n\nWeb research is off for this turn: do not search or fetch from the web, and do not reach the network",
+		"replace any from earlier turns.]\n\nfix it\n\nFiles I pinned for this turn (start from them):\n- " + pinned,
 		"Reference images (attached to this message):\n- " + img,
 	} {
 		if !strings.Contains(first, want) {
 			t.Errorf("missing %q in:\n%s", want, first)
 		}
 	}
-	for _, not := range []string{"--agents", "explorer", "Agent tool", "sub-agent"} {
+	for _, not := range []string{"--agents", "explorer", "Agent tool", "sub-agent", "developer_instructions", "--dangerously"} {
 		if strings.Contains(first, not) {
 			t.Errorf("roles reached Codex (%q):\n%s", not, first)
 		}
@@ -83,8 +85,9 @@ echo '{"type":"turn.completed","usage":{}}'`)
 	waitIdle(t, a, id)
 	calls, _ = os.ReadFile(record)
 	second := string(calls)[len(first):]
-	if !strings.Contains(second, "ARGS exec resume th-1 --json") || strings.Contains(second, "web_search") ||
-		strings.Contains(second, "model_reasoning_effort") || !strings.Contains(second, "Web research is on") {
+	if !strings.Contains(second, "ARGS exec resume th-1 --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox -\n") ||
+		strings.Contains(second, "web_search") || strings.Contains(second, "--sandbox") || strings.Contains(second, "model_reasoning_effort") ||
+		!strings.Contains(second, "[Web research is on for this turn") {
 		t.Errorf("second turn:\n%s", second)
 	}
 }
@@ -170,7 +173,7 @@ func TestFailedTurnSaysNotSignedIn(t *testing.T) {
 	}
 	a := NewApp(nil, "", t.TempDir())
 	id := a.send(SendArgs{Agent: "codex", Prompt: "hi"})["conversation_id"].(string)
-	if c := waitIdle(t, a, id); c["last_error"] != "Codex exited: exit status 2; it is not signed in on this node …" {
+	if c := waitIdle(t, a, id); c["last_error"] != "Codex could not sign in: Please log in." {
 		t.Errorf("last error %q", c["last_error"])
 	}
 }
@@ -424,5 +427,136 @@ func TestSendNamesTheAgent(t *testing.T) {
 	}
 	if r := a.send(SendArgs{Agent: "nonesuch", Prompt: "hi"}); r["error"] != `Unknown coding agent "nonesuch"` {
 		t.Errorf("unknown: %v", r)
+	}
+}
+
+// The stderr of a Gemini CLI turn refused by the account (recorded on a
+// real run, paths shortened).
+const geminiIneligible = `Skill conflict detected: "orca-cli" from "/u/.agents/skills/orca-cli/SKILL.md" is overriding the same skill.
+An unexpected critical error occurred:IneligibleTierError: This client is no longer supported for Gemini Code Assist for individuals. To continue using Gemini, please migrate to the Antigravity suite of products: https://antigravity.google
+    at throwIneligibleOrProjectIdError (file:///u/gemini-cli/bundle/chunk-RZ3ZVTZB.js:312524:11)
+    at _doSetupUser (file:///u/gemini-cli/bundle/chunk-RZ3ZVTZB.js:312513:5)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)`
+
+// A failed turn says what went wrong in one line naming the agent, without
+// stack frames or JSON.
+func TestErrorsAreOneLine(t *testing.T) {
+	exit := fmt.Errorf("exit status 1")
+	for _, c := range []struct{ got, want string }{
+		{exitMessage("Gemini CLI", exit, "Error authenticating: IneligibleTierError: This client is no longer supported. Migrate: https://antigravity.google\n  ineligibleTiers: [\n    {", false),
+			"Gemini CLI could not sign in: This client is no longer supported. Migrate: https://antigravity.google"},
+		{exitMessage("Codex", exit, "thread 'main' panicked\n    at src/main.rs:3", false), "Codex exited (exit status 1): thread 'main' panicked"},
+		{exitMessage("Codex", exit, "", false), "Codex exited: exit status 1"},
+		{exitMessage("Codex", exit, "", true), "Codex is not signed in on this node"},
+		{exitMessage("Cursor Agent", exit, "Unauthorized\nSee the docs\n  at x (file:///a.js:1:1)\nhttps://cursor.com/docs/cli", false),
+			"Cursor Agent could not sign in: Unauthorized (https://cursor.com/docs/cli)"},
+		// Claude Code's own one-line errors stay as they are.
+		{agentError("Claude Code", "Credit balance is too low"), "Credit balance is too low"},
+		{agentError("Claude Code", `API Error: 529 {"type":"error","error":{"message":"Overloaded"}}`), `API Error: 529 {"type":"error","error":{"message":"Overloaded"}}`},
+	} {
+		if c.got != c.want {
+			t.Errorf("\n got %q\nwant %q", c.got, c.want)
+		}
+	}
+	if got := exitMessage("Gemini CLI", exit, geminiIneligible, false); got != "Gemini CLI could not sign in: This client is no longer supported for Gemini Code Assist "+
+		"for individuals. To continue using Gemini, please migrate to the Antigravity suite of products: https://antigravity.google" {
+		t.Errorf("ineligible: %q", got)
+	}
+	// The real API error a Gemini CLI turn ended with.
+	b, err := os.ReadFile(filepath.Join("..", "..", "os", "codingagents", "testdata", "gemini-auth-error.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &result); err != nil {
+		t.Fatal(err)
+	}
+	if got := agentError("Gemini CLI", result.Error.Message); got != "Gemini CLI could not sign in: API key not valid. Please pass a valid API key." {
+		t.Errorf("api error: %q", got)
+	}
+}
+
+// A turn that failed for the agent's sign-in shows in agents_detect as not
+// signed in, with why, until a turn succeeds or its sign-in files change.
+func TestSignInFailureRemembered(t *testing.T) {
+	record := fakeAgent(t, "gemini", "")
+	dir := filepath.Dir(record)
+	script := func(body string) {
+		writeFile(t, filepath.Join(dir, "gemini"), "#!/bin/sh\n"+body)
+	}
+	home := os.Getenv("HOME")
+	writeFile(t, filepath.Join(home, ".gemini", "oauth_creds.json"), "{}")
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(filepath.Join(home, ".gemini", "oauth_creds.json"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	a := NewApp(nil, "", t.TempDir())
+	if r := a.configure(Configure{Agents: map[string]codingagents.AgentSettings{"gemini": {Command: filepath.Join(dir, "gemini")}}}); r["success"] != true {
+		t.Fatal(r)
+	}
+	gemini := func() AgentInfo {
+		for _, i := range a.detect(false)["agents"].([]AgentInfo) {
+			if i.ID == "gemini" {
+				return i
+			}
+		}
+		t.Fatal("no gemini")
+		return AgentInfo{}
+	}
+	if g := gemini(); g.SignedIn == nil || !*g.SignedIn {
+		t.Fatalf("before: %+v", g.Status)
+	}
+	turn := func() {
+		id := a.send(SendArgs{Agent: "gemini", Prompt: "hi"})["conversation_id"].(string)
+		waitIdle(t, a, id)
+	}
+	script("cat >&2 <<'EOF'\n" + geminiIneligible + "\nEOF\nexit 1\n")
+	turn()
+	g := gemini()
+	if g.SignedIn == nil || *g.SignedIn || !strings.HasPrefix(g.SignInNote, "Gemini CLI could not sign in: This client is no longer supported") {
+		t.Fatalf("after a refused turn: %+v %q", g.Status, g.SignInNote)
+	}
+	// Another failure is not about the sign-in: still remembered.
+	script("echo 'disk full' >&2\nexit 1\n")
+	turn()
+	if g := gemini(); *g.SignedIn {
+		t.Errorf("forgotten after an unrelated failure")
+	}
+	// New sign-in files: forgotten.
+	writeFile(t, filepath.Join(home, ".gemini", "oauth_creds.json"), "{}")
+	if g := gemini(); g.SignedIn == nil || !*g.SignedIn || g.SignInNote != "" {
+		t.Errorf("after signing in again: %+v %q", g.Status, g.SignInNote)
+	}
+	// A successful turn forgets it too.
+	script("cat >&2 <<'EOF'\n" + geminiIneligible + "\nEOF\nexit 1\n")
+	turn()
+	script(`echo '{"type":"result","status":"success","stats":{}}'` + "\n")
+	turn()
+	if g := gemini(); !*g.SignedIn {
+		t.Errorf("after a successful turn: %q", g.SignInNote)
+	}
+}
+
+// The provider's own refusal, from the quota read, shows the same way, and
+// goes once a read finds the account served.
+func TestQuotaRefusalIsNotSignedIn(t *testing.T) {
+	a := NewApp(nil, "", t.TempDir())
+	refused := func(context.Context) (codingagents.Quota, error) {
+		return codingagents.Quota{Refused: "This client is no longer supported"}, fmt.Errorf("This client is no longer supported")
+	}
+	a.refreshQuota("gemini", refused, true)
+	if f := a.signInFailed["gemini"]; f.reason != "Gemini CLI could not sign in: This client is no longer supported" {
+		t.Errorf("refused: %+v", f)
+	}
+	a.refreshQuota("gemini", func(context.Context) (codingagents.Quota, error) {
+		return codingagents.Quota{Plan: "Gemini Code Assist"}, nil
+	}, true)
+	if _, ok := a.signInFailed["gemini"]; ok {
+		t.Error("still refused after a read that found the account served")
 	}
 }

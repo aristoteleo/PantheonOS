@@ -59,6 +59,9 @@ type AgentInfo struct {
 	Plan     string                        `json:"plan,omitempty"`
 	// QuotaNote says why the quota is unknown when its provider would not tell.
 	QuotaNote string `json:"quota_note,omitempty"`
+	// SignInNote says why SignedIn is false when a turn here failed for the
+	// agent's sign-in (or its account) since its sign-in last changed.
+	SignInNote string `json:"sign_in_note,omitempty"`
 	// Canvas is what a canvas turn can ask of an agent with a headless mode.
 	Canvas *codingagents.Canvas `json:"canvas,omitempty"`
 }
@@ -103,6 +106,14 @@ func (a *App) detect(refresh bool) map[string]any {
 			infos[i].Limits, infos[i].LimitsAt = l.Limits, l.At
 		}
 		infos[i].Plan = a.plans[infos[i].ID]
+		if f, ok := a.signInFailed[infos[i].ID]; ok {
+			if codingagents.CredentialTime(infos[i].ID).After(f.at) {
+				delete(a.signInFailed, infos[i].ID)
+			} else {
+				no := false
+				infos[i].SignedIn, infos[i].SignInNote = &no, f.reason
+			}
+		}
 		if _, ok := a.limits[infos[i].ID]; !ok {
 			infos[i].QuotaNote = a.quotaNote[infos[i].ID]
 		}
@@ -159,6 +170,13 @@ func (a *App) refreshQuota(id string, fetch func(context.Context) (codingagents.
 		a.quotaBusy[id] = false
 		if q.Plan != "" {
 			a.plans[id] = q.Plan
+		}
+		// The provider says whether it serves the account: as good as a
+		// failed sign-in, or no longer one.
+		if q.Refused != "" {
+			a.signInFailed[id] = signInFailure{reason: agentLabel(id) + " could not sign in: " + q.Refused, at: time.Now(), fromQuota: true}
+		} else if f, ok := a.signInFailed[id]; ok && f.fromQuota && err == nil {
+			delete(a.signInFailed, id)
 		}
 		if err != nil || len(q.Limits) == 0 {
 			if err != nil {

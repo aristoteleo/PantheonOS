@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -269,6 +270,44 @@ func oneLine(input any) string {
 	}
 	b, _ := json.Marshal(m)
 	return firstLine(string(b))
+}
+
+// inputKeys are the arguments that say most about a tool call, best first:
+// what a search looks for comes before the folder it searches.
+var inputKeys = []string{"command", "cmd", "pattern", "globPattern", "query", "searchTerm", "url", "toolName",
+	"file_path", "path", "filePath", "skill", "name", "prompt", "description"}
+
+// toolInput summarises the arguments of a tool call for agents other than
+// Claude Code (whose inputs oneLine keeps as they were): the most telling
+// argument, else the first short text argument by name, else compact JSON.
+func toolInput(input any) string {
+	m, ok := input.(map[string]any)
+	if !ok {
+		return oneLine(input)
+	}
+	for _, k := range inputKeys {
+		switch v := m[k].(type) {
+		case string:
+			if v != "" {
+				return firstLine(v)
+			}
+		case []any:
+			if len(v) > 0 {
+				return oneLine(map[string]any{"command": v})
+			}
+		}
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if t, ok := m[k].(string); ok && t != "" && len(t) <= 200 {
+			return firstLine(t)
+		}
+	}
+	return oneLine(m)
 }
 
 func firstLine(s string) string {
@@ -622,7 +661,7 @@ func (p *codexParser) Parse(line []byte) []Event {
 			return out
 		case "mcp_tool_call":
 			return []Event{{Type: "tool", ID: str(it["id"]), Name: str(it["server"]) + "." + str(it["tool"]),
-				Input: oneLine(it["arguments"]), Kind: KindOther, Status: status}}
+				Input: toolInput(it["arguments"]), Kind: KindOther, Status: status}}
 		case "web_search":
 			// Its item carries "id" twice (the item's, then the search
 			// call's); the item's is the one every other item uses. What it
@@ -717,7 +756,7 @@ func (p *cursorParser) Parse(line []byte) []Event {
 		name, args, output, failed := cursorTool(obj(m["tool_call"]))
 		e := Event{Type: "tool", ID: str(m["call_id"]), Name: name, Status: "running"}
 		if args != nil {
-			e.Input = oneLine(args)
+			e.Input = toolInput(args)
 		}
 		e.Kind, e.Path = cursorKind(name, obj(args))
 		if e.Kind == KindSkill {
@@ -813,7 +852,7 @@ func (p *geminiParser) Parse(line []byte) []Event {
 		}
 	case "tool_use":
 		e := Event{Type: "tool", ID: str(m["tool_id"]), Name: str(m["tool_name"]),
-			Input: oneLine(m["parameters"]), Status: "running"}
+			Input: toolInput(m["parameters"]), Status: "running"}
 		params := obj(m["parameters"])
 		e.Kind, e.Path = geminiKind(e.Name, params)
 		if e.Kind == KindSkill {

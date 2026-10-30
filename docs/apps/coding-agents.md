@@ -62,7 +62,13 @@ credentials. The Coding Agents service adds each agent's version
 (`--version`, cached until the binary changes) and whether a sign-in exists:
 a credential file or API key variable, the Keychain item's presence for Claude
 Code on macOS, `cursor-agent status` for Cursor. It never reads a credential;
-when it cannot tell it says nothing.
+when it cannot tell it says nothing. A sign-in that exists may still not serve: an
+agent counts as not signed in (`signed_in: false`, with `sign_in_note`
+saying why) after a turn on the node failed for its sign-in or its account,
+or when the provider's answer to the quota read refuses the account (Gemini
+CLI's Code Assist lists it only among `ineligibleTiers`). That holds until a
+turn succeeds, a quota read finds the account served, or its sign-in files
+change; the service keeps it in memory, so a restart forgets it.
 
 The node reports what it found as `capability.coding_agents`
 (`[{id, label, path}]`). It detects again every five minutes, so an agent
@@ -85,7 +91,7 @@ PTY services are (`node_service` with `service: "coding_agent"`). It needs the
 | `agent_conversations(agent, cwd)` | Conversations on this node, newest first. |
 | `agent_conversation(conversation_id, after)` | One conversation's events, for replay. |
 | `agent_delete(conversation_id)` | Removes a conversation's record. The agent's own session stays. |
-| `agents_skills(cwd, agent)` | One agent's skills (`agent` defaults to `claude`), from where that agent loads them, with the node's settings for it (its command and environment). Claude Code: the user's, the project's, and the skills and commands of the plugins enabled there (`source: plugin`, named `<plugin>:<name>`). Codex: what its app-server's `skills/list` says for `cwd` (`source` `user`, `project`, `system`, `admin` or `plugin`), or, when Codex cannot be asked, `.codex/skills` and `.agents/skills` of the project, `$CODEX_HOME/skills` (`.system` inside it as `system`; `CODEX_HOME` as Codex runs with it) and `~/.agents/skills`. Gemini CLI, in its order, a later one replacing an earlier one of the same name: its built-in skills (`bundle/builtin` next to the CLI, `system`), those of the extensions enabled for `cwd` (`~/.gemini/extensions`, a linked one where it points, `extension-enablement.json`; `source: extension`, `plugin` the extension), `~/.gemini/skills`, `~/.agents/skills`, then the project's `.gemini/skills` and `.agents/skills`; only skills whose front matter has a name and a description, none of those in its settings' `skills.disabled`, and none at all when `skills.enabled` is false (its home is `GEMINI_CLI_HOME` when set). Cursor Agent: `skills` under `.cursor`, `.claude`, `.codex`, `.grok` and `.agents`, in the project, then in the home directory, then its built-in `~/.cursor/skills-cursor` (`system`); its plugins' skills are not listed (which plugins are on is the account's to say). Another agent has none. |
+| `agents_skills(cwd, agent)` | One agent's skills (`agent` defaults to `claude`), from where that agent loads them, with the node's settings for it (its command and environment). Claude Code: the user's, the project's (not again in the home folder), the skills and commands of the plugins enabled there (`source: plugin`, named `<plugin>:<name>`), the skills synced from the signed-in account (`skills/synced/<organization>_<account>` under its config folder, the ids from `.claude.json`; `source: account`, named `anthropic-skills:<name>`), then those that come with Claude Code (dataviz, code-review, …; `source: builtin`, no `path`): they live inside its executable, so they are the plain names of the `skill_listing` record at the start of Claude Code's newest session in `cwd` (`projects/<cwd as a folder name>/*.jsonl`, the home folder's when `cwd` has none), with the descriptions listed there; none whose `skillOverrides` is `off`, and none that come with it under `disableBundledSkills` or `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS`. Codex: what its app-server's `skills/list` says for `cwd` (`source` `user`, `project`, `system`, `admin` or `plugin`), or, when Codex cannot be asked, `.codex/skills` and `.agents/skills` of the project, `$CODEX_HOME/skills` (`.system` inside it as `system`; `CODEX_HOME` as Codex runs with it) and `~/.agents/skills`. Gemini CLI, in its order, a later one replacing an earlier one of the same name: its built-in skills (`bundle/builtin` next to the CLI, `system`), those of the extensions enabled for `cwd` (`~/.gemini/extensions`, a linked one where it points, `extension-enablement.json`; `source: extension`, `plugin` the extension), `~/.gemini/skills`, `~/.agents/skills`, then the project's `.gemini/skills` and `.agents/skills`; only skills whose front matter has a name and a description, none of those in its settings' `skills.disabled`, and none at all when `skills.enabled` is false (its home is `GEMINI_CLI_HOME` when set). Cursor Agent: `skills` under `.cursor`, `.claude`, `.codex`, `.grok` and `.agents`, in the project, then in the home directory, then its built-in `~/.cursor/skills-cursor` (`system`); its plugins' skills are not listed (which plugins are on is the account's to say). Another agent has none. |
 | `agents_repo_info(path)` | A folder's commit (hash, short, subject), branch and local branches. |
 | `agents_folder_tree(path, dir)` | A folder's subfolders with recursive file counts (no `.git`, `node_modules`, hidden folders; bounded at 100k files / 2 s). |
 | `agents_reference_put(cwd, upload_id, name, offset, data, final)` | Uploads a reference image in ≤ 48 KB chunks into `<cwd>/.pantheon/references` (PNG, JPEG, WebP, GIF; ≤ 20 MB and 40 M pixels). |
@@ -137,12 +143,12 @@ only the default).
 | | Claude Code | Codex | Gemini CLI | Cursor Agent |
 |---|---|---|---|---|
 | effort | `--effort` (low…max) | `-c model_reasoning_effort=…` (max runs as xhigh) | — | — |
-| research off | `--disallowedTools WebSearch,WebFetch` | `-c web_search="disabled"`, and told not to reach the network from the shell | — | — |
+| research off | `--disallowedTools WebSearch,WebFetch` | `-c web_search="disabled"`; the shell in the `workspace-write` sandbox with its network off (`--sandbox workspace-write` before `resume`, `-c sandbox_workspace_write.network_access=false`; full auto then `-c approval_policy="never"` instead of `--dangerously-bypass-approvals-and-sandbox`); and told not to reach the network | — | — |
 | focus, files outside the folder | `--add-dir` | `--add-dir` (before `resume`) | `--include-directories` (a folder with a comma is refused: the CLI splits the list there) | `--add-dir` |
 | pinned files | listed after the prompt | same | same | same |
 | pinned skills | — (typed as `/name`) | listed after the prompt with their `SKILL.md` | same | same |
 | images | listed after the prompt, read with Read | `-i <path>` each, and listed | — | listed after the prompt |
-| the turn's settings (focus, roles, research) | `--append-system-prompt` | `-c developer_instructions=…` | before the prompt | before the prompt |
+| the turn's settings (focus, roles, research) | `--append-system-prompt` | before the prompt (`exec resume` keeps a thread's first developer instructions and ignores new ones) | before the prompt | before the prompt |
 | roles (`subagents`) | `--agents`; read-only roles get Read, Grep, Glob and, with research on, WebSearch and WebFetch | — | — | — |
 | models | opus, sonnet, haiku | — | — | — |
 | skills | yes | yes | yes | yes |
@@ -156,9 +162,11 @@ need a signed-in run to confirm; Cursor Agent has no switch for its web
 search; Codex's sub-agents do not show in `exec --json`
 (`os/codingagents/testdata/README.md`).
 
-Research off removes the agent's web tools and tells it not to use the web;
-it does not firewall the turn. An agent with a shell (Claude Code's Bash,
-Codex's, unsandboxed in full auto) could still reach the network from it.
+Research off removes the agent's web tools and tells it not to use the web.
+On Codex it also runs the turn in Codex's own sandbox with the network off:
+the folder and the `--add-dir` folders stay writable, and a `curl` or a
+Python `urllib` call in its shell fails to resolve the host. Elsewhere it does
+not firewall the turn: Claude Code's Bash could still reach the network.
 
 Pinned skills (`skills`, for agents other than Claude Code) are found among
 the agent's own skills for the folder, as `agents_skills` lists them, and
@@ -185,7 +193,7 @@ Every agent's stream is mapped to one shape:
 | `session` | `session_id`, `model` |
 | `text` | `text`, `delta` when the agent streams pieces |
 | `thinking` | `text`, `delta` |
-| `tool` | `id`, `name`, `input` (a one-line summary), `kind`, `path`, `status` (`running`, `done`, `error`), `output` (capped at 4 KB) |
+| `tool` | `id`, `name`, `input` (a one-line summary: for agents other than Claude Code, what a call looks for before where, e.g. a search's pattern before its folder, else its first short text argument), `kind`, `path`, `status` (`running`, `done`, `error`), `output` (capped at 4 KB) |
 | `done` | `error` when the turn failed; `duration_ms`; `input_tokens` (cached included), `cached_tokens`, `output_tokens`; `context_tokens` and `context_window` where the agent reports them; `cost_usd` (Claude Code: the price at API rates, not a charge on a subscription) |
 | `limits` | `limits`: the account's quota windows (`five_hour`, `seven_day`, …), each `used` (0–1) and `resets_at` |
 
@@ -220,11 +228,15 @@ launch's tool result.
 Lines a parser does not recognise are dropped. A quota (`limits`) is kept
 with the conversation and with the agent, so the agent list shows the last
 one reported on that node. A turn without a `done` from
-the agent gets one from the service when the process exits, carrying the exit
-status, that the agent is not signed in on the node when that is known, and
-the tail of stderr. Errors name the agent: "Codex is not installed on this
-node", "Could not start Codex: …", "Codex exited: exit status 1; it is not
-signed in on this node".
+the agent gets one from the service when the process exits. A failed turn's
+error is one line that names the agent, without stack frames, dumped objects
+or the JSON of an API error (a URL in the message is kept): "Gemini CLI
+could not sign in: This client is no longer supported … https://…" when the
+output says the sign-in or the account failed (or the agent is known to have
+no sign-in here), else "Codex exited (exit status 1): <the line that says
+what failed>". An error the agent reports itself in one line stays as it
+wrote it. Other errors name the agent too: "Codex is not installed on this
+node", "Could not start Codex: …".
 
 ## Terminal launch
 
@@ -270,7 +282,8 @@ the other Fleet nodes and their files, models, and the Pantheon Agent.
   id and the node id. The node's own `pantheon` comes first on PATH.
 - **Note.** A short note says what the command is for and to run
   `pantheon --help`: Claude Code gets it through `--append-system-prompt`,
-  Codex through `-c developer_instructions=…`; Gemini CLI and Cursor Agent
+  Codex through `-c developer_instructions=…` (which holds from a thread's
+  first turn); Gemini CLI and Cursor Agent
   get it before the first prompt of a conversation. Nothing is written into
   the agents' own configuration or the project.
 
