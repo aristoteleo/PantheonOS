@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -266,7 +267,23 @@ func repoInfo(path string) map[string]any {
 		}
 		out["branches"] = branches
 	}
+	if remote, err := git(path, 3*time.Second, "remote", "get-url", "origin"); err == nil {
+		if r := withoutCredentials(strings.TrimSpace(remote)); r != "" {
+			out["remote"] = r
+		}
+	}
 	return out
+}
+
+// withoutCredentials is a remote URL with any user and password taken out:
+// an https remote can carry a token.
+func withoutCredentials(remote string) string {
+	if u, err := url.Parse(remote); err == nil && u.Scheme != "" && u.Host != "" {
+		u.User = nil
+		return u.String()
+	}
+	// scp-like (git@host:owner/repo.git): the user is not a secret.
+	return remote
 }
 
 // FolderCount is one subfolder with the files under it.

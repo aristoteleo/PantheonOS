@@ -851,3 +851,16 @@ func TestSlashSkillsShowAsUsed(t *testing.T) {
 		t.Errorf("a skill later in the prompt: %+v", ev[1])
 	}
 }
+
+// A remote's credentials never leave the node.
+func TestRemoteWithoutCredentials(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://user:tok@github.com/o/r.git": "https://github.com/o/r.git",
+		"https://github.com/o/r.git":          "https://github.com/o/r.git",
+		"git@github.com:o/r.git":              "git@github.com:o/r.git",
+	} {
+		if got := withoutCredentials(in); got != want {
+			t.Errorf("%s: %s, want %s", in, got, want)
+		}
+	}
+}
