@@ -582,7 +582,7 @@ func TestCanvasTools(t *testing.T) {
 		}
 	}
 	for _, name := range []string{"agents_skills", "agents_repo_info", "agents_folder_tree", "agents_reference_put",
-		"agents_reference_list", "agents_reference_thumb"} {
+		"agents_reference_list", "agents_reference_thumb", "agents_file_read"} {
 		if byName[name] == nil {
 			t.Errorf("no tool %s", name)
 		}

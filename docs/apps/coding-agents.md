@@ -86,6 +86,7 @@ PTY services are (`node_service` with `service: "coding_agent"`). It needs the
 | `agents_folder_tree(path, dir)` | A folder's subfolders with recursive file counts (no `.git`, `node_modules`, hidden folders; bounded at 100k files / 2 s). |
 | `agents_reference_put(cwd, upload_id, name, offset, data, final)` | Uploads a reference image in ≤ 48 KB chunks into `<cwd>/.pantheon/references` (PNG, JPEG, WebP, GIF; ≤ 20 MB and 40 M pixels). |
 | `agents_reference_list(cwd)` / `agents_reference_thumb(cwd, path)` | The uploaded images; a ≤ 40 KB JPEG preview of one. |
+| `agents_file_read(conversation_id, path, offset, length)` | A ≤ 48 KB piece (base64, with `size` and `mime`) of a file the conversation worked with: inside its folder, or one its log names (the path, or the name and its folder). The node's file service reaches only shared folders; this reaches what the agent read or made, for the canvas's previews. |
 
 A turn is one process: the agent's headless command with the prompt on stdin
 (as an argument for agents that do not read stdin), resuming the agent's own

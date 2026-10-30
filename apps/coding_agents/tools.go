@@ -93,6 +93,9 @@ func Tools(app *App) ([]*appsvc.Tool, error) {
 		"agents_reference_thumb": func(_ context.Context, p map[string]any) (any, error) {
 			return referenceThumb(strP(p, "cwd"), strP(p, "path")), nil
 		},
+		"agents_file_read": func(_ context.Context, p map[string]any) (any, error) {
+			return app.conversationFile(strP(p, "conversation_id"), strP(p, "path"), intP(p, "offset"), intP(p, "length")), nil
+		},
 		"agent_sessions": func(_ context.Context, p map[string]any) (any, error) {
 			return app.sessions(strP(p, "agent"), int(intP(p, "limit"))), nil
 		},

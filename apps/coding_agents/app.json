@@ -443,6 +443,17 @@
         ]
       },
       {
+        "name": "agents_file_read",
+        "description": "A piece (at most 48 KB, base64) of a file a conversation worked with: in its folder, or one it named.\n\nArgs:\n    conversation_id: the conversation.\n    path: the file, absolute.\n    offset: where to start, in bytes.\n    length: how much, at most 48 KB.",
+        "hidden": true,
+        "params": [
+          {"name": "conversation_id", "type": "str", "required": true},
+          {"name": "path", "type": "str", "required": true},
+          {"name": "offset", "type": "int", "required": false},
+          {"name": "length", "type": "int", "required": false}
+        ]
+      },
+      {
         "name": "agents_reference_thumb",
         "description": "A small JPEG preview (at most 256 px, 40 KB, base64) of a reference image.\n\nArgs:\n    cwd: the workspace.\n    path: the image, in <cwd>/.pantheon/references.",
         "hidden": true,
@@ -487,7 +498,8 @@
           "agents_folder_tree",
           "agents_reference_put",
           "agents_reference_list",
-          "agents_reference_thumb"
+          "agents_reference_thumb",
+          "agents_file_read"
         ]
       }
     ]
