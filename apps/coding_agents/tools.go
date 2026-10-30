@@ -105,6 +105,12 @@ func Tools(app *App) ([]*appsvc.Tool, error) {
 		"agents_create_project": func(_ context.Context, p map[string]any) (any, error) {
 			return app.createProject(strP(p, "parent"), strP(p, "name"), boolP(p, "git", false)), nil
 		},
+		"agents_workspace_create": func(_ context.Context, p map[string]any) (any, error) {
+			return app.createWorkspace(strP(p, "project"), strP(p, "name")), nil
+		},
+		"agents_workspace_remove": func(_ context.Context, p map[string]any) (any, error) {
+			return app.removeWorkspace(strP(p, "project"), strP(p, "path"), boolP(p, "remove", false)), nil
+		},
 		"agent_sessions_import": func(_ context.Context, p map[string]any) (any, error) {
 			var refs []knownSession
 			if err := remarshal(p["sessions"], &refs); err != nil {

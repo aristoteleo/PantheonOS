@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -477,5 +478,73 @@ func TestPantheonAgentWorksWhereItStarts(t *testing.T) {
 	cmd, _ := res["command"].(string)
 	if !strings.Contains(cmd, "agent chat --chat chat-1 --node n_mac --workdir /Users/me/proj") {
 		t.Fatalf("command %q", cmd)
+	}
+}
+
+// A git project's workspaces are worktrees beside it; saving the project list
+// keeps them; removing one can remove its worktree too.
+func TestWorkspaces(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	t.Setenv("PANTHEON_CODING_AGENTS_DIR", t.TempDir())
+	a := NewApp(nil, "", t.TempDir())
+	root := filepath.Join(t.TempDir(), "repo")
+	run := func(dir string, args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run(root, "init", "-q", "-b", "main")
+	if res := a.configure(Configure{Projects: &[]codingagents.Project{{Path: root}}}); res["success"] != true {
+		t.Fatal(res)
+	}
+	if res := a.createWorkspace(root, "fix-upload"); res["success"] != false {
+		t.Errorf("a repository without a commit has no workspaces yet: %v", res)
+	}
+	run(root, "commit", "-q", "--allow-empty", "-m", "start")
+	res := a.createWorkspace(root, "fix-upload")
+	if res["success"] != true {
+		t.Fatal(res)
+	}
+	dir := filepath.Join(filepath.Dir(root), "repo-worktrees", "fix-upload")
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
+		t.Fatalf("the worktree is made: %v", err)
+	}
+	rows := workspaceList(codingagents.LoadSettings().Projects)
+	if len(rows) != 2 || !rows[0].Main || rows[0].Branch != "main" || rows[1].Path != dir || rows[1].Branch != "fix-upload" {
+		t.Fatalf("the project's folder, then its workspace: %+v", rows)
+	}
+	if res := a.createWorkspace(root, "../x"); res["success"] != false {
+		t.Errorf("a name that is not a branch is refused: %v", res)
+	}
+	// The desktop saves the list by folder only.
+	if res := a.configure(Configure{Projects: &[]codingagents.Project{{Path: root}}}); res["success"] != true {
+		t.Fatal(res)
+	}
+	if got := codingagents.LoadSettings().Projects[0].Workspaces; len(got) != 1 {
+		t.Fatalf("saving the list keeps the workspaces: %+v", got)
+	}
+	// Changes not committed: git keeps the worktree.
+	if err := os.WriteFile(filepath.Join(dir, "wip.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if res := a.removeWorkspace(root, dir, true); res["success"] != false {
+		t.Errorf("a worktree with changes is not removed: %v", res)
+	}
+	_ = os.Remove(filepath.Join(dir, "wip.txt"))
+	if res := a.removeWorkspace(root, dir, true); res["success"] != true {
+		t.Fatal(res)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("the worktree is removed: %v", err)
+	}
+	if got := codingagents.LoadSettings().Projects[0].Workspaces; len(got) != 0 {
+		t.Errorf("and off the list: %+v", got)
 	}
 }

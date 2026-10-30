@@ -287,6 +287,45 @@
             "default": null
           }
         ]
+      },
+      {
+        "name": "agents_workspace_create",
+        "description": "Make a git worktree of a project on a new branch (or an existing one of that name), beside the project's folder, and list it as a workspace of the project.\n\nArgs:\n    project: the project's folder.\n    name: the branch, and the workspace's name.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "project",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "agents_workspace_remove",
+        "description": "Take a workspace off its project's list; with remove, also remove its git worktree (git refuses while it has uncommitted changes). The branch stays.\n\nArgs:\n    project: the project's folder.\n    path: the workspace's folder.\n    remove: remove the worktree too.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "project",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "path",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "remove",
+            "type": "bool",
+            "default": false
+          }
+        ]
       }
     ],
     "interfaces": [
@@ -308,6 +347,8 @@
           "agent_sessions_forget",
           "agents_browse",
           "agents_create_project",
+          "agents_workspace_create",
+          "agents_workspace_remove",
           "agents_access"
         ]
       }

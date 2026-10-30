@@ -109,7 +109,7 @@ func (a *App) detect(refresh bool) map[string]any {
 		}
 	}
 	return map[string]any{"success": true, "agents": infos, "installable": installable, "home": home,
-		"pantheon": s.Access.Key != "", "projects": projectPaths(s.Projects)}
+		"pantheon": s.Access.Key != "", "projects": projectPaths(s.Projects), "workspaces": workspaceList(s.Projects)}
 }
 
 // quotaReader is how an agent's account quota is read, for agents whose turns
@@ -319,6 +319,17 @@ func (a *App) configure(c Configure) map[string]any {
 			next.Custom = *c.Custom
 		}
 		if c.Projects != nil {
+			// A list from the desktop names folders only: a project kept keeps
+			// its workspaces.
+			kept := map[string][]codingagents.Workspace{}
+			for _, p := range s.Projects {
+				kept[p.Path] = p.Workspaces
+			}
+			for i, p := range *c.Projects {
+				if p.Workspaces == nil {
+					(*c.Projects)[i].Workspaces = kept[p.Path]
+				}
+			}
 			next.Projects = *c.Projects
 		}
 		if next.Agents == nil {

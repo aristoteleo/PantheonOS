@@ -248,14 +248,23 @@ continues as a new conversation (`agent_send` with `session_id`).
   running `git init`, and adds it. A node whose service keeps no list shows
   every folder with sessions as a project.
 
-  A project is a workspace. It holds tabs, each a real terminal on that
-  computer: an agent running its own interface (resumed with its session id
-  when it has one), or a plain shell in the project's folder. The tab bar
-  shows the current project's tabs after the project's own page, which starts
-  an agent (with full auto or not) or a terminal, lists the project's
-  sessions, and offers agents the computer could install; `+` starts the same
-  things. Under each project the sidebar lists its open tabs (with their hook
-  state) and then its past sessions, newest first: the agents' own sessions
+  Each project has workspaces, shown as cards under it: the project's own
+  folder, and git worktrees made for it (`agents_workspace_create` runs `git
+  worktree add` on a new branch, or an existing one of that name, into
+  `<parent>/<project>-worktrees/<name>`; `agents_workspace_remove` takes one
+  off the list and, when asked, runs `git worktree remove`, which git refuses
+  while it has changes not committed; the branch stays). Workspaces are kept
+  in the project's settings entry, and `agents_detect` lists them with the
+  branch each has checked out. A card stays until the user removes it.
+
+  A workspace holds tabs, each a real terminal on that computer: an agent
+  running its own interface (resumed with its session id when it has one),
+  or a plain shell in the workspace's folder (on a Mac, the user's login
+  shell). The tab bar shows the current workspace's tabs after its own page,
+  which starts an agent (with full auto or not) or a terminal, lists the
+  workspace's sessions, makes another workspace, and offers agents the
+  computer could install; `+` starts the same things. A card lists its open
+  tabs (with their hook state) and then its latest past sessions: the agents' own sessions
   started, resumed or imported here, Pantheon Agent chats, and conversations
   started by the Pantheon Agent or the `pantheon` command. Closing a tab ends
   its terminal; its session stays listed under the project, to resume. Tabs
