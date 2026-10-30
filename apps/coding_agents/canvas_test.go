@@ -864,3 +864,25 @@ func TestRemoteWithoutCredentials(t *testing.T) {
 		}
 	}
 }
+
+// Each turn of a resumed session states its own settings, so switching
+// research back on or dropping the sub-agents is not lost to an earlier turn.
+func TestCanvasTurnStatesItsSettings(t *testing.T) {
+	cwd := t.TempDir()
+	on, err := (&CanvasTurn{Research: true}).prepare(cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Web research is on for this turn", "No sub-agents this turn", "replace any from earlier turns"} {
+		if !strings.Contains(on.system, want) {
+			t.Errorf("research on, no roster: %q missing from %q", want, on.system)
+		}
+	}
+	off, err := (&CanvasTurn{Research: false, Subagents: []Subagent{{Name: "explorer", Description: "Explores"}}}).prepare(cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(off.system, "Web research is off for this turn") || strings.Contains(off.system, "No sub-agents") {
+		t.Errorf("research off, a roster: %q", off.system)
+	}
+}

@@ -135,9 +135,17 @@ func (ct *CanvasTurn) prepare(cwd string) (canvasLaunch, error) {
 			"\nLaunch independent ones in parallel (several Agent calls in one message), and when they finish, "+
 			"report each one's outcome.")
 	}
-	if !ct.Research {
+	// A resumed session remembers earlier turns' settings, so each turn says
+	// where it stands, including what was switched back on or off.
+	if len(roster) == 0 {
+		sys = append(sys, "No sub-agents this turn: do the work yourself.")
+	}
+	if ct.Research {
+		sys = append(sys, "Web research is on for this turn: you may search and fetch from the web.")
+	} else {
 		sys = append(sys, "Web research is off for this turn: do not search or fetch from the web.")
 	}
+	sys = append(sys, "These settings are for this turn and replace any from earlier turns.")
 	l.system = strings.Join(sys, "\n\n")
 	return l, nil
 }
