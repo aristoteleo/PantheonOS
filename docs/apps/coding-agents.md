@@ -247,6 +247,13 @@ exits instead of closing. The command is built by the Coding Agents service
 from the catalog: the detected path, the full-auto flag and a resume id. A
 launch without a folder starts in the user's home directory.
 
+The agent runs as a child of the launch's subshell, not in its place, so the
+subshell outlives it and posts its exit status as the `Exit` hook (below)
+before the window drops to the shell. Whatever ended the agent (the user
+quit it, it crashed, it updated itself), the service knows, and the desktop
+offers it back in the same tab (Coding Agents App, below). The subshell
+ignores Ctrl-C while it waits (`trap : INT`); the agent gets it as usual.
+
 An agent runs with the workspace environment minus the markers of another
 agent session (`CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`, …): a node started from
 a terminal inside such a session would otherwise pass them on, and the agent
@@ -291,6 +298,26 @@ A terminal launch never carries the key in its command line: the line reads
 the variables from a file only the user can read, removes it, and runs the
 agent in a subshell, so the shell left when the agent exits has none of them.
 
+## Updates
+
+An agent that offers to update itself in its own interface can end the
+session doing it: Codex asks on start, runs its installer and exits ("Please
+restart Codex"). A terminal launch therefore passes the catalog's
+`QuietArgs`, before the user's extra arguments (which may turn it back on):
+
+| Agent | At launch | How it updates | `update` |
+|---|---|---|---|
+| Codex | `-c check_for_update_on_startup=false` | asks on start, installs, exits | `codex update` |
+| Claude Code | nothing | in the background; "Restart to apply", the session goes on | `claude update` |
+| Gemini CLI | nothing | in the background (`general.enableAutoUpdate`); the new version runs next time | — |
+| Cursor Agent | nothing | in the background into its `versions` folder; the new version runs next time | `cursor-agent update` |
+
+`agents_detect` gives each agent that has an update command (`UpdateArgs`)
+as `update`, its detected path first. The desktop runs it in a Terminal
+window when the user asks (the Agents page). An agent already running keeps
+its version until it is started again; an exited tab resumes on the new one,
+since a launch starts the detected path, which an update replaces in place.
+
 ## Settings
 
 Per node, `agents_settings` / `agents_configure` keep, for each agent: hidden,
@@ -316,6 +343,11 @@ comes from hooks given to that launch only:
 - Pantheon Agent: the terminal chat posts `UserPromptSubmit` (with the chat
   id and its prompt) and `Stop` around each turn when the launch gave it the
   hook address.
+- Every agent: the launch line posts `Exit` with `{"exit_code": N}` once the
+  agent's process is gone. The session is then `ended` for good, with
+  `exited: true` and `exit_code` (`detail` says a status other than 0); a
+  hook that lands later (Codex's notify runs apart from Codex) changes no
+  state, though the session id it carries is kept.
 
 The first prompt a hook carries (Claude Code's `prompt`, Codex's
 `input-messages`, the Pantheon Agent's `title`) titles the session. Each hook posts the event to a listener of the service on 127.0.0.1 with a
@@ -387,7 +419,14 @@ continues as a new conversation (`agent_send` with `session_id`).
   tabs (with their hook state) and then its latest past sessions: the agents' own sessions
   started, resumed or imported here, Pantheon Agent chats, and conversations
   started by the Pantheon Agent or the `pantheon` command. Closing a tab ends
-  its terminal; its session stays listed under the project, to resume. Tabs
+  its terminal; its session stays listed under the project, to resume. An
+  agent that exits in its tab (quit, crashed, updated itself) leaves its
+  shell: the tab says so above it and offers to resume the session there (the
+  one its hooks reported once a prompt began it, else the one the tab opened
+  with), or, before any session began, to start the agent again; the shell it
+  left ends. Its sidebar row and tab show it ended meanwhile. The Agents page
+  shows each agent's version and, for one with an `update` command, runs it
+  in a Terminal window. Tabs
   keep their pty, so switching tabs or projects or reloading the desktop
   rejoins it; closing the window ends them. Sessions in folders outside the
   projects are left out and their folders offered to add; sessions started

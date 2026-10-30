@@ -66,6 +66,18 @@ func CodexNotifyArgs() []string {
 	return []string{"-c", "notify=" + string(b)}
 }
 
+// ExitHookEvent is the event a terminal launch posts once its agent exits.
+const ExitHookEvent = "Exit"
+
+// ExitReportCommand posts the exit status held in the shell variable status
+// as the Exit event, and prints nothing. The launch line runs it after the
+// agent, which every agent's own hooks would miss: an agent that updates
+// itself, crashes or is quit leaves the shell behind.
+func ExitReportCommand(status string) string {
+	return `curl -s -m 3 -X POST -H "X-Pantheon-Hook: $PANTHEON_AGENT_HOOK_TOKEN" ` +
+		`--data-binary "{\"exit_code\":$` + status + `}" "$PANTHEON_AGENT_HOOK_URL/` + ExitHookEvent + `" >/dev/null 2>&1`
+}
+
 // HookState is what an event says about the agent: working, waiting for
 // the user (a permission or a question), ready for the next prompt, or
 // ended. Empty when the event says nothing new.

@@ -29,6 +29,13 @@ type Agent struct {
 	Instructions func(text string) []string
 	// Install is the command that installs the agent where it is missing.
 	Install string
+	// UpdateArgs follow the binary to update the agent in place, for agents
+	// that have such a command.
+	UpdateArgs []string
+	// QuietArgs keep a terminal launch from offering to update the agent
+	// itself, for agents whose update ends the session (it then goes through
+	// UpdateArgs, when the user asks).
+	QuietArgs []string
 }
 
 // Headless describes one agent's machine-readable mode.
@@ -129,6 +136,7 @@ var Catalog = []Agent{
 		Instructions: func(text string) []string { return []string{"--append-system-prompt", text} },
 		AutoFlags:    []string{"--dangerously-skip-permissions"},
 		Resume:       func(id string) []string { return ids(id, "--resume") },
+		UpdateArgs:   []string{"update"},
 		Headless: &Headless{
 			Args: func(t Turn) []string {
 				a := []string{"-p", "--output-format", "stream-json", "--verbose"}
@@ -167,6 +175,8 @@ var Catalog = []Agent{
 		Instructions: func(text string) []string { return []string{"-c", "developer_instructions=" + tomlString(text)} },
 		AutoFlags:    []string{"--dangerously-bypass-approvals-and-sandbox"},
 		Resume:       func(id string) []string { return []string{"resume", id} },
+		UpdateArgs:   []string{"update"},
+		QuietArgs:    []string{"-c", "check_for_update_on_startup=false"},
 		Headless: &Headless{
 			// exec resume takes no --add-dir or --sandbox of its own: exec's,
 			// before resume, hold for the resumed turn too. Research off
@@ -250,8 +260,9 @@ var Catalog = []Agent{
 	{
 		ID: "cursor", Label: "Cursor Agent", Commands: []string{"cursor-agent"},
 		ModelFlag: "--model", Install: "curl https://cursor.com/install -fsS | bash",
-		AutoFlags: []string{"--force"},
-		Resume:    func(id string) []string { return ids(id, "--resume") },
+		AutoFlags:  []string{"--force"},
+		Resume:     func(id string) []string { return ids(id, "--resume") },
+		UpdateArgs: []string{"update"},
 		Headless: &Headless{
 			PromptArg: true,
 			Args: func(t Turn) []string {

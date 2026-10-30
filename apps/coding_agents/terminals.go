@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -36,6 +37,10 @@ type TerminalSession struct {
 	Created   float64                       `json:"created"`
 	Updated   float64                       `json:"updated"`
 	Limits    map[string]codingagents.Limit `json:"limits,omitempty"`
+	// Exited: the agent's process is gone and its shell is left (state
+	// ended, for good); ExitCode is its exit status.
+	Exited   bool `json:"exited,omitempty"`
+	ExitCode *int `json:"exit_code,omitempty"`
 }
 
 // hookServer receives the hooks of terminal launches on this machine only.
@@ -111,17 +116,33 @@ func (a *App) onHook(id, event string, payload map[string]any) {
 		k := knownSession{Agent: t.Agent, ID: sid, Cwd: t.Cwd, Title: t.Title}
 		go func() { _ = a.remember(k) }()
 	}
-	if event == "StatusLine" {
+	switch {
+	case t.Exited:
+		// A hook that lands after the agent is gone (Codex's notify runs
+		// apart from it) says nothing about it any more.
+	case event == codingagents.ExitHookEvent:
+		code, ok := payload["exit_code"].(float64)
+		if !ok {
+			code = -1
+		}
+		c := int(code)
+		t.State, t.Exited, t.ExitCode, t.Detail, changed = "ended", true, &c, "", true
+		if c != 0 {
+			t.Detail = fmt.Sprintf("exit status %d", c)
+		}
+	case event == "StatusLine":
 		if limits := codingagents.StatusLineLimits(payload); len(limits) > 0 {
 			t.Limits = limits
 			a.limits[t.Agent] = agentLimits{limits, now()}
 			changed = true
 		}
-	} else if state := codingagents.HookState(t.Agent, event, payload); state != "" && state != t.State {
-		t.State, changed = state, true
-		t.Detail = ""
-		if state == "waiting" {
-			t.Detail = firstNonEmpty(str(payload["message"]), str(payload["tool_name"]))
+	default:
+		if state := codingagents.HookState(t.Agent, event, payload); state != "" && state != t.State {
+			t.State, changed = state, true
+			t.Detail = ""
+			if state == "waiting" {
+				t.Detail = firstNonEmpty(str(payload["message"]), str(payload["tool_name"]))
+			}
 		}
 	}
 	if !changed {

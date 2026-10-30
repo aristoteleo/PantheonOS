@@ -64,6 +64,9 @@ type AgentInfo struct {
 	SignInNote string `json:"sign_in_note,omitempty"`
 	// Canvas is what a canvas turn can ask of an agent with a headless mode.
 	Canvas *codingagents.Canvas `json:"canvas,omitempty"`
+	// Update is the command line that updates the agent in place, which the
+	// desktop runs in a terminal when the user asks.
+	Update string `json:"update,omitempty"`
 }
 
 // Installable is a known agent missing here, with the command that installs it.
@@ -88,6 +91,7 @@ func (a *App) detect(refresh bool) map[string]any {
 			canvas := c.Headless.Canvas
 			infos[i].Canvas = &canvas
 		}
+		infos[i].Update = updateCommand(f)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -127,6 +131,16 @@ func (a *App) detect(refresh bool) map[string]any {
 	}
 	return map[string]any{"success": true, "agents": infos, "installable": installable, "home": home,
 		"pantheon": s.Access.Key != "", "projects": projectPaths(s.Projects), "workspaces": workspaceList(s.Projects)}
+}
+
+// updateCommand is the command line that updates a detected agent in place;
+// empty for an agent without one.
+func updateCommand(f codingagents.Found) string {
+	c, ok := codingagents.Lookup(f.ID)
+	if !ok || len(c.UpdateArgs) == 0 || f.Custom {
+		return ""
+	}
+	return shellJoin(append([]string{f.Path}, c.UpdateArgs...))
 }
 
 // quotaReader is how an agent's account quota is read, for agents whose turns
@@ -220,6 +234,11 @@ func (a *App) terminalCommand(p TerminalArgs) map[string]any {
 	}
 	launch := codingagents.Launch{Agent: p.Agent, Terminal: term.ID, NodeID: a.NodeID, NodeName: a.NodeName}
 	env := codingagents.LaunchExtras(r.settings, launch)
+	hooks, hookErr := a.hookServer()
+	if hookErr == nil {
+		env = append(env, "PANTHEON_AGENT_HOOK_URL="+hooks.url+"/hook/"+term.ID,
+			"PANTHEON_AGENT_HOOK_TOKEN="+hooks.token, "PANTHEON_AGENT_TERMINAL="+term.ID)
+	}
 	var argv []string
 	var line string
 	if r.found.Custom {
@@ -237,6 +256,8 @@ func (a *App) terminalCommand(p TerminalArgs) map[string]any {
 				argv = append(argv, "--workdir", p.Cwd)
 			}
 		}
+		// Before the user's own arguments, which may turn it back on.
+		argv = append(argv, agent.QuietArgs...)
 		if set.Model != "" && agent.ModelFlag != "" {
 			argv = append(argv, agent.ModelFlag, set.Model)
 		}
@@ -244,9 +265,7 @@ func (a *App) terminalCommand(p TerminalArgs) map[string]any {
 		if note := codingagents.Note(r.settings, launch); note != "" && agent.Instructions != nil {
 			argv = append(argv, agent.Instructions(note)...)
 		}
-		if hooks, err := a.hookServer(); err == nil {
-			env = append(env, "PANTHEON_AGENT_HOOK_URL="+hooks.url+"/hook/"+term.ID,
-				"PANTHEON_AGENT_HOOK_TOKEN="+hooks.token, "PANTHEON_AGENT_TERMINAL="+term.ID)
+		if hookErr == nil {
 			switch p.Agent {
 			case "claude":
 				if file, err := a.writeTerminalFile(term.ID+".settings.json", codingagents.ClaudeSettings()); err == nil {
@@ -262,10 +281,20 @@ func (a *App) terminalCommand(p TerminalArgs) map[string]any {
 	if err != nil {
 		return failure("%v", err)
 	}
-	command := "( set -a; . " + shellQuote(envFile) + "; set +a; rm -f " + shellQuote(envFile) + "; exec " + line + " )"
-	if r.found.Custom {
+	command := "( set -a; . " + shellQuote(envFile) + "; set +a; rm -f " + shellQuote(envFile) + "; "
+	switch {
+	case hookErr == nil:
+		// The agent runs as the subshell's child, so the subshell outlives it
+		// and reports how it exited: an agent that updated itself, crashed or
+		// was quit leaves only the shell, and the desktop offers it back. Ctrl-C
+		// reaches the agent; the subshell waits on.
+		command += "trap : INT\n" + line + "\npantheon_exit=$?; " + codingagents.ExitReportCommand("pantheon_exit") +
+			"; exit $pantheon_exit )"
+	case r.found.Custom:
 		// A user's command line may itself be several commands.
-		command = "( set -a; . " + shellQuote(envFile) + "; set +a; rm -f " + shellQuote(envFile) + "; " + line + " )"
+		command += line + " )"
+	default:
+		command += "exec " + line + " )"
 	}
 	home, _ := os.UserHomeDir()
 	return map[string]any{"success": true, "command": command, "argv": argv, "label": r.found.Label, "home": home,
