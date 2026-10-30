@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -283,7 +284,10 @@ func (a *App) open(cols, rows int, cwd, shell, command string) map[string]any {
 		target, _ = os.Getwd()
 	}
 	shellPath := shell
-	if shellPath == "" && command != "" {
+	// On a Mac a terminal is the user's own login shell, as Terminal.app
+	// opens it, with their profile; elsewhere a plain interactive shell.
+	login := shellPath == "" && runtime.GOOS == "darwin"
+	if shellPath == "" && (command != "" || login) {
 		shellPath = codingagents.UserShell()
 	}
 	if shellPath == "" {
@@ -293,6 +297,8 @@ func (a *App) open(cols, rows int, cwd, shell, command string) map[string]any {
 	cmd := exec.Command(shellPath, "-i")
 	if command != "" {
 		cmd = commandShell(shellPath, command)
+	} else if login {
+		cmd = exec.Command(shellPath, "-il")
 	}
 	cmd.Dir = target
 	// A terminal gets none of the node's credentials, nor the markers of an
