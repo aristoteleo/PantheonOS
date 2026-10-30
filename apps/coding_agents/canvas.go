@@ -6,13 +6,14 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/aristoteleo/pantheonos/os/codingagents"
 )
 
 // A turn composed on the Agent Canvas: Claude Code with an effort level,
-// sub-agents it may delegate to, folders to focus on, web research on or
+// sub-agents it may delegate to, folders to focus on, files to start from, web research on or
 // off, and reference images. Other agents ignore these.
 
 // CanvasTurn is what a canvas send asks for; a conversation keeps the
@@ -21,6 +22,7 @@ type CanvasTurn struct {
 	Effort    string     `json:"effort,omitempty"`
 	Subagents []Subagent `json:"subagents,omitempty"`
 	Focus     []string   `json:"focus,omitempty"`
+	Files     []string   `json:"files,omitempty"`
 	Research  bool       `json:"research"`
 	Images    []string   `json:"images,omitempty"`
 }
@@ -52,6 +54,7 @@ type canvasLaunch struct {
 	system     string // appended to the system prompt
 	images     []string
 	focus      []string // absolute
+	files      []string // absolute
 }
 
 // prepare checks a canvas turn and builds its launch for a conversation
@@ -113,6 +116,19 @@ func (ct *CanvasTurn) prepare(cwd string) (canvasLaunch, error) {
 			l.addDirs = append(l.addDirs, f)
 		}
 	}
+	for _, f := range ct.Files {
+		f = filepath.Clean(expandHome(f))
+		if !filepath.IsAbs(f) {
+			f = filepath.Join(cwd, f)
+		}
+		if st, err := os.Stat(f); err != nil || st.IsDir() {
+			return l, fmt.Errorf("%s is not a file on this node", f)
+		}
+		l.files = append(l.files, f)
+		if dir := filepath.Dir(f); !within(cwd, dir) && !slices.Contains(l.addDirs, dir) {
+			l.addDirs = append(l.addDirs, dir)
+		}
+	}
 	for _, img := range ct.Images {
 		if !filepath.IsAbs(img) {
 			return l, fmt.Errorf("reference image %s: give an absolute path", img)
@@ -129,6 +145,9 @@ func (ct *CanvasTurn) prepare(cwd string) (canvasLaunch, error) {
 	var sys []string
 	if len(l.focus) > 0 {
 		sys = append(sys, "Focus on these folders:\n- "+strings.Join(l.focus, "\n- "))
+	}
+	if len(l.files) > 0 {
+		sys = append(sys, "The user pinned these files for this turn; start from them:\n- "+strings.Join(l.files, "\n- "))
 	}
 	if len(roster) > 0 {
 		sys = append(sys, "You may delegate to these sub-agents with the Agent tool:\n"+strings.Join(roster, "\n")+

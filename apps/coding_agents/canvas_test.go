@@ -886,3 +886,26 @@ func TestCanvasTurnStatesItsSettings(t *testing.T) {
 		t.Errorf("research off, a roster: %q", off.system)
 	}
 }
+
+// Pinned files are named to the agent; one outside the workspace opens its folder to it.
+func TestCanvasTurnPinnedFiles(t *testing.T) {
+	cwd, other := t.TempDir(), t.TempDir()
+	for _, p := range []string{filepath.Join(cwd, "a.go"), filepath.Join(other, "b.md")} {
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	l, err := (&CanvasTurn{Research: true, Files: []string{"a.go", filepath.Join(other, "b.md")}}).prepare(cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(l.system, filepath.Join(cwd, "a.go")) || !strings.Contains(l.system, filepath.Join(other, "b.md")) {
+		t.Errorf("pinned files missing: %q", l.system)
+	}
+	if !slices.Equal(l.addDirs, []string{other}) {
+		t.Errorf("add dirs %v, want %v", l.addDirs, []string{other})
+	}
+	if _, err := (&CanvasTurn{Files: []string{cwd}}).prepare(cwd); err == nil {
+		t.Error("a folder pinned as a file was taken")
+	}
+}

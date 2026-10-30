@@ -64,12 +64,12 @@ func Tools(app *App) ([]*appsvc.Tool, error) {
 				Auto: boolP(p, "auto", true), Origin: strP(p, "origin"),
 				Session: strP(p, "session_id"), Title: strP(p, "title")}
 			ct := &CanvasTurn{Effort: strP(p, "effort"), Research: boolP(p, "research", true)}
-			for name, into := range map[string]any{"subagents": &ct.Subagents, "focus": &ct.Focus, "images": &ct.Images} {
+			for name, into := range map[string]any{"subagents": &ct.Subagents, "focus": &ct.Focus, "files": &ct.Files, "images": &ct.Images} {
 				if err := remarshal(p[name], into); err != nil {
 					return failure("%s: %v", name, err), nil
 				}
 			}
-			if args.Origin == "canvas" || ct.Effort != "" || !ct.Research || len(ct.Subagents)+len(ct.Focus)+len(ct.Images) > 0 {
+			if args.Origin == "canvas" || ct.Effort != "" || !ct.Research || len(ct.Subagents)+len(ct.Focus)+len(ct.Files)+len(ct.Images) > 0 {
 				args.Canvas = ct
 			}
 			return app.send(args), nil
