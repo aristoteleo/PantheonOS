@@ -82,7 +82,7 @@ func exists(paths ...string) bool {
 
 func anyEnv(names ...string) bool {
 	for _, n := range names {
-		if os.Getenv(n) != "" {
+		if v := os.Getenv(n); v != "" && !placeholderKey(v) {
 			return true
 		}
 	}
@@ -150,12 +150,21 @@ var parentSessionVars = []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE
 	"CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_CODE_EXECPATH", "CLAUDE_PID",
 	"CODEX_THREAD_ID", "CODEX_SANDBOX", "CODEX_SANDBOX_NETWORK_DISABLED"}
 
-// CleanEnv drops another agent session's markers from env.
+// placeholderKeyPrefix starts the value a hosted workspace gives the
+// providers' key variables (ANTHROPIC_API_KEY, OPENAI_API_KEY, ...) so its own
+// model clients take the platform's proxy. It is no key: an agent that read
+// it would fail ("Invalid API key"), even after its user signed in.
+const placeholderKeyPrefix = "proxy-mode-detection"
+
+func placeholderKey(v string) bool { return strings.HasPrefix(v, placeholderKeyPrefix) }
+
+// CleanEnv drops another agent session's markers from env, and the hosted
+// workspace's placeholder keys.
 func CleanEnv(env []string) []string {
 	out := env[:0:0]
 	for _, kv := range env {
-		name, _, _ := strings.Cut(kv, "=")
-		drop := false
+		name, value, _ := strings.Cut(kv, "=")
+		drop := placeholderKey(value)
 		for _, v := range parentSessionVars {
 			if name == v {
 				drop = true

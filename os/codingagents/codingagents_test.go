@@ -262,6 +262,28 @@ func TestCleanEnvKeepsConfigurationDropsSessionMarkers(t *testing.T) {
 	}
 }
 
+func TestHostedPlaceholderKeysAreNoSignIn(t *testing.T) {
+	// A hosted workspace sets the providers' key variables to a placeholder
+	// for its own model clients: agents never get it, and it is no sign-in.
+	got := CleanEnv([]string{"HOME=/h", "ANTHROPIC_API_KEY=proxy-mode-detection-only", "OPENAI_API_KEY=sk-real",
+		"GEMINI_API_KEY=proxy-mode-detection-only"})
+	if !slices.Equal(got, []string{"HOME=/h", "OPENAI_API_KEY=sk-real"}) {
+		t.Fatalf("got %v", got)
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("CODEX_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "proxy-mode-detection-only")
+	if s := signedIn("codex", ""); s == nil || *s {
+		t.Fatalf("a placeholder key counts as a Codex sign-in: %v", s)
+	}
+	t.Setenv("OPENAI_API_KEY", "sk-real")
+	if s := signedIn("codex", ""); s == nil || !*s {
+		t.Fatalf("a real key is no Codex sign-in: %v", s)
+	}
+}
+
 func TestUnwrapShell(t *testing.T) {
 	for in, want := range map[string]string{
 		`/bin/zsh -lc 'sleep 60; echo done'`:   "sleep 60; echo done",
