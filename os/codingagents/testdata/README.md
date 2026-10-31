@@ -17,6 +17,9 @@ git repository with `README.md`, `src/calc.py` and a `night-sky` skill in
 | `cursor-canvas.jsonl` | Cursor Agent 2026.10.22 | real: the same task as `codex-canvas` |
 | `cursor-resume.jsonl` | Cursor Agent 2026.10.22 | real: that session resumed with `--add-dir`, a file outside the workspace, an image path and the skill |
 | `gemini-auth-error.jsonl` | Gemini CLI 0.66 | real: a turn refused by the API (no valid sign-in) |
+| `pantheon.jsonl` | Pantheon Agent (`pantheon agent chat --json`, staging) | real: the same task as `codex-canvas`, on a node with `--node --workdir`; the node id renamed |
+| `pantheon-resume.jsonl` | Pantheon Agent | real: that chat continued with `--chat` and `--model low`, asked what it added |
+| `pantheon-subagent.jsonl` | Pantheon Agent | real: asked to run one sub-agent with `pantheon agent run` |
 
 ## Gemini CLI
 

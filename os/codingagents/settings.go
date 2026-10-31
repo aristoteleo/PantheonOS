@@ -65,17 +65,22 @@ type Settings struct {
 // Project is a folder on the node the user added to the list.
 type Project struct {
 	Path string `json:"path"`
-	// Workspaces are the git worktrees made for the project, each a
-	// checkout of its own branch beside the project's folder. The folder
-	// itself is the project's main workspace.
+	// Workspaces are the git worktrees made for the project (or made
+	// outside the app and adopted), each a checkout of its own branch
+	// beside the project's folder. The folder itself is the project's
+	// primary workspace.
 	Workspaces []Workspace `json:"workspaces,omitempty"`
 }
 
 // Workspace is a git worktree of a project.
 type Workspace struct {
-	Name    string  `json:"name"`
-	Path    string  `json:"path"`
-	Branch  string  `json:"branch"`
+	Name   string `json:"name"`
+	Path   string `json:"path"`
+	Branch string `json:"branch"`
+	// Base is the branch or commit it was made from, what its branch is
+	// compared with; empty for one made before workspaces kept it (the
+	// repository's default branch stands in).
+	Base    string  `json:"base,omitempty"`
 	Created float64 `json:"created,omitempty"`
 }
 

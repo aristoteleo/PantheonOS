@@ -22,6 +22,7 @@ and conversation launches use the fields an entry fills in.
 
 | Id | Command | Terminal | Conversation | Full-auto flag |
 |---|---|---|---|---|
+| `pantheon` | the node's `pantheon` | `agent chat`, resume | `agent chat --json` | — (it asks no approvals) |
 | `claude` | `claude` | yes, resume | `-p --output-format stream-json` | `--dangerously-skip-permissions` |
 | `codex` | `codex` | yes, resume | `exec --json` | `--dangerously-bypass-approvals-and-sandbox` |
 | `gemini` | `gemini` | yes, resume | `-p -o stream-json` | `--yolo` |
@@ -41,9 +42,21 @@ environment for it does not set the variable; a terminal launch still asks).
 The first entry is the user's own **Pantheon Agent**: the terminal chat of the
 node's own `pantheon` command (`pantheon agent chat`, resumed with
 `--chat ID`). Detection takes the node's command (`PANTHEON_CLI_BIN`) rather
-than whatever `pantheon` is on PATH, so the chat matches the node. It signs in
-with the node's key, so it counts as signed in only while agents on that node
-may use PantheonOS. It has no conversation mode and no hooks.
+than whatever `pantheon` is on PATH, so the chat matches the node (the
+variable names the command, or the folder the node put `pantheon` in). It
+signs in with the node's key, so it counts as signed in only while agents on
+that node may use PantheonOS; without the key a turn fails at once ("Could
+not start Pantheon Agent: it is not signed in on this node …").
+
+Its conversation mode is `pantheon agent chat --json` (`docs/os/pantheon-cli.md`,
+"One turn as JSON lines"): one turn of the Agent, which runs in the cloud,
+working on this node (`--node <this node> --workdir <the folder>`: its file
+tools and commands run there), continued with `--chat <chat id>`, the model
+tier with `--model`, the message on stdin. The Agent knows PantheonOS, so it
+gets no note about it (below). Its tools are App tools named `app__tool`
+(`file_manager__read_file`, `shell__run_command`, …); the rest of PantheonOS
+it reaches with the `pantheon` command in `run_command`, whose own calls come
+inside that one. It has no hooks.
 ## Detection
 
 A node finds an agent by looking for its command, without running it:
@@ -143,19 +156,19 @@ roles can be defined for a turn; `subagents`, whether its own sub-agents show
 in its events; `models`, a short list to offer besides the default (null:
 only the default).
 
-| | Claude Code | Codex | Gemini CLI | Cursor Agent |
-|---|---|---|---|---|
-| effort | `--effort` (low…max) | `-c model_reasoning_effort=…` (max runs as xhigh) | — | — |
-| research off | `--disallowedTools WebSearch,WebFetch` | `-c web_search="disabled"`; the shell in the `workspace-write` sandbox with its network off (`--sandbox workspace-write` before `resume`, `-c sandbox_workspace_write.network_access=false`; full auto then `-c approval_policy="never"` instead of `--dangerously-bypass-approvals-and-sandbox`); and told not to reach the network | — | — |
-| focus, files outside the folder | `--add-dir` | `--add-dir` (before `resume`) | `--include-directories` (a folder with a comma is refused: the CLI splits the list there) | `--add-dir` |
-| pinned files | listed after the prompt | same | same | same |
-| pinned skills | — (typed as `/name`) | listed after the prompt with their `SKILL.md` | same | same |
-| images | listed after the prompt, read with Read | `-i <path>` each, and listed | — | listed after the prompt |
-| the turn's settings (focus, roles, research) | `--append-system-prompt` | before the prompt (`exec resume` keeps a thread's first developer instructions and ignores new ones) | before the prompt | before the prompt |
-| roles (`subagents`) | `--agents`; read-only roles get Read, Grep, Glob and, with research on, WebSearch and WebFetch | — | — | — |
-| models | opus, sonnet, haiku | — | — | — |
-| skills | yes | yes | yes | yes |
-| own sub-agents as nodes | yes | no | no | no |
+| | Claude Code | Codex | Gemini CLI | Cursor Agent | Pantheon Agent |
+|---|---|---|---|---|---|
+| effort | `--effort` (low…max) | `-c model_reasoning_effort=…` (max runs as xhigh) | — | — | — |
+| research off | `--disallowedTools WebSearch,WebFetch` | `-c web_search="disabled"`; the shell in the `workspace-write` sandbox with its network off (`--sandbox workspace-write` before `resume`, `-c sandbox_workspace_write.network_access=false`; full auto then `-c approval_policy="never"` instead of `--dangerously-bypass-approvals-and-sandbox`); and told not to reach the network | — | — | — |
+| focus, files outside the folder | `--add-dir` | `--add-dir` (before `resume`) | `--include-directories` (a folder with a comma is refused: the CLI splits the list there) | `--add-dir` | nothing needed: its tools reach the node's shared folders |
+| pinned files | listed after the prompt | same | same | same | same |
+| pinned skills | — (typed as `/name`) | listed after the prompt with their `SKILL.md` | same | same | — |
+| images | listed after the prompt, read with Read | `-i <path>` each, and listed | — | listed after the prompt | — |
+| the turn's settings (focus, roles, research) | `--append-system-prompt` | before the prompt (`exec resume` keeps a thread's first developer instructions and ignores new ones) | before the prompt | before the prompt | before the prompt |
+| roles (`subagents`) | `--agents`; read-only roles get Read, Grep, Glob and, with research on, WebSearch and WebFetch | — | — | — | — |
+| models | opus, sonnet, haiku | — | — | — | high, normal, low (the Agent's tiers) |
+| skills | yes | yes | yes | yes | no |
+| own sub-agents as nodes | yes | no | no | no | yes |
 
 Each turn says its settings again (a resumed session remembers earlier
 ones), including research and roles switched back off. What is not in the
@@ -163,7 +176,13 @@ table was not possible or could not be confirmed on the agent's current
 release: Gemini CLI's `--policy` (to deny its web tools) and `@path` images
 need a signed-in run to confirm; Cursor Agent has no switch for its web
 search; Codex's sub-agents do not show in `exec --json`
-(`os/codingagents/testdata/README.md`).
+(`os/codingagents/testdata/README.md`). The Pantheon Agent's tools cannot be
+switched per turn; it looks at images with a vision model its deployment may
+not have (`observe_images` refuses without one); its skills live in the Agent,
+not on the node; its sub-agents are its own profiles (`pantheon agent run`),
+not roles a turn defines; and the reasoning levels it takes depend on the
+model, so a turn sets none. A model tier it is given stays the chat's
+(`set_agent_model`) until another is given.
 
 Research off removes the agent's web tools and tells it not to use the web.
 On Codex it also runs the turn in Codex's own sandbox with the network off:
@@ -228,6 +247,20 @@ task). Progress reports update its `activity`; it turns `done` or `error` when
 the sub-agent ends (`stopped` when the turn was stopped), with the final report
 as `output` (up to 64 KB). Background sub-agents end by notification, not by the
 launch's tool result.
+
+The Pantheon Agent's sub-agents are `pantheon agent run` in its
+`run_command`: that call is the launch (`kind: agent`, `subagent` the profile,
+`text` the task) and ends with the sub-agent's answer; its steps, and the
+calls of commands it runs, have `parent`, the launch's id. A call a `pantheon`
+command makes for the main agent (`pantheon apps call web duckduckgo_search …`
+runs `web__duckduckgo_search`) is the main agent's own, after the
+`run_command` that made it. Its kinds: `file_manager__read_file`,
+`read_pdf`, `view_file_outline`, `observe_images` read; `write_file`,
+`update_file`, `apply_patch`, `move_file`, `delete_path` write; `shell__run_command`
+and `fleet__run_on_node` shell; a `web__` search tool search, `web_crawl`
+fetch; `skills__skill_view` (or reading a `SKILL.md`) skill; the rest other. A
+tool result shows the command's output or the file's content rather than the
+JSON around it.
 
 Lines a parser does not recognise are dropped. A quota (`limits`) is kept
 with the conversation and with the agent, so the agent list shows the last
@@ -409,6 +442,13 @@ agent often lands just after the agent let go of the terminal. The desktop
 follows the states on `coding_terminals` and also reads `agent_terminals` with
 its poll, so a state published while it was not listening still arrives.
 
+The desktop opens the pty at the size its window shows at that moment, and
+once it follows the output it resizes the pty to the window again: a resize
+while the pty was opening is not lost, and a rejoined pty (attached with no
+size) gets this window's size only when its redraw can reach it. An agent's
+full-screen interface drawn for one size and shown at another draws its
+screen twice (the top of a dialog above a whole one) at the next resize.
+
 An agent runs with the workspace environment minus the markers of another
 agent session (`CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`, …): a node started from
 a terminal inside such a session would otherwise pass them on, and the agent
@@ -446,7 +486,8 @@ the other Fleet nodes and their files, models, and the Pantheon Agent.
   `pantheon --help`: Claude Code gets it through `--append-system-prompt`,
   Codex through `-c developer_instructions=…` (which holds from a thread's
   first turn); Gemini CLI and Cursor Agent
-  get it before the first prompt of a conversation. Nothing is written into
+  get it before the first prompt of a conversation; the Pantheon Agent, which
+  knows PantheonOS, gets none. Nothing is written into
   the agents' own configuration or the project.
 
 A terminal launch never carries the key in its command line: the line reads
@@ -555,25 +596,72 @@ continues as a new conversation (`agent_send` with `session_id`).
   running `git init`, and adds it. A node whose service keeps no list shows
   every folder with sessions as a project.
 
-  Each project has workspaces, shown as cards under it: the project's own
-  folder, and git worktrees made for it (`agents_workspace_create` runs `git
-  worktree add` on a new branch, or an existing one of that name, into
-  `<parent>/<project>-worktrees/<name>`; `agents_workspace_remove` takes one
-  off the list and, when asked, runs `git worktree remove`, which git refuses
-  while it has changes not committed; the branch stays). Workspaces are kept
-  in the project's settings entry, and `agents_detect` lists them with the
-  branch each has checked out. A card stays until the user removes it.
+  Each project has workspaces, shown as cards under it; making one is the
+  main thing the sidebar does. A git project's primary workspace is its own
+  folder (its main checkout); every other one is a git worktree with a branch
+  of its own, so agents in different workspaces do not change each other's
+  files. `agents_workspace_create` makes one into
+  `<parent>/<project>-worktrees/<name>`: an empty name gets a two-word one
+  (`amber-heron`) no folder or branch of the project uses; the branch is
+  `<who>/<name>`, who being git's `user.name` as a slug (else the login
+  name); it starts from the base, by default the repository's default branch
+  (`origin/HEAD`'s target, else `main` or `master`, else what the project has
+  checked out), with no upstream. A branch named outright that no checkout has
+  is checked out as it is. It refuses a folder that is not a git repository,
+  one without a commit, a bad base and a taken name or branch; changes in the
+  project's own checkout never matter. It hands back the `agent` and `prompt`
+  it was given: the desktop starts that agent in the new workspace in a tab,
+  with `agent_terminal_command`'s `prompt` (the agent's own first-message
+  argument: Claude Code, Codex and Cursor Agent take it as their last
+  argument, Gemini CLI and Qwen Code as `--prompt-interactive`; `prompted`
+  says whether it went in).
+
+  `agents_detect` lists the workspaces (`workspaces`): each project's own
+  folder (`primary`; `main` too, for older desktops), the worktrees kept for
+  it, then worktrees of it made outside PantheonOS (`git worktree list`),
+  marked `external` and kept only once adopted (`agents_workspace_adopt`).
+  Each row carries its branch, its base, and, when git answers within 300 ms
+  per call, `dirty` and `ahead`/`behind` against the base; answers are kept a
+  few seconds and rows are read side by side. `agents_workspace_status` says
+  what deleting one would lose: files with changes not committed, commits on
+  no remote and not in the base, whether the branch is merged.
+  `agents_workspace_remove` with `remove` deletes the worktree, refusing while
+  either is there unless `force`; with `delete_branch` the branch goes too,
+  only when the base has all of it (else it stays and `note` says so). The
+  primary workspace is never removed (the project is taken off the list
+  instead). Workspaces, with their base, are kept in the project's settings
+  entry; settings from before keep loading, a workspace without a base being
+  compared with the default branch. `agents_project_git_init` makes a project
+  folder a repository with a first commit of its files, so it can have
+  workspaces; it refuses the home folder.
+
+  The card of a workspace shows its name (the primary one, the project's
+  folder name and a "primary" tag), its branch with `↑`/`↓` and "modified"
+  when known, and only what is live in it: one row per open tab or Terminal
+  window, with its state. Its past sessions are on its own page. Cards sort
+  by attention (needs you, working, then latest activity; the primary first
+  among equals); a card can be pinned on top, renamed (its name in the
+  desktop only), put to sleep (its tabs close, the card stays dimmed) and
+  deleted (the desktop lists what would be lost first). A card whose agent
+  finished while it was not shown has a dot until it is opened. "New
+  workspace" (⌘N / Ctrl+N in the App, or a project's `+`) asks for the
+  project, an optional name, the agent (the last one used) and a first
+  prompt, with the base and branch under Advanced; Enter makes it. A folder
+  that is not a git repository has one folder card and offers to initialise
+  git (not the home folder, which gets a note instead). Worktrees made outside
+  PantheonOS wait under "other worktrees" to be added. Sessions started
+  outside PantheonOS are imported from the sidebar's menu or a workspace's
+  page.
 
   A workspace holds tabs, each a real terminal on that computer: an agent
   running its own interface (resumed with its session id when it has one),
   or a plain shell in the workspace's folder (on a Mac, the user's login
   shell). The tab bar shows the current workspace's tabs after its own page,
   which starts an agent (with full auto or not) or a terminal, lists the
-  workspace's sessions, makes another workspace, and offers agents the
-  computer could install; `+` starts the same things. A card lists its open
-  tabs (with their hook state) and then its latest past sessions: the agents' own sessions
-  started, resumed or imported here, Pantheon Agent chats, and conversations
-  started by the Pantheon Agent or the `pantheon` command. Closing a tab ends
+  workspace's sessions (the agents' own sessions started, resumed or imported
+  here, Pantheon Agent chats, and conversations started by the Pantheon Agent
+  or the `pantheon` command), makes another workspace, and offers agents the
+  computer could install; `+` starts the same things. Closing a tab ends
   its terminal; its session stays listed under the project, to resume. An
   agent that exits in its tab (quit, crashed, updated itself) leaves its
   shell: the tab says so above it and offers to resume the session there (the
@@ -618,6 +706,15 @@ App like any other conversation.
   Unix only). Conversations run there.
 - Gemini CLI asks to trust a folder in a terminal; its conversations trust
   the folder for their own runs only.
+- Claude Code asks to trust the folder it starts in and remembers the answer
+  for that folder and the folders inside it, except for the home folder:
+  trusting home lasts for that run only, since remembering it would trust
+  every folder under it. A Claude Code tab in the home folder therefore asks
+  each time its agent starts (a new tab, a resume after it exited, a pty the
+  node lost or reaped after an hour without output). The desktop does not
+  answer for the user; while the question is up (the session is still
+  `starting`, as Claude Code runs no hook before it), the tab says why and
+  offers to add a project folder.
 - Subscription limits, sign-in and billing belong to the agent and the user's
   own account.
 - Linked groups: 32 KB a message, 6 messages in a row (hops), 20 messages an

@@ -216,6 +216,8 @@ type TerminalArgs struct {
 	Resume string
 	Auto   bool
 	Cwd    string
+	// Prompt is a first message the agent starts with (a new workspace's).
+	Prompt string
 }
 
 // terminalCommand is the shell command line that opens an agent's own
@@ -242,6 +244,7 @@ func (a *App) terminalCommand(p TerminalArgs) map[string]any {
 	}
 	var argv []string
 	var line string
+	prompted := false
 	if r.found.Custom {
 		c, _ := r.settings.CustomAgent(p.Agent)
 		line = c.Command
@@ -276,6 +279,10 @@ func (a *App) terminalCommand(p TerminalArgs) map[string]any {
 				argv = append(argv, codingagents.CodexNotifyArgs()...)
 			}
 		}
+		if extra := promptArgs(p.Agent, p.Prompt); extra != nil && p.Resume == "" {
+			argv = append(argv, extra...)
+			prompted = true
+		}
 		line = shellJoin(argv)
 	}
 	envFile, err := a.writeTerminalFile(term.ID+".env", []byte(exportLines(env)))
@@ -301,7 +308,7 @@ func (a *App) terminalCommand(p TerminalArgs) map[string]any {
 	}
 	home, _ := os.UserHomeDir()
 	return map[string]any{"success": true, "command": command, "argv": argv, "label": r.found.Label, "home": home,
-		"terminal_id": term.ID}
+		"terminal_id": term.ID, "prompted": prompted}
 }
 
 func (a *App) writeTerminalFile(name string, data []byte) (string, error) {

@@ -36,9 +36,10 @@ func AccessEnv(s Settings, l Launch) []string {
 	return env
 }
 
-// Note is what PantheonOS tells an agent about the environment it runs in.
+// Note is what PantheonOS tells an agent about the environment it runs in;
+// nothing for the Pantheon Agent, which knows it.
 func Note(s Settings, l Launch) string {
-	if s.Access.Key == "" {
+	if s.Access.Key == "" || l.Agent == PantheonAgent {
 		return ""
 	}
 	where := "a machine"

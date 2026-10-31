@@ -22,7 +22,7 @@
       },
       {
         "name": "agent_terminal_command",
-        "description": "The shell command that opens an agent's own interface, for pty_open, and the terminal session it reports to.\n\nArgs:\n    agent: Catalog id (claude, codex, gemini, cursor, ...) or a custom agent's id.\n    resume: The agent's session id to reopen.\n    auto: Start in full-auto mode (no approval prompts).\n    cwd: The folder, recorded with the terminal session.",
+        "description": "The shell command that opens an agent's own interface, for pty_open, and the terminal session it reports to.\n\nArgs:\n    agent: Catalog id (claude, codex, gemini, cursor, ...) or a custom agent's id.\n    resume: The agent's session id to reopen.\n    auto: Start in full-auto mode (no approval prompts).\n    cwd: The folder, recorded with the terminal session.\n    prompt: A first message the agent starts with (Claude Code, Codex, Gemini CLI, Cursor Agent, Qwen Code; prompted says whether it was given).",
         "hidden": true,
         "params": [
           {
@@ -44,12 +44,17 @@
             "name": "cwd",
             "type": "str",
             "default": ""
+          },
+          {
+            "name": "prompt",
+            "type": "str",
+            "default": ""
           }
         ]
       },
       {
         "name": "agent_send",
-        "description": "Send a message to a coding agent and start its turn. Events stream on pantheon.stream.coding_<conversation_id>.\n\nArgs:\n    prompt: The message.\n    agent: Catalog id; needed for a new conversation. A conversation keeps its agent: naming another fails.\n    cwd: Folder the agent works in; a new conversation only. Defaults to home.\n    conversation_id: Continue this conversation.\n    model: Model name the agent understands.\n    auto: Full-auto mode for a new conversation.\n    origin: Who started it (ui, agent, cli, canvas).\n    session_id: Continue this session of the agent's own (one started outside PantheonOS) as a new conversation.\n    title: The new conversation's title.\n\nCanvas options, for Claude Code, Codex, Gemini CLI and Cursor Agent as far as each agent's canvas capabilities (agents_detect) go; what an agent cannot take is left out:\n    effort: low, medium, high, xhigh or max (Codex: max runs as xhigh).\n    subagents: [{name, description, prompt, write, model}] — roles it may delegate to; read-only unless write (Claude Code).\n    focus: folders to focus on; any outside cwd become reachable.\n    files: files pinned for the turn, named in the message; any outside cwd become reachable.\n    research: allow web search and fetch (Claude Code, Codex).\n    images: absolute paths of reference images (Claude Code, Codex, Cursor Agent).\n    skills: names of the agent's skills pinned for the turn, named in the message with their SKILL.md (Codex, Gemini CLI, Cursor Agent; Claude Code's are typed as /name).\n\nLinked groups (Agent Canvas):\n    links: [{conversation_id, node_id, name, direction, paused}] — replaces the conversation's links before the turn is set up, as agents_links does (null leaves them).\n    link_name: this group's name.",
+        "description": "Send a message to a coding agent and start its turn. Events stream on pantheon.stream.coding_<conversation_id>.\n\nArgs:\n    prompt: The message.\n    agent: Catalog id; needed for a new conversation. A conversation keeps its agent: naming another fails.\n    cwd: Folder the agent works in; a new conversation only. Defaults to home.\n    conversation_id: Continue this conversation.\n    model: Model name the agent understands.\n    auto: Full-auto mode for a new conversation.\n    origin: Who started it (ui, agent, cli, canvas).\n    session_id: Continue this session of the agent's own (one started outside PantheonOS) as a new conversation.\n    title: The new conversation's title.\n\nCanvas options, for Claude Code, Codex, Gemini CLI, Cursor Agent and the Pantheon Agent as far as each agent's canvas capabilities (agents_detect) go; what an agent cannot take is left out:\n    effort: low, medium, high, xhigh or max (Codex: max runs as xhigh).\n    subagents: [{name, description, prompt, write, model}] — roles it may delegate to; read-only unless write (Claude Code).\n    focus: folders to focus on; any outside cwd become reachable.\n    files: files pinned for the turn, named in the message; any outside cwd become reachable.\n    research: allow web search and fetch (Claude Code, Codex).\n    images: absolute paths of reference images (Claude Code, Codex, Cursor Agent).\n    skills: names of the agent's skills pinned for the turn, named in the message with their SKILL.md (Codex, Gemini CLI, Cursor Agent; Claude Code's are typed as /name).\n\nLinked groups (Agent Canvas):\n    links: [{conversation_id, node_id, name, direction, paused}] — replaces the conversation's links before the turn is set up, as agents_links does (null leaves them).\n    link_name: this group's name.",
         "hidden": true,
         "params": [
           {
@@ -335,7 +340,7 @@
       },
       {
         "name": "agents_workspace_create",
-        "description": "Make a git worktree of a project on a new branch (or an existing one of that name), beside the project's folder, and list it as a workspace of the project.\n\nArgs:\n    project: the project's folder.\n    name: the branch, and the workspace's name.",
+        "description": "Make a workspace of a git project: a git worktree in <parent>/<project>-worktrees/<name>, on a new branch made from the base, kept in the project's list. Changes in the project's own checkout do not matter. Returns the workspace, and agent and prompt as given, for the desktop to start that agent in it.\n\nArgs:\n    project: the project's folder.\n    name: the workspace's name; empty makes up a two-word one no folder or branch uses yet.\n    base: the branch or commit to start from; empty is the repository's default branch (origin/HEAD's, else main or master, else what the project has checked out).\n    branch: the new branch; empty is <who>/<name>, who being git's user.name (else the login name) as a slug. An existing branch no checkout has is checked out as it is.\n    agent: the agent the desktop starts in it.\n    prompt: its first message.",
         "hidden": true,
         "params": [
           {
@@ -347,12 +352,32 @@
             "name": "name",
             "type": "str",
             "default": ""
+          },
+          {
+            "name": "base",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "branch",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "agent",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "prompt",
+            "type": "str",
+            "default": ""
           }
         ]
       },
       {
         "name": "agents_workspace_remove",
-        "description": "Take a workspace off its project's list; with remove, also remove its git worktree (git refuses while it has uncommitted changes). The branch stays.\n\nArgs:\n    project: the project's folder.\n    path: the workspace's folder.\n    remove: remove the worktree too.",
+        "description": "Take a workspace off its project's list; with remove, also delete its git worktree, refused while it has changes not committed or commits on no remote and not in its base (the answer says which, under blockers) unless force. The project's own folder is never removed.\n\nArgs:\n    project: the project's folder.\n    path: the workspace's folder.\n    remove: delete the worktree too.\n    force: delete it even so, losing those changes.\n    delete_branch: delete its branch too, only when the base has all of it (else it is kept and note says so).",
         "hidden": true,
         "params": [
           {
@@ -369,6 +394,62 @@
             "name": "remove",
             "type": "bool",
             "default": false
+          },
+          {
+            "name": "force",
+            "type": "bool",
+            "default": false
+          },
+          {
+            "name": "delete_branch",
+            "type": "bool",
+            "default": false
+          }
+        ]
+      },
+      {
+        "name": "agents_workspace_status",
+        "description": "What deleting a workspace would lose: files with changes not committed (changed, the first 20 in changes), commits on no remote and not in its base (unpushed), and whether its branch is merged into the base.\n\nArgs:\n    project: the project's folder.\n    path: the workspace's folder.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "project",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "path",
+            "type": "str",
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "agents_workspace_adopt",
+        "description": "Keep a git worktree of a project made outside PantheonOS (agents_detect lists it with external) in the project's list, as a workspace.\n\nArgs:\n    project: the project's folder.\n    path: the worktree's folder.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "project",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "path",
+            "type": "str",
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "agents_project_git_init",
+        "description": "Make a project folder a git repository, with a first commit of the files in it (as .gitignore allows), so workspaces can be made of it. The home folder is refused.\n\nArgs:\n    project: the project's folder.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "project",
+            "type": "str",
+            "default": ""
           }
         ]
       },
@@ -595,6 +676,9 @@
           "agents_create_project",
           "agents_workspace_create",
           "agents_workspace_remove",
+          "agents_workspace_status",
+          "agents_workspace_adopt",
+          "agents_project_git_init",
           "agents_access",
           "agents_skills",
           "agents_repo_info",

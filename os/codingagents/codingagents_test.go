@@ -138,8 +138,18 @@ func TestPantheonAgentIsThisNodesCommand(t *testing.T) {
 			found = &f
 		}
 	}
-	if found == nil || found.Path != bin || !found.Terminal || found.Headless {
-		t.Fatalf("the node's own command is the Pantheon Agent's terminal: %+v", found)
+	if found == nil || found.Path != bin || !found.Terminal || !found.Headless {
+		t.Fatalf("the node's own command is the Pantheon Agent's: %+v", found)
+	}
+	// Or the folder the node put its pantheon command in.
+	own := filepath.Join(dir, "pantheon")
+	if err := os.WriteFile(own, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PANTHEON_CLI_BIN", dir)
+	if i := slices.IndexFunc(detectIn(nil, "darwin"), func(f Found) bool { return f.ID == PantheonAgent }); i < 0 ||
+		detectIn(nil, "darwin")[i].Path != own {
+		t.Fatalf("the node's folder: %v", detectIn(nil, "darwin"))
 	}
 	agent, _ := Lookup(PantheonAgent)
 	if got := agent.TerminalArgv(bin, "chat-1", true); !slices.Equal(got, []string{bin, "agent", "chat", "--chat", "chat-1"}) {

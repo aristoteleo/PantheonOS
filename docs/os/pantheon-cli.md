@@ -335,6 +335,39 @@ the desktop opens the web one.
   prints the answer and exits. This is today's `pantheon cli -i`, now against
   any of the owner's Agents. Scripts and outside agents use it.
 
+### One turn as JSON lines
+
+`pantheon agent chat --json [--chat ID] [--node N [--workdir DIR]] [--model M]
+[-- MESSAGE]` runs one turn without the terminal frontend: the command itself
+calls the Agent App (`create_chat` with the model, or `set_agent_model` on a
+continued chat's first agent; `set_chat_node`; the event cursor; `chat`) and
+turns its event stream into one JSON object per line. Nothing is fetched or
+installed first. The message is the words after `--`, after `-i`, or stdin.
+The Coding Agents service runs it for the Agent Canvas
+(`docs/apps/coding-agents.md`).
+
+```
+{"type":"chat","chat_id":"…"}                          first: the conversation
+{"type":"text","text":"…"}                             the Agent's text
+{"type":"tool_call","id":"…","name":"file_manager__read_file","args":{…}}
+{"type":"tool_result","id":"…","name":"…","output":"…","is_error":true}
+{"type":"done","chat_id":"…","status":"finished|error|stopped","error":"…",
+ "model":"…","usage":{"input_tokens":…,"cached_tokens":…,"output_tokens":…,
+ "context_tokens":…,"context_window":…}}
+```
+
+A call made inside another (an App tool a `pantheon` command ran, a
+sub-agent's steps under `pantheon agent run`) has `parent`, the outer call's
+id, and `context`, its execution context. A tool result's output is capped at
+16 KB. `usage` adds up the main agent's model requests. Text streams as whole
+steps, not as pieces. The turn ends at the Agent's `chat_finished`; a turn
+longer than the call that runs it (ten minutes) is followed on the stream, and
+the conversation is asked whether it still runs when the stream stays quiet.
+SIGINT or SIGTERM stops the Agent's turn (`stop_chat`) and ends with
+`stopped`. A failure before the turn starts (not signed in, no Agent, a node
+that is not the user's) is one line `{"type":"error","error":"…"}` and exit
+status 1.
+
 Any App may declare a terminal frontend the same way;
 `pantheon apps open <app> --terminal` runs it. `pantheon agent chat` is the
 Agent's.

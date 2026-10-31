@@ -107,6 +107,9 @@ type Turn struct {
 	AddDirs   []string
 	NoWeb     bool
 	Images    []string
+	// Node is the PantheonOS node the turn runs on, for an agent that works
+	// on a node it is told (the Pantheon Agent).
+	Node string
 }
 
 // claudeWebTools are Claude Code's web tools, denied when research is off.
@@ -133,6 +136,32 @@ var Catalog = []Agent{
 		ID: PantheonAgent, Label: "Pantheon Agent", Commands: []string{"pantheon"},
 		TerminalArgs: []string{"agent", "chat"},
 		Resume:       func(id string) []string { return ids(id, "--chat") },
+		Headless: &Headless{
+			// One turn of the Agent (it runs in the cloud) working on this
+			// node, in the turn's folder: its file tools and commands reach
+			// the whole node, so a folder outside cwd needs nothing more.
+			// The message goes on stdin.
+			Args: func(t Turn) []string {
+				a := []string{"agent", "chat", "--json"}
+				if t.Session != "" {
+					a = append(a, "--chat", t.Session)
+				}
+				if t.Node != "" {
+					a = append(a, "--node", t.Node, "--workdir", t.Cwd)
+				}
+				if t.Model != "" {
+					a = append(a, "--model", t.Model)
+				}
+				return a
+			},
+			Parser: func() Parser { return &pantheonParser{} },
+			// Models are the Agent's tiers, resolved by its own model setup.
+			// Its tools cannot be switched per turn (no research off), its
+			// image observation needs a vision model the deployment may lack,
+			// its skills live in the Agent, and sub-agents are its own
+			// profiles (pantheon agent run), not roles a turn defines.
+			Canvas: Canvas{Subagents: true, Models: []string{"high", "normal", "low"}},
+		},
 	},
 	{
 		ID: "claude", Label: "Claude Code", Commands: []string{"claude"},

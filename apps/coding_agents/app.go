@@ -419,6 +419,14 @@ func (a *App) send(p SendArgs) map[string]any {
 		a.mu.Unlock()
 		return failure("%v", err)
 	}
+	if c.Agent == codingagents.PantheonAgent && r.settings.Access.Key == "" {
+		// It signs in with the node's key: without one it cannot start.
+		if p.ConversationID == "" {
+			delete(a.convs, c.ID)
+		}
+		a.mu.Unlock()
+		return failure("Could not start %s: it is not signed in on this node (agents here may not use PantheonOS)", agent.Label)
+	}
 	launch := codingagents.Launch{Agent: c.Agent, Conversation: c.ID, NodeID: a.NodeID, NodeName: a.NodeName}
 	note := codingagents.Note(r.settings, launch)
 	env := withDefaults(codingagents.LaunchEnv(r.settings, launch), agent.Headless.Env)
@@ -454,7 +462,7 @@ func (a *App) send(p SendArgs) map[string]any {
 	if model == "" {
 		model = r.settings.Agents[c.Agent].Model
 	}
-	t := codingagents.Turn{Prompt: agentPrompt, Session: c.Session, Model: model, Cwd: c.Cwd, Auto: c.Auto}
+	t := codingagents.Turn{Prompt: agentPrompt, Session: c.Session, Model: model, Cwd: c.Cwd, Auto: c.Auto, Node: a.NodeID}
 	canvas.apply(&t)
 	if box != nil && agent.Headless.Canvas.ShellSandbox {
 		// Its sandbox writes only in the turn's folders: the link folder's

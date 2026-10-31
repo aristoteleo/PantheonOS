@@ -55,6 +55,8 @@ Coding agents on your nodes (Claude Code, Codex, Gemini CLI, Cursor Agent, ...)
 
 Your Agent
   pantheon agent chat [-i MESSAGE] [--chat ID] [--resume [N]]   chat in the terminal (-i: one message)
+  pantheon agent chat --json [--chat ID] [--node N [--workdir DIR]] [--model M] [-- MESSAGE]
+                                                            one turn as JSON lines (the message on stdin without --)
 
 Inside an agent's conversation
   pantheon agent list                              sub-agent profiles
@@ -166,6 +168,9 @@ func (r *runner) signedIn(group string) error {
 		return err
 	}
 	if chat {
+		if r.json {
+			return r.agentTurn()
+		}
 		return r.agentChat(r.raw[1:])
 	}
 	switch group {

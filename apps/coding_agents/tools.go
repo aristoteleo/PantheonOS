@@ -56,7 +56,7 @@ func Tools(app *App) ([]*appsvc.Tool, error) {
 		},
 		"agent_terminal_command": func(_ context.Context, p map[string]any) (any, error) {
 			return app.terminalCommand(TerminalArgs{Agent: strP(p, "agent"), Resume: strP(p, "resume"),
-				Auto: boolP(p, "auto", true), Cwd: strP(p, "cwd")}), nil
+				Auto: boolP(p, "auto", true), Cwd: strP(p, "cwd"), Prompt: strP(p, "prompt")}), nil
 		},
 		"agent_send": func(_ context.Context, p map[string]any) (any, error) {
 			args := SendArgs{Agent: strP(p, "agent"), Cwd: strP(p, "cwd"), Prompt: strP(p, "prompt"),
@@ -146,10 +146,21 @@ func Tools(app *App) ([]*appsvc.Tool, error) {
 			return app.createProject(strP(p, "parent"), strP(p, "name"), boolP(p, "git", false)), nil
 		},
 		"agents_workspace_create": func(_ context.Context, p map[string]any) (any, error) {
-			return app.createWorkspace(strP(p, "project"), strP(p, "name")), nil
+			return app.createWorkspace(WorkspaceCreate{Project: strP(p, "project"), Name: strP(p, "name"), Base: strP(p, "base"),
+				Branch: strP(p, "branch"), Agent: strP(p, "agent"), Prompt: strP(p, "prompt")}), nil
 		},
 		"agents_workspace_remove": func(_ context.Context, p map[string]any) (any, error) {
-			return app.removeWorkspace(strP(p, "project"), strP(p, "path"), boolP(p, "remove", false)), nil
+			return app.removeWorkspace(WorkspaceRemove{Project: strP(p, "project"), Path: strP(p, "path"),
+				Remove: boolP(p, "remove", false), Force: boolP(p, "force", false), DeleteBranch: boolP(p, "delete_branch", false)}), nil
+		},
+		"agents_workspace_status": func(_ context.Context, p map[string]any) (any, error) {
+			return app.workspaceStatus(strP(p, "project"), strP(p, "path")), nil
+		},
+		"agents_workspace_adopt": func(_ context.Context, p map[string]any) (any, error) {
+			return app.adoptWorkspace(strP(p, "project"), strP(p, "path")), nil
+		},
+		"agents_project_git_init": func(_ context.Context, p map[string]any) (any, error) {
+			return app.initGit(strP(p, "project")), nil
 		},
 		"agent_sessions_import": func(_ context.Context, p map[string]any) (any, error) {
 			var refs []knownSession
