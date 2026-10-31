@@ -55,6 +55,20 @@ type Headless struct {
 	Env []string
 	// Canvas is what a turn composed on the Agent Canvas can ask of it.
 	Canvas Canvas
+	// Models, when set, reads the models the agent offers on this node
+	// (they depend on its account); they replace Canvas.Models.
+	Models func() Models
+}
+
+// CanvasNow is the agent's Canvas with the models it offers on this node.
+func (h *Headless) CanvasNow() Canvas {
+	c := h.Canvas
+	c.Models = append([]string(nil), c.Models...)
+	if h.Models != nil {
+		m := h.Models()
+		c.Models, c.ModelLabels, c.DefaultModel = m.IDs, m.Labels, m.Default
+	}
+	return c
 }
 
 // Canvas is what a canvas turn can ask of one agent; agents_detect reports
@@ -74,6 +88,11 @@ type Canvas struct {
 	Subagents bool `json:"subagents"`
 	// Models is a short list a composer may offer besides the default.
 	Models []string `json:"models"`
+	// ModelLabels names the models whose display name is not their id;
+	// DefaultModel is the model the agent uses when a turn names none,
+	// when the node knows it.
+	ModelLabels  map[string]string `json:"model_labels,omitempty"`
+	DefaultModel string            `json:"default_model,omitempty"`
 	// ImagesNote heads the reference images listed in the message.
 	ImagesNote string `json:"-"`
 	// PinSkills: skills pinned for a turn are named in its message, with
@@ -263,6 +282,7 @@ var Catalog = []Agent{
 				return append(a, "-")
 			},
 			Parser: func() Parser { return &codexParser{} },
+			Models: CodexModels,
 			// A resumed thread keeps its first developer instructions
 			// (exec resume ignores new ones), so each turn's settings go in
 			// its message.

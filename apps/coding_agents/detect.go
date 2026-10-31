@@ -125,7 +125,7 @@ func (a *App) detect(refresh bool) map[string]any {
 			continue
 		}
 		if c, ok := codingagents.Lookup(f.ID); ok && c.Headless != nil {
-			canvas := c.Headless.Canvas
+			canvas := c.Headless.CanvasNow()
 			infos[i].Canvas = &canvas
 		}
 		infos[i].Update = updateCommand(f)
