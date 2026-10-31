@@ -105,7 +105,7 @@ func registerBuiltins(r *runner.Runner, nc *nats.Conn) {
 		// Conversation events ride the service-plane connection the UI
 		// listens on (pantheon.stream.coding_*).
 		app := codingagentsapp.NewApp(svcNc, prefix, codingagentsapp.DefaultRoot())
-		app.NodeID = spec.Env["PANTHEON_FLEET_NODE_ID"]
+		app.NodeID, app.FleetID = spec.Env["PANTHEON_FLEET_NODE_ID"], spec.Env["PANTHEON_FLEET_ID"]
 		svc := appsvc.New(svcNc, spec.ServiceID, "coding-agents",
 			"Coding-agent CLIs on this node (Go builtin).", builtinVersion, prefix)
 		tools, err := codingagentsapp.Tools(app)
@@ -122,6 +122,8 @@ func registerBuiltins(r *runner.Runner, nc *nats.Conn) {
 			}
 			return nil, err
 		}
+		// Messages between linked groups left waiting by the last stop.
+		app.ResumeLinks()
 		return func() {
 			svc.Stop(context.Background())
 			app.Close()

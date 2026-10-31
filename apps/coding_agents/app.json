@@ -10,7 +10,7 @@
     "tools": [
       {
         "name": "agents_detect",
-        "description": "The coding-agent CLIs installed on this node and the ways PantheonOS can run each; an agent with a headless mode has canvas, what a canvas turn can ask of it (effort levels, research, images, skills, roles, subagents, models).\n\nArgs:\n    refresh: Detect again now instead of using the result from the last five minutes.",
+        "description": "The coding-agent CLIs installed on this node and the ways PantheonOS can run each; an agent with a headless mode has canvas, what a canvas turn can ask of it (effort levels, research, images, skills, roles, subagents, models); links, whether agents on this node can message linked groups (send) and why not (note).\n\nArgs:\n    refresh: Detect again now instead of using the result from the last five minutes.",
         "hidden": true,
         "params": [
           {
@@ -49,7 +49,7 @@
       },
       {
         "name": "agent_send",
-        "description": "Send a message to a coding agent and start its turn. Events stream on pantheon.stream.coding_<conversation_id>.\n\nArgs:\n    prompt: The message.\n    agent: Catalog id; needed for a new conversation. A conversation keeps its agent: naming another fails.\n    cwd: Folder the agent works in; a new conversation only. Defaults to home.\n    conversation_id: Continue this conversation.\n    model: Model name the agent understands.\n    auto: Full-auto mode for a new conversation.\n    origin: Who started it (ui, agent, cli, canvas).\n    session_id: Continue this session of the agent's own (one started outside PantheonOS) as a new conversation.\n    title: The new conversation's title.\n\nCanvas options, for Claude Code, Codex, Gemini CLI and Cursor Agent as far as each agent's canvas capabilities (agents_detect) go; what an agent cannot take is left out:\n    effort: low, medium, high, xhigh or max (Codex: max runs as xhigh).\n    subagents: [{name, description, prompt, write, model}] — roles it may delegate to; read-only unless write (Claude Code).\n    focus: folders to focus on; any outside cwd become reachable.\n    files: files pinned for the turn, named in the message; any outside cwd become reachable.\n    research: allow web search and fetch (Claude Code, Codex).\n    images: absolute paths of reference images (Claude Code, Codex, Cursor Agent).\n    skills: names of the agent's skills pinned for the turn, named in the message with their SKILL.md (Codex, Gemini CLI, Cursor Agent; Claude Code's are typed as /name).",
+        "description": "Send a message to a coding agent and start its turn. Events stream on pantheon.stream.coding_<conversation_id>.\n\nArgs:\n    prompt: The message.\n    agent: Catalog id; needed for a new conversation. A conversation keeps its agent: naming another fails.\n    cwd: Folder the agent works in; a new conversation only. Defaults to home.\n    conversation_id: Continue this conversation.\n    model: Model name the agent understands.\n    auto: Full-auto mode for a new conversation.\n    origin: Who started it (ui, agent, cli, canvas).\n    session_id: Continue this session of the agent's own (one started outside PantheonOS) as a new conversation.\n    title: The new conversation's title.\n\nCanvas options, for Claude Code, Codex, Gemini CLI and Cursor Agent as far as each agent's canvas capabilities (agents_detect) go; what an agent cannot take is left out:\n    effort: low, medium, high, xhigh or max (Codex: max runs as xhigh).\n    subagents: [{name, description, prompt, write, model}] — roles it may delegate to; read-only unless write (Claude Code).\n    focus: folders to focus on; any outside cwd become reachable.\n    files: files pinned for the turn, named in the message; any outside cwd become reachable.\n    research: allow web search and fetch (Claude Code, Codex).\n    images: absolute paths of reference images (Claude Code, Codex, Cursor Agent).\n    skills: names of the agent's skills pinned for the turn, named in the message with their SKILL.md (Codex, Gemini CLI, Cursor Agent; Claude Code's are typed as /name).\n\nLinked groups (Agent Canvas):\n    links: [{conversation_id, node_id, name, direction, paused}] — replaces the conversation's links before the turn is set up, as agents_links does (null leaves them).\n    link_name: this group's name.",
         "hidden": true,
         "params": [
           {
@@ -131,6 +131,16 @@
             "name": "skills",
             "type": "list | None",
             "default": null
+          },
+          {
+            "name": "links",
+            "type": "list | None",
+            "default": null
+          },
+          {
+            "name": "link_name",
+            "type": "str",
+            "default": ""
           }
         ]
       },
@@ -484,6 +494,84 @@
             "required": true
           }
         ]
+      },
+      {
+        "name": "agents_links",
+        "description": "Set (and replace) the linked groups of a conversation on the Agent Canvas, or read them (links null). Linked conversations' agents may message each other: a message starts a turn of the recipient, or waits for its running turn. See docs/apps/coding-agents.md, Linked groups.\n\nArgs:\n    conversation_id: The conversation (group) on this node.\n    name: This group's name, as the agents linked to it call it.\n    links: [{conversation_id, node_id, name, direction, paused}] — direction from this conversation: out (it may send), in (it may receive) or both; node_id empty for this node. [] removes all; null only reads.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "conversation_id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "links",
+            "type": "list | None",
+            "default": null
+          }
+        ]
+      },
+      {
+        "name": "agents_links_release",
+        "description": "Let the messages from linked groups that wait because the user stopped a conversation's turn start again (a new turn the user sends does the same).\n\nArgs:\n    conversation_id: The conversation.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "conversation_id",
+            "type": "str",
+            "required": true
+          }
+        ]
+      },
+      {
+        "name": "agents_link_deliver",
+        "description": "Node to node: deliver a message from a linked group to a conversation of this node.\n\nArgs:\n    message: {id, from: {conversation_id, node_id, name}, to, text, hop}.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "message",
+            "type": "dict",
+            "required": true
+          }
+        ]
+      },
+      {
+        "name": "agents_link_update",
+        "description": "Node to node: a later status (delivered, dropped, failed) of a message a conversation of this node sent.\n\nArgs:\n    conversation_id: The sender.\n    id: The message.\n    status: Its status now.\n    error: Why it failed or was dropped.\n    to: {conversation_id, node_id, name} of the recipient.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "conversation_id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "status",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "error",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "to",
+            "type": "dict | None",
+            "default": null
+          }
+        ]
       }
     ],
     "interfaces": [
@@ -514,7 +602,11 @@
           "agents_reference_put",
           "agents_reference_list",
           "agents_reference_thumb",
-          "agents_file_read"
+          "agents_file_read",
+          "agents_links",
+          "agents_links_release",
+          "agents_link_deliver",
+          "agents_link_update"
         ]
       }
     ]

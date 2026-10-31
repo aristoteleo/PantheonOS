@@ -82,6 +82,10 @@ type Canvas struct {
 	// the agent takes instructions (Instructions), which it keeps from its
 	// session's first turn only.
 	SettingsInMessage bool `json:"-"`
+	// ShellSandbox: its shell may write only in the turn's folders (Codex's
+	// workspace-write sandbox), so a linked conversation's folder is given
+	// to it as one more.
+	ShellSandbox bool `json:"-"`
 	// DirSeparator is a character a folder it is given cannot hold: it
 	// splits its folder list there.
 	DirSeparator string `json:"-"`
@@ -220,7 +224,7 @@ var Catalog = []Agent{
 			// (exec resume ignores new ones), so each turn's settings go in
 			// its message.
 			Canvas: Canvas{Effort: []string{"low", "medium", "high", "xhigh"}, Research: true, Images: true, Skills: true,
-				PinSkills: true, SettingsInMessage: true, ImagesNote: "Reference images (attached to this message):",
+				PinSkills: true, SettingsInMessage: true, ShellSandbox: true, ImagesNote: "Reference images (attached to this message):",
 				ResearchOff: "Web research is off for this turn: do not search or fetch from the web, and do not reach " +
 					"the network any other way either (no curl, wget or other network commands in the shell)."},
 		},

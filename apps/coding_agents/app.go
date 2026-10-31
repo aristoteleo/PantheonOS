@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aristoteleo/pantheonos/os/codingagents"
@@ -56,6 +57,26 @@ type Conversation struct {
 	// Limits is the account quota the agent last reported, with its time.
 	Limits   map[string]codingagents.Limit `json:"limits,omitempty"`
 	LimitsAt float64                       `json:"limits_at,omitempty"`
+	// Linked groups (links.go): this group's name on the canvas, its links,
+	// messages waiting to start a turn here (InboxStopped: held because the
+	// user stopped a turn), messages sent to another node that it did not
+	// take yet, the folder its agent sends through, its sends of the last
+	// hour by peer, and the ids of the messages it took.
+	LinkName     string               `json:"link_name,omitempty"`
+	Links        []Link               `json:"links,omitempty"`
+	Inbox        []linkMessage        `json:"inbox,omitempty"`
+	InboxStopped bool                 `json:"inbox_stopped,omitempty"`
+	Outbox       []pendingMessage     `json:"outbox,omitempty"`
+	LinkBox      string               `json:"link_box,omitempty"`
+	LinkSent     map[string][]float64 `json:"link_sent,omitempty"`
+	LinkSeen     []string             `json:"link_seen,omitempty"`
+	LinkOut      []sentRef            `json:"link_out,omitempty"`
+	// LinkInbox is the name of its inbox in the folder; LinkTrouble, why its
+	// links do not work now (the agent locked files in its inbox, …).
+	LinkInbox   string `json:"link_inbox,omitempty"`
+	LinkTrouble string `json:"link_trouble,omitempty"`
+	// deleting: agent_delete is under way; nothing starts or arrives.
+	deleting bool
 }
 
 // agentLimits is the last quota an agent reported on this node.
@@ -67,9 +88,13 @@ type agentLimits struct {
 type turn struct {
 	cmd     *exec.Cmd
 	done    chan struct{}
+	exited  chan struct{} // closed once the agent's process is gone
 	stopped bool
 	closing bool // the service is stopping, not the user
 	started time.Time
+	hop     int      // a turn a linked group's message started: that message's hop
+	box     *linkBox // the folder its agent messages linked groups through
+	scanMu  sync.Mutex
 }
 
 // App holds the conversations on this node and the turns running now.
@@ -78,8 +103,9 @@ type App struct {
 	nc     *nats.Conn
 	prefix string
 
-	// The node this service runs on, for what agents are told.
-	NodeID, NodeName string
+	// The node this service runs on, for what agents are told, and its
+	// Fleet, to reach the services of the other nodes.
+	NodeID, NodeName, FleetID string
 
 	mu        sync.Mutex
 	convs     map[string]*Conversation
@@ -95,6 +121,13 @@ type App struct {
 	// signInFailed is, per agent, the last turn that failed for its sign-in
 	// (or its account), until a turn succeeds or its sign-in files change.
 	signInFailed map[string]signInFailure
+	// closed: the service is stopping; no queued message starts.
+	closed    bool
+	quit      chan struct{} // closed with the service
+	retrying  bool          // pending cross-node messages are being retried
+	pendingMu sync.Mutex    // one retry of them at a time
+	// call reaches another node's service in tests (nil: over the bus).
+	call func(nodeID, method string, params map[string]any) (map[string]any, error)
 }
 
 type signInFailure struct {
@@ -114,7 +147,8 @@ const interruptedNote = "Interrupted: the node's Coding Agents service stopped. 
 func NewApp(nc *nats.Conn, prefix, root string) *App {
 	a := &App{root: root, nc: nc, prefix: prefix, convs: map[string]*Conversation{}, running: map[string]*turn{},
 		limits: map[string]agentLimits{}, plans: map[string]string{}, terminals: map[string]*TerminalSession{},
-		quotaNote: map[string]string{}, quotaBusy: map[string]bool{}, signInFailed: map[string]signInFailure{}}
+		quotaNote: map[string]string{}, quotaBusy: map[string]bool{}, signInFailed: map[string]signInFailure{},
+		quit: make(chan struct{})}
 	if host, err := os.Hostname(); err == nil {
 		a.NodeName = host
 	}
@@ -250,6 +284,13 @@ type SendArgs struct {
 	// Canvas: a turn composed on the Agent Canvas, applied as far as the
 	// agent's canvas capabilities go.
 	Canvas *CanvasTurn
+	// Links, when set, replace the conversation's linked groups (and
+	// LinkName its group's name) before the turn is set up, as agents_links
+	// does: a canvas sends them with every turn, the first included.
+	Links    *[]Link
+	LinkName string
+	// link: the turn is a linked group's message (Prompt its text).
+	link *linkMessage
 }
 
 // agentLabel names an agent the way people know it.
@@ -269,7 +310,7 @@ func (a *App) send(p SendArgs) map[string]any {
 	var c *Conversation
 	if p.ConversationID != "" {
 		c = a.convs[p.ConversationID]
-		if c == nil {
+		if c == nil || c.deleting {
 			a.mu.Unlock()
 			return failure("No conversation %s on this node", p.ConversationID)
 		}
@@ -278,6 +319,13 @@ func (a *App) send(p SendArgs) map[string]any {
 			return failure("This conversation runs %s; start a new one to use %s", agentLabel(c.Agent), agentLabel(p.Agent))
 		}
 		if a.running[c.ID] != nil {
+			if p.link != nil {
+				// A turn began since the message was looked at: it waits.
+				ev := a.enqueueLocked(c, *p.link)
+				a.mu.Unlock()
+				a.emit(c.ID, ev)
+				return map[string]any{"success": true, "status": "queued", "conversation_id": c.ID}
+			}
 			a.mu.Unlock()
 			return failure("The agent is still working on the previous message")
 		}
@@ -322,14 +370,9 @@ func (a *App) send(p SendArgs) map[string]any {
 			Origin: origin, Created: now(), Status: "idle", Session: p.Session}
 		a.convs[c.ID] = c
 	}
-	agent, _ := codingagents.Lookup(c.Agent)
-	var canvas canvasLaunch
-	onCanvas := p.Canvas != nil && agent.Headless != nil
-	if onCanvas {
-		l, err := p.Canvas.prepare(c.Cwd)
-		if err == nil {
-			l, err = l.forAgent(agent)
-		}
+	var linksDone *linkChange
+	if p.Links != nil {
+		ch, err := a.replaceLinksLocked(c, p.LinkName, *p.Links)
 		if err != nil {
 			if p.ConversationID == "" {
 				delete(a.convs, c.ID)
@@ -337,7 +380,39 @@ func (a *App) send(p SendArgs) map[string]any {
 			a.mu.Unlock()
 			return failure("%v", err)
 		}
-		canvas, c.Canvas = l, &l.applied
+		linksDone = &ch
+		// Every way out of send releases a.mu first.
+		defer a.afterLinks(*linksDone)
+	}
+	agent, _ := codingagents.Lookup(c.Agent)
+	if p.link != nil && p.Canvas == nil && c.Canvas != nil {
+		// A message's turn keeps the group's last canvas settings, but not
+		// what was pinned to that turn's message.
+		ct := *c.Canvas
+		ct.Images, ct.Files, ct.Skills = nil, nil, nil
+		p.Canvas = &ct
+	}
+	var canvas canvasLaunch
+	onCanvas := p.Canvas != nil && agent.Headless != nil
+	if onCanvas {
+		l, err := p.Canvas.prepare(c.Cwd)
+		if err == nil {
+			l, err = l.forAgent(agent)
+		}
+		switch {
+		case err != nil && p.link != nil:
+			// The group's last settings no longer hold (a folder is gone):
+			// the message still starts its turn, without them.
+			onCanvas = false
+		case err != nil:
+			if p.ConversationID == "" {
+				delete(a.convs, c.ID)
+			}
+			a.mu.Unlock()
+			return failure("%v", err)
+		default:
+			canvas, c.Canvas = l, &l.applied
+		}
 	}
 	r, err := resolve(c.Agent)
 	if err != nil {
@@ -346,7 +421,21 @@ func (a *App) send(p SendArgs) map[string]any {
 	}
 	launch := codingagents.Launch{Agent: c.Agent, Conversation: c.ID, NodeID: a.NodeID, NodeName: a.NodeName}
 	note := codingagents.Note(r.settings, launch)
+	env := withDefaults(codingagents.LaunchEnv(r.settings, launch), agent.Headless.Env)
+	box, trouble := a.linkBoxLocked(c)
+	if p.link == nil {
+		// The user continues the group: what a Stop held may start after.
+		c.InboxStopped = false
+	}
+	// The turn's settings: the canvas's, and the groups it is linked to.
+	system := strings.TrimSpace(canvas.system + "\n\n" + linkNote(c, box))
+	if trouble != "" {
+		system = strings.TrimSpace(system + "\n\nLinked groups cannot be messaged this turn: " + trouble + ".")
+	}
 	agentPrompt := canvas.prompt(prompt)
+	if p.link != nil {
+		agentPrompt = a.linkPrefix(c, *p.link, box) + "\n\n" + agentPrompt
+	}
 	// Without a way to add instructions, or one that holds on a resumed
 	// session, the message carries them: the note in a conversation's
 	// first, a canvas turn's settings in each.
@@ -355,8 +444,8 @@ func (a *App) send(p SendArgs) map[string]any {
 	if note != "" && agent.Instructions == nil && c.Seq == 0 && c.Session == "" {
 		lead = append(lead, note)
 	}
-	if canvas.system != "" && inMessage {
-		lead = append(lead, canvas.system)
+	if system != "" && inMessage {
+		lead = append(lead, system)
 	}
 	if len(lead) > 0 {
 		agentPrompt = "[" + strings.Join(lead, "\n\n") + "]\n\n" + agentPrompt
@@ -367,17 +456,22 @@ func (a *App) send(p SendArgs) map[string]any {
 	}
 	t := codingagents.Turn{Prompt: agentPrompt, Session: c.Session, Model: model, Cwd: c.Cwd, Auto: c.Auto}
 	canvas.apply(&t)
+	if box != nil && agent.Headless.Canvas.ShellSandbox {
+		// Its sandbox writes only in the turn's folders: the link folder's
+		// inbox is one (the folder itself, with the script, stays the node's).
+		t.AddDirs = append(t.AddDirs, box.inbox)
+	}
 	args := append(agent.Headless.Args(t), r.settings.Agents[c.Agent].Args...)
 	extra := note
 	if !inMessage {
-		extra += "\n\n" + canvas.system
+		extra += "\n\n" + system
 	}
 	if extra := strings.TrimSpace(extra); extra != "" && agent.Instructions != nil {
 		args = append(args, agent.Instructions(extra)...)
 	}
 	cmd := exec.Command(r.path, args...)
 	cmd.Dir = c.Cwd
-	cmd.Env = withDefaults(codingagents.LaunchEnv(r.settings, launch), agent.Headless.Env)
+	cmd.Env = env
 	if !agent.Headless.PromptArg {
 		cmd.Stdin = strings.NewReader(agentPrompt)
 	}
@@ -385,6 +479,7 @@ func (a *App) send(p SendArgs) map[string]any {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		a.mu.Unlock()
+		box.close()
 		return failure("%v", err)
 	}
 	stderr := &tailBuffer{max: stderrKeep}
@@ -392,13 +487,23 @@ func (a *App) send(p SendArgs) map[string]any {
 
 	c.Status, c.LastError, c.Interrupted, c.Updated = "running", "", false, now()
 	userSeq := c.Seq + 1
-	tr := &turn{cmd: cmd, done: make(chan struct{}), started: time.Now()}
+	tr := &turn{cmd: cmd, done: make(chan struct{}), exited: make(chan struct{}), started: time.Now(), box: box}
+	if p.link != nil {
+		tr.hop = p.link.Hop
+	}
 	a.running[c.ID] = tr
 	_ = a.saveLocked()
 	cwd := c.Cwd
+	links := len(c.Links) > 0
 	a.mu.Unlock()
+	if links || trouble != "" {
+		a.linkTrouble(c.ID, trouble)
+	}
 
 	user := codingagents.Event{Type: "user", Text: prompt, Images: canvas.images}
+	if p.link != nil {
+		user.ID, user.From, user.Hop = p.link.ID, endPtr(p.link.From), p.link.Hop
+	}
 	if onCanvas {
 		user.Branch, _ = gitBranch(cwd)
 	}
@@ -416,10 +521,14 @@ func (a *App) send(p SendArgs) map[string]any {
 		}
 	}
 	if err := cmd.Start(); err != nil {
+		close(tr.exited)
 		a.finish(c.ID, tr, codingagents.Event{Type: "done", Error: fmt.Sprintf("Could not start %s: %v", agent.Label, err)})
 		return failure("Could not start %s: %v", agent.Label, err)
 	}
 	go a.pump(c.ID, tr, agent, r.found, stdout, stderr)
+	if box != nil {
+		go a.watchBox(c.ID, tr)
+	}
 	return map[string]any{"success": true, "conversation_id": c.ID, "stream_id": streamID(c.ID),
 		"from_seq": userSeq, "conversation": a.snapshot(c.ID)}
 }
@@ -469,6 +578,7 @@ func (a *App) pump(id string, tr *turn, agent codingagents.Agent, found codingag
 	}
 	_, _ = io.Copy(io.Discard, stdout)
 	waitErr := tr.cmd.Wait()
+	close(tr.exited)
 	end := codingagents.Event{Type: "done"}
 	if last != nil {
 		end = *last
@@ -531,6 +641,20 @@ func (a *App) noteSignIn(agent, errText, output string) {
 }
 
 func (a *App) finish(id string, tr *turn, end codingagents.Event) {
+	if tr.box != nil {
+		// Requests written before the end carry this turn's hop: answered
+		// while the turn still holds its place (no next turn can take the
+		// folder), for at most finalScan.
+		scanned := make(chan struct{})
+		go func() {
+			a.scanBox(id, tr)
+			close(scanned)
+		}()
+		select {
+		case <-scanned:
+		case <-time.After(finalScan.get()):
+		}
+	}
 	a.emit(id, end)
 	a.mu.Lock()
 	if c := a.convs[id]; c != nil {
@@ -544,8 +668,33 @@ func (a *App) finish(id string, tr *turn, end codingagents.Event) {
 	if a.running[id] == tr {
 		delete(a.running, id)
 	}
+	stopped := tr.stopped && !tr.closing
+	if c := a.convs[id]; c != nil && stopped {
+		// Held from the moment the turn is gone: nothing that arrives now
+		// starts before the user says so.
+		c.InboxStopped = true
+		_ = a.saveLocked()
+	}
 	a.mu.Unlock()
+	finishHook.call(id)
+	if tr.box != nil {
+		go func() {
+			// Once a last look still under way is done.
+			tr.scanMu.Lock()
+			tr.box.close()
+			tr.scanMu.Unlock()
+		}()
+	}
 	close(tr.done)
+	switch {
+	case tr.closing:
+	case stopped:
+		// The user stopped it: messages from linked groups wait for them.
+		a.holdByStop(id)
+	default:
+		// The next message from a linked group, if one waits.
+		go a.drain(id)
+	}
 }
 
 // emit numbers an event, appends it to the conversation's log and publishes
@@ -585,6 +734,9 @@ func (a *App) emit(id string, e codingagents.Event) {
 	}
 }
 
+// stopKills counts the turns Stop had to kill (tests).
+var stopKills atomic.Int32
+
 func (a *App) stop(id string) map[string]any {
 	a.mu.Lock()
 	tr := a.running[id]
@@ -596,12 +748,16 @@ func (a *App) stop(id string) map[string]any {
 		return map[string]any{"success": true, "running": false}
 	}
 	interrupt(tr.cmd)
+	// The grace is for the agent's process; once it is gone the turn ends
+	// (its last look at the inbox is bounded by finalScan).
 	select {
-	case <-tr.done:
+	case <-tr.exited:
 	case <-time.After(stopGrace):
+		stopKills.Add(1)
 		kill(tr.cmd)
-		<-tr.done
+		<-tr.exited
 	}
+	<-tr.done
 	return map[string]any{"success": true, "running": false}
 }
 
@@ -614,6 +770,7 @@ func (a *App) snapshot(id string) map[string]any {
 	if c == nil {
 		return nil
 	}
+	c.refreshLinks(a.NodeID)
 	b, _ := json.Marshal(c)
 	var m map[string]any
 	_ = json.Unmarshal(b, &m)
@@ -625,8 +782,8 @@ func (a *App) list(agent, cwd string) map[string]any {
 	out := []*Conversation{}
 	for _, c := range a.convs {
 		if (agent == "" || c.Agent == agent) && (cwd == "" || c.Cwd == cwd) {
-			cp := *c
-			out = append(out, &cp)
+			c.refreshLinks(a.NodeID)
+			out = append(out, c.clone())
 		}
 	}
 	a.mu.Unlock()
@@ -674,15 +831,28 @@ func (a *App) conversation(id string, after int64) map[string]any {
 }
 
 func (a *App) remove(id string) map[string]any {
-	a.stop(id)
 	a.mu.Lock()
-	if a.convs[id] == nil {
+	c := a.convs[id]
+	if c == nil || c.deleting {
 		a.mu.Unlock()
 		return failure("No conversation %s on this node", id)
 	}
+	// Nothing waiting starts, and nothing more arrives, once deleting.
+	c.deleting = true
+	inbox := c.Inbox
+	c.Inbox = nil
+	self := codingagents.LinkEnd{ConversationID: id, NodeID: a.NodeID, Name: c.LinkName}
+	a.mu.Unlock()
+	a.stop(id)
+	a.mu.Lock()
+	box := c.LinkBox
 	delete(a.convs, id)
 	_ = a.saveLocked()
 	a.mu.Unlock()
+	a.dropAll(self, inbox)
+	if box != "" {
+		_ = os.RemoveAll(box)
+	}
 	a.logMu.Lock()
 	err := os.Remove(a.logPath(id))
 	a.logMu.Unlock()
@@ -696,6 +866,10 @@ func (a *App) remove(id string) map[string]any {
 func (a *App) Close() {
 	defer a.closeHooks()
 	a.mu.Lock()
+	if !a.closed {
+		close(a.quit)
+	}
+	a.closed = true
 	ids := make([]string, 0, len(a.running))
 	for id, tr := range a.running {
 		tr.closing = true

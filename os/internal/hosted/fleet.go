@@ -3,7 +3,6 @@ package hosted
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -16,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/aristoteleo/pantheonos/os/appsvc"
 	"github.com/aristoteleo/pantheonos/os/internal/auth"
 	"github.com/aristoteleo/pantheonos/os/internal/deployments"
 	"github.com/aristoteleo/pantheonos/os/internal/proto"
@@ -643,11 +643,7 @@ func (f *Fleet) ensureNodeService(ctx context.Context, fleet, service, nodeID st
 		}
 		appID = "node-files"
 	}
-	sum := sha256.Sum256([]byte(nodeID))
-	scope := "node" + hex.EncodeToString(sum[:])[:16] + "-app"
-	seed := fleet + "-app-" + appID + "-" + scope
-	idSum := sha256.Sum256([]byte(seed))
-	serviceID := hex.EncodeToString(idSum[:])
+	scope, serviceID := appsvc.NodeScope(nodeID), appsvc.NodeServiceID(fleet, appID, nodeID)
 	if (service == "pty" || service == "coding_agent") && !restore {
 		for _, i := range inv["instances"].([]map[string]any) {
 			if i["node_id"] == nodeID && i["service_id"] == serviceID && i["health"] == "healthy" {

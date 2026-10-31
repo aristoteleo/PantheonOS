@@ -70,6 +70,13 @@ func Tools(app *App) ([]*appsvc.Tool, error) {
 					return failure("%s: %v", name, err), nil
 				}
 			}
+			if raw, ok := p["links"]; ok && raw != nil {
+				links := []Link{}
+				if err := remarshal(raw, &links); err != nil {
+					return failure("links: %v", err), nil
+				}
+				args.Links, args.LinkName = &links, strP(p, "link_name")
+			}
 			if args.Origin == "canvas" || ct.Effort != "" || !ct.Research || len(ct.Subagents)+len(ct.Focus)+len(ct.Files)+len(ct.Images)+len(ct.Skills) > 0 {
 				args.Canvas = ct
 			}
@@ -178,6 +185,41 @@ func Tools(app *App) ([]*appsvc.Tool, error) {
 		},
 		"agent_delete": func(_ context.Context, p map[string]any) (any, error) {
 			return app.remove(strP(p, "conversation_id")), nil
+		},
+		"agents_links": func(_ context.Context, p map[string]any) (any, error) {
+			var links *[]Link
+			if raw, ok := p["links"]; ok && raw != nil {
+				list := []Link{}
+				if err := remarshal(raw, &list); err != nil {
+					return failure("links: %v", err), nil
+				}
+				links = &list
+			}
+			return app.setLinks(strP(p, "conversation_id"), strP(p, "name"), links), nil
+		},
+		"agents_link_deliver": func(_ context.Context, p map[string]any) (any, error) {
+			var m linkMessage
+			if err := remarshal(p["message"], &m); err != nil || m.ID == "" || m.To == "" || m.From.ConversationID == "" {
+				return failure("message: give its id, from and to"), nil
+			}
+			// Over the bus a message comes from another node, which it names;
+			// this node's own messages never take this way.
+			if m.From.NodeID == "" || m.From.NodeID == app.NodeID {
+				return map[string]any{"success": false, "status": "failed", "reason": "invalid",
+					"error": "a message from another node must name that node"}, nil
+			}
+			status, reason, errText := app.deliver(m)
+			return map[string]any{"success": status != "failed", "status": status, "reason": reason, "error": errText}, nil
+		},
+		"agents_links_release": func(_ context.Context, p map[string]any) (any, error) {
+			return app.releaseLinks(strP(p, "conversation_id")), nil
+		},
+		"agents_link_update": func(_ context.Context, p map[string]any) (any, error) {
+			var to codingagents.LinkEnd
+			if err := remarshal(p["to"], &to); err != nil {
+				return failure("to: %v", err), nil
+			}
+			return app.linkUpdate(strP(p, "conversation_id"), strP(p, "id"), strP(p, "status"), strP(p, "error"), to), nil
 		},
 	})
 }

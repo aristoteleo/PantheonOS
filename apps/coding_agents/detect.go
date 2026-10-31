@@ -130,7 +130,8 @@ func (a *App) detect(refresh bool) map[string]any {
 		}
 	}
 	return map[string]any{"success": true, "agents": infos, "installable": installable, "home": home,
-		"pantheon": s.Access.Key != "", "projects": projectPaths(s.Projects), "workspaces": workspaceList(s.Projects)}
+		"pantheon": s.Access.Key != "", "projects": projectPaths(s.Projects), "workspaces": workspaceList(s.Projects),
+		"links": map[string]any{"send": linksSend, "receive": true, "note": linksNote()}}
 }
 
 // updateCommand is the command line that updates a detected agent in place;

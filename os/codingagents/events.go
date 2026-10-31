@@ -11,7 +11,7 @@ import (
 // Event is one step of a conversation, the same shape for every agent.
 type Event struct {
 	Seq       int64  `json:"seq"`
-	Type      string `json:"type"` // user|session|text|thinking|tool|done
+	Type      string `json:"type"` // user|session|text|thinking|tool|done|limits|link
 	Text      string `json:"text,omitempty"`
 	Delta     bool   `json:"delta,omitempty"`
 	SessionID string `json:"session_id,omitempty"`
@@ -55,6 +55,23 @@ type Event struct {
 	// Limits (limits events) is the account's subscription quota as the
 	// agent reports it: window name -> share used and reset time.
 	Limits map[string]Limit `json:"limits,omitempty"`
+	// Linked groups on the Agent Canvas: a user event of a turn a message
+	// from another group started has From (and ID, the message's id); a
+	// link event is one message sent (Dir out, To) or waiting here (Dir in,
+	// From), with its Status, Bytes and Hop (its place in an exchange).
+	From  *LinkEnd `json:"from,omitempty"`
+	To    *LinkEnd `json:"to,omitempty"`
+	Dir   string   `json:"dir,omitempty"`
+	Hop   int      `json:"hop,omitempty"`
+	Bytes int      `json:"bytes,omitempty"`
+}
+
+// LinkEnd is one side of a link between two conversations: the
+// conversation, its node (empty: this one) and its group's name.
+type LinkEnd struct {
+	ConversationID string `json:"conversation_id"`
+	NodeID         string `json:"node_id,omitempty"`
+	Name           string `json:"name,omitempty"`
 }
 
 // Limit is one quota window of the agent's account.
