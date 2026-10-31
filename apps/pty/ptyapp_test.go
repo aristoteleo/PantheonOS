@@ -52,6 +52,11 @@ func TestOpenWriteAttachClose(t *testing.T) {
 	if !strings.Contains(scroll, "pty-go-alive") {
 		t.Fatalf("scrollback never showed the echo: %q", scroll)
 	}
+	// Attached with no size, the pty keeps its own and says which it is: the
+	// desktop resizes it once it follows the output, so the redraw reaches it.
+	if att := app.attach(sid, 0, 0); att["cols"] != 100 || att["rows"] != 30 {
+		t.Fatalf("attach without a size changed it or did not report it: %v", att)
+	}
 
 	rz := app.resize(sid, 120, 40)
 	if ok, _ := rz["success"].(bool); !ok || rz["cols"] != 120 {
