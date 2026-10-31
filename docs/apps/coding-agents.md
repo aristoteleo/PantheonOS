@@ -99,6 +99,7 @@ PTY services are (`node_service` with `service: "coding_agent"`). It needs the
 |---|---|
 | `agents_detect(refresh)` | The detected agents, with which modes each supports, and `canvas` for each with a headless mode (below). |
 | `agent_terminal_command(agent, resume, auto)` | The argv for a terminal launch. |
+| `agent_task_command(agent, task)` | The command line that installs a known agent, signs one in or updates it (`task`: `install`, `login`, `update`), in a terminal (below). |
 | `agent_send(agent, cwd, prompt, conversation_id, model, auto)` | Starts a turn (with `links` and `link_name`, it first sets the conversation's linked groups, below). A new conversation when `conversation_id` is empty. A conversation keeps its agent: a send naming another fails ("This conversation runs Codex; start a new one to use Gemini CLI"). |
 | `agent_stop(conversation_id)` | Interrupts the running turn. |
 | `agent_conversations(agent, cwd)` | Conversations on this node, newest first. |
@@ -509,8 +510,8 @@ restart Codex"). A terminal launch therefore passes the catalog's
 | Cursor Agent | nothing | in the background into its `versions` folder; the new version runs next time | `cursor-agent update` |
 
 `agents_detect` gives each agent that has an update command (`UpdateArgs`)
-as `update`, its detected path first. The desktop runs it in a Terminal
-window when the user asks (the Agents page). An agent already running keeps
+as `update`, its detected path first. The desktop runs it in a terminal tab
+of the App when the user asks (the Agents page), through `agent_task_command`. An agent already running keeps
 its version until it is started again; an exited tab resumes on the new one,
 since a launch starts the detected path, which an update replaces in place.
 
@@ -520,9 +521,31 @@ Per node, `agents_settings` / `agents_configure` keep, for each agent: hidden,
 a replacement command (an absolute path or a name on PATH), extra arguments,
 environment variables, a default model (passed with the agent's model flag)
 and whether full auto is the default. Custom agents are a name and a command
-line; they open in a terminal. Hidden agents leave the node's report. For a
-known agent that is missing, detection returns the command that installs it,
-which the desktop runs in a Terminal window on that node.
+line; they open in a terminal. Hidden agents leave the node's report.
+
+## Installing and signing in
+
+For a known agent that is missing, detection returns it in `installable` with
+the command that installs it, the program that command runs first (`needs`:
+`npm` or `curl`), and a `note` when that program is not on the node's login
+PATH (npm: install Node.js first). Each detected agent that signs in with a
+command of its own has it as `login`: `claude auth login`, `codex login`
+(`codex login --device-auth` on Linux, whose browser is elsewhere: Codex's
+browser sign-in returns to the node's localhost), `cursor-agent login`, and
+Gemini CLI itself, whose interface asks how to sign in. The Pantheon Agent
+signs in with the node's key (PantheonOS access, above). `tasks: true` in the
+reply says the service runs these through `agent_task_command`.
+
+`agent_task_command(agent, task)` returns the command line for `pty_open`:
+like a terminal launch it is a subshell that reads the hook token from a file
+only the user can read, prints the command, runs it and posts its exit
+status. Its terminal session carries `task`; when it ends, the desktop
+detects again (`agents_detect(refresh)`), so an installed agent shows at once.
+The shell stays, so the user reads the output and can go on by hand.
+
+A node whose service predates a method answers "Method … not found on
+service …": the desktop says the computer runs an older Coding Agents service
+instead, and hides what cannot work there.
 
 ## Terminal sessions
 

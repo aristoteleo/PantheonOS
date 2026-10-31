@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -67,6 +68,9 @@ type AgentInfo struct {
 	// Update is the command line that updates the agent in place, which the
 	// desktop runs in a terminal when the user asks.
 	Update string `json:"update,omitempty"`
+	// Login is the command line that signs the agent in, run in a terminal
+	// (agent_task_command); absent for an agent without one.
+	Login string `json:"login,omitempty"`
 }
 
 // Installable is a known agent missing here, with the command that installs it.
@@ -74,6 +78,39 @@ type Installable struct {
 	ID      string `json:"id"`
 	Label   string `json:"label"`
 	Command string `json:"command"`
+	// Needs is the program the command runs first (npm, curl); Note says
+	// what to do when it is not on this node, which then cannot install it.
+	Needs string `json:"needs,omitempty"`
+	Note  string `json:"note,omitempty"`
+}
+
+// installable is a catalog agent's install, with what it needs and whether
+// this node has it.
+func installable(c codingagents.Agent, which func(string) string) Installable {
+	i := Installable{ID: c.ID, Label: c.Label, Command: c.Install}
+	if fields := strings.Fields(c.Install); len(fields) > 0 {
+		i.Needs = fields[0]
+	}
+	if i.Needs == "" || which(i.Needs) != "" {
+		return i
+	}
+	switch i.Needs {
+	case "npm":
+		i.Note = "npm is not on this computer. Install Node.js 18 or newer (it comes with npm), then install " + c.Label + "."
+	default:
+		i.Note = i.Needs + " is not on this computer. Install it first, then install " + c.Label + "."
+	}
+	return i
+}
+
+// loginCommand is the command line that signs a detected agent in; empty
+// for an agent without one.
+func loginCommand(f codingagents.Found) string {
+	c, ok := codingagents.Lookup(f.ID)
+	if !ok || c.Login == nil || f.Custom {
+		return ""
+	}
+	return shellJoin(append([]string{f.Path}, c.Login(runtime.GOOS)...))
 }
 
 func (a *App) detect(refresh bool) map[string]any {
@@ -92,6 +129,7 @@ func (a *App) detect(refresh bool) map[string]any {
 			infos[i].Canvas = &canvas
 		}
 		infos[i].Update = updateCommand(f)
+		infos[i].Login = loginCommand(f)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -123,13 +161,14 @@ func (a *App) detect(refresh bool) map[string]any {
 		}
 	}
 	a.mu.Unlock()
-	installable := []Installable{}
+	missing := []Installable{}
 	for _, c := range codingagents.Catalog {
 		if c.Install != "" && !present[c.ID] {
-			installable = append(installable, Installable{c.ID, c.Label, c.Install})
+			missing = append(missing, installable(c, codingagents.Which))
 		}
 	}
-	return map[string]any{"success": true, "agents": infos, "installable": installable, "home": home,
+	// tasks: installs, sign-ins and updates run through agent_task_command.
+	return map[string]any{"success": true, "agents": infos, "installable": missing, "tasks": true, "home": home,
 		"pantheon": s.Access.Key != "", "projects": projectPaths(s.Projects), "workspaces": workspaceList(s.Projects),
 		"links": map[string]any{"send": linksSend, "receive": true, "note": linksNote()}}
 }

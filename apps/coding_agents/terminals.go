@@ -41,6 +41,9 @@ type TerminalSession struct {
 	// ended, for good); ExitCode is its exit status.
 	Exited   bool `json:"exited,omitempty"`
 	ExitCode *int `json:"exit_code,omitempty"`
+	// Task is set for a terminal that runs a task for the agent (install,
+	// login, update) rather than the agent itself.
+	Task string `json:"task,omitempty"`
 }
 
 // hookServer receives the hooks of terminal launches on this machine only.

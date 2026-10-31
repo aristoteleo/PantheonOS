@@ -58,6 +58,9 @@ func Tools(app *App) ([]*appsvc.Tool, error) {
 			return app.terminalCommand(TerminalArgs{Agent: strP(p, "agent"), Resume: strP(p, "resume"),
 				Auto: boolP(p, "auto", true), Cwd: strP(p, "cwd"), Prompt: strP(p, "prompt")}), nil
 		},
+		"agent_task_command": func(_ context.Context, p map[string]any) (any, error) {
+			return app.taskCommand(strP(p, "agent"), strP(p, "task")), nil
+		},
 		"agent_send": func(_ context.Context, p map[string]any) (any, error) {
 			args := SendArgs{Agent: strP(p, "agent"), Cwd: strP(p, "cwd"), Prompt: strP(p, "prompt"),
 				ConversationID: strP(p, "conversation_id"), Model: strP(p, "model"),

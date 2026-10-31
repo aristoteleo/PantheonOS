@@ -106,6 +106,11 @@ func Path(id string) string {
 	return ""
 }
 
+// Which finds a command where a terminal on this machine would, or "".
+func Which(name string) string {
+	return findCommand([]string{name}, SearchDirs(false), runtime.GOOS)
+}
+
 func findCommand(names, dirs []string, goos string) string {
 	exts := []string{""}
 	if goos == "windows" {

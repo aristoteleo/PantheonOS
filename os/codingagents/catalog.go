@@ -29,6 +29,10 @@ type Agent struct {
 	Instructions func(text string) []string
 	// Install is the command that installs the agent where it is missing.
 	Install string
+	// Login is the arguments after the binary that sign the agent in, on a
+	// node of the given GOOS; nil for an agent without a sign-in of its own.
+	// An empty list runs the agent itself, which asks to sign in first.
+	Login func(goos string) []string
 	// UpdateArgs follow the binary to update the agent in place, for agents
 	// that have such a command.
 	UpdateArgs []string
@@ -166,6 +170,7 @@ var Catalog = []Agent{
 	{
 		ID: "claude", Label: "Claude Code", Commands: []string{"claude"},
 		ModelFlag: "--model", Install: "curl -fsSL https://claude.ai/install.sh | bash",
+		Login:        func(string) []string { return []string{"auth", "login"} },
 		Instructions: func(text string) []string { return []string{"--append-system-prompt", text} },
 		AutoFlags:    []string{"--dangerously-skip-permissions"},
 		Resume:       func(id string) []string { return ids(id, "--resume") },
@@ -205,6 +210,15 @@ var Catalog = []Agent{
 	{
 		ID: "codex", Label: "Codex", Commands: []string{"codex"},
 		ModelFlag: "-m", Install: "npm install -g @openai/codex",
+		// Its browser sign-in returns to a server on the node's localhost,
+		// which a browser elsewhere cannot reach: a Linux node (a server, a
+		// workspace) signs in with a code instead.
+		Login: func(goos string) []string {
+			if goos == "linux" {
+				return []string{"login", "--device-auth"}
+			}
+			return []string{"login"}
+		},
 		Instructions: func(text string) []string { return []string{"-c", "developer_instructions=" + tomlString(text)} },
 		AutoFlags:    []string{"--dangerously-bypass-approvals-and-sandbox"},
 		Resume:       func(id string) []string { return []string{"resume", id} },
@@ -262,7 +276,9 @@ var Catalog = []Agent{
 		ID: "gemini", Label: "Gemini CLI", Commands: []string{"gemini"},
 		ModelFlag: "-m", Install: "npm install -g @google/gemini-cli",
 		AutoFlags: []string{"--yolo"},
-		Resume:    func(id string) []string { return ids(id, "--resume") },
+		// No sign-in command: its own interface asks how to sign in.
+		Login:  func(string) []string { return []string{} },
+		Resume: func(id string) []string { return ids(id, "--resume") },
 		Headless: &Headless{
 			PromptArg: true,
 			Args: func(t Turn) []string {
@@ -294,6 +310,7 @@ var Catalog = []Agent{
 		ID: "cursor", Label: "Cursor Agent", Commands: []string{"cursor-agent"},
 		ModelFlag: "--model", Install: "curl https://cursor.com/install -fsS | bash",
 		AutoFlags:  []string{"--force"},
+		Login:      func(string) []string { return []string{"login"} },
 		Resume:     func(id string) []string { return ids(id, "--resume") },
 		UpdateArgs: []string{"update"},
 		Headless: &Headless{
