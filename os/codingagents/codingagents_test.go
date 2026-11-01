@@ -418,3 +418,14 @@ func TestHookStates(t *testing.T) {
 		t.Errorf("%+v", l)
 	}
 }
+
+func TestVersionReadsStderrWhenStdoutIsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "pi")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho 0.74.2 >&2\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if v := version(bin); v != "0.74.2" {
+		t.Fatalf("version = %q, want 0.74.2", v)
+	}
+}

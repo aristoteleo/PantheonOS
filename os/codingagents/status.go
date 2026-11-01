@@ -1,6 +1,7 @@
 package codingagents
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"os"
@@ -59,8 +60,11 @@ func version(path string) string {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, "--version")
 	cmd.Env = AgentEnv("")
-	out, _ := cmd.Output()
-	v = strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
+	var out, errOut strings.Builder
+	cmd.Stdout, cmd.Stderr = &out, &errOut
+	_ = cmd.Run()
+	// Some agents (Pi) print their version on stderr.
+	v = strings.TrimSpace(strings.SplitN(cmp.Or(strings.TrimSpace(out.String()), errOut.String()), "\n", 2)[0])
 	if len(v) > 60 {
 		v = v[:60]
 	}

@@ -393,6 +393,11 @@ func platformModelsOf(agent string, all []string) Models {
 	default:
 		return Models{}
 	}
+	// When the platform routes vendors through OpenRouter, that route is what
+	// it pays for: the direct vendor groups it also lists may have no credit.
+	if slices.ContainsFunc(all, isRouted) {
+		all = slices.DeleteFunc(slices.Clone(all), func(id string) bool { return !isRouted(id) })
+	}
 	byKey := map[string]string{}
 	for _, id := range all {
 		if !pattern.MatchString(id) {
@@ -434,6 +439,8 @@ func platformModelsOf(agent string, all []string) Models {
 	}
 	return Models{IDs: ids, Labels: labels, Default: platformDefault(agent, ids)}
 }
+
+func isRouted(id string) bool { return strings.HasPrefix(id, "openrouter/") }
 
 // platformDefault is the model an agent on PantheonOS runs when a turn names
 // none: Claude Code the newest Sonnet, Codex the newest GPT-5 Codex (not a

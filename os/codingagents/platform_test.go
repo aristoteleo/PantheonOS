@@ -99,6 +99,12 @@ func TestPlatformModelsOf(t *testing.T) {
 		m.Labels["claude-haiku-4-5-20251001"] != "Claude Haiku 4.5" {
 		t.Errorf("direct models %v %v", m.IDs, m.Labels)
 	}
+	// With an OpenRouter route, the direct vendor groups are left out.
+	if m := platformModelsOf("opencode", []string{"anthropic/claude-sonnet-5-5", "openai/gpt-5.5", "claude-opus-4-8",
+		"openrouter/anthropic/claude-sonnet-5.5", "openrouter/openai/gpt-5.5"}); !slices.Equal(m.IDs, []string{"openrouter/anthropic/claude-sonnet-5.5", "openrouter/openai/gpt-5.5"}) ||
+		m.Default != "openrouter/anthropic/claude-sonnet-5.5" {
+		t.Errorf("routed models %v, default %q", m.IDs, m.Default)
+	}
 	if m := platformModelsOf("gemini", proxyModels); len(m.IDs) != 0 {
 		t.Errorf("gemini does not run on the platform: %v", m.IDs)
 	}
