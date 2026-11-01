@@ -20,6 +20,8 @@ git repository with `README.md`, `src/calc.py` and a `night-sky` skill in
 | `pantheon.jsonl` | Pantheon Agent (`pantheon agent chat --json`, staging) | real: the same task as `codex-canvas`, on a node with `--node --workdir`; the node id renamed |
 | `pantheon-resume.jsonl` | Pantheon Agent | real: that chat continued with `--chat` and `--model low`, asked what it added |
 | `pantheon-subagent.jsonl` | Pantheon Agent | real: asked to run one sub-agent with `pantheon agent run` |
+| `opencode.jsonl`, `opencode-budget.jsonl` | OpenCode 1.19.5 (`opencode run --format json`) | real CLI, model server a stand-in (below): a continued session runs one shell command and answers; then a turn the budget refuses |
+| `pi.jsonl`, `pi-budget.jsonl` | Pi 1.4.0 (`pi -p --mode json`, `@earendil-works/pi-coding-agent`) | the same, with the platform's provider from PantheonOS's extension (`-e`) |
 
 ## Gemini CLI
 
@@ -55,3 +57,12 @@ canvas capabilities are `subagents: false` and `roles: false`. Roles were
 not tried: Codex's configuration has per-role entries (`agents.<name>` with
 `description` and `config_file`), but sub-agents run under them would not
 show either.
+
+## OpenCode and Pi
+
+Both ran on PantheonOS models against a small local server speaking the
+proxy's OpenAI Chat Completions: it streams one `bash` tool call for a
+request with tools and no tool result yet, then "PONG", with fixed usage;
+the budget runs answer 400 with LiteLLM's "Budget has been exceeded!"
+message. The CLIs, their event lines and the requests they made are real;
+the model's answers are not. Paths are shortened to `/work/acme`.

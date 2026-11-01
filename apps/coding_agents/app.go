@@ -94,7 +94,9 @@ type turn struct {
 	started time.Time
 	hop     int      // a turn a linked group's message started: that message's hop
 	box     *linkBox // the folder its agent messages linked groups through
-	scanMu  sync.Mutex
+	// platform: the agent runs on PantheonOS models, not its own sign-in.
+	platform bool
+	scanMu   sync.Mutex
 }
 
 // App holds the conversations on this node and the turns running now.
@@ -427,6 +429,28 @@ func (a *App) send(p SendArgs) map[string]any {
 		a.mu.Unlock()
 		return failure("Could not start %s: it is not signed in on this node (agents here may not use PantheonOS)", agent.Label)
 	}
+	platform, onPlatform := r.settings.PlatformFor(c.Agent)
+	if !onPlatform && r.settings.ModelSource(c.Agent) == codingagents.SourcePantheon {
+		// Set to PantheonOS models on a node without a platform key: the
+		// turn would run on the user's own sign-in instead.
+		if p.ConversationID == "" {
+			delete(a.convs, c.ID)
+		}
+		a.mu.Unlock()
+		return failure("Could not start %s on PantheonOS models: %s", agent.Label, codingagents.PlatformMissing)
+	}
+	var platformModels codingagents.Models
+	var platformArgs []string
+	if onPlatform {
+		platformModels = codingagents.PlatformModels(c.Agent, platform)
+		if platformArgs, err = codingagents.PlatformArgs(c.Agent, platform, platformModels); err != nil {
+			if p.ConversationID == "" {
+				delete(a.convs, c.ID)
+			}
+			a.mu.Unlock()
+			return failure("Could not start %s on PantheonOS models: %v", agent.Label, err)
+		}
+	}
 	launch := codingagents.Launch{Agent: c.Agent, Conversation: c.ID, NodeID: a.NodeID, NodeName: a.NodeName}
 	note := codingagents.Note(r.settings, launch)
 	env := withDefaults(codingagents.LaunchEnv(r.settings, launch), agent.Headless.Env)
@@ -462,6 +486,11 @@ func (a *App) send(p SendArgs) map[string]any {
 	if model == "" {
 		model = r.settings.Agents[c.Agent].Model
 	}
+	if onPlatform {
+		model = codingagents.PlatformModelArg(c.Agent, codingagents.PlatformModel(model, platformModels))
+	} else {
+		model = codingagents.SubscriptionModel(model)
+	}
 	t := codingagents.Turn{Prompt: agentPrompt, Session: c.Session, Model: model, Cwd: c.Cwd, Auto: c.Auto, Node: a.NodeID}
 	canvas.apply(&t)
 	if box != nil && agent.Headless.Canvas.ShellSandbox {
@@ -469,7 +498,11 @@ func (a *App) send(p SendArgs) map[string]any {
 		// inbox is one (the folder itself, with the script, stays the node's).
 		t.AddDirs = append(t.AddDirs, box.inbox)
 	}
-	args := append(agent.Headless.Args(t), r.settings.Agents[c.Agent].Args...)
+	args := agent.Headless.Args(t)
+	if onPlatform {
+		args = append(args, platformArgs...)
+	}
+	args = append(args, r.settings.Agents[c.Agent].Args...)
 	extra := note
 	if !inMessage {
 		extra += "\n\n" + system
@@ -495,7 +528,7 @@ func (a *App) send(p SendArgs) map[string]any {
 
 	c.Status, c.LastError, c.Interrupted, c.Updated = "running", "", false, now()
 	userSeq := c.Seq + 1
-	tr := &turn{cmd: cmd, done: make(chan struct{}), exited: make(chan struct{}), started: time.Now(), box: box}
+	tr := &turn{cmd: cmd, done: make(chan struct{}), exited: make(chan struct{}), started: time.Now(), box: box, platform: onPlatform}
 	if p.link != nil {
 		tr.hop = p.link.Hop
 	}
@@ -602,13 +635,18 @@ func (a *App) pump(id string, tr *turn, agent codingagents.Agent, found codingag
 		end.Error, end.Stopped = interruptedNote, true
 	case stopped:
 		end.Error, end.Stopped = "", true
+	case end.Error == "" && waitErr != nil && last == nil && tr.platform:
+		end.Error = platformError(stderr.String(), fmt.Sprintf("%s exited: %v", agent.Label, waitErr))
 	case end.Error == "" && waitErr != nil && last == nil:
 		signedIn := codingagents.SignedIn(found)
 		end.Error = exitMessage(agent.Label, waitErr, stderr.String(), signedIn != nil && !*signedIn)
+	case end.Error != "" && tr.platform:
+		end.Error = platformError(end.Error, agentError(agent.Label, end.Error))
 	case end.Error != "":
 		end.Error = agentError(agent.Label, end.Error)
 	}
-	if !closing && !stopped {
+	// A turn on PantheonOS models says nothing of the agent's own sign-in.
+	if !closing && !stopped && !tr.platform {
 		a.noteSignIn(agent.ID, end.Error, end.Error+"\n"+stderr.String())
 	}
 	// Sub-agents end with the turn; say so before it ends.

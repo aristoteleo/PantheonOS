@@ -93,6 +93,9 @@ type Canvas struct {
 	// when the node knows it.
 	ModelLabels  map[string]string `json:"model_labels,omitempty"`
 	DefaultModel string            `json:"default_model,omitempty"`
+	// ModelSource is set where the agent runs on PantheonOS models
+	// (SourcePantheon): the models are the platform's.
+	ModelSource string `json:"model_source,omitempty"`
 	// ImagesNote heads the reference images listed in the message.
 	ImagesNote string `json:"-"`
 	// PinSkills: skills pinned for a turn are named in its message, with
@@ -356,8 +359,62 @@ var Catalog = []Agent{
 			Canvas: Canvas{Images: true, Skills: true, PinSkills: true, ImagesNote: "Reference images (read each one):"},
 		},
 	},
-	{ID: "opencode", Label: "OpenCode", Commands: []string{"opencode"}, ModelFlag: "--model",
-		Install: "curl -fsSL https://opencode.ai/install | bash"},
+	{
+		// Models are provider/model ("anthropic/claude-sonnet-4-5", the
+		// platform's "pantheon/openrouter/…"); a session continues by its id.
+		ID: "opencode", Label: "OpenCode", Commands: []string{"opencode"},
+		ModelFlag: "--model", Install: "npm install -g opencode-ai",
+		Login:     func(string) []string { return []string{"auth", "login"} },
+		AutoFlags: []string{"--auto"},
+		Resume:    func(id string) []string { return ids(id, "--session") },
+		Headless: &Headless{
+			// The message goes on stdin: one that starts with a dash is no option.
+			Args: func(t Turn) []string {
+				a := []string{"run", "--format", "json"}
+				if t.Session != "" {
+					a = append(a, "--session", t.Session)
+				}
+				if t.Model != "" {
+					a = append(a, "--model", t.Model)
+				}
+				if t.Auto {
+					a = append(a, "--auto")
+				}
+				return a
+			},
+			Parser: func() Parser { return &opencodeParser{} },
+			// Its reasoning levels are each model's own variants, and its
+			// other options are not per turn: the prompt and its context only.
+			Canvas: Canvas{},
+		},
+	},
+	{
+		// Pi signs in from its own interface (/login), or takes providers'
+		// API keys from the environment. Its tools never ask before acting.
+		ID: "pi", Label: "Pi", Commands: []string{"pi"},
+		ModelFlag: "--model", Install: "npm install -g @earendil-works/pi-coding-agent",
+		Login:        func(string) []string { return []string{} },
+		Instructions: func(text string) []string { return []string{"--append-system-prompt", text} },
+		Resume:       func(id string) []string { return ids(id, "--session") },
+		Headless: &Headless{
+			// The message goes on stdin, which print mode reads.
+			Args: func(t Turn) []string {
+				a := []string{"-p", "--mode", "json"}
+				if t.Session != "" {
+					a = append(a, "--session", t.Session)
+				}
+				if t.Model != "" {
+					a = append(a, "--model", t.Model)
+				}
+				if t.Effort != "" {
+					a = append(a, "--thinking", t.Effort)
+				}
+				return a
+			},
+			Parser: func() Parser { return &piParser{} },
+			Canvas: Canvas{Effort: []string{"low", "medium", "high", "xhigh"}},
+		},
+	},
 	{ID: "copilot", Label: "GitHub Copilot CLI", Commands: []string{"copilot"},
 		AutoFlags: []string{"--allow-all-tools"}, Install: "npm install -g @github/copilot"},
 	{ID: "aider", Label: "Aider", Commands: []string{"aider"}, AutoFlags: []string{"--yes-always"}},

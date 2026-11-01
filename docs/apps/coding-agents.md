@@ -27,7 +27,9 @@ and conversation launches use the fields an entry fills in.
 | `codex` | `codex` | yes, resume | `exec --json` | `--dangerously-bypass-approvals-and-sandbox` |
 | `gemini` | `gemini` | yes, resume | `-p -o stream-json` | `--yolo` |
 | `cursor` | `cursor-agent` | yes, resume | `-p --output-format stream-json` | `--force` |
-| `opencode`, `copilot`, `aider`, `goose`, `amp`, `qwen`, `kimi`, `crush`, `droid`, `cline`, `auggie`, `kiro` | their CLI | yes | no | where the CLI has one |
+| `opencode` | `opencode` | yes, resume (`--session`) | `run --format json` | `--auto` |
+| `pi` | `pi` | yes, resume (`--session`) | `-p --mode json` | — (it asks no approvals) |
+| `copilot`, `aider`, `goose`, `amp`, `qwen`, `kimi`, `crush`, `droid`, `cline`, `auggie`, `kiro` | their CLI | yes | no | where the CLI has one |
 
 Conversation mode needs a stable machine-readable stream and a way to resume a
 session from a later process. Claude Code, Codex and Cursor Agent were checked
@@ -37,6 +39,22 @@ behind it (see `os/codingagents/testdata/README.md`). Headless, Gemini CLI
 refuses a folder it does not trust yet, so its turns run with
 `GEMINI_CLI_TRUST_WORKSPACE=true` (that run only, and only when the user's
 environment for it does not set the variable; a terminal launch still asks).
+
+OpenCode (`npm install -g opencode-ai`) and Pi (`npm install -g
+@earendil-works/pi-coding-agent`) were checked against 1.19 and 1.4 with a
+stand-in model server. Both take the message on stdin and continue a session
+by its id (`--session`, from the stream's `sessionID` / session header).
+OpenCode reports a tool once it has finished (`tool_use` with its input and
+output) and each model call's tokens (`step_finish`); its models are
+`provider/model`, and its reasoning levels are each model's own, so a canvas
+turn offers no effort. Pi streams its session events (`message_end` carries
+an assistant message's text, thinking and tool calls; `tool_execution_end`
+the result; a refused request is the message's `stopReason: error` and the
+process still exits 0); a canvas turn's effort is `--thinking`, and the note
+goes in `--append-system-prompt`. OpenCode signs in with `opencode auth
+login`, Pi from its own interface (`/login`); either counts as signed in
+when its `auth.json` has an entry, and as unknown otherwise, since both
+also take providers' keys from the environment or their configuration.
 
 
 The first entry is the user's own **Pantheon Agent**: the terminal chat of the
@@ -494,6 +512,57 @@ the other Fleet nodes and their files, models, and the Pantheon Agent.
 A terminal launch never carries the key in its command line: the line reads
 the variables from a file only the user can read, removes it, and runs the
 agent in a subshell, so the shell left when the agent exits has none of them.
+
+## PantheonOS models
+
+Claude Code, Codex, OpenCode and Pi can run on the platform's model service,
+billed to the user's PantheonOS budget, instead of their own sign-in. Each has a model
+source in the node's settings (`model_source`: `subscription`, the default,
+or `pantheon`), set through `agents_configure` like its other settings.
+
+- **Key.** The node's platform model service is `LLM_API_BASE` and
+  `LLM_API_KEY` of its workspace environment (a hosted workspace has them).
+  A node without them cannot: detection reports
+  `platform_models: {agents, available, note}`, and with source `pantheon`
+  the agent counts as not signed in, `sign_in_note` the next step; a turn
+  or terminal launch is refused with it rather than run on the user's own
+  sign-in.
+- **Launch.** Every turn and terminal launch of the agent on PantheonOS:
+  Claude Code gets `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`,
+  `ANTHROPIC_MODEL` and `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL` /
+  `ANTHROPIC_SMALL_FAST_MODEL` (the platform's newest of each); Codex gets
+  `PANTHEON_LLM_API_KEY` and `-c model_provider="pantheon" -c
+  model_providers.pantheon={…,base_url="<base>/v1",env_key="PANTHEON_LLM_API_KEY",wire_api="responses"}`;
+  OpenCode gets `PANTHEON_LLM_API_KEY` and `OPENCODE_CONFIG_CONTENT` (the
+  proxy as an `@ai-sdk/openai-compatible` provider `pantheon` with the
+  platform's models, its key `{env:PANTHEON_LLM_API_KEY}`), its model
+  `pantheon/<id>`; Pi gets `PANTHEON_LLM_API_KEY` and `-e <extension>
+  --provider pantheon`, an extension in the node's state folder
+  (`platform/pi-pantheon.js`, rewritten when the models change) that
+  registers the proxy (`openai-completions`) with the platform's models and
+  reads the key from the environment as Pi starts. Neither touches the
+  user's own configuration or Pi folder.
+  The user's own keys (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`,
+  `OPENAI_API_KEY`, `CODEX_API_KEY`, …) are unset for that process; their
+  sign-in files are left alone. The key goes in the environment only. A model
+  named by its subscription's id or Claude Code's alias runs as the platform's
+  same model; a platform model on the subscription runs the agent's default.
+- **Models.** The proxy's `/v1/models`, read at most every five minutes (the
+  last list kept when it does not answer), filtered to the agent's vendor's
+  chat models, newest first with readable names; the default is the newest
+  Sonnet, or the newest GPT-5 Codex (else GPT-5.5). OpenCode and Pi get every
+  vendor's chat models (no wildcard groups, `:variant`s, or image, audio,
+  embedding, realtime, speech or moderation models), Anthropic, OpenAI and
+  Google first, then the others by vendor; their default is the newest Sonnet. They replace the
+  agent's `canvas.models`, with `canvas.model_source: "pantheon"`.
+- **Status.** Ready with the key: `signed_in: true`, `plan: "PantheonOS
+  models"`; no quota is read. A failed turn says "PantheonOS budget
+  exhausted", or the service's own message, and says nothing of the agent's
+  sign-in.
+
+Codex notes each turn that it has no metadata of its own for a platform
+model id; a turn leaves that notice out (Codex's model catalog would need the
+model's full instructions to declare one).
 
 ## Updates
 

@@ -125,3 +125,34 @@ func agentError(label, text string) string {
 	}
 	return line
 }
+
+// budgetMarks are words of the model service's answer once the user's
+// PantheonOS budget is spent.
+var budgetMarks = []string{"budget has been exceeded", "exceeded budget", "budget_exceeded", "budget exceeded",
+	"exceededbudget", "max budget"}
+
+// platformError is what a failed turn on PantheonOS models tells the user:
+// that the budget is spent, else the model service's own message (a JSON
+// error unwrapped), else fallback.
+func platformError(text, fallback string) string {
+	t := strings.ToLower(text)
+	for _, m := range budgetMarks {
+		if strings.Contains(t, m) {
+			return "PantheonOS budget exhausted"
+		}
+	}
+	if strings.TrimSpace(text) == "" {
+		return fallback
+	}
+	line := errorLine(text)
+	if line == "" {
+		return fallback
+	}
+	// Claude Code passes the service's answer on as "API Error: 400 …".
+	if rest, ok := strings.CutPrefix(line, "API Error: "); ok {
+		if code, msg, ok := strings.Cut(rest, " "); ok && len(code) == 3 {
+			line = msg
+		}
+	}
+	return "PantheonOS models: " + line
+}

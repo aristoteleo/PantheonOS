@@ -697,6 +697,9 @@ func (p *codexParser) Parse(line []byte) []Event {
 			return []Event{{Type: "tool", ID: str(it["id"]), Name: "agents." + str(it["tool"]),
 				Input: firstLine(str(it["prompt"])), Kind: KindOther, Status: status}}
 		case "error":
+			if codexNoMetadata(str(it["message"])) {
+				return nil
+			}
 			return []Event{{Type: "text", Text: "⚠ " + str(it["message"])}}
 		}
 	case "turn.completed":
@@ -940,4 +943,11 @@ func unwrapShell(cmd string) string {
 		return rest
 	}
 	return cmd
+}
+
+// codexNoMetadata is Codex's notice that it has no metadata of its own for
+// a model (a PantheonOS model it does not know by that id) and falls back
+// to its defaults: each turn would show it, and nothing can be done about it.
+func codexNoMetadata(message string) bool {
+	return strings.HasPrefix(message, "Model metadata for `") && strings.Contains(message, "` not found")
 }

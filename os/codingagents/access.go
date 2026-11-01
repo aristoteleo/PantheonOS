@@ -3,6 +3,7 @@ package codingagents
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -83,10 +84,42 @@ func mergeEnv(env []string, extra ...string) []string {
 }
 
 // LaunchEnv is the full environment of one agent process: the clean
-// workspace environment, the agent's needs, the user's variables for it and
-// PantheonOS access.
+// workspace environment, the agent's needs, the user's variables for it,
+// PantheonOS access and, for an agent on PantheonOS models, the platform's
+// (over the user's own keys, which it drops).
 func LaunchEnv(s Settings, l Launch) []string {
-	return mergeEnv(UserEnv(s, l.Agent), AccessEnv(s, l)...)
+	env := mergeEnv(UserEnv(s, l.Agent), AccessEnv(s, l)...)
+	if p, ok := s.PlatformFor(l.Agent); ok {
+		set, unset := PlatformEnv(l.Agent, p, PlatformModels(l.Agent, p))
+		env = mergeEnv(withoutVars(env, unset), set...)
+	}
+	return env
+}
+
+// LaunchUnset is the variables a shell on this node must unset before
+// starting the agent (LaunchEnv leaves them out): an agent on PantheonOS
+// models runs without the user's own keys.
+func LaunchUnset(s Settings, l Launch) []string {
+	if _, ok := s.PlatformFor(l.Agent); !ok {
+		return nil
+	}
+	_, unset := PlatformEnv(l.Agent, Platform{}, Models{})
+	return unset
+}
+
+// withoutVars is env without the variables named.
+func withoutVars(env []string, names []string) []string {
+	if len(names) == 0 {
+		return env
+	}
+	out := env[:0:0]
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		if !slices.Contains(names, name) {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
 
 // UserEnv is an agent's environment without PantheonOS access: the clean

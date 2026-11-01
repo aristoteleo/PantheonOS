@@ -2,6 +2,7 @@ package codingagents
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -118,6 +119,21 @@ func signedIn(id, path string) *bool {
 		return yes(anyEnv("OPENAI_API_KEY", "CODEX_API_KEY") || exists(filepath.Join(dir, "auth.json")))
 	case "gemini":
 		return yes(anyEnv("GEMINI_API_KEY", "GOOGLE_API_KEY") || exists(filepath.Join(home, ".gemini", "oauth_creds.json")))
+	case "opencode":
+		// Signed in to a provider with its own login; it can also take any
+		// provider's key from the environment or its configuration, which
+		// PantheonOS cannot tell from here: unknown rather than no.
+		if exists(opencodeAuth()) {
+			return yes(true)
+		}
+		return nil
+	case "pi":
+		// The same for Pi: a login or a stored key in its auth.json (Pi makes
+		// the file empty on first start), else unknown.
+		if hasEntries(piAuth()) {
+			return yes(true)
+		}
+		return nil
 	case "cursor":
 		if anyEnv("CURSOR_API_KEY") {
 			return yes(true)
@@ -220,6 +236,10 @@ func CredentialTime(id string) time.Time {
 		files = []string{filepath.Join(gh, ".gemini", "oauth_creds.json"), filepath.Join(gh, ".gemini", "settings.json")}
 	case "cursor":
 		files = []string{filepath.Join(home, ".cursor", "auth.json"), filepath.Join(home, ".config", "cursor", "auth.json")}
+	case "opencode":
+		files = []string{opencodeAuth()}
+	case "pi":
+		files = []string{piAuth()}
 	}
 	var t time.Time
 	for _, f := range files {
@@ -228,4 +248,37 @@ func CredentialTime(id string) time.Time {
 		}
 	}
 	return t
+}
+
+// opencodeAuth is where OpenCode keeps its sign-ins: its data folder
+// ($XDG_DATA_HOME/opencode, else ~/.local/share/opencode).
+func opencodeAuth() string {
+	data := os.Getenv("XDG_DATA_HOME")
+	if data == "" {
+		home, _ := os.UserHomeDir()
+		data = filepath.Join(home, ".local", "share")
+	}
+	return filepath.Join(data, "opencode", "auth.json")
+}
+
+// piAuth is where Pi keeps its logins and keys ($PI_CODING_AGENT_DIR, else
+// ~/.pi/agent).
+func piAuth() string {
+	dir := os.Getenv("PI_CODING_AGENT_DIR")
+	if dir == "" {
+		home, _ := os.UserHomeDir()
+		dir = filepath.Join(home, ".pi", "agent")
+	}
+	return filepath.Join(dir, "auth.json")
+}
+
+// hasEntries is whether a JSON object file has a key at all; the values (the
+// credentials) are not kept.
+func hasEntries(path string) bool {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var m map[string]json.RawMessage
+	return json.Unmarshal(b, &m) == nil && len(m) > 0
 }

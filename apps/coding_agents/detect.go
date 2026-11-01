@@ -71,6 +71,10 @@ type AgentInfo struct {
 	// Login is the command line that signs the agent in, run in a terminal
 	// (agent_task_command); absent for an agent without one.
 	Login string `json:"login,omitempty"`
+	// ModelSource is where an agent that can run on PantheonOS models gets
+	// its models (codingagents.SourceSubscription or SourcePantheon); absent
+	// for the others.
+	ModelSource string `json:"model_source,omitempty"`
 }
 
 // Installable is a known agent missing here, with the command that installs it.
@@ -117,6 +121,7 @@ func (a *App) detect(refresh bool) map[string]any {
 	home, _ := os.UserHomeDir()
 	s := codingagents.LoadSettings()
 	found := codingagents.Apply(codingagents.Detect(refresh), s)
+	platform, platformOK := codingagents.PlatformOn()
 	infos := make([]AgentInfo, len(found))
 	var wg sync.WaitGroup
 	for i, f := range found {
@@ -124,8 +129,21 @@ func (a *App) detect(refresh bool) map[string]any {
 		if f.Custom || f.Missing {
 			continue
 		}
+		if codingagents.PlatformCapable(f.ID) {
+			infos[i].ModelSource = s.ModelSource(f.ID)
+		}
+		onPlatform := infos[i].ModelSource == codingagents.SourcePantheon
 		if c, ok := codingagents.Lookup(f.ID); ok && c.Headless != nil {
 			canvas := c.Headless.CanvasNow()
+			if onPlatform {
+				// The platform's models, not the account's.
+				canvas.ModelSource = codingagents.SourcePantheon
+				canvas.Models, canvas.ModelLabels, canvas.DefaultModel = nil, nil, ""
+				if platformOK {
+					m := codingagents.PlatformModels(f.ID, platform)
+					canvas.Models, canvas.ModelLabels, canvas.DefaultModel = m.IDs, m.Labels, m.Default
+				}
+			}
 			infos[i].Canvas = &canvas
 		}
 		infos[i].Update = updateCommand(f)
@@ -135,7 +153,8 @@ func (a *App) detect(refresh bool) map[string]any {
 			defer wg.Done()
 			infos[i].Status = codingagents.Inspect(f)
 		}()
-		if fetch := quotaReader(f); fetch != nil {
+		// An agent on PantheonOS spends the platform budget, not its account's quota.
+		if fetch := quotaReader(f); fetch != nil && !onPlatform {
 			a.refreshQuota(f.ID, fetch, refresh)
 		}
 	}
@@ -144,6 +163,18 @@ func (a *App) detect(refresh bool) map[string]any {
 	a.mu.Lock()
 	for i := range infos {
 		present[infos[i].ID] = true
+		if infos[i].ModelSource == codingagents.SourcePantheon {
+			// Ready with the node's platform key, whatever its own sign-in;
+			// without one, the next step says how to get one.
+			ready := platformOK
+			infos[i].SignedIn = &ready
+			if platformOK {
+				infos[i].Plan = "PantheonOS models"
+			} else {
+				infos[i].SignInNote = codingagents.PlatformMissing
+			}
+			continue
+		}
 		if l, ok := a.limits[infos[i].ID]; ok {
 			infos[i].Limits, infos[i].LimitsAt = l.Limits, l.At
 		}
@@ -170,7 +201,18 @@ func (a *App) detect(refresh bool) map[string]any {
 	// tasks: installs, sign-ins and updates run through agent_task_command.
 	return map[string]any{"success": true, "agents": infos, "installable": missing, "tasks": true, "home": home,
 		"pantheon": s.Access.Key != "", "projects": projectPaths(s.Projects), "workspaces": workspaceList(s.Projects),
-		"links": map[string]any{"send": linksSend, "receive": true, "note": linksNote()}}
+		"links":           map[string]any{"send": linksSend, "receive": true, "note": linksNote()},
+		"platform_models": platformModels(platformOK)}
+}
+
+// platformModels tells the desktop which agents can run on PantheonOS models
+// and whether this node can (it has a platform key), else what to do first.
+func platformModels(available bool) map[string]any {
+	out := map[string]any{"agents": codingagents.PlatformAgents, "available": available}
+	if !available {
+		out["note"] = codingagents.PlatformMissing
+	}
+	return out
 }
 
 // updateCommand is the command line that updates a detected agent in place;
@@ -269,6 +311,10 @@ func (a *App) terminalCommand(p TerminalArgs) map[string]any {
 	if err != nil {
 		return failure("%v", err)
 	}
+	platform, onPlatform := r.settings.PlatformFor(p.Agent)
+	if !onPlatform && r.settings.ModelSource(p.Agent) == codingagents.SourcePantheon {
+		return failure("Could not start %s on PantheonOS models: %s", r.found.Label, codingagents.PlatformMissing)
+	}
 	term := a.newTerminal(p.Agent, r.found.Label, p.Cwd)
 	if p.Resume != "" {
 		// A session resumed here is the desktop's from now on.
@@ -301,8 +347,18 @@ func (a *App) terminalCommand(p TerminalArgs) map[string]any {
 		}
 		// Before the user's own arguments, which may turn it back on.
 		argv = append(argv, agent.QuietArgs...)
-		if set.Model != "" && agent.ModelFlag != "" {
-			argv = append(argv, agent.ModelFlag, set.Model)
+		model := codingagents.SubscriptionModel(set.Model)
+		if onPlatform {
+			models := codingagents.PlatformModels(p.Agent, platform)
+			extra, err := codingagents.PlatformArgs(p.Agent, platform, models)
+			if err != nil {
+				return failure("Could not start %s on PantheonOS models: %v", r.found.Label, err)
+			}
+			argv = append(argv, extra...)
+			model = codingagents.PlatformModelArg(p.Agent, codingagents.PlatformModel(set.Model, models))
+		}
+		if model != "" && agent.ModelFlag != "" {
+			argv = append(argv, agent.ModelFlag, model)
 		}
 		argv = append(argv, set.Args...)
 		if note := codingagents.Note(r.settings, launch); note != "" && agent.Instructions != nil {
@@ -329,6 +385,10 @@ func (a *App) terminalCommand(p TerminalArgs) map[string]any {
 		return failure("%v", err)
 	}
 	command := "( set -a; . " + shellQuote(envFile) + "; set +a; rm -f " + shellQuote(envFile) + "; "
+	if unset := codingagents.LaunchUnset(r.settings, launch); len(unset) > 0 {
+		// The user's own keys would take the agent off PantheonOS models.
+		command += "unset " + strings.Join(unset, " ") + "; "
+	}
 	switch {
 	case hookErr == nil:
 		// The agent runs as the subshell's child, so the subshell outlives it

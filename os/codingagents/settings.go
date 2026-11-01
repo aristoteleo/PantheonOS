@@ -34,6 +34,9 @@ type AgentSettings struct {
 	Model   string            `json:"model,omitempty"`
 	// Auto is the default for full-auto mode; nil means on.
 	Auto *bool `json:"auto,omitempty"`
+	// ModelSource is where its models come from (SourceSubscription, the
+	// default, or SourcePantheon); empty is the subscription.
+	ModelSource string `json:"model_source,omitempty"`
 }
 
 // CustomAgent is an agent the catalog does not know, run in a terminal.
@@ -147,6 +150,15 @@ func (s Settings) Validate() error {
 		}
 		if a.Command != "" && !filepath.IsAbs(a.Command) && strings.ContainsAny(a.Command, `/\ `) {
 			return fmt.Errorf("%s: the command is an absolute path or a name on PATH", id)
+		}
+		switch a.ModelSource {
+		case "", SourceSubscription:
+		case SourcePantheon:
+			if !PlatformCapable(id) {
+				return fmt.Errorf("%s cannot run on PantheonOS models", id)
+			}
+		default:
+			return fmt.Errorf("%s: the model source is %q or %q", id, SourceSubscription, SourcePantheon)
 		}
 	}
 	seen := map[string]bool{}
