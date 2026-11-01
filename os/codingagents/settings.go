@@ -60,6 +60,9 @@ type Settings struct {
 	Agents map[string]AgentSettings `json:"agents,omitempty"`
 	Custom []CustomAgent            `json:"custom,omitempty"`
 	Access Access                   `json:"access,omitempty"`
+	// Platform is the PantheonOS model service key the signed-in desktop
+	// handed a node whose environment has none (a computer of the user's).
+	Platform *Platform `json:"platform,omitempty"`
 	// Projects are the folders the user works in on this node; the desktop
 	// lists the agents' sessions in them and leaves the rest out.
 	Projects []Project `json:"projects,omitempty"`
@@ -244,5 +247,6 @@ func (s Settings) Redacted() map[string]any {
 		projects = []Project{}
 	}
 	return map[string]any{"agents": agents, "custom": custom, "projects": projects,
-		"access": map[string]any{"enabled": s.Access.Key != "", "key_id": s.Access.KeyID, "hub_url": s.Access.HubURL}}
+		"access":   map[string]any{"enabled": s.Access.Key != "", "key_id": s.Access.KeyID, "hub_url": s.Access.HubURL},
+		"platform": map[string]any{"enabled": s.Platform != nil}}
 }

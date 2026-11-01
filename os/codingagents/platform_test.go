@@ -55,22 +55,27 @@ func onPlatform(t *testing.T, base string) {
 
 func TestPlatformOn(t *testing.T) {
 	onPlatform(t, "https://hub.test/litellm/v1/")
-	p, ok := PlatformOn()
+	p, ok := Settings{}.PlatformOn()
 	if !ok || p.Base != "https://hub.test/litellm" || p.Key != testPlatformKey {
 		t.Fatalf("%v %+v", ok, p.Base)
 	}
 	t.Setenv("LLM_API_KEY", placeholderKeyPrefix+"-x")
-	if _, ok := PlatformOn(); ok {
+	if _, ok := (Settings{}).PlatformOn(); ok {
 		t.Error("a placeholder is no key")
 	}
 	t.Setenv("LLM_API_KEY", "")
-	if _, ok := PlatformOn(); ok {
+	if _, ok := (Settings{}).PlatformOn(); ok {
 		t.Error("no key, no platform")
 	}
 	t.Setenv("LLM_API_KEY", testPlatformKey)
 	t.Setenv("LLM_API_BASE", "file:///etc")
-	if _, ok := PlatformOn(); ok {
+	if _, ok := (Settings{}).PlatformOn(); ok {
 		t.Error("the base is an http(s) URL")
+	}
+	// Without one in the environment, the key the desktop handed the node.
+	t.Setenv("LLM_API_KEY", "")
+	if p, ok := (Settings{Platform: &Platform{Base: "https://hub.test/litellm/v1", Key: testPlatformKey}}).PlatformOn(); !ok || p.Base != "https://hub.test/litellm" {
+		t.Errorf("stored key: %v %q", ok, p.Base)
 	}
 }
 

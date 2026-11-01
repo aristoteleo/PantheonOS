@@ -121,7 +121,7 @@ func (a *App) detect(refresh bool) map[string]any {
 	home, _ := os.UserHomeDir()
 	s := codingagents.LoadSettings()
 	found := codingagents.Apply(codingagents.Detect(refresh), s)
-	platform, platformOK := codingagents.PlatformOn()
+	platform, platformOK := s.PlatformOn()
 	infos := make([]AgentInfo, len(found))
 	var wg sync.WaitGroup
 	for i, f := range found {
@@ -208,11 +208,34 @@ func (a *App) detect(refresh bool) map[string]any {
 // platformModels tells the desktop which agents can run on PantheonOS models
 // and whether this node can (it has a platform key), else what to do first.
 func platformModels(available bool) map[string]any {
-	out := map[string]any{"agents": codingagents.PlatformAgents, "available": available}
+	// connect: the desktop may hand it its signed-in user's key (agents_platform).
+	out := map[string]any{"agents": codingagents.PlatformAgents, "available": available, "connect": true}
 	if !available {
 		out["note"] = codingagents.PlatformMissing
 	}
 	return out
+}
+
+// setPlatform stores (or with an empty key, removes) the PantheonOS model
+// service key the signed-in desktop hands this node, for its agents on
+// PantheonOS models. The key is never given back.
+func (a *App) setPlatform(base, key string) map[string]any {
+	var p *codingagents.Platform
+	if key != "" {
+		checked, ok := codingagents.CheckPlatform(base, key)
+		if !ok {
+			return failure("That is not a PantheonOS model service and key")
+		}
+		p = &checked
+	}
+	s, err := codingagents.UpdateSettings(func(s *codingagents.Settings) error {
+		s.Platform = p
+		return nil
+	})
+	if err != nil {
+		return failure("%v", err)
+	}
+	return map[string]any{"success": true, "settings": s.Redacted()}
 }
 
 // updateCommand is the command line that updates a detected agent in place;

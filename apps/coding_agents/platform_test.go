@@ -195,6 +195,37 @@ func TestDetectionOnPlatformModels(t *testing.T) {
 	}
 }
 
+func TestPlatformKeyFromTheDesktop(t *testing.T) {
+	_, base := platformNode(t, "", "")
+	t.Setenv("LLM_API_KEY", "")
+	a := NewApp(nil, "", t.TempDir())
+	defer a.Close()
+	setSource(t, a, map[string]string{"claude": codingagents.SourcePantheon})
+	if pm := a.detect(false)["platform_models"].(map[string]any); pm["available"] != false || pm["connect"] != true {
+		t.Fatalf("platform_models %v", pm)
+	}
+	if r := a.setPlatform("file:///etc", platformKey); r["success"] != false {
+		t.Errorf("not a model service: %v", r)
+	}
+	r := a.setPlatform(base+"/", platformKey)
+	if r["success"] != true || strings.Contains(fmt.Sprint(r), platformKey) {
+		t.Fatalf("set: %v", r)
+	}
+	got := agentInfo(t, a, "claude")
+	if got.SignedIn == nil || !*got.SignedIn || got.Canvas.DefaultModel != "openrouter/anthropic/claude-sonnet-4.6" {
+		t.Errorf("ready with the handed key: %+v %+v", got.Status, got.Canvas)
+	}
+	if strings.Contains(fmt.Sprint(a.detect(false)), platformKey) {
+		t.Error("detection shows the key")
+	}
+	if r := a.setPlatform("", ""); r["success"] != true {
+		t.Fatalf("clear: %v", r)
+	}
+	if pm := a.detect(false)["platform_models"].(map[string]any); pm["available"] != false {
+		t.Errorf("cleared, still %v", pm)
+	}
+}
+
 func TestTerminalOnPlatformModels(t *testing.T) {
 	platformNode(t, "", "")
 	a := NewApp(nil, "", t.TempDir())

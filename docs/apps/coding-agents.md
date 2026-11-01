@@ -521,8 +521,12 @@ source in the node's settings (`model_source`: `subscription`, the default,
 or `pantheon`), set through `agents_configure` like its other settings.
 
 - **Key.** The node's platform model service is `LLM_API_BASE` and
-  `LLM_API_KEY` of its workspace environment (a hosted workspace has them).
-  A node without them cannot: detection reports
+  `LLM_API_KEY` of its workspace environment (a hosted workspace has them),
+  else the one the signed-in desktop handed it: choosing PantheonOS on a node
+  without one, the desktop reads the user's `/api/users/me/llm-proxy` and
+  gives its base and key to `agents_platform`, which keeps them in the
+  settings file (owner-only, never returned; `platform_models.connect` says
+  the node takes them). A node without either cannot: detection reports
   `platform_models: {agents, available, note}`, and with source `pantheon`
   the agent counts as not signed in, `sign_in_note` the next step; a turn
   or terminal launch is refused with it rather than run on the user's own

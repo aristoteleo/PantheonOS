@@ -298,6 +298,23 @@
         ]
       },
       {
+        "name": "agents_platform",
+        "description": "Give agents on this node the PantheonOS model service (its base URL and the signed-in user's key), for agents set to PantheonOS models on a node whose environment has none; an empty key removes it. The key is never returned.\n\nArgs:\n    base: The model service base URL.\n    key: The user's key for it.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "base",
+            "type": "str",
+            "default": ""
+          },
+          {
+            "name": "key",
+            "type": "str",
+            "default": ""
+          }
+        ]
+      },
+      {
         "name": "agents_browse",
         "description": "List the folders in a folder on this node (home when empty), for picking a project.\n\nArgs:\n    path: the folder to list.",
         "hidden": true,
@@ -698,6 +715,7 @@
           "agents_workspace_adopt",
           "agents_project_git_init",
           "agents_access",
+          "agents_platform",
           "agents_skills",
           "agents_repo_info",
           "agents_folder_tree",

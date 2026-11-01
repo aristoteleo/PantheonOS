@@ -188,6 +188,9 @@ func Tools(app *App) ([]*appsvc.Tool, error) {
 		"agents_access": func(_ context.Context, p map[string]any) (any, error) {
 			return app.setAccess(strP(p, "key"), intP(p, "key_id"), strP(p, "hub_url")), nil
 		},
+		"agents_platform": func(_ context.Context, p map[string]any) (any, error) {
+			return app.setPlatform(strP(p, "base"), strP(p, "key")), nil
+		},
 		"agent_stop": func(_ context.Context, p map[string]any) (any, error) {
 			return app.stop(strP(p, "conversation_id")), nil
 		},

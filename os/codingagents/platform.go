@@ -48,14 +48,15 @@ func (s Settings) ModelSource(id string) string {
 // Platform is the PantheonOS model service as this node reaches it: the
 // proxy's base URL (without /v1) and the user's key for it.
 type Platform struct {
-	Base string
-	Key  string
+	Base string `json:"base"`
+	Key  string `json:"key"`
 }
 
-// PlatformOn is the PantheonOS model service of this node, from its
+// PlatformOn is the PantheonOS model service of this node: from its
 // workspace environment (LLM_API_BASE, LLM_API_KEY: a hosted workspace has
-// them); false where the node has no key for it.
-func PlatformOn() (Platform, bool) {
+// them), else the one the signed-in desktop handed it; false where the node
+// has no key for it.
+func (s Settings) PlatformOn() (Platform, bool) {
 	var base, key string
 	for _, kv := range workspaceEnv() {
 		name, value, _ := strings.Cut(kv, "=")
@@ -66,6 +67,18 @@ func PlatformOn() (Platform, bool) {
 			key = strings.TrimSpace(value)
 		}
 	}
+	if p, ok := CheckPlatform(base, key); ok {
+		return p, true
+	}
+	if s.Platform != nil {
+		return CheckPlatform(s.Platform.Base, s.Platform.Key)
+	}
+	return Platform{}, false
+}
+
+// CheckPlatform is the model service at base with key, normalised; false
+// when either is not one an agent can be pointed at.
+func CheckPlatform(base, key string) (Platform, bool) {
 	if key == "" || placeholderKey(key) || strings.ContainsAny(key, " \t\r\n") {
 		return Platform{}, false
 	}
@@ -83,7 +96,7 @@ func (s Settings) PlatformFor(id string) (Platform, bool) {
 	if s.ModelSource(id) != SourcePantheon {
 		return Platform{}, false
 	}
-	return PlatformOn()
+	return s.PlatformOn()
 }
 
 // platformKeyVar carries the key to Codex, which reads it by this name
