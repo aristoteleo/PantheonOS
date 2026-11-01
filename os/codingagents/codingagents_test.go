@@ -429,3 +429,21 @@ func TestVersionReadsStderrWhenStdoutIsEmpty(t *testing.T) {
 		t.Fatalf("version = %q, want 0.74.2", v)
 	}
 }
+
+func TestVersionIsAskedAgainAfterNoAnswer(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "agent")
+	flag := filepath.Join(dir, "ready")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n[ -e "+flag+" ] && echo 1.2.3\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if v := version(bin); v != "" {
+		t.Fatalf("first version = %q", v)
+	}
+	if err := os.WriteFile(flag, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if v := version(bin); v != "1.2.3" {
+		t.Fatalf("second version = %q, want 1.2.3", v)
+	}
+}

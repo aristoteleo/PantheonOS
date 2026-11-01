@@ -68,9 +68,13 @@ func version(path string) string {
 	if len(v) > 60 {
 		v = v[:60]
 	}
-	versionMu.Lock()
-	versions[key] = v
-	versionMu.Unlock()
+	// A slow start (several agents at once on a small machine) is asked
+	// again next time, not remembered as no version.
+	if v != "" {
+		versionMu.Lock()
+		versions[key] = v
+		versionMu.Unlock()
+	}
 	return v
 }
 
