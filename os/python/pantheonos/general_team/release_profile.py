@@ -195,8 +195,13 @@ def model_app(name, item, *, render=_render, routes=None, catalog=()):
     """A Connector App that registers itself as its model service (§9)."""
     app = _app(name, item['app'], render)
     values = app['config']['backend']['values']
+    # Required (tier) models carry the catalog's labelled capabilities too:
+    # without them they publish with tool calling unconfirmed, and a tier
+    # route (which requires tools) cannot resolve them.
+    suggested = {m['id']: m['suggested'] for m in catalog if m.get('suggested')}
     required = [{'id': m['id'], 'required': True,
-                 **{k: m[k] for k in ('context_limit', 'operations') if k in m}} for m in item['models']]
+                 **{k: m[k] for k in ('context_limit', 'operations') if k in m},
+                 **({'suggested': suggested[m['id']]} if m['id'] in suggested else {})} for m in item['models']]
     listed = {m['id'] for m in required}
     values['directory'] = {
         'deployment_id': item['deployment_id'], 'name': item['name'],

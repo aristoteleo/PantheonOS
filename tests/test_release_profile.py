@@ -32,7 +32,8 @@ def spec():
 
 
 def test_profile_has_only_controller_and_hub_placeholders():
-    profile = compile_profile(spec(), tiers={'high': ['claude']}, catalog=[{'id': 'glm', 'suggested': {'tools': True}}])
+    profile = compile_profile(spec(), tiers={'high': ['claude']}, catalog=[
+        {'id': 'glm', 'suggested': {'tools': True}}, {'id': 'claude', 'suggested': {'tools': True, 'context': 1000000}}])
     apps = profile['spec']['apps']
     agent = apps['agent']['config']['backend']['values']
     assert 'controller' not in agent and agent['workspace'] == '/workspace/default_workspace'
@@ -57,6 +58,9 @@ def test_profile_has_only_controller_and_hub_placeholders():
                                                 'secret_ref': {'$secret_ref': 'budget'}}
     directory = connector['values']['directory']
     assert [m['id'] for m in directory['models']] == ['claude', 'glm'] and directory['routes'] == {'tier-high': ['claude']}
+    # A required tier model carries the catalog's capabilities: a tier route requires tools.
+    assert directory['models'][0] == {'id': 'claude', 'required': True, 'context_limit': 200000,
+                                      'suggested': {'tools': True, 'context': 1000000}}
     assert connector['credentials'] == {'directory': {'$secret': 'directory'}}
     assert profile['spec']['secrets'] == sorted(profile['secrets']) == ['budget', 'directory', 'owner-controller', 'owner-hub']
     text = json.dumps(profile)
