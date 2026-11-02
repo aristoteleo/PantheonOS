@@ -47,8 +47,9 @@ def icon_hash(icon: str) -> str:
 
 def build_index(apps: list[dict], placements: dict[str, dict], store_root: Path | None = None
                 ) -> tuple[list[dict], dict[str, str]]:
-    """The index of `apps` (desktop_app_registry's entries) with their
-    placement records, and the icons to store beside it ({App id: data URI})."""
+    """The index of `apps` (desktop_app_registry's entries; `store` marks a
+    Store install) with their placement records, and the icons to store
+    beside it ({App id: data URI})."""
     entries, icons = [], {}
     store_root = Path(store_root).resolve() if store_root else None
     for app in apps:
@@ -58,7 +59,8 @@ def build_index(apps: list[dict], placements: dict[str, dict], store_root: Path 
             continue
         directory = Path(app.get('dir') or '/')
         kind = ('builtin' if app.get('scope') == 'builtin'
-                else 'store' if store_root and directory.resolve().is_relative_to(store_root) else 'packaged')
+                else 'store' if app.get('store') or (store_root and directory.resolve().is_relative_to(store_root))
+                else 'packaged')
         record = placements.get(app_id) or {}
         entry: dict[str, Any] = {
             'id': app_id, 'name': manifest.get('name') or app_id, 'version': manifest.get('version') or '',

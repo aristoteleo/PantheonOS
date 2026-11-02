@@ -127,6 +127,9 @@ async def test_registry_reads_and_placement_changes_reach_the_controller(tmp_pat
     app.mkdir(parents=True)
     (app / 'app.json').write_text(json.dumps({'id': 'notes', 'name': 'Notes', 'version': '1.0.0', 'apiVersion': 2,
                                               'surface': 'dom', 'entry': {'frontend': 'main.js'}}))
+    # Installed from the Store: the package is recorded beside the library.
+    (tmp_path / 'app-store').mkdir()
+    (tmp_path / 'app-store' / 'notes.json').write_text(json.dumps({'package_id': 'p1', 'origin': 'store'}))
     service = IndexService()
     state = tmp_path / 'state'
     state.mkdir()
@@ -137,6 +140,7 @@ async def test_registry_reads_and_placement_changes_reach_the_controller(tmp_pat
     assert (await tools.desktop_app_registry())['success']
     await tools._app_index().wait()
     assert [a['id'] for a in service.apps] == ['notes'] and service.apps[0]['placement']['policy'] == 'on_demand'
+    assert service.apps[0]['kind'] == 'store'
     assert (await tools.desktop_app_placement('policy', 'notes', policy='resident'))['success']
     await tools._app_index().wait()
     assert service.apps[0]['placement']['policy'] == 'resident'

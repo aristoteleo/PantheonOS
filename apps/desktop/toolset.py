@@ -1987,8 +1987,17 @@ class DesktopToolSet(ToolSet):
         from .app_index import build_index
         from .app_placement import AppPlacement
         from .store_manager import AppStoreManager
+        from pathlib import Path
         manager = AppStoreManager(self._app_scope_roots())
         apps, _, _ = _scan_registry(self._registry_roots(manager))
+        for app in apps:
+            # A Store install lands in the user scope under its App id, with
+            # its package recorded beside the library.
+            if app['scope'] == 'user':
+                try:
+                    app['store'] = bool(manager._record(Path(app['dir']).name).get('package_id'))
+                except (OSError, ValueError):
+                    pass
         return build_index(apps, AppPlacement(manager, None).defaults(), manager.records / 'installed')
 
     def _app_index_changed(self) -> None:
