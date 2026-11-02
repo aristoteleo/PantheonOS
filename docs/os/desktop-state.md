@@ -447,3 +447,51 @@ node, provided it was installed there once. C3 — a Store install republishes
 the index; the second tab receives `desktop.apps` and re-reads its registry.
 C4 — Go (`-race`), Python and vitest tests below.
 
+
+## After P2 — the desktop does not wait for any node
+
+Status: UI only, live on staging (2026-11-02). Hub unchanged.
+
+**What the desktop waited for.** In deployment mode `workspace.connect()`
+(`ui/src/desktop/stores/workspace.ts`) ran, in order: GET `/api/chatroom`
+(the hub's `TopologyPool.assign_to_user`, which holds the per-user
+provisioning lock while the brain pod is deleted or created — about 30 s
+during a restart), the controller ping (`Hub.deployment('agent')`), GET
+`/api/chatroom` again, and only then opened the desktop. A reload during a
+restart therefore sat behind the full start screen for the restart's length,
+and an open desktop went back through the same wait whenever it saw the
+Workspace change: a new Workspace boot token (`probeHost`), a reassigned
+sandbox (`refreshStats`), or a new connection identity (`desktopSession`'s
+connection watcher). The App bus, desktop-state, the Fleet App and the App
+index never needed the brain or the Workspace.
+
+**Now.** A deployment's desktop opens when the controller answers (the
+deployment read and the App bus connection), not when a sandbox is assigned:
+
+- Whether this is a deployment is remembered per user and origin from the
+  hub's last `/api/chatroom` answer (`app_deployment`); on a first visit an
+  Agent deployment on the controller says so. `/api/chatroom` is still asked,
+  in the background, to wake the sandbox and learn its tunnels; an answer
+  without `app_deployment` reconnects the classic way.
+- Restart Sandbox (Settings) goes through `workspace.restart()`: the desktop
+  stays `ready`, `restarting` shows in the menu bar ("Workspace restarting…",
+  with the deployment's progress), Workspace-bound windows wait ("Waiting for
+  Workspace…"), and the Workspace rejoins when the hub has answered. A new
+  boot token or a reassigned sandbox rejoins the Workspace the same way. A
+  session kept by the Workspace (no desktop-state) is detached and attached
+  again with it; the controller's session stays attached.
+- The connection watcher re-attaches the session quietly on a deployment.
+- The Fleet inventory is re-read, not cleared, when only the Workspace
+  changed, so nodes (a Mac's Coding Agents) stay listed.
+- The start screen covers the desktop only before anything was painted (no
+  browser cache, until the controller answers) or when the desktop's own
+  connection failed (controller or App bus unreachable: Retry). Otherwise a
+  reconnect is a corner card, however long it lasts.
+
+**Limits.** Without desktop-state (an older release) a restart or reload
+still keeps the desktop open from the browser cache, but changes made while
+the Workspace is away stay in this browser until it returns, a fresh browser
+draws an empty desktop until the Workspace answers, and Store Apps appear only
+once its registry is read. The hub kicks the other nodes only after the brain
+(`TopologyPool.assign_to_user` awaits the service node first): with the brain
+stuck, a stopped Workspace is not woken, though the desktop stays open.
