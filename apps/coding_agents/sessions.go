@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/aristoteleo/pantheonos/os/codingagents"
@@ -25,40 +26,52 @@ func (a *App) sessions(agent string, limit int) map[string]any {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	var rows []codingagents.NativeSession
-	var errs []string
-	if agent == "" || agent == "claude" {
-		if _, err := resolve("claude"); err == nil {
-			rows = append(rows, codingagents.ClaudeSessions(limit)...)
+	// Each agent's list on its own, at once: one slow agent (Codex asks its
+	// app server) holds up no other.
+	var (
+		mu   sync.Mutex
+		wg   sync.WaitGroup
+		rows []codingagents.NativeSession
+		errs []string
+	)
+	read := func(id, label string, list func(r resolved) ([]codingagents.NativeSession, error)) {
+		if agent != "" && agent != id {
+			return
 		}
-	}
-	if agent == "" || agent == "codex" {
-		if r, err := resolve("codex"); err == nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			list, err := codingagents.CodexSessions(ctx, r.path, codingagents.AgentEnv("codex"), limit)
-			cancel()
+		r, err := resolve(id)
+		if err != nil {
+			return
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			got, err := list(r)
+			mu.Lock()
+			defer mu.Unlock()
 			if err != nil {
-				errs = append(errs, "Codex: "+err.Error())
+				errs = append(errs, label+": "+err.Error())
 			}
-			rows = append(rows, list...)
-		}
+			rows = append(rows, got...)
+		}()
 	}
-	if agent == "" || agent == "pi" {
-		if _, err := resolve("pi"); err == nil {
-			rows = append(rows, codingagents.PiSessions(limit)...)
-		}
-	}
-	if agent == "" || agent == "opencode" {
-		if r, err := resolve("opencode"); err == nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			list, err := codingagents.OpenCodeSessions(ctx, r.path, codingagents.AgentEnv("opencode"), limit, sessionFolders(r.settings))
-			cancel()
-			if err != nil {
-				errs = append(errs, "OpenCode: "+err.Error())
-			}
-			rows = append(rows, list...)
-		}
-	}
+	read("claude", "Claude Code", func(resolved) ([]codingagents.NativeSession, error) {
+		return codingagents.ClaudeSessions(limit), nil
+	})
+	read("codex", "Codex", func(r resolved) ([]codingagents.NativeSession, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		return codingagents.CodexSessions(ctx, r.path, codingagents.AgentEnv("codex"), limit)
+	})
+	read("pi", "Pi", func(resolved) ([]codingagents.NativeSession, error) {
+		return codingagents.PiSessions(limit), nil
+	})
+	read("opencode", "OpenCode", func(r resolved) ([]codingagents.NativeSession, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		return codingagents.OpenCodeSessions(ctx, r.path, codingagents.AgentEnv("opencode"), limit, sessionFolders(r.settings))
+	})
+	wg.Wait()
+	sort.Strings(errs)
 	sort.Slice(rows, func(i, j int) bool { return rows[i].UpdatedAt > rows[j].UpdatedAt })
 	if len(rows) > limit {
 		rows = rows[:limit]
