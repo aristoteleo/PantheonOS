@@ -118,6 +118,13 @@ fields stay) and, when a chosen model is not yet published by that owner's
 `platform` deployment, adds its entry there (copied from an owner whose
 Connector published it; the Connector keeps entries it can still serve).
 
+A tier route requires tool calling, so a chain model an owner publishes with
+tool calling unconfirmed (`tools: null`, as the Connector published the
+release's tier models before the profile carried their capabilities) cannot
+resolve: the Agent reports the tier as unavailable. Applying states the
+capabilities another owner's platform service confirmed for the same model,
+also for owners whose chain is already current.
+
 Rollback writes a new row with the chains of the latest earlier row whose
 chains differ, and applies it: owners who followed the default get exactly the
 previous chains back. Models added to `platform` deployments stay published.
