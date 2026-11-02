@@ -151,6 +151,18 @@ def _desktop_state(configuration):
     return DependencyClient(credential)
 
 
+def _user_workspaces(config, workspace):
+    """Where the user's desktop files are: the configured data roots (the
+    user's workspace, e.g. /workspace/default_workspace, the Files App's cwd)
+    before the Desktop App's own workspace directory."""
+    roots = []
+    for root in [*config['data_roots'], workspace]:
+        path = Path(root).resolve()
+        if path not in roots:
+            roots.append(path)
+    return roots
+
+
 async def create_service(configuration, workspace, state, *, data_port=0):
     config, workspace, state, roots, served, fleet, events, store, server_config, base = _prepare(
         configuration, workspace, state, data_port=data_port)
@@ -166,7 +178,8 @@ async def create_service(configuration, workspace, state, *, data_port=0):
         if base is not None:
             server.set_tunnel_base(base)
         service = DesktopToolSet(
-            session_binding=DesktopSessionBinding(state, publisher, desktop_state=desktop_state, workspace=workspace),
+            session_binding=DesktopSessionBinding(state, publisher, desktop_state=desktop_state,
+                workspaces=_user_workspaces(config, workspace)),
             files_binding=DesktopFilesBinding(workspace=workspace, app_roots=roots,
                 data_roots=served, server=server, node_id=configuration.node_id),
             fleet_binding=DesktopFleetBinding(fleet_id=configuration.owner, node_id=configuration.node_id,

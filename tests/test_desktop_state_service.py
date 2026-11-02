@@ -94,8 +94,16 @@ async def test_agent_tools_and_viewports_share_the_service_session(tmp_path, wor
               'windows': [{'id': 'win-1', 'app_id': 'files', 'title': 'Files'}]}
     (state / '.pantheon/desktop.json').write_text(json.dumps(record))
     service = FakeService(tmp_path)
+    # The Desktop App's own workspace directory is not where the UI kept the
+    # settings: they are in the user's workspace, a data root (staging 0.9.101
+    # imported the session but looked for settings in the App's directory).
+    own = tmp_path / 'desktop-app-workspace'
+    own.mkdir()
+    from pantheonos.appkit.builtin.desktop.managed import _user_workspaces
+    roots = _user_workspaces({'data_roots': [str(workspace)]}, own)
+    assert roots == [workspace.resolve(), own.resolve()]
     tools = DesktopToolSet(session_binding=DesktopSessionBinding(
-        state, publisher(), desktop_state=service, workspace=workspace))
+        state, publisher(), desktop_state=service, workspaces=roots))
 
     opened = await tools.desktop_intent('open', {'app_id': 'terminal', 'title': 'Terminal'})
     assert opened['success'] and opened['window_id'] == 'win-1' and opened['seq'] == 1
@@ -125,7 +133,7 @@ async def test_agent_tools_and_viewports_share_the_service_session(tmp_path, wor
 
 def test_a_down_service_fails_the_call_instead_of_forking_the_desktop(tmp_path, workspace):
     service = FakeService(tmp_path)
-    remote = RemoteDesktopSession(service, record=tmp_path / 'none.json', workspace=workspace)
+    remote = RemoteDesktopSession(service, record=tmp_path / 'none.json', workspaces=[workspace])
     service.down = True
     from pantheonos.appkit.dependency_client import DependencyCallError
     with pytest.raises(DependencyCallError):
@@ -146,7 +154,7 @@ def test_an_unreadable_record_does_not_block_the_rest(tmp_path, workspace):
     record = tmp_path / 'desktop.json'
     record.write_text(json.dumps({'v': 2, 'spaces': 'many'}))
     service = Picky(tmp_path)
-    RemoteDesktopSession(service, record=record, workspace=workspace).current()
+    RemoteDesktopSession(service, record=record, workspaces=[workspace]).current()
     assert service.imports[0]['settings'] == {'version': 2, 'wallpaper': 'dunes'}
     assert 'session' not in service.imports[0]
 

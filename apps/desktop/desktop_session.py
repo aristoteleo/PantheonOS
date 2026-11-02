@@ -609,10 +609,13 @@ class RemoteDesktopSession:
     copies of the desktop is the bug the document exists to prevent.
     """
 
-    def __init__(self, client, *, record: Path, workspace: Path | None = None, timeout: int = 30):
+    def __init__(self, client, *, record: Path, workspaces=(), timeout: int = 30):
         self._client = client
         self._record = Path(record)
-        self._workspace = Path(workspace) if workspace is not None else None
+        # Where the UI kept the desktop settings and appearance: the user's
+        # workspace (the Files App's cwd), which is a data root of the Desktop,
+        # not the Desktop App's own workspace directory.
+        self._workspaces = [Path(w) for w in workspaces]
         self._timeout = timeout
         self._imported = False
         self._lock = threading.Lock()
@@ -648,13 +651,13 @@ class RemoteDesktopSession:
             record = _read_json(self._record)
             if record is not None:
                 args["session"] = record
-            if self._workspace is not None:
-                settings = _read_json(self._workspace / SETTINGS_RECORD)
-                if settings is not None:
-                    args["settings"] = settings
-                preference = _appearance(self._workspace / APPEARANCE_RECORDS)
-                if preference:
-                    args["appearance"] = {"preference": preference}
+            settings = next((value for value in (_read_json(w / SETTINGS_RECORD) for w in self._workspaces)
+                             if value is not None), None)
+            if settings is not None:
+                args["settings"] = settings
+            preference = _appearance([w / APPEARANCE_RECORDS for w in self._workspaces])
+            if preference:
+                args["appearance"] = {"preference": preference}
             try:
                 result = self._call("import", args)
             except ValueError as e:
@@ -665,8 +668,11 @@ class RemoteDesktopSession:
                 logger.warning("desktop-state refused the session record, importing the rest: {}", e)
                 args.pop("session")
                 result = self._call("import", args)
-            if result.get("dropped"):
-                logger.warning("desktop-state import left out windows over its limits: {}", result["dropped"])
+            sent = [part for part in ("session", "settings", "appearance") if part in args]
+            stored = [part for part, done in (result.get("imported") or {}).items() if done]
+            logger.info("desktop-state import: sent {} from {}; stored {}; dropped {} windows",
+                        ",".join(sent) or "nothing", ",".join(str(w) for w in self._workspaces) or "-",
+                        ",".join(stored) or "nothing (already present)", len(result.get("dropped") or []))
             self._imported = True
 
     def _adopt(self, document: dict[str, Any]) -> None:
@@ -716,12 +722,15 @@ def _read_json(path: Path) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
-def _appearance(users: Path) -> str:
+def _appearance(roots) -> str:
     """The Workspace's appearance preference: the most recently written user file."""
-    try:
-        files = sorted(users.glob("*/appearance.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-    except OSError:
-        return ""
+    files = []
+    for users in roots:
+        try:
+            files += [(p.stat().st_mtime, p) for p in users.glob("*/appearance.json")]
+        except OSError:
+            continue
+    files = [p for _, p in sorted(files, key=lambda item: item[0], reverse=True)]
     for path in files:
         preference = (_read_json(path) or {}).get("preference")
         if preference in ("light", "dark", "system"):

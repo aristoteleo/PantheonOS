@@ -217,9 +217,13 @@ whole detection. With it, `DesktopSessionBinding` uses `RemoteDesktopSession`
 (`desktop_session.py`): `apply` → `intent`, `current` → `get`, same surface as
 the file store, so the Agent's desktop tools and every viewport share one
 session. Before its first call in a process it sends `import` with
-`<state>/.pantheon/desktop.json` (the Desktop's own record), the workspace's
-`.pantheon/atrium/desktop.json`, the newest `.pantheon/atrium/users/*/appearance.json`
-and its container `boot` token; it then writes none of these files (they stay
+`<state>/.pantheon/desktop.json` (the Desktop's own record), the user
+workspace's `.pantheon/atrium/desktop.json` and newest
+`.pantheon/atrium/users/*/appearance.json` and its container `boot` token, and
+logs one line saying which parts it sent and the service stored. The user
+workspace is the Desktop's configured data root (`/workspace/default_workspace`,
+the Files App's cwd), not the Desktop App's own workspace directory, which is
+where 0.9.101 looked and so imported no settings; it then writes none of these files (they stay
 on disk, unread, as the fallback copy). A failed call fails the tool rather
 than falling back to files. It still publishes its deltas on the Workspace's
 `desktop` stream for viewports that listen there. Without the credential (a
