@@ -157,7 +157,7 @@ func TestTerminalCommand(t *testing.T) {
 	fakeAgent(t, "codex", "")
 	a := NewApp(nil, "", t.TempDir())
 	defer a.Close()
-	if r := a.setAccess("pbk_test", 7, "https://hub.test/"); r["success"] != true {
+	if r := a.setAccess("pbk_test", 7, "https://hub.test/", false); r["success"] != true {
 		t.Fatal(r)
 	}
 	res := a.terminalCommand(TerminalArgs{Agent: "codex", Resume: "it's-1", Auto: true, Cwd: "/w"})
@@ -279,7 +279,7 @@ func TestSettingsAndAccessShapeTurns(t *testing.T) {
 	if r["success"] != true {
 		t.Fatal(r)
 	}
-	a.setAccess("pbk_k", 3, "https://hub.test")
+	a.setAccess("pbk_k", 3, "https://hub.test", false)
 	id := a.send(SendArgs{Agent: "claude", Prompt: "hi", Auto: true})["conversation_id"].(string)
 	waitIdle(t, a, id)
 	calls, _ := os.ReadFile(record)
@@ -308,7 +308,7 @@ func TestSettingsAndAccessShapeTurns(t *testing.T) {
 	if r := a.configure(Configure{Agents: map[string]codingagents.AgentSettings{"claude": {Env: map[string]string{"BAD NAME": "x"}}}}); r["success"] != false {
 		t.Errorf("a bad variable name must be refused: %v", r)
 	}
-	if r := a.setAccess("", 0, ""); r["replaced_key_id"] != int64(3) {
+	if r := a.setAccess("", 0, "", false); r["replaced_key_id"] != int64(3) {
 		t.Errorf("turning access off hands back the key to revoke: %v", r)
 	}
 
@@ -477,5 +477,41 @@ func TestPantheonAgentWorksWhereItStarts(t *testing.T) {
 	cmd, _ := res["command"].(string)
 	if !strings.Contains(cmd, "agent chat --chat chat-1 --node n_mac --workdir /Users/me/proj") {
 		t.Fatalf("command %q", cmd)
+	}
+}
+
+// Access is on by default: a key the desktop gives on its own is kept only
+// on a node without one whose user did not turn access off; turning it off
+// is remembered, and only the user turns it on again.
+func TestAccessOnByDefault(t *testing.T) {
+	t.Setenv("PANTHEON_CODING_AGENTS_DIR", t.TempDir())
+	a := NewApp(nil, "", t.TempDir())
+	defer a.Close()
+	if r := a.setAccess("pbk_a", 1, "https://hub.test", true); r["success"] != true || r["kept"] != nil {
+		t.Fatalf("a node without a key takes one: %v", r)
+	}
+	// A second desktop giving one at the same time: the first stays, the second is handed back.
+	if r := a.setAccess("pbk_b", 2, "https://hub.test", true); r["kept"] != true || r["replaced_key_id"] != nil {
+		t.Fatalf("a node with a key keeps it: %v", r)
+	}
+	if d := a.detect(false); d["pantheon"] != true || d["access_off"] != false {
+		t.Errorf("detect %v %v", d["pantheon"], d["access_off"])
+	}
+	if r := a.setAccess("", 0, "", false); r["replaced_key_id"] != int64(1) {
+		t.Fatalf("off hands back the key to revoke: %v", r)
+	}
+	if r := a.setAccess("pbk_c", 3, "https://hub.test", true); r["kept"] != true {
+		t.Fatalf("after the user turned it off, nothing turns it on by itself: %v", r)
+	}
+	d := a.detect(false)
+	if d["pantheon"] != false || d["access_off"] != true || codingagents.LoadSettings().Access.Key != "" {
+		t.Errorf("off stays off: %v %v", d["pantheon"], d["access_off"])
+	}
+	if got := a.getSettings()["settings"].(map[string]any)["access"].(map[string]any); got["off"] != true {
+		t.Errorf("settings say it was turned off: %v", got)
+	}
+	// The user turning it on again.
+	if r := a.setAccess("pbk_d", 4, "https://hub.test", false); r["success"] != true || codingagents.LoadSettings().Access.Off {
+		t.Fatalf("on again: %v", r)
 	}
 }

@@ -25,7 +25,7 @@ EOF
 // signIn lets agents on this node use PantheonOS.
 func signIn(t *testing.T, a *App) {
 	t.Helper()
-	if r := a.setAccess("pbk_test", 7, "https://hub.example.org"); r["success"] != true {
+	if r := a.setAccess("pbk_test", 7, "https://hub.example.org", false); r["success"] != true {
 		t.Fatal(r)
 	}
 }

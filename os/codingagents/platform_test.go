@@ -115,6 +115,54 @@ func TestPlatformModelsOf(t *testing.T) {
 	}
 }
 
+// deepseekModels are DeepSeek's as the staging proxy lists them: the model,
+// its pinned snapshots, a batch variant and the aliases that move.
+var deepseekModels = []string{"openrouter/deepseek/deepseek-v4.1-flash", "openrouter/deepseek/deepseek-v4.1-flash:batch",
+	"openrouter/deepseek/deepseek-v4.1-flash-1017", "openrouter/~deepseek/deepseek-v4-flash-latest", "openrouter/deepseek/deepseek-v4-flash-0731",
+	"openrouter/deepseek/deepseek-v4-flash", "openrouter/~deepseek/deepseek-flash-latest", "openrouter/deepseek/deepseek-v3.2"}
+
+func TestPlatformDefaultDeepSeek(t *testing.T) {
+	all := append(slices.Clone(proxyModels), deepseekModels...)
+	// Every agent defaults to DeepSeek V4.1 Flash, by its pinned snapshot.
+	for _, agent := range PlatformAgents {
+		m := platformModelsOf(agent, all)
+		if m.Default != "openrouter/deepseek/deepseek-v4.1-flash-1017" || m.Labels[m.Default] != "DeepSeek V4.1 Flash" {
+			t.Errorf("%s: default %q (%q)", agent, m.Default, m.Labels[m.Default])
+		}
+		for _, alias := range []string{"openrouter/~deepseek/deepseek-v4-flash-latest", "openrouter/deepseek/deepseek-v4.1-flash:batch"} {
+			if slices.Contains(m.IDs, alias) {
+				t.Errorf("%s lists %s", agent, alias)
+			}
+		}
+	}
+	// Claude Code and Codex keep their vendor's models first, then DeepSeek's, newest first.
+	claude := platformModelsOf("claude", all)
+	if !slices.Equal(claude.IDs[4:], []string{"openrouter/deepseek/deepseek-v4.1-flash-1017", "openrouter/deepseek/deepseek-v4.1-flash",
+		"openrouter/deepseek/deepseek-v4-flash-0731", "openrouter/deepseek/deepseek-v4-flash", "openrouter/deepseek/deepseek-v3.2"}) ||
+		claude.IDs[0] != "openrouter/anthropic/claude-opus-4.8" {
+		t.Errorf("claude models %v", claude.IDs)
+	}
+	if codex := platformModelsOf("codex", all); codex.IDs[0] != "openrouter/openai/gpt-5.5" || !slices.Contains(codex.IDs, "openrouter/deepseek/deepseek-v4.1-flash-1017") {
+		t.Errorf("codex models %v", codex.IDs)
+	}
+	// Without a snapshot, the model's own id; without the model, today's defaults.
+	if m := platformModelsOf("pi", append(slices.Clone(proxyModels), "openrouter/deepseek/deepseek-v4.1-flash", "openrouter/~deepseek/deepseek-flash-latest")); m.Default != "openrouter/deepseek/deepseek-v4.1-flash" {
+		t.Errorf("undated default %q", m.Default)
+	}
+	if m := platformModelsOf("pi", append(slices.Clone(proxyModels), "openrouter/~deepseek/deepseek-v4.1-flash-latest", "openrouter/deepseek/deepseek-v3.2")); m.Default != "openrouter/anthropic/claude-sonnet-4.6" {
+		t.Errorf("an alias is no default: %q", m.Default)
+	}
+	if m := platformModelsOf("codex", all[:len(proxyModels)]); m.Default != "openrouter/openai/gpt-5.3-codex" {
+		t.Errorf("codex without DeepSeek %q", m.Default)
+	}
+	for id, want := range map[string]string{"openrouter/deepseek/deepseek-v4-flash-0731": "DeepSeek V4 Flash", "gpt-4-0613": "GPT-4",
+		"openrouter/mistralai/codestral-2508": "Codestral 2508"} {
+		if got := ModelLabel(id); got != want {
+			t.Errorf("%s: %q, want %q", id, got, want)
+		}
+	}
+}
+
 func TestModelVersionSkipsDates(t *testing.T) {
 	for id, want := range map[string][]int{"openrouter/openai/gpt-4o-2024-11-20": {4}, "gpt-4o": {4}, "openrouter/openai/gpt-5.5": {5, 5},
 		"claude-3-5-sonnet-20241022": {3, 5}, "openrouter/qwen/qwen3-235b-a22b": nil, "openrouter/mistralai/codestral-2508": nil,

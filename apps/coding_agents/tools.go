@@ -186,7 +186,7 @@ func Tools(app *App) ([]*appsvc.Tool, error) {
 			return map[string]any{"success": true}, nil
 		},
 		"agents_access": func(_ context.Context, p map[string]any) (any, error) {
-			return app.setAccess(strP(p, "key"), intP(p, "key_id"), strP(p, "hub_url")), nil
+			return app.setAccess(strP(p, "key"), intP(p, "key_id"), strP(p, "hub_url"), boolP(p, "auto", false)), nil
 		},
 		"agents_platform": func(_ context.Context, p map[string]any) (any, error) {
 			return app.setPlatform(strP(p, "base"), strP(p, "key")), nil

@@ -200,7 +200,7 @@ func (a *App) detect(refresh bool) map[string]any {
 	}
 	// tasks: installs, sign-ins and updates run through agent_task_command.
 	return map[string]any{"success": true, "agents": infos, "installable": missing, "tasks": true, "home": home,
-		"pantheon": s.Access.Key != "", "projects": projectPaths(s.Projects), "workspaces": workspaceList(s.Projects),
+		"pantheon": s.Access.Key != "", "access_off": s.Access.Off, "projects": projectPaths(s.Projects), "workspaces": workspaceList(s.Projects),
 		"links":           map[string]any{"send": linksSend, "receive": true, "note": linksNote()},
 		"platform_models": platformModels(platformOK)}
 }
@@ -661,25 +661,35 @@ func expandHome(p string) string {
 	return p
 }
 
-// setAccess stores (or with an empty key, removes) the platform key agents
-// on this node use for the pantheon command. It returns the id of a key it
-// replaced, for the desktop to revoke.
-func (a *App) setAccess(key string, keyID int64, hubURL string) map[string]any {
+// setAccess stores (or with an empty key, removes: the user turned it off)
+// the platform key agents on this node use for the pantheon command. It
+// returns the id of a key it replaced, for the desktop to revoke. A key the
+// desktop gives on its own (auto, access being on by default) is kept only
+// where the node has none and the user did not turn access off: otherwise
+// it answers kept, and the desktop revokes the key it made.
+func (a *App) setAccess(key string, keyID int64, hubURL string, auto bool) map[string]any {
 	if key != "" && !strings.HasPrefix(key, "pbk_") {
 		return failure("That is not a PantheonOS platform key")
 	}
 	var old int64
+	kept := false
 	s, err := codingagents.UpdateSettings(func(s *codingagents.Settings) error {
 		old = s.Access.KeyID
-		if key == "" {
-			s.Access = codingagents.Access{}
-			return nil
+		switch {
+		case key == "":
+			s.Access = codingagents.Access{Off: true}
+		case auto && (s.Access.Key != "" || s.Access.Off):
+			kept = true
+		default:
+			s.Access = codingagents.Access{Key: key, KeyID: keyID, HubURL: strings.TrimRight(hubURL, "/")}
 		}
-		s.Access = codingagents.Access{Key: key, KeyID: keyID, HubURL: strings.TrimRight(hubURL, "/")}
 		return nil
 	})
 	if err != nil {
 		return failure("%v", err)
+	}
+	if kept {
+		return map[string]any{"success": true, "kept": true, "settings": s.Redacted()}
 	}
 	res := map[string]any{"success": true, "settings": s.Redacted()}
 	if old != 0 && old != keyID {

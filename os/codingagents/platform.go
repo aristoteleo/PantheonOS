@@ -378,6 +378,9 @@ func (e *modelsError) Error() string { return "the model service answered " + st
 var (
 	claudeModel = regexp.MustCompile(`^(openrouter/anthropic/)?claude-[a-z0-9.-]+$`)
 	codexModel  = regexp.MustCompile(`^(openrouter/openai/)?(gpt-5[a-z0-9.-]*|[a-z0-9.-]*codex[a-z0-9.-]*)$`)
+	// deepseekModel is DeepSeek's: through the proxy they also speak Claude
+	// Code's Messages API and Codex's Responses API, tools and all.
+	deepseekModel = regexp.MustCompile(`^(openrouter/deepseek/)?deepseek-[a-z0-9.-]+$`)
 	// anyModel is any one model (not a wildcard group, nor a variant such
 	// as ":batch" or ":free").
 	anyModel = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*$`)
@@ -389,20 +392,21 @@ var (
 
 // platformModelsOf picks one agent's chat models from the proxy's list:
 // Claude Code's are Anthropic's Claude models, Codex's OpenAI's GPT-5 and
-// Codex models. One model listed both under the platform's vendor route and
-// directly is offered once, by the route.
+// Codex models, each with DeepSeek's (the platform default). One model
+// listed both under the platform's vendor route and directly is offered
+// once, by the route.
 func platformModelsOf(agent string, all []string) Models {
-	var pattern *regexp.Regexp
+	var patterns []*regexp.Regexp
 	skip := notChat
 	switch agent {
 	case "claude":
-		pattern = claudeModel
+		patterns = []*regexp.Regexp{claudeModel, deepseekModel}
 	case "codex":
 		// A chat-only GPT (gpt-5-chat) is no coding model.
-		pattern, skip = codexModel, append(slices.Clone(notChat), "chat")
+		patterns, skip = []*regexp.Regexp{codexModel, deepseekModel}, append(slices.Clone(notChat), "chat")
 	case "opencode", "pi":
 		// They take any chat model: every vendor's.
-		pattern = anyModel
+		patterns = []*regexp.Regexp{anyModel}
 	default:
 		return Models{}
 	}
@@ -413,7 +417,7 @@ func platformModelsOf(agent string, all []string) Models {
 	}
 	byKey := map[string]string{}
 	for _, id := range all {
-		if !pattern.MatchString(id) {
+		if !slices.ContainsFunc(patterns, func(p *regexp.Regexp) bool { return p.MatchString(id) }) {
 			continue
 		}
 		key := modelKey(id)
@@ -459,10 +463,35 @@ func platformModelsOf(agent string, all []string) Models {
 
 func isRouted(id string) bool { return strings.HasPrefix(id, "openrouter/") }
 
+// platformPreferred is the model every agent on PantheonOS runs when a turn
+// names none and the platform serves it.
+const platformPreferred = "deepseek-v4.1-flash"
+
+// preferredModel is platformPreferred as the platform lists it: pinned, by
+// its newest dated snapshot ("…-flash-1017"), else by its own id; never by
+// an alias that moves ("~…-latest"). "" when the platform has neither.
+func preferredModel(ids []string) string {
+	want := modelKey(platformPreferred)
+	undated := ""
+	for _, id := range ids {
+		switch {
+		case modelDate(id) != "" && undatedKey(id) == want:
+			return id // ids list a model's snapshots newest first
+		case modelKey(id) == want && undated == "":
+			undated = id
+		}
+	}
+	return undated
+}
+
 // platformDefault is the model an agent on PantheonOS runs when a turn names
-// none: Claude Code the newest Sonnet, Codex the newest GPT-5 Codex (not a
-// mini), else GPT-5.5; else the newest.
+// none: DeepSeek V4.1 Flash where the platform serves it; else Claude Code
+// the newest Sonnet, Codex the newest GPT-5 Codex (not a mini), else
+// GPT-5.5; else the newest.
 func platformDefault(agent string, ids []string) string {
+	if id := preferredModel(ids); id != "" {
+		return id
+	}
 	pick := func(ok func(words []string) bool) string {
 		for _, id := range ids {
 			if ok(strings.Split(modelKey(id), "-")) {
@@ -522,8 +551,11 @@ func modelVersion(id string) []int {
 			i += n - 1
 			continue
 		}
-		// The omni models name their version with an "o": "4o" is 4.
+		// The omni models name their version with an "o": "4o" is 4; some
+		// put a "v" before it: "v4" is 4.
 		if num, ok := strings.CutSuffix(w, "o"); ok && num != "" && len(num) <= 3 && numeric8(num) {
+			w = num
+		} else if num, ok := strings.CutPrefix(w, "v"); ok && num != "" && len(num) <= 3 && numeric8(num) {
 			w = num
 		}
 		if n, err := strconv.Atoi(w); err == nil && len(w) <= 3 {
@@ -545,11 +577,30 @@ func modelDate(id string) string {
 	return ""
 }
 
+// undatedKey is a model's modelKey without its snapshot's date: the model
+// the snapshot is of.
+func undatedKey(id string) string {
+	words := strings.Split(modelKey(id), "-")
+	out := make([]string, 0, len(words))
+	for i := 0; i < len(words); i++ {
+		if n := dateWords(words[i:]); n > 0 {
+			i += n - 1
+			continue
+		}
+		out = append(out, words[i])
+	}
+	return strings.Join(out, "-")
+}
+
 // dateWords is how many of words, from the first, are a date: "20241022",
-// or a year and its month and day ("2024", "11", "20"); 0 when none is.
+// a year and its month and day ("2024", "11", "20"), or a month and day
+// ending the id ("0731", "1017": a snapshot's); 0 when none is.
 func dateWords(words []string) int {
 	w := words[0]
 	if len(w) == 8 && numeric8(w) && (strings.HasPrefix(w, "19") || strings.HasPrefix(w, "20")) {
+		return 1
+	}
+	if len(words) == 1 && monthDay(w) {
 		return 1
 	}
 	if len(w) != 4 || !numeric8(w) || !(strings.HasPrefix(w, "19") || strings.HasPrefix(w, "20")) {
@@ -595,7 +646,7 @@ func ModelLabel(id string) string {
 	var out []string
 	for i := 0; i < len(words); i++ {
 		w := words[i]
-		if len(w) == 8 && numeric8(w) {
+		if len(w) == 8 && numeric8(w) || i > 0 && i == len(words)-1 && monthDay(w) {
 			continue // a date
 		}
 		if n := dateWords(words[i:]); n == 3 {
@@ -605,7 +656,7 @@ func ModelLabel(id string) string {
 		}
 		if numeric(w) {
 			v := w
-			for i+1 < len(words) && numeric(words[i+1]) {
+			for i+1 < len(words) && numeric(words[i+1]) && !(i+1 == len(words)-1 && monthDay(words[i+1])) {
 				i++
 				v += "." + words[i]
 			}
@@ -619,11 +670,24 @@ func ModelLabel(id string) string {
 		switch w {
 		case "gpt", "oss":
 			out = append(out, strings.ToUpper(w))
+		case "deepseek":
+			out = append(out, "DeepSeek")
 		default:
 			out = append(out, strings.ToUpper(w[:1])+w[1:])
 		}
 	}
 	return strings.Join(out, " ")
+}
+
+// monthDay is whether w is a month and its day, as four digits ("0731").
+// A year and month ("2508", as Mistral dates its models) is not one.
+func monthDay(w string) bool {
+	if len(w) != 4 || !numeric8(w) {
+		return false
+	}
+	month, _ := strconv.Atoi(w[:2])
+	day, _ := strconv.Atoi(w[2:])
+	return month >= 1 && month <= 12 && day >= 1 && day <= 31
 }
 
 func numeric8(w string) bool {

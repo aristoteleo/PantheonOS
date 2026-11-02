@@ -49,10 +49,13 @@ type CustomAgent struct {
 
 // Access lets agents on this node use PantheonOS through the pantheon
 // command: a platform key made for this node, and the Hub it belongs to.
+// It is on by default (the desktop gives a node without a key one); Off is
+// the user having turned it off, which the desktop then leaves alone.
 type Access struct {
 	Key    string `json:"key,omitempty"`
 	KeyID  int64  `json:"key_id,omitempty"`
 	HubURL string `json:"hub_url,omitempty"`
+	Off    bool   `json:"off,omitempty"`
 }
 
 // Settings is the node's coding-agent configuration.
@@ -247,6 +250,7 @@ func (s Settings) Redacted() map[string]any {
 		projects = []Project{}
 	}
 	return map[string]any{"agents": agents, "custom": custom, "projects": projects,
-		"access":   map[string]any{"enabled": s.Access.Key != "", "key_id": s.Access.KeyID, "hub_url": s.Access.HubURL},
+		"access": map[string]any{"enabled": s.Access.Key != "", "key_id": s.Access.KeyID, "hub_url": s.Access.HubURL,
+			"off": s.Access.Off},
 		"platform": map[string]any{"enabled": s.Platform != nil}}
 }
