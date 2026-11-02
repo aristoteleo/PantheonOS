@@ -463,8 +463,8 @@ func platformModelsOf(agent string, all []string) Models {
 
 func isRouted(id string) bool { return strings.HasPrefix(id, "openrouter/") }
 
-// platformPreferred is the model every agent on PantheonOS runs when a turn
-// names none and the platform serves it.
+// platformPreferred is the model an agent on PantheonOS runs when a turn
+// names none and the platform serves it; Claude Code's stays a Claude model.
 const platformPreferred = "deepseek-v4.1-flash"
 
 // preferredModel is platformPreferred as the platform lists it: pinned, by
@@ -485,11 +485,11 @@ func preferredModel(ids []string) string {
 }
 
 // platformDefault is the model an agent on PantheonOS runs when a turn names
-// none: DeepSeek V4.1 Flash where the platform serves it; else Claude Code
-// the newest Sonnet, Codex the newest GPT-5 Codex (not a mini), else
-// GPT-5.5; else the newest.
+// none: Claude Code the newest Sonnet; the others DeepSeek V4.1 Flash where
+// the platform serves it, else OpenCode and Pi the newest Sonnet, Codex the
+// newest GPT-5 Codex (not a mini), else GPT-5.5; else the newest.
 func platformDefault(agent string, ids []string) string {
-	if id := preferredModel(ids); id != "" {
+	if id := preferredModel(ids); id != "" && agent != "claude" {
 		return id
 	}
 	pick := func(ok func(words []string) bool) string {

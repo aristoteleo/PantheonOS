@@ -123,10 +123,15 @@ var deepseekModels = []string{"openrouter/deepseek/deepseek-v4.1-flash", "openro
 
 func TestPlatformDefaultDeepSeek(t *testing.T) {
 	all := append(slices.Clone(proxyModels), deepseekModels...)
-	// Every agent defaults to DeepSeek V4.1 Flash, by its pinned snapshot.
+	// Codex, OpenCode and Pi default to DeepSeek V4.1 Flash, by its pinned
+	// snapshot; Claude Code to the newest Sonnet, DeepSeek listed beside it.
 	for _, agent := range PlatformAgents {
 		m := platformModelsOf(agent, all)
-		if m.Default != "openrouter/deepseek/deepseek-v4.1-flash-1017" || m.Labels[m.Default] != "DeepSeek V4.1 Flash" {
+		want := "openrouter/deepseek/deepseek-v4.1-flash-1017"
+		if agent == "claude" {
+			want = "openrouter/anthropic/claude-sonnet-4.6"
+		}
+		if m.Default != want || agent != "claude" && m.Labels[m.Default] != "DeepSeek V4.1 Flash" {
 			t.Errorf("%s: default %q (%q)", agent, m.Default, m.Labels[m.Default])
 		}
 		for _, alias := range []string{"openrouter/~deepseek/deepseek-v4-flash-latest", "openrouter/deepseek/deepseek-v4.1-flash:batch"} {
