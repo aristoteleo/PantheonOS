@@ -176,6 +176,8 @@ class ModelServices:
             return await self.hub_request('DELETE', path, {'revision': revision})
         if action == 'resolve':
             return await self.hub_request('POST', path + '/resolve', requires or {})
+        if action == 'platform_default':
+            return await self.hub_request('POST', path + '/platform-default', {'revision': revision})
         raise ValueError('Unsupported route operation')
 
     async def describe(self, ref):

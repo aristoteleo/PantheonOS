@@ -82,8 +82,21 @@ var routeIDRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
 func (d directory) routeOperation(ctx context.Context, action string, route map[string]any, routeID string, revision any, requires any) (map[string]any, error) {
 	if action == "list" {
-		routes, err := d.routes(ctx)
-		return map[string]any{"routes": routes}, err
+		// The Hub lists the platform-default status of tier routes beside them.
+		var out struct {
+			Routes   []any          `json:"routes"`
+			Platform map[string]any `json:"platform"`
+		}
+		err := d.request(ctx, "GET", "/api/model-services/routes", nil, &out)
+		var status *hosted.StatusError
+		if errors.As(err, &status) && status.Status == 404 {
+			return map[string]any{"routes": []any{}}, nil // an older Hub
+		}
+		listing := map[string]any{"routes": out.Routes}
+		if out.Platform != nil {
+			listing["platform"] = out.Platform
+		}
+		return listing, err
 	}
 	if action == "save" {
 		routeID = strOf(route["route_id"])
@@ -99,6 +112,9 @@ func (d directory) routeOperation(ctx context.Context, action string, route map[
 		err = d.request(ctx, "PUT", path, route, &out)
 	case "delete":
 		err = d.request(ctx, "DELETE", path, map[string]any{"revision": revision}, &out)
+	case "platform_default":
+		// A quality tier route follows the platform default again.
+		err = d.request(ctx, "POST", path+"/platform-default", map[string]any{"revision": revision}, &out)
 	case "resolve":
 		if requires == nil {
 			requires = map[string]any{}
