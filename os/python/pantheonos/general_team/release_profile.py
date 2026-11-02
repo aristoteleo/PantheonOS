@@ -149,6 +149,9 @@ DESKTOP_STATE_METHODS = {
     'get': {'arguments': [], 'bound': {}},
     'intent': {'arguments': ['kind', 'args'], 'bound': {}},
     'import': {'arguments': ['session', 'settings', 'appearance', 'boot'], 'bound': {}},
+    # The installed-App index (P2), written by the Desktop App, which owns the library.
+    'apps_put': {'arguments': ['apps', 'revision'], 'bound': {}},
+    'apps_icon_put': {'arguments': ['app_id', 'icon'], 'bound': {}},
 }
 
 

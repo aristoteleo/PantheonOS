@@ -27,6 +27,8 @@ class DesktopSessionBinding:
         if desktop_state is not None and not callable(getattr(desktop_state, 'invoke', None)):
             raise ValueError('Desktop state needs a dependency client')
         self.state_root = root.resolve()
+        # The service client, also used for the installed-App index (app_index.py).
+        self.desktop_state = desktop_state
         if desktop_state is not None:
             self.document = RemoteDesktopSession(desktop_state, record=self.state_root / RECORD, workspaces=workspaces)
         else:

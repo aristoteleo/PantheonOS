@@ -236,7 +236,7 @@ Other buckets on the controller's JetStream:
 | Bucket | Keys | Client |
 |---|---|---|
 | `FLEET_<fleet_id>_NODES` | `node_id` | the Fleet's nodes (registry, above) |
-| `DESKTOP` (one for all Fleets, History 1) | `<fid>.<uid>.meta`, `.win.<id>`, `.settings`, `.appearance` | the controller's `desktop-state` service only ([desktop-state.md](desktop-state.md)); ≤ 448 KB of windows + meta per user; snapshotted daily to `<state-dir>/backups` |
+| `DESKTOP` (one for all Fleets, History 1) | `<fid>.<uid>.meta`, `.win.<id>`, `.settings`, `.appearance`, `.apps`, `.icon.<App id>` | the controller's `desktop-state` service only ([desktop-state.md](desktop-state.md)); ≤ 448 KB of windows + meta per user, App index ≤ 128 KB; snapshotted daily to `<state-dir>/backups` |
 
 **Node record**
 ```json

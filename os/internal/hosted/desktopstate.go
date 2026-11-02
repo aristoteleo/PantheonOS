@@ -24,7 +24,7 @@ import (
 )
 
 // DesktopBucket holds every Fleet's desktops, keyed <fid>.<uid>.<part>:
-// meta, win.<window id>, settings, appearance.
+// meta, win.<window id>, settings, appearance, apps, icon.<App id>.
 const DesktopBucket = "DESKTOP"
 
 // Limits the service enforces: a window's large shared state belongs on its
@@ -37,6 +37,15 @@ const (
 	MaxDesktopTotal    = 448 << 10
 	MaxDesktopSettings = 256 << 10
 	desktopRetries     = 8
+)
+
+// The installed-App index (what the desktop draws its launcher, dock and
+// icons from, and where each App is placed) and the icons too large to ride
+// in it. The index stays well inside a dependency reply beside the session.
+const (
+	MaxDesktopApps = 128 << 10
+	MaxDesktopIcon = 256 << 10
+	maxDesktopApps = 500
 )
 
 // The service is the bucket's only writer, so it keeps the desktops it used
@@ -60,6 +69,7 @@ const desktopOwner = "owner"
 var (
 	desktopFleetRE  = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 	desktopWindowRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+	desktopAppRE    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$`)
 )
 
 // DesktopState is the desktop-state hosted service.
@@ -177,6 +187,16 @@ type deskStored struct {
 	settingsRev   uint64
 	appearance    json.RawMessage
 	appearanceRev uint64
+	apps          json.RawMessage
+	appsRev       uint64
+	// icons are the stored icon.<App id> keys: the hash of each and its
+	// revision (the icon itself is read only when asked for).
+	icons map[string]deskIcon
+}
+
+type deskIcon struct {
+	hash string
+	rev  uint64
 }
 
 // total is the size of the desktop's window records and meta key.
@@ -264,7 +284,7 @@ func (d *DesktopState) forgetAll() {
 // load reads every key of one desktop at their current revisions.
 func (d *DesktopState) load(ctx context.Context, kv jetstream.KeyValue, s desktopScope) (*deskStored, error) {
 	d.loads.Add(1)
-	st := &deskStored{session: newDeskSession(), winRev: map[string]uint64{}, winSize: map[string]int{}}
+	st := &deskStored{session: newDeskSession(), winRev: map[string]uint64{}, winSize: map[string]int{}, icons: map[string]deskIcon{}}
 	watcher, err := kv.WatchFiltered(ctx, []string{s.key(">")}, jetstream.IgnoreDeletes())
 	if err != nil {
 		return nil, err
@@ -300,6 +320,12 @@ func (d *DesktopState) load(ctx context.Context, kv jetstream.KeyValue, s deskto
 			st.settings, st.settingsRev = append(json.RawMessage(nil), entry.Value()...), entry.Revision()
 		case part == "appearance":
 			st.appearance, st.appearanceRev = append(json.RawMessage(nil), entry.Value()...), entry.Revision()
+		case part == "apps":
+			st.apps, st.appsRev = append(json.RawMessage(nil), entry.Value()...), entry.Revision()
+		case strings.HasPrefix(part, "icon."):
+			var icon string
+			_ = json.Unmarshal(entry.Value(), &icon)
+			st.icons[strings.TrimPrefix(part, "icon.")] = deskIcon{iconHash(icon), entry.Revision()}
 		}
 	}
 	return st, nil
@@ -459,6 +485,32 @@ func (d *DesktopState) Call(ctx context.Context, c *Call) (any, error) {
 			preference = a.Appearance.Preference
 		}
 		return d.importState(ctx, s, a.Session, a.Settings, preference, a.Boot)
+	case "apps_put":
+		var a struct {
+			Apps     json.RawMessage `json:"apps"`
+			Revision *uint64         `json:"revision"`
+		}
+		if err := c.Decode(&a); err != nil {
+			return nil, err
+		}
+		return d.appsPut(ctx, s, a.Apps, a.Revision)
+	case "apps_icon_put":
+		var a struct {
+			AppID string `json:"app_id"`
+			Icon  string `json:"icon"`
+		}
+		if err := c.Decode(&a); err != nil {
+			return nil, err
+		}
+		return d.appsIconPut(ctx, s, a.AppID, a.Icon)
+	case "apps_icon":
+		var a struct {
+			AppID string `json:"app_id"`
+		}
+		if err := c.Decode(&a); err != nil {
+			return nil, err
+		}
+		return d.appsIcon(ctx, s, a.AppID)
 	}
 	return nil, &ArgumentError{fmt.Sprintf("unknown method %s", c.Method)}
 }
@@ -478,6 +530,7 @@ func (d *DesktopState) get(ctx context.Context, s desktopScope) (json.RawMessage
 	return replyJSON(map[string]any{
 		"session": st.session.snapshot(), "settings": rawOrNil(st.settings), "settings_revision": st.settingsRev,
 		"appearance": rawOrNil(st.appearance), "subject": s.Subject(), "initialized": st.metaRev != 0,
+		"apps": rawOrNil(st.apps), "apps_revision": st.appsRev,
 	})
 }
 

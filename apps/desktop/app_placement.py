@@ -12,13 +12,16 @@ from pathlib import Path
 from pantheonos.appkit import app_build
 from pantheonos.appkit.lifecycle import FleetLifecycle
 from pantheonos.appkit.portable import portable_backend, stream_backend
+from pantheonos.utils.log import logger
 
 from .app_builds import AppBuilds
 
 
 class AppPlacement:
-    def __init__(self, manager, resolver):
+    def __init__(self, manager, resolver, on_change=None):
         self.manager, self.resolver = manager, resolver
+        # Told after a placement record is written (the App index follows it).
+        self.on_change = on_change
 
     def _path(self, app_id):
         if not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,79}', app_id or ''):
@@ -40,15 +43,39 @@ class AppPlacement:
         """on_demand (default), resident or disabled (docs/agent/agent-app-directory.md)."""
         return self._record(app_id).get('policy') or 'on_demand'
 
-    def _update(self, app_id, **fields):
+    def _update(self, app_id, change=None, **fields):
+        """Write the App's record with `fields`, or what `change(record)`
+        returns (None: leave it as it is)."""
         path = self._path(app_id)
         with self.manager.lock():
-            record = {'node_id': None, **self._record(app_id), **fields}
+            current = {'node_id': None, **self._record(app_id)}
+            record = change(current) if change else {**current, **fields}
+            if record is None:
+                return current
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_suffix('.' + uuid.uuid4().hex + '.tmp')
             tmp.write_text(json.dumps(record))
             tmp.replace(path)
+        if self.on_change is not None:
+            self.on_change()
         return record
+
+    def _installed(self, app_id, node_id, digest, component):
+        """Remember the package installed on a node, so a desktop can start
+        it there while this Workspace is stopped (app_index.py)."""
+        package = {'digest': digest, 'component': component}
+
+        def change(record):
+            installed = dict(record.get('installed') or {})
+            if installed.get(node_id) == package:
+                return None
+            installed[node_id] = package
+            return {**record, 'installed': installed}
+        try:
+            self._update(app_id, change)
+        except (OSError, ValueError) as exc:
+            # Only an optimization for the stopped Workspace: never fail the install.
+            logger.warning('desktop: could not record the installation of {}: {}', app_id, exc)
 
     def save(self, app_id, node_id):
         return {'node_id': self._update(app_id, node_id=node_id or None)['node_id']}
@@ -169,6 +196,8 @@ class AppPlacement:
             tmp.replace(path)
         operation = await lifecycle.submit(node['node_id'], 'install', digest, operation_id=operation_id)
         mark('submit')
+        component = 'backend' if portable_backend(manifest) else app_id
+        await asyncio.to_thread(self._installed, app_id, node['node_id'], digest, component)
         # stage() already authenticated a fresh status from this exact node.
         # Reuse it for warm opens instead of making the browser poll the same
         # instance and ask for the manifest again over successive cloud hops.

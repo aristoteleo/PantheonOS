@@ -1,7 +1,8 @@
 # Desktop state belongs to the user, not to a node
 
 Status: design, 2026-11-02. Phases P0–P2 below; each ends with acceptance
-criteria that are checked on staging before the next phase starts.
+criteria that are checked on staging before the next phase starts. P0 and P1
+are live on staging; P2 is implemented and tested locally ("P2 as built").
 
 ## Problem
 
@@ -53,6 +54,7 @@ One bucket for all Fleets, `DESKTOP` (not one per Fleet: 10⁵ users would be
 <fid>.<uid>.settings        desktop settings (settings.ts DesktopSettings)
 <fid>.<uid>.appearance      {preference}
 <fid>.<uid>.apps            P2: installed-App index + placement
+<fid>.<uid>.icon.<App id>   P2: an App icon too large for the index
 ```
 
 `History: 1`. Writes are compare-and-set on the key's revision (a stale write
@@ -285,7 +287,10 @@ last claimed by another Workspace container loses its `agent-view` and
   import's `boot` drop);
 - `{"type": "desktop.settings", "revision", "settings"}`;
 - `{"type": "desktop.appearance", "preference"}`;
-- `{"type": "desktop.reset"}` after an import stored something: read with `get`.
+- `{"type": "desktop.reset"}` after an import stored something: read with `get`;
+- P2: `{"type": "desktop.apps", "revision", "apps"}` after the App index
+  changed, and `{"type": "desktop.icon", "app_id", "hash"}` after a stored
+  icon did.
 
 A viewport applies a delta whose `seq` follows its own, ignores one it has, and
 calls `get` on a gap, on (re)subscribing, and on `desktop.reset`.
@@ -319,3 +324,126 @@ Acceptance:
 - C3 Installing an App from the Store while the Workspace is up shows it in a
   second tab's launcher without reload.
 - C4 Tests as in B8.
+
+### P2 as built (2026-11-02)
+
+Status: implemented and tested locally (Go, Python, UI); not deployed.
+
+**What moved, and what did not.** The Workspace's Desktop App still owns the
+App library (Store installs, forks, versions, placement records) and still
+stages and installs packages on nodes: those need its disk. What moved is a
+copy of what a desktop needs to *draw and route*: the index, written by the
+Desktop App to the controller, read by browsers from there. The controller's
+deployment (`os/internal/deployments`) is not the source: it lists the Apps
+the Agent deployment runs, not the user's App library, so the index is the
+`apps` key, as the design above planned.
+
+**Service** (`os/internal/hosted/desktopstate_apps.go`; manifest 1.1.0, three
+new tools). The key `<fid>.owner.apps` holds the index as a JSON list,
+≤ 128 KB, ≤ 500 entries. The service reads only two fields of an entry: `id`
+(one entry per App, `[A-Za-z0-9][A-Za-z0-9_-]{0,79}`) and `icon_hash`; the rest
+is the Desktop App's. A small icon rides inline in its entry (`icon`, a data
+URI); a larger one is stored as `<fid>.owner.icon.<App id>` (≤ 256 KB, a JSON
+string `data:image/…`) and named in the entry by `icon_hash` (the first 8
+bytes of its SHA-256, hex). An icon no entry names is refused, and one whose
+entry is gone is deleted on the next `apps_put`, so the bucket holds no unused
+icons. Icons are not part of `get`: a desktop reads one only to draw it.
+
+| Method | Args | Result |
+|---|---|---|
+| `get` | — | as P1, plus `apps: [entry] \| null` and `apps_revision: int` (0: none) |
+| `apps_put` | `apps` (the whole list), optional `revision` | `{revision, missing_icons: [App id]}`; an index equal to the stored one is not written (same revision, no event); with a stale `revision`: `{conflict: true, revision}` |
+| `apps_icon_put` | `app_id`, `icon` | `{hash}`; refused unless the index names this icon (`icon_hash`) for `app_id` |
+| `apps_icon` | `app_id` | `{icon, hash}`, or `{icon: null}` |
+
+Refusals: `apps must be a list of App entries`, `every App entry needs an id
+(letters, digits, - and _)`, `App <id> is listed twice`, `App <id>:
+icon_hash is 16 hex digits`, `the App index lists <n> Apps; the limit is
+500`, `the App index is <n> KB; the limit is 128 KB (store large icons with
+apps_icon_put)`, `an icon is a data:image/ URI`, `the icon of <id> is <n> KB;
+the limit is 256 KB`, `the App index names no such icon for <id>; put the
+index first`.
+
+**Entry** (written by `apps/desktop/app_index.py`, one per App with a
+frontend, as `desktop_app_registry` lists them):
+
+```
+{id, name, version,
+ kind: "builtin" | "store" | "packaged",   builtin scope / Store install / workspace, user or fork
+ scope, dir,                               where the package is on the Workspace
+ manifest,                                 without provides, skills, readme, notes, dependencies,
+                                           changelog, config (only launcher fields if still too big)
+ icon | icon_hash,                         ≤ 4 KB inline; ≤ 250 KB stored; larger: left out (glyph)
+ placement: {node_id | null, policy},      the App's placement record
+ installed: {<node id>: {digest, component}}}   the package this Workspace last installed per node
+```
+
+`installed` is new in the placement record (`app_placement.py`): `install()`
+records the digest and component it installed on a node, when they changed.
+It is what lets a desktop start the App on its node without the Workspace.
+
+**Desktop App.** `AppIndexPublisher` builds the index (registry scan +
+placement records) and writes it with `apps_put` when it differs from the last
+one this process wrote, then sends the icons the reply lists as missing. It
+runs in the background, one write at a time (a change during a write runs
+another after it). Triggers: Desktop App start (`managed.create_service`),
+every `desktop_app_registry` call (each desktop start reads it), any write of
+a placement record (`set`, `policy`, an install that changed `installed`),
+`desktop_store_manage` actions that change the library (install, remove,
+restore, fork, copy, purge, tag, default, published, fork_download, preview,
+initialize), `desktop_app_store` fork and pull, `desktop_app_develop` writes
+and `desktop_sync_apps`. A failed write is logged and retried on the next
+trigger. The binding grants `apps_put` and `apps_icon_put`
+(`release_profile.DESKTOP_STATE_METHODS`); a deployment bound before P2 does
+not, the gateway answers 403, and the publisher stops asking (one log line).
+
+**UI** (`ui/src/desktop/network/appIndex.ts`). The index comes with `get`
+(applied whether or not the session is initialized) and `desktop.apps`; it is
+cached per user and Fleet in localStorage beside the session cache and
+registered on mount (`Desktop.vue`) for the first paint. While this
+connection has read the Workspace's registry (`stores/workspace.ts`
+`loadPackagedApps`), that stays the source — full manifests, App files — and
+a new index revision re-reads it (so an install in another tab appears
+here); if it cannot be read (the Workspace stopped), the index is registered
+instead. An empty Workspace registry (still provisioning) does not replace a
+non-empty index. Large icons are read with `apps_icon`, cached by hash.
+
+Routing (`shell/windowNode.ts`, `apps/packaged/PackagedApp.vue`,
+`network/managedApp.ts`): a packaged App is served by the Workspace *or by
+the node its backend runs on* — the node serves the installed package's
+files and manifest. A packaged window waits for the Workspace only when it
+has no such node: neither an instance binding on a non-Workspace node nor an
+index placement on a node with an `installed` package. Otherwise it waits
+for that node ("Waiting for <node>…") and opens when it is up:
+`startPlacedInstance` reads the node's lifecycle through the Fleet App, starts
+the installed package's instance if it is stopped, and the window binds to it
+as a restored window does (manifest from the node, frontend from the node's
+`/package/`). The resident policy is read from the index too
+(`keepResidentAlive`).
+
+**Limits of this phase.** An App placed on a node it was never installed on
+(moved, not opened there since) needs the Workspace to stage it: its window
+says it is no longer installed there and opens once the Workspace runs. The
+package started without the Workspace is the one last installed on that node,
+which may be older than the App's current launch default. Apps placed
+automatically run on the Workspace and wait for it. File opens into a
+packaged App still mint Workspace data URLs.
+
+**Rollout order.** Controller first (the new methods; an old controller
+refuses `apps_put` with "unknown method", which the publisher logs and retries
+on the next trigger — harmless). Then a release whose profile grants the new
+methods and whose Desktop App publishes the index; existing owners get the
+grant only when their deployment's Desktop binding is refilled from that
+profile — until then their Desktop App is refused (403) and stops asking.
+The UI can ship in either order: without `apps` in `get` it draws from the
+Workspace as before.
+
+Acceptance as built: C1 — launcher, dock and icons list every App in the index
+(including Store installs) with their icons, from the cache at once and from
+`get` with the Workspace stopped; an App placed on the Mac starts and opens
+there. C2 — moving an App writes its placement record, which republishes the
+index; after a reload with the Workspace stopped its windows go to the new
+node, provided it was installed there once. C3 — a Store install republishes
+the index; the second tab receives `desktop.apps` and re-reads its registry.
+C4 — Go (`-race`), Python and vitest tests below.
+

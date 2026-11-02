@@ -2,10 +2,10 @@
   "apiVersion": 2,
   "id": "desktop-state",
   "name": "Desktop state",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "kind": "service",
   "surface": "headless",
-  "description": "The user's desktop session, desktop settings and appearance, kept by the Fleet controller (docs/os/desktop-state.md).",
+  "description": "The user's desktop session, desktop settings, appearance and installed-App index, kept by the Fleet controller (docs/os/desktop-state.md).",
   "notes": "Controller-hosted; no package. Every call is scoped to the caller's Fleet and user by the controller.",
   "provides": {
     "interfaces": [
@@ -17,14 +17,17 @@
           "intent",
           "settings_put",
           "appearance_put",
-          "import"
+          "import",
+          "apps_put",
+          "apps_icon_put",
+          "apps_icon"
         ]
       }
     ],
     "tools": [
       {
         "name": "get",
-        "description": "The caller's desktop: session (nominal size, spaces, stacking, windows), settings, appearance and the change subject.",
+        "description": "The caller's desktop: session (nominal size, spaces, stacking, windows), settings, appearance, the installed-App index and the change subject.",
         "params": []
       },
       {
@@ -106,6 +109,50 @@
             "type": "str",
             "required": false,
             "default": ""
+          }
+        ]
+      },
+      {
+        "name": "apps_put",
+        "description": "Replace the installed-App index (a list of entries, one per App id; icon_hash names an icon stored with apps_icon_put). An unchanged index is not written; with revision, a stale write returns {conflict, revision}. Returns {revision, missing_icons}.",
+        "params": [
+          {
+            "name": "apps",
+            "type": "list",
+            "required": true
+          },
+          {
+            "name": "revision",
+            "type": "int",
+            "required": false,
+            "default": null
+          }
+        ]
+      },
+      {
+        "name": "apps_icon_put",
+        "description": "Store the icon (a data:image/ URI) the App index names for app_id by its icon_hash.",
+        "params": [
+          {
+            "name": "app_id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "icon",
+            "type": "str",
+            "required": true
+          }
+        ]
+      },
+      {
+        "name": "apps_icon",
+        "description": "One App's stored icon: {icon, hash}, or {icon: null}.",
+        "params": [
+          {
+            "name": "app_id",
+            "type": "str",
+            "required": true
           }
         ]
       }

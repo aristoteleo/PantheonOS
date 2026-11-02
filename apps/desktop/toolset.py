@@ -77,6 +77,59 @@ def _deep_merge(target: Any, patch: Any) -> Any:
     return out
 
 
+def _scan_registry(roots) -> tuple[list[dict], list[str], int]:
+    """Every App with a frontend under `roots` (first scope wins per id):
+    manifest, directory, scope and catalog icon; the roots that could not be
+    read; and how many could."""
+    from pathlib import Path
+
+    from pantheonos.appkit.distribution import included
+    apps: list[dict] = []
+    seen: set[str] = set()
+    failed: list[str] = []
+    looked = 0
+    for root, scope in roots:
+        root = Path(root)
+        try:
+            if not root.is_dir():
+                continue
+            entries = sorted(p for p in root.iterdir() if p.is_dir())
+            looked += 1
+        except Exception as e:
+            failed.append(f"{root}: {e}")
+            continue
+        for app_dir in entries:
+            raw = next((app_dir / n for n in ("app.json", "atrium.json")
+                        if (app_dir / n).is_file()), None)
+            if raw is None:
+                continue
+            try:
+                manifest = json.loads(raw.read_text())
+            except Exception:
+                continue
+            app_id = manifest.get("id")
+            if not included(manifest, scope):
+                continue
+            frontend = (manifest.get("entry") or {}).get("frontend") or ""
+            if not app_id or app_id in seen:
+                continue
+            # Shell-bundled frontends still need their installed
+            # version and execution metadata. The shell reuses its
+            # component for ui:<id>; it does not load that as a URL.
+            if not frontend:
+                continue
+            seen.add(app_id)
+            app = {"manifest": manifest, "dir": str(app_dir), "scope": scope}
+            # Catalog art is tiny. Return it with the metadata, even
+            # before a desktop has delivered set_data_endpoint. A
+            # temporary tunnel URL could disappear on any reconnect.
+            icon = _catalog_icon(str(app_dir), manifest)
+            if icon:
+                app["icon_url"] = icon
+            apps.append(app)
+    return apps, failed, looked
+
+
 def _catalog_icon(directory: str, manifest: dict) -> str | None:
     """Read a bounded package icon without starting the data server/tunnel."""
     from pathlib import Path
@@ -1034,6 +1087,7 @@ class DesktopToolSet(ToolSet):
 
         try:
             result = await asyncio.to_thread(_write)
+            self._app_index_changed()
             if result["refused"]:
                 logger.warning("desktop: refused {} path(s) outside the app tree",
                                len(result["refused"]))
@@ -1216,6 +1270,11 @@ class DesktopToolSet(ToolSet):
             return result
         except Exception as exc:
             return {"success": False, "error": str(exc)}
+        finally:
+            # Installs, removals, restores, forks and new defaults change what
+            # the desktop draws; reads leave the index as it is.
+            if action not in ('versions', 'resolve', 'trash', 'instances', 'prepare'):
+                self._app_index_changed()
 
     @tool(exclude=True)
     async def desktop_store_git(self, app_id: str, scope: str = "user", limit: int = 100, repository_id: str = "") -> dict:
@@ -1249,6 +1308,9 @@ class DesktopToolSet(ToolSet):
                 app_id, scope, repository_id, path, files, branch, message, expected_commit, command)
         except (ValueError, OSError) as exc:
             return {"success": False, "error": str(exc)}
+        finally:
+            if action not in ('status', 'files', 'read', 'diff', 'test'):
+                self._app_index_changed()
 
     @tool(exclude=True)
     async def desktop_app_store(self, action: str, app_id: str = "", repository_id: str = "", scope: str = "user",
@@ -1298,9 +1360,14 @@ class DesktopToolSet(ToolSet):
                                       binding=self._store_binding)
         except (ValueError, OSError) as exc:
             return {"success": False, "error": str(exc)}
+        finally:
+            if action in ('fork', 'pull'):
+                self._app_index_changed()
 
     async def cleanup(self):
         try:
+            if getattr(self, '_app_index_publisher', None) is not None:
+                self._app_index_publisher.close()
             if getattr(self, '_agent_lease_table', None) is not None:
                 await self._agent_lease_table.close()
             from .browser import BrowserEngine
@@ -1339,7 +1406,8 @@ class DesktopToolSet(ToolSet):
     def _app_placement(self):
         from .app_placement import AppPlacement
         from .store_manager import AppStoreManager
-        return AppPlacement(AppStoreManager(self._app_scope_roots()), self._fleet_resolver())
+        return AppPlacement(AppStoreManager(self._app_scope_roots()), self._fleet_resolver(),
+                            on_change=self._app_index_changed)
 
     @tool(exclude=True)
     async def desktop_app_placement(self, action: str = 'list', app_id: str = '',
@@ -1890,60 +1958,44 @@ class DesktopToolSet(ToolSet):
         from .store_manager import AppStoreManager
         manager = AppStoreManager(self._app_scope_roots())
         await asyncio.to_thread(manager.versions.migrate_bundled)
-        roots = [*self._app_scope_roots(), (manager.records / 'installed', 'user'), (manager.branches.root, 'fork')]
-
-        def _scan() -> tuple[list[dict], list[str], int]:
-            apps: list[dict] = []
-            seen: set[str] = set()
-            failed: list[str] = []
-            looked = 0
-            for root, scope in roots:
-                try:
-                    if not root.is_dir():
-                        continue
-                    entries = sorted(p for p in root.iterdir() if p.is_dir())
-                    looked += 1
-                except Exception as e:
-                    failed.append(f"{root}: {e}")
-                    continue
-                for app_dir in entries:
-                    raw = next((app_dir / n for n in ("app.json", "atrium.json")
-                                if (app_dir / n).is_file()), None)
-                    if raw is None:
-                        continue
-                    try:
-                        manifest = json.loads(raw.read_text())
-                    except Exception:
-                        continue
-                    app_id = manifest.get("id")
-                    from pantheonos.appkit.distribution import included
-                    if not included(manifest, scope):
-                        continue
-                    frontend = (manifest.get("entry") or {}).get("frontend") or ""
-                    if not app_id or app_id in seen:
-                        continue
-                    # Shell-bundled frontends still need their installed
-                    # version and execution metadata. The shell reuses its
-                    # component for ui:<id>; it does not load that as a URL.
-                    if not frontend:
-                        continue
-                    seen.add(app_id)
-                    app = {"manifest": manifest, "dir": str(app_dir), "scope": scope}
-                    # Catalog art is tiny. Return it with the metadata, even
-                    # before a desktop has delivered set_data_endpoint. A
-                    # temporary tunnel URL could disappear on any reconnect.
-                    icon = _catalog_icon(str(app_dir), manifest)
-                    if icon:
-                        app["icon_url"] = icon
-                    apps.append(app)
-            return apps, failed, looked
-
         try:
-            apps, failed, looked = await asyncio.to_thread(_scan)
+            apps, failed, looked = await asyncio.to_thread(_scan_registry, self._registry_roots(manager))
         except Exception as e:
             return {"success": False, "error": str(e)}
+        # The desktop reads this on every start: a cheap moment to make sure
+        # the controller's copy of the index is current.
+        self._app_index_changed()
         return {"success": True, "apps": apps, "backend_placement_protocol": 1, "scopes_read": looked,
                 "unreadable": failed}
+
+    def _registry_roots(self, manager) -> list:
+        return [*self._app_scope_roots(), (manager.records / 'installed', 'user'), (manager.branches.root, 'fork')]
+
+    # ── the installed-App index on desktop-state (app_index.py) ─────────────
+
+    def _app_index(self):
+        """The index publisher, when the deployment binds desktop-state."""
+        client = getattr(self._session_binding, 'desktop_state', None)
+        if client is None:
+            return None
+        if getattr(self, '_app_index_publisher', None) is None:
+            from .app_index import AppIndexPublisher
+            self._app_index_publisher = AppIndexPublisher(client, self._build_app_index)
+        return self._app_index_publisher
+
+    def _build_app_index(self):
+        from .app_index import build_index
+        from .app_placement import AppPlacement
+        from .store_manager import AppStoreManager
+        manager = AppStoreManager(self._app_scope_roots())
+        apps, _, _ = _scan_registry(self._registry_roots(manager))
+        return build_index(apps, AppPlacement(manager, None).defaults(), manager.records / 'installed')
+
+    def _app_index_changed(self) -> None:
+        """The library or a placement may have changed: refresh the index."""
+        publisher = self._app_index()
+        if publisher is not None:
+            publisher.changed()
 
     @tool
     async def desktop_apps(self) -> dict:
