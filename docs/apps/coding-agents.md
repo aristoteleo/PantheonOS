@@ -632,6 +632,18 @@ comes from hooks given to that launch only:
   line of their own, a status line that forwards the account's limits at
   most every 15 s.
 - Codex: `-c notify=…`, which reports each finished turn.
+- Pi: `-e <state>/hooks/pi-hooks.js`, an extension that posts
+  `SessionStart` (Pi's `session_start`: started, resumed, or switched to with
+  `/new` or `/resume`), `UserPromptSubmit` (its `input`, slash commands left
+  out) and `Stop` (`agent_end`), each with the session id. It loads with any
+  model source, next to the platform's own extension.
+- OpenCode: a plugin, `<state>/hooks/opencode-hooks.js`, added to the
+  `plugin` list of the launch's `OPENCODE_CONFIG_CONTENT` (OpenCode lays it
+  over the user's configuration and joins the plugin lists; the platform's
+  provider stays in it): `UserPromptSubmit` from its `chat.message` hook
+  (also in a session resumed with `--session`) and `Stop` from
+  `session.idle`, each with the session id; a sub-agent's sessions (those
+  with a parent) are left out.
 - Pantheon Agent: the terminal chat posts `UserPromptSubmit` (with the chat
   id and its prompt) and `Stop` around each turn when the launch gave it the
   hook address.
@@ -641,8 +653,10 @@ comes from hooks given to that launch only:
   hook that lands later (Codex's notify runs apart from Codex) changes no
   state, though the session id it carries is kept.
 
-The first prompt a hook carries (Claude Code's `prompt`, Codex's
-`input-messages`, the Pantheon Agent's `title`) titles the session. Each hook posts the event to a listener of the service on 127.0.0.1 with a
+The first prompt a hook carries (Claude Code's, Pi's and OpenCode's
+`prompt`, Codex's `input-messages`, the Pantheon Agent's `title`) titles the
+session, and the session id it carries makes that session the desktop's
+(listed in its project, not offered to import). Each hook posts the event to a listener of the service on 127.0.0.1 with a
 token from the launch. The desktop shows the state and notifies the user
 when an agent waits for them.
 
@@ -675,8 +689,19 @@ When a provider will not say, `agents_detect` carries why as `quota_note`.
 `agent_sessions` lists the sessions the agents keep themselves, including
 those started outside PantheonOS: Claude Code's session files under
 `~/.claude/projects` (only each file's head and tail are read: first prompt,
-folder, branch, title) and Codex's threads through `codex app-server`
-(`thread/list`). The Pantheon Agent's chats live with the Agent, so the ones
+folder, branch, title), Codex's threads through `codex app-server`
+(`thread/list`), Pi's session files (`<sessions>/--<folder>--/<time>_<id>.jsonl`,
+or flat in a session folder the user set; `<sessions>` is
+`PI_CODING_AGENT_SESSION_DIR`, else the `sessionDir` of Pi's
+`settings.json`, else `sessions` in `PI_CODING_AGENT_DIR` or `~/.pi/agent`;
+head and tail only: the header's id, folder and time, the first prompt, the
+model, the name given with `/name`) and OpenCode's sessions from its own
+database through the CLI (`opencode db <query> --format json`: every
+project's top-level sessions, not archived, with each one's first prompt and
+last model; a title that is still OpenCode's "New session - …" shows the
+prompt). An OpenCode without `db` is asked `opencode session list --format
+json` in each project and workspace folder and the home folder, since that
+lists the sessions of one project. The Pantheon Agent's chats live with the Agent, so the ones
 started in a terminal here are listed from what their hooks reported (chat
 id, folder, first prompt), kept with the desktop's known sessions. A session opens in a terminal with its resume argument, or
 continues as a new conversation (`agent_send` with `session_id`).

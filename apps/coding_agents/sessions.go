@@ -2,6 +2,7 @@ package codingagentsapp
 
 import (
 	"context"
+	"os"
 	"sort"
 	"time"
 
@@ -42,6 +43,22 @@ func (a *App) sessions(agent string, limit int) map[string]any {
 			rows = append(rows, list...)
 		}
 	}
+	if agent == "" || agent == "pi" {
+		if _, err := resolve("pi"); err == nil {
+			rows = append(rows, codingagents.PiSessions(limit)...)
+		}
+	}
+	if agent == "" || agent == "opencode" {
+		if r, err := resolve("opencode"); err == nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			list, err := codingagents.OpenCodeSessions(ctx, r.path, codingagents.AgentEnv("opencode"), limit, sessionFolders(r.settings))
+			cancel()
+			if err != nil {
+				errs = append(errs, "OpenCode: "+err.Error())
+			}
+			rows = append(rows, list...)
+		}
+	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].UpdatedAt > rows[j].UpdatedAt })
 	if len(rows) > limit {
 		rows = rows[:limit]
@@ -77,4 +94,20 @@ func (a *App) sessions(agent string, limit int) map[string]any {
 		res["warnings"] = errs
 	}
 	return res
+}
+
+// sessionFolders are the folders whose sessions an agent that lists them per
+// folder is asked for: the projects, their workspaces and the home folder.
+func sessionFolders(s codingagents.Settings) []string {
+	var out []string
+	for _, p := range s.Projects {
+		out = append(out, p.Path)
+		for _, w := range p.Workspaces {
+			out = append(out, w.Path)
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		out = append(out, home)
+	}
+	return out
 }

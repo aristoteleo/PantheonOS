@@ -395,6 +395,12 @@ func (a *App) terminalCommand(p TerminalArgs) map[string]any {
 				}
 			case "codex":
 				argv = append(argv, codingagents.CodexNotifyArgs()...)
+			case "pi":
+				if extra, err := codingagents.PiHookArgs(); err == nil {
+					argv = append(argv, extra...)
+				}
+			case "opencode":
+				env = withOpenCodeHooks(env)
 			}
 		}
 		if extra := promptArgs(p.Agent, p.Prompt); extra != nil && p.Resume == "" {
@@ -431,6 +437,28 @@ func (a *App) terminalCommand(p TerminalArgs) map[string]any {
 	home, _ := os.UserHomeDir()
 	return map[string]any{"success": true, "command": command, "argv": argv, "label": r.found.Label, "home": home,
 		"terminal_id": term.ID, "prompted": prompted}
+}
+
+// withOpenCodeHooks adds the hook plugin to the OpenCode configuration a
+// terminal launch gives (the platform's, the user's for the agent, or the
+// node's), env unchanged when that configuration cannot take it.
+func withOpenCodeHooks(env []string) []string {
+	const name = "OPENCODE_CONFIG_CONTENT"
+	config, at := os.Getenv(name), -1
+	for i, kv := range env {
+		if v, ok := strings.CutPrefix(kv, name+"="); ok {
+			config, at = v, i
+		}
+	}
+	merged, err := codingagents.OpenCodeHookConfig(config)
+	if err != nil {
+		return env
+	}
+	if at < 0 {
+		return append(env, name+"="+merged)
+	}
+	env[at] = name + "=" + merged
+	return env
 }
 
 func (a *App) writeTerminalFile(name string, data []byte) (string, error) {

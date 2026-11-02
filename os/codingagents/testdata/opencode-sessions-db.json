@@ -1,0 +1,74 @@
+[
+  {
+    "id": "ses_e6657ea10ffe0yqzakTXBq2Hwc",
+    "title": "New session - 2026-11-02T00:28:12.143Z",
+    "directory": "/work/repoA",
+    "created": 1793579292143,
+    "updated": 1793579295982,
+    "prompt": "SPAWN a sub-agent please\n",
+    "model": "fake/m1"
+  },
+  {
+    "id": "ses_e6658cd93fferwqDaUeqB19IAm",
+    "title": "PONG",
+    "directory": "/work/repoA",
+    "created": 1793579233900,
+    "updated": 1793579262079,
+    "prompt": "opencode tui prompt",
+    "model": "fake/m1"
+  },
+  {
+    "id": "ses_e665f3d6effeyQ7rAwgncj053j",
+    "title": "PONG",
+    "directory": "/work/plainB",
+    "created": 1793578812049,
+    "updated": 1793578813662,
+    "prompt": "TUI probe prompt",
+    "model": "fake/m1"
+  },
+  {
+    "id": "ses_e665fd0f7ffehsJUp7sWJtUYrp",
+    "title": "PONG",
+    "directory": "/work/repoA",
+    "created": 1793578774280,
+    "updated": 1793578797879,
+    "prompt": "Plugin probe prompt\n",
+    "model": "fake/m1"
+  },
+  {
+    "id": "ses_e6661d0ebffemiMuZuSprGdlj1",
+    "title": "PONG",
+    "directory": "/work/plainB",
+    "created": 1793578643220,
+    "updated": 1793578643709,
+    "prompt": "Plain B prompt\n",
+    "model": "fake/m1"
+  },
+  {
+    "id": "ses_e6661de1fffeaFdzRiAgKvGGH1",
+    "title": "PONG",
+    "directory": "/work/repoA",
+    "created": 1793578639841,
+    "updated": 1793578642631,
+    "prompt": "Reply with PONG please, repo A\n",
+    "model": "fake/m1"
+  },
+  {
+    "id": "ses_e666360ceffeMCN2jTm8Na7Qeo",
+    "title": "New session - 2026-11-02T00:15:40.849Z",
+    "directory": "/work/plainB",
+    "created": 1793578540849,
+    "updated": 1793578541092,
+    "prompt": "Plain B prompt\n",
+    "model": "fake/m1"
+  },
+  {
+    "id": "ses_e666449f6ffeCh6F8KEpye5aOz",
+    "title": "New session - 2026-11-02T00:14:41.161Z",
+    "directory": "/work/repoA",
+    "created": 1793578481161,
+    "updated": 1793578482656,
+    "prompt": "Reply with PONG please, repo A\n",
+    "model": "fake/m1"
+  }
+]

@@ -226,7 +226,7 @@
       },
       {
         "name": "agent_sessions",
-        "description": "The sessions the agents keep themselves on this node (also those started outside PantheonOS), newest first, with the conversation that continues each.\n\nArgs:\n    agent: Only this agent's sessions.\n    limit: How many (default 50, at most 200).",
+        "description": "The sessions the agents keep themselves on this node (Claude Code, Codex, Pi, OpenCode; also those started outside PantheonOS), newest first, with the conversation that continues each.\n\nArgs:\n    agent: Only this agent's sessions.\n    limit: How many (default 50, at most 200).",
         "hidden": true,
         "params": [
           {

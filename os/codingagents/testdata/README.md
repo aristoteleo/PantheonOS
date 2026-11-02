@@ -22,6 +22,9 @@ git repository with `README.md`, `src/calc.py` and a `night-sky` skill in
 | `pantheon-subagent.jsonl` | Pantheon Agent | real: asked to run one sub-agent with `pantheon agent run` |
 | `opencode.jsonl`, `opencode-budget.jsonl` | OpenCode 1.19.5 (`opencode run --format json`) | real CLI, model server a stand-in (below): a continued session runs one shell command and answers; then a turn the budget refuses |
 | `pi.jsonl`, `pi-budget.jsonl` | Pi 1.4.0 (`pi -p --mode json`, `@earendil-works/pi-coding-agent`) | the same, with the platform's provider from PantheonOS's extension (`-e`) |
+| `pi-sessions/` | Pi 1.4.0 session files | real, interactive (a PTY), model server a stand-in: `--work-acme--` a prompt then `/name Night sky README`; `--work-piproj--` a prompt, then resumed with `--session <id>` for a second; folders shortened to `/work/…`, Pi's package path to `/usr/lib/node_modules` |
+| `opencode-sessions-db.json` | OpenCode 1.19.5 | real: `opencode db <opencodeSessionsQuery> --format json` over sessions run in a git repository and a plain folder (one spawned a sub-agent with the `task` tool; its session is left out) |
+| `opencode-session-list.json` | OpenCode 1.19.5 | real: `opencode session list --format json` in that repository (its project's sessions only) |
 
 ## Gemini CLI
 

@@ -1,9 +1,13 @@
 package codingagents
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 // A terminal launch reports what the agent is doing through hooks given for
@@ -66,6 +70,120 @@ func CodexNotifyArgs() []string {
 	return []string{"-c", "notify=" + string(b)}
 }
 
+// Pi and OpenCode take no hook commands; code of theirs loaded for the launch
+// posts the same events instead (none without the launch's hook address):
+// SessionStart (Pi: a session started, resumed or switched to), then
+// UserPromptSubmit with the prompt and Stop when the agent is done, each with
+// the session id. Both files live in the node's state folder.
+
+// piHooks is a Pi extension (-e): Pi's session_start, input and agent_end.
+const piHooks = `// Written by PantheonOS: tells the PantheonOS terminal Pi runs in which session
+// it is in and when it works.
+export default function (pi) {
+  const url = process.env.PANTHEON_AGENT_HOOK_URL, token = process.env.PANTHEON_AGENT_HOOK_TOKEN;
+  if (!url || !token) return;
+  let queue = Promise.resolve();
+  const post = (event, ctx, extra) => {
+    let body;
+    try {
+      body = JSON.stringify({ session_id: ctx.sessionManager.getSessionId(), cwd: ctx.sessionManager.getCwd(), ...extra });
+    } catch {
+      return;
+    }
+    queue = queue.then(() => fetch(url + "/" + event, { method: "POST", body, signal: AbortSignal.timeout(3000),
+      headers: { "X-Pantheon-Hook": token, "Content-Type": "application/json" } })).catch(() => {});
+  };
+  pi.on("session_start", (_event, ctx) => { post("SessionStart", ctx); });
+  pi.on("input", (event, ctx) => {
+    const text = String(event.text ?? "");
+    if (!text.startsWith("/")) post("UserPromptSubmit", ctx, { prompt: text });
+  });
+  pi.on("agent_end", (_event, ctx) => { post("Stop", ctx); });
+}
+`
+
+// opencodeHooks is an OpenCode plugin: its chat.message hook (a prompt,
+// with its session, also a resumed one) and session.idle event. A
+// sub-agent's sessions (those with a parent) are left out.
+const opencodeHooks = `// Written by PantheonOS: tells the PantheonOS terminal OpenCode runs in which
+// session it is in and when it works.
+export const PantheonTerminal = async () => {
+  const url = process.env.PANTHEON_AGENT_HOOK_URL, token = process.env.PANTHEON_AGENT_HOOK_TOKEN;
+  if (!url || !token) return {};
+  const children = new Set();
+  let queue = Promise.resolve();
+  const post = (event, payload) => {
+    queue = queue.then(() => fetch(url + "/" + event, { method: "POST", body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(3000), headers: { "X-Pantheon-Hook": token, "Content-Type": "application/json" } })).catch(() => {});
+  };
+  return {
+    "chat.message": async (input, output) => {
+      const id = input?.sessionID;
+      if (!id || children.has(id)) return;
+      const text = (output?.parts ?? []).filter((p) => p.type === "text" && !p.synthetic).map((p) => p.text).join("\n");
+      post("UserPromptSubmit", { session_id: id, prompt: text });
+    },
+    event: async ({ event }) => {
+      const p = event?.properties ?? {};
+      if (event?.type === "session.created" && p.info?.parentID) children.add(p.info.id);
+      if (event?.type === "session.idle" && p.sessionID && !children.has(p.sessionID)) post("Stop", { session_id: p.sessionID });
+    },
+  };
+};
+`
+
+var hookFileMu sync.Mutex
+
+// writeHookFile keeps one of the hook files in the node's state folder, and
+// returns its path.
+func writeHookFile(name, content string) (string, error) {
+	hookFileMu.Lock()
+	defer hookFileMu.Unlock()
+	dir := filepath.Join(Root(), "hooks")
+	path := filepath.Join(dir, name)
+	if old, err := os.ReadFile(path); err == nil && bytes.Equal(old, []byte(content)) {
+		return path, nil
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(content), 0o600); err != nil {
+		return "", err
+	}
+	return path, os.Rename(tmp, path)
+}
+
+// PiHookArgs load the hook extension into a Pi terminal launch.
+func PiHookArgs() ([]string, error) {
+	path, err := writeHookFile("pi-hooks.js", piHooks)
+	if err != nil {
+		return nil, err
+	}
+	return []string{"-e", path}, nil
+}
+
+// OpenCodeHookConfig is OpenCode's configuration for a terminal launch
+// (OPENCODE_CONFIG_CONTENT, which OpenCode lays over the user's own, plugin
+// lists joined): config, the one the launch has otherwise ("" for none),
+// with the hook plugin added.
+func OpenCodeHookConfig(config string) (string, error) {
+	path, err := writeHookFile("opencode-hooks.js", opencodeHooks)
+	if err != nil {
+		return "", err
+	}
+	doc := map[string]any{}
+	if config != "" {
+		if err := json.Unmarshal([]byte(config), &doc); err != nil || doc == nil {
+			return "", fmt.Errorf("OPENCODE_CONFIG_CONTENT is not a JSON object")
+		}
+	}
+	plugins, _ := doc["plugin"].([]any)
+	doc["plugin"] = append(plugins, (&url.URL{Scheme: "file", Path: filepath.ToSlash(path)}).String())
+	b, err := json.Marshal(doc)
+	return string(b), err
+}
+
 // ExitHookEvent is the event a terminal launch posts once its agent exits.
 const ExitHookEvent = "Exit"
 
@@ -106,11 +224,11 @@ func HookState(agent, event string, payload map[string]any) string {
 		case "SessionEnd":
 			return "ended"
 		}
-	case PantheonAgent:
+	case PantheonAgent, "pi", "opencode":
 		switch event {
 		case "UserPromptSubmit":
 			return "working"
-		case "Stop":
+		case "SessionStart", "Stop":
 			return "ready"
 		}
 	case "codex":
