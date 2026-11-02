@@ -1,0 +1,114 @@
+{
+  "apiVersion": 2,
+  "id": "desktop-state",
+  "name": "Desktop state",
+  "version": "1.0.0",
+  "kind": "service",
+  "surface": "headless",
+  "description": "The user's desktop session, desktop settings and appearance, kept by the Fleet controller (docs/os/desktop-state.md).",
+  "notes": "Controller-hosted; no package. Every call is scoped to the caller's Fleet and user by the controller.",
+  "provides": {
+    "interfaces": [
+      {
+        "name": "desktop-state",
+        "version": 1,
+        "tools": [
+          "get",
+          "intent",
+          "settings_put",
+          "appearance_put",
+          "import"
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "get",
+        "description": "The caller's desktop: session (nominal size, spaces, stacking, windows), settings, appearance and the change subject.",
+        "params": []
+      },
+      {
+        "name": "intent",
+        "description": "Apply one desktop intent (open, close, move, resize, raise, set, spaces, nominal, bind_browser) and return {seq, ops, ...result}.",
+        "params": [
+          {
+            "name": "kind",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "args",
+            "type": "dict",
+            "required": false,
+            "default": null
+          }
+        ]
+      },
+      {
+        "name": "settings_put",
+        "description": "Replace the desktop settings (settings) or merge top-level keys into them (patch, null removes); with revision, a stale write returns {conflict, revision, settings}.",
+        "params": [
+          {
+            "name": "settings",
+            "type": "dict",
+            "required": false,
+            "default": null
+          },
+          {
+            "name": "patch",
+            "type": "dict",
+            "required": false,
+            "default": null
+          },
+          {
+            "name": "revision",
+            "type": "int",
+            "required": false,
+            "default": null
+          }
+        ]
+      },
+      {
+        "name": "appearance_put",
+        "description": "Set the appearance preference: light, dark or system.",
+        "params": [
+          {
+            "name": "preference",
+            "type": "str",
+            "required": true
+          }
+        ]
+      },
+      {
+        "name": "import",
+        "description": "Adopt Workspace files (session record, settings, appearance), each only while the caller's keys for it are absent; boot drops container-bound windows of another Workspace lifetime.",
+        "params": [
+          {
+            "name": "session",
+            "type": "dict",
+            "required": false,
+            "default": null
+          },
+          {
+            "name": "settings",
+            "type": "dict",
+            "required": false,
+            "default": null
+          },
+          {
+            "name": "appearance",
+            "type": "dict",
+            "required": false,
+            "default": null
+          },
+          {
+            "name": "boot",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -137,9 +137,24 @@ def _prepare(configuration, workspace, state, *, data_port=0):
     return config, workspace, state, roots, served, fleet, events, store, server_config, base
 
 
+def _desktop_state(configuration):
+    """The controller's desktop-state service, when the deployment binds it.
+
+    The binding is an optional dependency (docs/os/desktop-state.md): a
+    deployment without it — a single machine, or a controller that does not
+    host the service — leaves no credential, and the desktop stays in files.
+    """
+    credential = configuration.credentials.get('desktop_state')
+    if credential is None:
+        return None
+    from pantheonos.appkit.dependency_client import DependencyClient
+    return DependencyClient(credential)
+
+
 async def create_service(configuration, workspace, state, *, data_port=0):
     config, workspace, state, roots, served, fleet, events, store, server_config, base = _prepare(
         configuration, workspace, state, data_port=data_port)
+    desktop_state = _desktop_state(configuration)
     buses = []
     service = None
     try:
@@ -151,7 +166,7 @@ async def create_service(configuration, workspace, state, *, data_port=0):
         if base is not None:
             server.set_tunnel_base(base)
         service = DesktopToolSet(
-            session_binding=DesktopSessionBinding(state, publisher),
+            session_binding=DesktopSessionBinding(state, publisher, desktop_state=desktop_state, workspace=workspace),
             files_binding=DesktopFilesBinding(workspace=workspace, app_roots=roots,
                 data_roots=served, server=server, node_id=configuration.node_id),
             fleet_binding=DesktopFleetBinding(fleet_id=configuration.owner, node_id=configuration.node_id,

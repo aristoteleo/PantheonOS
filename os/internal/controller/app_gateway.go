@@ -14,7 +14,9 @@ import (
 	"github.com/aristoteleo/pantheonos/os/internal/auth"
 	"github.com/aristoteleo/pantheonos/os/internal/hosted"
 	"github.com/aristoteleo/pantheonos/os/internal/proto"
+	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nkeys"
 )
 
 func makeAppGateway(domain, token string, origins []string, authority *auth.Authority, natsURL string, host *hosted.Host) (*appgateway.Gateway, error) {
@@ -36,6 +38,45 @@ func connectAppGateway(authority *auth.Authority, fid, natsURL string) (*nats.Co
 	// after their caller has already received an error. Automatic reconnection
 	// remains enabled for subsequent requests.
 	return nats.Connect(natsURL, nats.UserCredentialBytes(creds), nats.Name("fleet-app-gateway"), nats.CustomInboxPrefix("_INBOX_"+fid), nats.Timeout(5*time.Second), nats.ReconnectBufSize(-1))
+}
+
+// connectDesktopState is the desktop-state service's own bus connection. Its
+// credential is minted afresh on every (re)connect, so an expired one is
+// replaced by reconnecting rather than ending the service.
+func connectDesktopState(authority *auth.Authority, natsURL string) (*nats.Conn, error) {
+	var mu sync.Mutex
+	var seed nkeys.KeyPair
+	user := func() (string, error) {
+		creds, err := authority.MintDesktopState(24 * time.Hour)
+		if err != nil {
+			return "", err
+		}
+		token, err := jwt.ParseDecoratedJWT(creds)
+		if err != nil {
+			return "", err
+		}
+		kp, err := jwt.ParseDecoratedNKey(creds)
+		if err != nil {
+			return "", err
+		}
+		mu.Lock()
+		seed = kp
+		mu.Unlock()
+		return token, nil
+	}
+	sign := func(nonce []byte) ([]byte, error) {
+		mu.Lock()
+		kp := seed
+		mu.Unlock()
+		if kp == nil {
+			return nil, fmt.Errorf("no desktop-state credential")
+		}
+		return kp.Sign(nonce)
+	}
+	// As for the App gateway: a write is never replayed after a reconnect.
+	return nats.Connect(natsURL, nats.UserJWT(user, sign), nats.Name("desktop-state"),
+		nats.CustomInboxPrefix(auth.DesktopStateInbox), nats.Timeout(5*time.Second), nats.ReconnectBufSize(-1),
+		nats.MaxReconnects(-1), nats.RetryOnFailedConnect(true))
 }
 
 func makeGateway(domain, token string, origins []string, authority *auth.Authority, natsURL, localOrigin string, host *hosted.Host) (*appgateway.Gateway, error) {

@@ -8,7 +8,7 @@ import tempfile
 
 RUNTIME_FILES = '''toolset.py utils/log.py utils/misc.py utils/file_paths.py
 internal/package_runtime/context.py remote/backend/base.py
-appkit/runtime_config.py appkit/owned_bus.py appkit/toolset_backend.py appkit/resolver.py appkit/client.py
+appkit/runtime_config.py appkit/dependency_client.py appkit/owned_bus.py appkit/toolset_backend.py appkit/resolver.py appkit/client.py
 appkit/lifecycle.py appkit/portable.py appkit/reflect.py appkit/schema.py appkit/registry.py appkit/app_build.py
 appkit/distribution.py appkit/store_release.py appkit/versioning.py appkit/compat.py
 appkit/dependency_assembly.py appkit/tool_profiles.py appkit/owner_journal.py utils/registry_lock.py
@@ -67,6 +67,10 @@ def build(output, platform, *, data_mode='loopback'):
         manifest['provides']['tools'] = tools
         manifest['provides']['interfaces'] = [{'name': 'desktop', 'version': 1,
                                                'tools': [tool['name'] for tool in tools]}]
+        # The controller-hosted desktop session (docs/os/desktop-state.md), when
+        # the deployment binds it; without it the session stays in local files.
+        manifest['dependencies'] = {'desktop-state': {'range': '^1.0.0', 'uses': ['desktop-state@1'],
+                                                      'binding': 'optional'}}
         parse_manifest(manifest)
         (root / 'app.json').write_text(json.dumps(manifest, indent=2) + '\n')
         vendor = root / 'backend/_vendor'
@@ -101,7 +105,8 @@ def build(output, platform, *, data_mode='loopback'):
         component['configuration'] = {
             'values': {'desktop': {'required': True}},
             'credentials': {'fleet': {'required': True}, 'events': {'required': True},
-                            'store': {'required': False}, 'data': {'required': data_mode == 'tunnel'}}}
+                            'store': {'required': False}, 'data': {'required': data_mode == 'tunnel'},
+                            'desktop_state': {'required': False}}}
         if data_mode in ('tunnel', 'gateway'):
             component['ports']['data'] = 0
         execution['hooks']['before_stop']['component'] = 'backend'

@@ -231,6 +231,13 @@ fleet.<fleet_id>.transfer.<transfer_id>.progress  # bytes, rate, state
 Bucket per Fleet (e.g. `FLEET_<fleet_id>_NODES`), `key = node_id`, value =
 Node record, with a short TTL refreshed by heartbeat (missed TTL ⇒ offline).
 
+Other buckets on the controller's JetStream:
+
+| Bucket | Keys | Client |
+|---|---|---|
+| `FLEET_<fleet_id>_NODES` | `node_id` | the Fleet's nodes (registry, above) |
+| `DESKTOP` (one for all Fleets, History 1) | `<fid>.<uid>.meta`, `.win.<id>`, `.settings`, `.appearance` | the controller's `desktop-state` service only ([desktop-state.md](desktop-state.md)); ≤ 448 KB of windows + meta per user; snapshotted daily to `<state-dir>/backups` |
+
 **Node record**
 ```json
 {

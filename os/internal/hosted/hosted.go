@@ -39,10 +39,18 @@ var modelAccessManifest []byte
 //go:embed manifests/model-services-management.json
 var modelManagementManifest []byte
 
+// The desktop-state service has no Python package: this manifest is its
+// contract (docs/os/desktop-state.md).
+//
+//go:embed manifests/desktop-state.json
+var desktopStateManifest []byte
+
 // catalog holds each hosted service's App manifest, the contract consumers
-// bind against. They are the manifests the Python packages were built with.
+// bind against. They are the manifests the Python packages were built with,
+// except desktop-state's, which only the controller implements.
 var catalog = map[string][]byte{"fleet": fleetManifest, "dependency-binding": allocatorManifest,
-	"model-services-control": modelAccessManifest, "model-services-management": modelManagementManifest}
+	"model-services-control": modelAccessManifest, "model-services-management": modelManagementManifest,
+	"desktop-state": desktopStateManifest}
 
 // Manifest is a hosted service's App manifest.
 func Manifest(service string) ([]byte, bool) {

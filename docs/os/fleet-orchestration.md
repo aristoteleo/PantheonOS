@@ -488,6 +488,7 @@ one process for every owner:
 | `model-access`, `files-models` (`model-services-control`: consumer-scoped directory + inference grants) | Python Apps on the brain | `internal/hosted` model access (cloud); local stays an App |
 | `model-management` (`model-services-management`: 9 Agent tools + desktop Model Services operations, Modal GPUs, deploy, model groups) | Python App on the brain | `internal/modelservices`, rewritten in Go (cloud); local stays an App |
 | `connector` | App (also runs on owners' GPU nodes) | stays an App |
+| `desktop-state` (the user's desktop session, settings, appearance; [desktop-state.md](desktop-state.md)) | Workspace files | `internal/hosted` desktop state over the `DESKTOP` KV bucket (cloud) |
 
 **Spec.** A hosted App names its service instead of a package:
 `{"hosted": "fleet", "scope": …, "intent": "running", "config": {…}}`. It is

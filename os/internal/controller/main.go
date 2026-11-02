@@ -646,6 +646,12 @@ func Main(args []string) {
 				_, _, err := revokeNode(fleet, node, "")
 				return err
 			}})
+		// The user's desktop session, settings and appearance in the DESKTOP
+		// bucket (docs/os/desktop-state.md), snapshotted daily.
+		desktop := &hosted.DesktopState{Backups: filepath.Join(*stateDir, "backups"),
+			Connect: func() (*nats.Conn, error) { return connectDesktopState(authority, *natsURL) }}
+		host.Register("desktop-state", desktop)
+		go desktop.Run(context.Background(), time.Hour)
 		if grants != nil {
 			allocator := &hosted.Allocator{Bus: nodes, Store: store, Grants: grants, Root: filepath.Join(*stateDir, "hosted")}
 			host.Register("dependency-binding", allocator)

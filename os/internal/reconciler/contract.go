@@ -5,7 +5,8 @@ package reconciler
 // alias is a declared credential input of the consumer component, every
 // startup dependency is bound, the provider's version is in range, and the
 // granted methods come from the declared interfaces with exactly their
-// parameters.
+// parameters. An optional dependency is bound at start when the deployment
+// binds it and absent otherwise (the App works either way).
 
 import (
 	"encoding/json"
@@ -270,7 +271,7 @@ func contract(consumer Installed, components map[string]lifecycle.ComponentConfi
 		if _, dup := components[b.Component].Credentials[alias]; dup {
 			return nil, fmt.Errorf("binding %s is also configured as a credential", alias)
 		}
-		if dep.phase() != "startup" {
+		if dep.phase() != "startup" && dep.phase() != "optional" {
 			return nil, fmt.Errorf("runtime dependency %s is allocated under its live owner policy, not bound at start", appID)
 		}
 		if pm.ID != appID {

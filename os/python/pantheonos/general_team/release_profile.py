@@ -140,6 +140,28 @@ def hosted_apps(apps, names=None):
     return apps
 
 
+# The user's desktop session, settings and appearance, kept by the controller
+# (docs/os/desktop-state.md). The Desktop binds it as an optional dependency:
+# a deployment without it (a single machine, an older profile) keeps the
+# desktop in the Workspace's files.
+DESKTOP_STATE = {'hosted': 'desktop-state', 'scope': 'desktop-state', 'intent': 'running'}
+DESKTOP_STATE_METHODS = {
+    'get': {'arguments': [], 'bound': {}},
+    'intent': {'arguments': ['kind', 'args'], 'bound': {}},
+    'import': {'arguments': ['session', 'settings', 'appearance', 'boot'], 'bound': {}},
+}
+
+
+def desktop_state(apps):
+    """Add the hosted desktop-state and the Desktop's binding to it."""
+    if 'desktop' in apps:
+        apps['desktop-state'] = dict(DESKTOP_STATE)
+        apps['desktop'].setdefault('bindings', {})['desktop_state'] = {
+            '$app': 'desktop-state', 'component': 'backend', 'app_id': 'desktop-state',
+            'methods': json.loads(json.dumps(DESKTOP_STATE_METHODS))}
+    return apps
+
+
 # Apps whose configuration names other Apps only to use them at request time:
 # the allocator binds providers to Agent sessions when a session asks. With
 # late references it starts before (and independently of) those Apps.
@@ -188,7 +210,7 @@ def compile_profile(spec, *, tiers, catalog=()):
     tiers: {tier: [model, ...]} seeds the tier routes; catalog: extra
     [{id, suggested}] the platform Connector offers when the service has them.
     """
-    apps = hosted_apps({name: _app(name, app) for name, app in spec['apps'].items()})
+    apps = desktop_state(hosted_apps({name: _app(name, app) for name, app in spec['apps'].items()}))
     routes = {'tier-' + tier: list(chain) for tier, chain in tiers.items()}
     for name, item in spec['model_apps'].items():
         apps[name] = model_app(name, item, routes=routes, catalog=catalog)

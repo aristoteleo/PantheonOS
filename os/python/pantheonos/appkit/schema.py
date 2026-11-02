@@ -154,7 +154,9 @@ class DependencySpec(BaseModel):
     uses: list[str] = Field(default_factory=list)  # e.g. ["fs@1"]
     # Runtime dependencies still require an owner policy and scoped grant. They
     # are allocated for logical resources after the App process starts.
-    binding: Literal['startup', 'runtime'] = 'startup'
+    # Optional ones are granted at start when the deployment binds them, and
+    # the App works without them otherwise.
+    binding: Literal['startup', 'runtime', 'optional'] = 'startup'
 
 
 class ExposedPort(BaseModel):

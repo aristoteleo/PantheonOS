@@ -32,6 +32,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import threading
 import time
 import uuid
 from contextlib import contextmanager
@@ -586,6 +587,146 @@ class DesktopSessionStore:
         if before == (s.nominal_w, s.nominal_h, s.nominal_locked):
             return [], state
         return [{"op": "meta", **state}], state
+
+
+SETTINGS_RECORD = ".pantheon/atrium/desktop.json"
+APPEARANCE_RECORDS = ".pantheon/atrium/users"
+
+
+class RemoteDesktopSession:
+    """The same document, kept by the controller's desktop-state service.
+
+    The desktop belongs to the user, not to this Workspace
+    (docs/os/desktop-state.md): with the service bound, every intent and read
+    goes to it, so this App's desktop tools and every viewport share one
+    session even while the Workspace is stopped. Same surface as
+    `DesktopSessionStore` — `apply`, `current`, `where`, and `session` as of
+    the last call — so the toolset does not care which one it has.
+
+    On first contact it hands the service the Workspace's files (`import`,
+    which keeps whatever the service already has) and from then on writes no
+    file. A failed call raises rather than falling back to the files: two
+    copies of the desktop is the bug the document exists to prevent.
+    """
+
+    def __init__(self, client, *, record: Path, workspace: Path | None = None, timeout: int = 30):
+        self._client = client
+        self._record = Path(record)
+        self._workspace = Path(workspace) if workspace is not None else None
+        self._timeout = timeout
+        self._imported = False
+        self._lock = threading.Lock()
+        self.session = DesktopSession()
+        self._dirty = False   # the service stores every change before it answers
+
+    def load(self) -> None:
+        self.current()
+
+    def save(self) -> None:
+        pass
+
+    def _call(self, method: str, args: dict[str, Any]) -> dict[str, Any]:
+        reply = self._client.invoke(method, args, timeout_seconds=self._timeout)
+        if not isinstance(reply, dict):
+            raise RuntimeError("desktop-state returned an invalid reply")
+        if not reply.get("success"):
+            message = str(reply.get("error") or f"desktop-state refused {method}")
+            # The reducer's own refusals keep the types the file store raised.
+            if message.startswith(("no window", "No such desktop Browser window")):
+                raise KeyError(message)
+            raise ValueError(message)
+        result = reply.get("result")
+        return result if isinstance(result, dict) else {}
+
+    def _import_once(self) -> None:
+        if self._imported:
+            return
+        with self._lock:
+            if self._imported:
+                return
+            args: dict[str, Any] = {"boot": boot_token()}
+            record = _read_json(self._record)
+            if record is not None:
+                args["session"] = record
+            if self._workspace is not None:
+                settings = _read_json(self._workspace / SETTINGS_RECORD)
+                if settings is not None:
+                    args["settings"] = settings
+                preference = _appearance(self._workspace / APPEARANCE_RECORDS)
+                if preference:
+                    args["appearance"] = {"preference": preference}
+            try:
+                result = self._call("import", args)
+            except ValueError as e:
+                if "session" not in args:
+                    raise
+                # A record the service cannot read must not keep the desktop
+                # from working: the rest is still imported.
+                logger.warning("desktop-state refused the session record, importing the rest: {}", e)
+                args.pop("session")
+                result = self._call("import", args)
+            if result.get("dropped"):
+                logger.warning("desktop-state import left out windows over its limits: {}", result["dropped"])
+            self._imported = True
+
+    def _adopt(self, document: dict[str, Any]) -> None:
+        s = DesktopSession()
+        s.seq = int(document.get("seq") or 0)
+        s.nominal_w = int(document.get("nominal_w") or 1280)
+        s.nominal_h = int(document.get("nominal_h") or 800)
+        s.nominal_locked = bool(document.get("nominal_locked"))
+        s.spaces = int(document.get("spaces") or 1)
+        s.top_z = int(document.get("top_z") or 0)
+        s.windows = dict(document.get("windows") or {})
+        self.session = s
+
+    def current(self) -> dict[str, Any]:
+        self._import_once()
+        self._adopt(self._call("get", {}).get("session") or {})
+        return self.session.snapshot()
+
+    def apply(self, kind: str, args: dict[str, Any]) -> tuple[list[dict], dict]:
+        self._import_once()
+        result = dict(self._call("intent", {"kind": kind, "args": args or {}}))
+        ops = list(result.pop("ops", None) or [])
+        seq = result.pop("seq", self.session.seq)
+        # Keep `session` what this call left, as the file store does.
+        s = self.session
+        for op in ops:
+            if op.get("op") == "upsert":
+                s.windows[op["id"]] = op["window"]
+            elif op.get("op") == "remove":
+                s.windows.pop(op["id"], None)
+            elif op.get("op") == "meta":
+                for key in ("nominal_w", "nominal_h", "nominal_locked", "spaces", "top_z"):
+                    if key in op:
+                        setattr(s, key, op[key])
+        s.seq = int(seq or 0)
+        return ops, result
+
+    def where(self) -> dict[str, Any]:
+        return {"pid": os.getpid(), "boot": boot_token()[:8], "record": "desktop-state"}
+
+
+def _read_json(path: Path) -> dict[str, Any] | None:
+    try:
+        value = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _appearance(users: Path) -> str:
+    """The Workspace's appearance preference: the most recently written user file."""
+    try:
+        files = sorted(users.glob("*/appearance.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    except OSError:
+        return ""
+    for path in files:
+        preference = (_read_json(path) or {}).get("preference")
+        if preference in ("light", "dark", "system"):
+            return preference
+    return ""
 
 
 # One pod, one desktop.

@@ -334,6 +334,57 @@ func (a *Authority) MintFleetNode(fid, nodeID string) ([]byte, error) {
 	return jwt.FormatUserConfig(userJWT, useed)
 }
 
+// DesktopStateInbox is the reply prefix of the desktop-state service.
+const DesktopStateInbox = "_INBOX_desktop-state"
+
+// MintDesktopState issues the controller's desktop-state service its .creds:
+// the DESKTOP KV bucket (every Fleet's desktops, docs/os/desktop-state.md) and
+// publishing change notices into each owner's App namespace under
+// fleet.<fid>.apps.desktop-state. No Fleet or node credential names the
+// bucket, so only this service reads or writes it.
+func (a *Authority) MintDesktopState(ttl time.Duration) ([]byte, error) {
+	ukp, err := nkeys.CreateUser()
+	if err != nil {
+		return nil, err
+	}
+	upub, err := ukp.PublicKey()
+	if err != nil {
+		return nil, err
+	}
+	useed, err := ukp.Seed()
+	if err != nil {
+		return nil, err
+	}
+	uc := jwt.NewUserClaims(upub)
+	uc.Name = "desktop-state"
+	uc.Expires = time.Now().Add(ttl).Unix()
+	uc.Permissions.Pub.Allow = jwt.StringList{
+		"fleet.*.apps.desktop-state.>",
+		"$JS.API.INFO",
+		"$KV.DESKTOP.>",
+		"$JS.API.STREAM.CREATE.KV_DESKTOP",
+		"$JS.API.STREAM.UPDATE.KV_DESKTOP",
+		"$JS.API.STREAM.INFO.KV_DESKTOP",
+		"$JS.API.STREAM.PURGE.KV_DESKTOP",
+		"$JS.API.STREAM.MSG.GET.KV_DESKTOP",
+		"$JS.API.DIRECT.GET.KV_DESKTOP",
+		"$JS.API.DIRECT.GET.KV_DESKTOP.>",
+		"$JS.API.CONSUMER.CREATE.KV_DESKTOP",
+		"$JS.API.CONSUMER.CREATE.KV_DESKTOP.>",
+		"$JS.API.CONSUMER.DELETE.KV_DESKTOP.>",
+		"$JS.API.CONSUMER.INFO.KV_DESKTOP.>",
+		"$JS.FC.KV_DESKTOP.>",
+		"$JS.FC.*.*.KV_DESKTOP.>",
+		DesktopStateInbox + ".>",
+	}
+	uc.Permissions.Sub.Allow = jwt.StringList{DesktopStateInbox + ".>"}
+	userJWT, err := uc.Encode(a.accKP)
+	if err != nil {
+		return nil, err
+	}
+	return jwt.FormatUserConfig(userJWT, useed)
+}
+
 // AccountPubKey is the stable FLEET account id (handy for diagnostics).
 func (a *Authority) AccountPubKey() string { return a.accPub }
 
