@@ -213,6 +213,14 @@ binds desktop-state.** A controller without the service reports the hosted App
 `blocked`, and a Desktop bound to it would wait for it. Existing owners get the
 binding when their deployment is filled from such a profile.
 
+Owners pick up a new pin themselves (desktop agent-setup), or an operator moves
+them without their login through the Hub's admin endpoints:
+`GET /api/admin/agent-deployments` (who runs which release, `outdated` against the
+pin), `POST /api/admin/users/{user_id}/agent-setup` (the owner's setup path, run for
+them) and `POST /api/admin/agent-setup/rollout` (dry run by default; only owners with
+a deployment unless `user_ids` names them). The Hub's `scripts/agent_rollout.py`
+wraps them; see the Hub's `docs/agent-app-platform-transition.md`.
+
 **Desktop App.** `managed._desktop_state` builds a dependency client when the
 runtime configuration carries the `desktop_state` credential; that is the
 whole detection. With it, `DesktopSessionBinding` uses `RemoteDesktopSession`
