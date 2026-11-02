@@ -134,3 +134,28 @@ func min(a, b int) int {
 	}
 	return b
 }
+
+// A rejoined full-screen program: the replay starts at its screen and the
+// attach says it holds the alternate screen, so the viewer has it redraw.
+func TestAttachToAFullScreenProgram(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	app := NewApp(nil, "", t.TempDir())
+	defer app.Close()
+	res := app.open(80, 24, "", "/bin/sh", `printf 'before\n\033[?1049h\033[?25ltui-screen'; sleep 5`)
+	sid := res["session_id"].(string)
+	deadline := time.Now().Add(5 * time.Second)
+	var att map[string]any
+	for time.Now().Before(deadline) {
+		att = app.attach(sid, 0, 0)
+		if strings.Contains(decode(t, att["scrollback"].(string)), "tui-screen") {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if got := decode(t, att["scrollback"].(string)); got != "\x1b[?1049h\x1b[?25ltui-screen" {
+		t.Fatalf("replay %q", got)
+	}
+	if att["alt_screen"] != true {
+		t.Fatalf("alt_screen not reported: %v", att["alt_screen"])
+	}
+}

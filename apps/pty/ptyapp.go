@@ -77,7 +77,7 @@ type ptySession struct {
 
 	mu         sync.Mutex
 	lastActive time.Time
-	scrollback []byte
+	screen     *screenLog // capped output, replayed to a viewer that rejoins
 	exited     bool
 	terminated bool // this service ended it (close, reaping, shutdown)
 	exitCode   *int
@@ -107,10 +107,10 @@ func (s *ptySession) snapshot() map[string]any {
 
 func (s *ptySession) remember(data []byte) {
 	s.mu.Lock()
-	s.scrollback = append(s.scrollback, data...)
-	if over := len(s.scrollback) - scrollbackCap; over > 0 {
-		s.scrollback = s.scrollback[over:]
+	if s.screen == nil {
+		s.screen = newScreenLog(scrollbackCap)
 	}
+	s.screen.write(data)
 	s.mu.Unlock()
 }
 
@@ -445,8 +445,11 @@ func (a *App) attach(sessionID string, cols, rows int) map[string]any {
 	}
 	s.mu.Lock()
 	exited := s.exited
-	scroll := make([]byte, len(s.scrollback))
-	copy(scroll, s.scrollback)
+	var scroll []byte
+	alt := false
+	if s.screen != nil {
+		scroll, alt = s.screen.replay(), s.screen.inAlt()
+	}
 	s.mu.Unlock()
 	if exited {
 		return map[string]any{"success": false, "error": "session gone"}
@@ -461,6 +464,10 @@ func (a *App) attach(sessionID string, cols, rows int) map[string]any {
 	res := map[string]any{
 		"success":    true,
 		"scrollback": base64.StdEncoding.EncodeToString(scroll),
+		// A full-screen program: the replay shows its last full paint and
+		// what it changed since, so a viewer resizes it once listening to
+		// have it draw its screen whole.
+		"alt_screen": alt,
 	}
 	for k, v := range s.snapshot() {
 		res[k] = v
