@@ -18,6 +18,7 @@ import unicodedata
 from collections import deque
 
 from pathlib import Path
+from urllib.parse import unquote
 from typing import TYPE_CHECKING, Optional, Callable, Awaitable, Tuple, List, Iterator
 
 from prompt_toolkit import Application
@@ -55,6 +56,42 @@ if TYPE_CHECKING:
 
 # Image file extensions for @image: completion
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg", ".ico"}
+
+# Words a model name spells its own way.
+_MODEL_WORDS = {"gpt": "GPT", "deepseek": "DeepSeek", "glm": "GLM", "qwen": "Qwen", "openai": "OpenAI",
+                "xai": "xAI", "ai": "AI"}
+
+
+def model_label(model: str) -> str:
+    """A model as people name it, for the status bar.
+
+    "fleet-model://platform/openrouter%2Fdeepseek%2Fdeepseek-v4.1-flash" reads
+    "DeepSeek V4.1 Flash" and "openrouter/anthropic/claude-sonnet-4.6" "Claude
+    Sonnet 4.6": the provider, the route through it, a variant (":batch") and
+    a snapshot date say nothing the person chose. A route keeps its id.
+    """
+    if not model:
+        return model
+    scheme, sep, rest = model.partition("://")
+    if sep:
+        if scheme == "fleet-route":
+            return f"route {rest}"
+        rest = unquote(rest.split("/", 1)[-1] if scheme == "fleet-model" else rest)
+    else:
+        rest = model
+    name = re.split(r"[:\[]", rest.rsplit("/", 1)[-1])[0]
+    words = []
+    for word in name.split("-"):
+        if not word or (word.isdigit() and len(word) >= 4):
+            continue
+        low = word.lower()
+        if low in _MODEL_WORDS:
+            words.append(_MODEL_WORDS[low])
+        elif low[0] == "v" and low[1:2].isdigit():
+            words.append("V" + word[1:])
+        else:
+            words.append(word if word[0].isdigit() else word[0].upper() + word[1:])
+    return " ".join(words) or model
 
 
 def subsequence_match(pattern: str, target: str) -> Tuple[bool, int]:
@@ -1205,7 +1242,7 @@ class PantheonInputApp:
         title = self._get_term_title()
         set_title(title)
 
-        model_part = f"⏺ {self._model_name} | agent: {self._current_agent}"
+        model_part = f"⏺ {model_label(self._model_name)} | agent: {self._current_agent}"
 
         return HTML(
             f'<style class="status-bar">{model_part} | {status} | {usage_display}{bg_part}</style>'
