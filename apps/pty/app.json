@@ -12,7 +12,7 @@
       },
       {
         "name": "pty_attach",
-        "description": "Rejoin a live session instead of starting a shell.\n\n        A closed tab does not kill the shell — sessions live until the idle\n        reaper takes them (an hour untouched) — so a reloaded desktop can pick\n        its terminal back up: everything typed, every running process, still\n        there. Replays the capped scrollback so the window is not blank, then\n        the stream carries on as usual.\n\n        Args:\n            session_id: The session to rejoin.\n            cols: New width, when the window came back a different size;\n                0 leaves the size as it is. A viewer that resizes after\n                subscribing (pty_resize) receives the redraw a full-screen\n                program makes, which a resize here sends before it listens.\n            rows: New height.\n\n        Returns:\n            On success: ``scrollback`` (base64) to paint first, plus the same\n            session fields ``pty_open`` returns, and\n            ``alt_screen``: the program holds the alternate screen, so the\n            replay starts at its last full paint and a viewer resizes it once\n            listening to have it redraw. ``{\"success\": False}`` when\n            the session is gone — callers fall back to ``pty_open``.\n        ",
+        "description": "Rejoin a live session instead of starting a shell.\n\n        A closed tab does not kill the shell — sessions live until the idle\n        reaper takes them (an hour untouched) — so a reloaded desktop can pick\n        its terminal back up: everything typed, every running process, still\n        there. Replays the capped scrollback so the window is not blank, then\n        the stream carries on as usual.\n\n        Args:\n            session_id: The session to rejoin.\n            cols: New width, when the window came back a different size;\n                0 leaves the size as it is. A viewer that resizes after\n                subscribing (pty_resize) receives the redraw a full-screen\n                program makes, which a resize here sends before it listens.\n            rows: New height.\n\n        Returns:\n            On success: ``scrollback`` (base64) to paint first, plus the same\n            session fields ``pty_open`` returns, and\n            ``alt_screen``: the program holds the alternate screen, so the\n            replay starts at its last full paint; a viewer that resizes it once\n            listening (pty_resize) gets its whole screen painted again. ``{\"success\": False}`` when\n            the session is gone — callers fall back to ``pty_open``.\n        ",
         "params": [
           {
             "name": "cols",
@@ -73,7 +73,7 @@
       },
       {
         "name": "pty_resize",
-        "description": "Tell the shell the window changed size.\n\n        Without this the shell keeps wrapping at the old width, so a resized\n        window redraws its prompt in the wrong place.\n        ",
+        "description": "Tell the shell the window changed size.\n\n        Without this the shell keeps wrapping at the old width, so a resized\n        window redraws its prompt in the wrong place. A full-screen program\n        (alternate screen) asked for the size it already has is made to\n        repaint anyway — a row short, then back.\n        ",
         "params": [
           {
             "name": "cols",

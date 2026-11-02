@@ -159,3 +159,44 @@ func TestAttachToAFullScreenProgram(t *testing.T) {
 		t.Fatalf("alt_screen not reported: %v", att["alt_screen"])
 	}
 }
+
+// Asked for the size it has, a full-screen program is still made to repaint
+// (a row short and back): the viewer cleared its screen for that paint. A
+// shell is not — it would print its prompt again.
+func TestSameSizeResizeRedrawsOnlyAFullScreenProgram(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	app := NewApp(nil, "", t.TempDir())
+	defer app.Close()
+	script := `trap 'printf "[size %s]" "$(stty size)"' WINCH; printf '%s' "$ALT"; printf ready; while :; do sleep 0.05; done`
+	for _, alt := range []bool{true, false} {
+		seq := ""
+		if alt {
+			seq = "\x1b[?1049h"
+		}
+		t.Setenv("ALT", seq)
+		res := app.open(80, 24, "", "/bin/sh", script)
+		sid := res["session_id"].(string)
+		waitFor := func(want string) string {
+			deadline := time.Now().Add(5 * time.Second)
+			var got string
+			for time.Now().Before(deadline) {
+				got = decode(t, app.attach(sid, 0, 0)["scrollback"].(string))
+				if strings.Contains(got, want) {
+					break
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+			return got
+		}
+		waitFor("ready")
+		rz := app.resize(sid, 80, 24)
+		if rz["alt_screen"] != alt {
+			t.Fatalf("alt=%v: resize reported %v", alt, rz["alt_screen"])
+		}
+		got := waitFor("[size 23 80]")
+		if alt != strings.Contains(got, "[size 23 80]") {
+			t.Fatalf("alt=%v: scrollback %q", alt, got)
+		}
+		app.closeSession(sid)
+	}
+}

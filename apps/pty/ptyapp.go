@@ -29,11 +29,15 @@ import (
 )
 
 const (
-	readChunk        = 65536
-	scrollbackCap    = 256 * 1024
-	idleReapSeconds  = 60 * 60
-	promptGrace      = 250 * time.Millisecond
-	promptPoll       = 10 * time.Millisecond
+	readChunk       = 65536
+	scrollbackCap   = 256 * 1024
+	idleReapSeconds = 60 * 60
+	promptGrace     = 250 * time.Millisecond
+	promptPoll      = 10 * time.Millisecond
+	// How long a full-screen program gets to see the size a row short before
+	// it is put back: one that debounces its resizes and sees the size it
+	// already drew for skips the repaint.
+	redrawSettle     = 150 * time.Millisecond
 	terminateTimeout = 3 * time.Second
 )
 
@@ -102,6 +106,10 @@ func (s *ptySession) snapshot() map[string]any {
 		"exited":     s.exited,
 		"exit_code":  code,
 		"created_at": float64(s.createdAt.UnixNano()) / 1e9,
+		// The program holds the alternate screen: a full-screen program. A
+		// rejoin's replay starts at its last full paint, and a resize — even
+		// to the size it has — has it paint its whole screen again.
+		"alt_screen": s.screen != nil && s.screen.inAlt(),
 	}
 }
 
@@ -422,20 +430,38 @@ func (a *App) write(sessionID, data string) map[string]any {
 	return map[string]any{"success": true}
 }
 
-func (a *App) resize(sessionID string, cols, rows int) map[string]any {
-	s := a.get(sessionID)
-	if s == nil {
-		return map[string]any{"success": false, "error": fmt.Sprintf("no pty session '%s'", sessionID)}
-	}
+// setSize resizes the pty — the kernel tells its foreground job — and tells
+// the shell's process group too.
+func (s *ptySession) setSize(cols, rows int) {
 	if err := pty.Setsize(s.master, &pty.Winsize{Rows: uint16(rows), Cols: uint16(cols)}); err == nil {
 		if pgid, err := syscall.Getpgid(s.cmd.Process.Pid); err == nil {
 			_ = syscall.Kill(-pgid, syscall.SIGWINCH)
 		}
 	}
+}
+
+func (a *App) resize(sessionID string, cols, rows int) map[string]any {
+	s := a.get(sessionID)
+	if s == nil {
+		return map[string]any{"success": false, "error": fmt.Sprintf("no pty session '%s'", sessionID)}
+	}
+	s.mu.Lock()
+	alt := s.screen != nil && s.screen.inAlt()
+	s.mu.Unlock()
+	// The size it already has changes nothing, and a full-screen program
+	// draws nothing: but a viewer that cleared its screen for the redraw (a
+	// rejoin, a window shown again) needs one. A row short and back.
+	if alt && rows > 1 {
+		if ws, err := pty.GetsizeFull(s.master); err == nil && int(ws.Cols) == cols && int(ws.Rows) == rows {
+			s.setSize(cols, rows-1)
+			time.Sleep(redrawSettle)
+		}
+	}
+	s.setSize(cols, rows)
 	s.mu.Lock()
 	s.cols, s.rows = cols, rows
 	s.mu.Unlock()
-	return map[string]any{"success": true, "cols": cols, "rows": rows}
+	return map[string]any{"success": true, "cols": cols, "rows": rows, "alt_screen": alt}
 }
 
 func (a *App) attach(sessionID string, cols, rows int) map[string]any {
@@ -446,9 +472,8 @@ func (a *App) attach(sessionID string, cols, rows int) map[string]any {
 	s.mu.Lock()
 	exited := s.exited
 	var scroll []byte
-	alt := false
 	if s.screen != nil {
-		scroll, alt = s.screen.replay(), s.screen.inAlt()
+		scroll = s.screen.replay()
 	}
 	s.mu.Unlock()
 	if exited {
@@ -464,10 +489,6 @@ func (a *App) attach(sessionID string, cols, rows int) map[string]any {
 	res := map[string]any{
 		"success":    true,
 		"scrollback": base64.StdEncoding.EncodeToString(scroll),
-		// A full-screen program: the replay shows its last full paint and
-		// what it changed since, so a viewer resizes it once listening to
-		// have it draw its screen whole.
-		"alt_screen": alt,
 	}
 	for k, v := range s.snapshot() {
 		res[k] = v
