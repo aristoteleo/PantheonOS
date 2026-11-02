@@ -441,6 +441,10 @@ func platformModelsOf(agent string, all []string) Models {
 		if c := cmp.Compare(familyRank(a), familyRank(b)); c != 0 {
 			return c
 		}
+		// Of one model's snapshots, the newest first.
+		if c := cmp.Compare(modelDate(b), modelDate(a)); c != 0 {
+			return c
+		}
 		return cmp.Compare(modelKey(a), modelKey(b))
 	})
 	if len(ids) == 0 {
@@ -507,15 +511,55 @@ func vendorRank(id string) int {
 }
 
 // modelVersion is the version numbers in a model id ("claude-sonnet-4.6",
-// "claude-3-5-sonnet": 4 6, 3 5), without a date.
+// "claude-3-5-sonnet": 4 6, 3 5; "gpt-4o": 4), without a date
+// ("20241022", "2024-11-20") or a size ("235b").
 func modelVersion(id string) []int {
 	var v []int
-	for _, w := range strings.Split(modelKey(id), "-") {
+	words := strings.Split(modelKey(id), "-")
+	for i := 0; i < len(words); i++ {
+		w := words[i]
+		if n := dateWords(words[i:]); n > 0 {
+			i += n - 1
+			continue
+		}
+		// The omni models name their version with an "o": "4o" is 4.
+		if num, ok := strings.CutSuffix(w, "o"); ok && num != "" && len(num) <= 3 && numeric8(num) {
+			w = num
+		}
 		if n, err := strconv.Atoi(w); err == nil && len(w) <= 3 {
 			v = append(v, n)
 		}
 	}
 	return v
+}
+
+// modelDate is the date in a model id, its digits only ("20241120"); ""
+// without one.
+func modelDate(id string) string {
+	words := strings.Split(modelKey(id), "-")
+	for i := range words {
+		if n := dateWords(words[i:]); n > 0 {
+			return strings.Join(words[i:i+n], "")
+		}
+	}
+	return ""
+}
+
+// dateWords is how many of words, from the first, are a date: "20241022",
+// or a year and its month and day ("2024", "11", "20"); 0 when none is.
+func dateWords(words []string) int {
+	w := words[0]
+	if len(w) == 8 && numeric8(w) && (strings.HasPrefix(w, "19") || strings.HasPrefix(w, "20")) {
+		return 1
+	}
+	if len(w) != 4 || !numeric8(w) || !(strings.HasPrefix(w, "19") || strings.HasPrefix(w, "20")) {
+		return 0
+	}
+	n := 1
+	for n < 3 && n < len(words) && len(words[n]) == 2 && numeric8(words[n]) {
+		n++
+	}
+	return n
 }
 
 // familyRank orders models of one version: the most capable first.
@@ -553,6 +597,11 @@ func ModelLabel(id string) string {
 		w := words[i]
 		if len(w) == 8 && numeric8(w) {
 			continue // a date
+		}
+		if n := dateWords(words[i:]); n == 3 {
+			out = append(out, strings.Join(words[i:i+3], "-")) // a snapshot's date, as written
+			i += 2
+			continue
 		}
 		if numeric(w) {
 			v := w

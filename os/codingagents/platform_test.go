@@ -115,6 +115,26 @@ func TestPlatformModelsOf(t *testing.T) {
 	}
 }
 
+func TestModelVersionSkipsDates(t *testing.T) {
+	for id, want := range map[string][]int{"openrouter/openai/gpt-4o-2024-11-20": {4}, "gpt-4o": {4}, "openrouter/openai/gpt-5.5": {5, 5},
+		"claude-3-5-sonnet-20241022": {3, 5}, "openrouter/qwen/qwen3-235b-a22b": nil, "openrouter/mistralai/codestral-2508": nil,
+		"openrouter/anthropic/claude-sonnet-4.6": {4, 6}} {
+		if got := modelVersion(id); !slices.Equal(got, want) {
+			t.Errorf("%s: %v, want %v", id, got, want)
+		}
+	}
+	// A dated GPT-4o snapshot is not newer than GPT-5.5.
+	m := platformModelsOf("pi", []string{"openrouter/openai/gpt-4o-2024-11-20", "openrouter/openai/gpt-4o-2024-08-06", "openrouter/openai/gpt-5.5",
+		"openrouter/openai/gpt-4.1"})
+	if !slices.Equal(m.IDs, []string{"openrouter/openai/gpt-5.5", "openrouter/openai/gpt-4.1", "openrouter/openai/gpt-4o-2024-11-20",
+		"openrouter/openai/gpt-4o-2024-08-06"}) {
+		t.Errorf("openai order %v", m.IDs)
+	}
+	if got := ModelLabel("openrouter/openai/gpt-4o-2024-11-20"); got != "GPT 4o 2024-11-20" {
+		t.Errorf("dated label %q", got)
+	}
+}
+
 func TestModelLabel(t *testing.T) {
 	for id, want := range map[string]string{"openrouter/anthropic/claude-opus-4.8": "Claude Opus 4.8", "claude-3-5-sonnet-20241022": "Claude 3.5 Sonnet",
 		"openrouter/openai/gpt-5.1-codex-max": "GPT-5.1 Codex Max", "gpt-5.5": "GPT-5.5", "gpt-5": "GPT-5"} {
