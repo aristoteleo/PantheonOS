@@ -69,6 +69,7 @@ func (a *App) newTerminal(agent, label, cwd string) *TerminalSession {
 	for id, old := range a.terminals {
 		if old.Updated < now()-terminalKeep.Seconds() {
 			delete(a.terminals, id)
+			codingagents.ForgetTerminal(id)
 		}
 	}
 	a.terminals[t.ID] = t
