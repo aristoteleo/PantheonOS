@@ -14,6 +14,26 @@ from pantheonos.utils.log import logger
 #: installer starts it.
 NODE_UP = "(fleet|pantheon node) up --controller"
 
+#: The installer when nothing names a release: the moving alias.
+DEFAULT_INSTALL_URL = "https://github.com/aristoteleo/PantheonOS/releases/download/fleet-latest/install.sh"
+
+
+async def fleet_install_url() -> str:
+    """The Add-node installer: ``FLEET_INSTALL_URL`` when set, else the release
+    the controller's nodes update to (its latest tag), as the Hub serves it;
+    the alias when the controller names none."""
+    import os
+    import re
+
+    from pantheonos.appkit.builtin.fleet.update import published_release
+
+    if os.environ.get("FLEET_INSTALL_URL"):
+        return os.environ["FLEET_INSTALL_URL"]
+    tag = await published_release()
+    if re.fullmatch(r"fleet-v[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.\-]*", tag or "") and ".." not in tag:
+        return DEFAULT_INSTALL_URL.replace("/fleet-latest/", f"/{tag}/", 1)
+    return DEFAULT_INSTALL_URL
+
 
 class FleetAPI:
     @tool
@@ -218,10 +238,6 @@ class FleetAPI:
 
         await self._ensure_fleet_session_key()
         controller_url = os.environ.get("FLEET_CONTROLLER_URL", "")
-        install_url = os.environ.get(
-            "FLEET_INSTALL_URL",
-            "https://github.com/aristoteleo/PantheonOS/releases/download/fleet-latest/install.sh",
-        )
         if not (controller_url or os.environ.get("FLEET_NATS_URL")):
             return {
                 "success": True,
@@ -254,7 +270,7 @@ class FleetAPI:
                 "nodes": nodes,
                 "self_node_id": self_id,
                 "controller_url": controller_url,
-                "install_url": install_url,
+                "install_url": await fleet_install_url(),
                 # The key PREFIX (not the secret) lets the panel identify the fleet
                 # key in local mode without the platform-keys API. The FULL key still
                 # never leaves the backend — it grants command execution on the nodes.
@@ -400,7 +416,8 @@ class FleetAPI:
             return {"success": True,
                     "join_token": data.get("join_token"),
                     "expires_at": data.get("expires_at"),
-                    "controller": controller}
+                    "controller": controller,
+                    "install_url": await fleet_install_url()}
         except Exception as e:  # noqa: BLE001
             logger.error(f"fleet_mint_join_token failed: {e}")
             return {"success": False, "message": f"mint join token failed: {e}"}

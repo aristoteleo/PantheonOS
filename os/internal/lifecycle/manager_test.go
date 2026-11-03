@@ -163,9 +163,14 @@ func TestObserveDoesNotLeaveExitedAppReady(t *testing.T) {
 	f.mu.Lock()
 	f.alive[in.Resources[0].ID] = false
 	f.mu.Unlock()
-	m.observeOnce()
-	if m.Snapshot().Instances[in.ID].State != "degraded" {
-		t.Fatal("dead App still advertised ready")
+	// A pass skips while an operation (or the background observer) holds the
+	// serial lock; the next pass must catch the exit.
+	for deadline := time.Now().Add(5 * time.Second); m.Snapshot().Instances[in.ID].State != "degraded"; {
+		if time.Now().After(deadline) {
+			t.Fatal("dead App still advertised ready")
+		}
+		m.observeOnce()
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 func TestDrainBlocksAndReadinessNeverLies(t *testing.T) {
