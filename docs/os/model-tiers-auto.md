@@ -59,9 +59,10 @@ do the same writes.
 
 Keys: `ARTIFICIAL_ANALYSIS_API_KEY` and `OPENROUTER_API_KEY` from the Hub's
 environment (Kubernetes secrets). They are sent only to their own hosts and are
-never logged or written into reports. Artificial Analysis allows few requests
-per day, so the job calls it once per run (every page, one request each) and
-never per user request.
+never logged or written into reports. Artificial Analysis allows only a few
+requests a day (one per page), so the Hub keeps its last successful fetch
+(`platform_tier_sources`) and fetches again at most every 6 days; a failed
+fetch falls back to the stale copy and the report says so.
 
 Matching quality to our ids uses a key of vendor + family + version: the last
 path segment, lower case, dots as dashes, without a variant suffix (`:batch`,
