@@ -4,6 +4,7 @@ The immutable App supplies recipes; an RPC caller can select a recipe, not a
 URL, command or destination. Downloads run outside Fleet's install/start hooks.
 """
 from contextlib import contextmanager
+import errno
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -109,6 +110,10 @@ def tar_stream(archive, format):
             if process.poll() is None:
                 process.kill()
             process.wait()
+
+
+# link(2) errors of a filesystem without hard links, as opposed to a conflict.
+_NO_HARD_LINKS = {errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.ENOSYS, errno.EMLINK}
 
 
 def extract(archive, destination, format, cancelled, *, max_bytes=16 << 30, max_files=50000,
@@ -222,7 +227,16 @@ def extract(archive, destination, format, cancelled, *, max_bytes=16 << 30, max_
             record['link'] = os.path.relpath(resolved_files[target], target.parent)
             os.symlink(record['link'], target)
         else:
-            os.link(resolved_files[target], target)
+            try:
+                os.link(resolved_files[target], target)
+            except FileExistsError:
+                raise
+            except OSError as exc:
+                # Hard links refused (Modal Volumes v2: EPERM): an independent
+                # copy of the same immutable bytes, with its mtime.
+                if exc.errno not in _NO_HARD_LINKS:
+                    raise
+                shutil.copy2(resolved_files[target], target)
         entries.append({**record, 'size': target.stat().st_size, 'mtime_ns': target.stat().st_mtime_ns})
     check()
     return entries

@@ -1,4 +1,6 @@
+import errno
 import json
+import os
 
 import nbformat
 import pytest
@@ -51,3 +53,21 @@ async def test_rename_waits_for_execution_output_to_finish_saving(tmp_path):
         result = await ts.rename_notebook('a.ipynb', 'renamed')
         assert not result['success'] and source.exists()
     assert (await ts.rename_notebook('a.ipynb', 'renamed'))['success']
+
+
+@pytest.mark.asyncio
+async def test_rename_where_hard_links_are_refused(tmp_path, monkeypatch):
+    """Modal Volumes v2 refuse link(2) with EPERM: rename still works and
+    still never replaces an existing notebook."""
+    def refuse(*_args, **_kwargs):
+        raise PermissionError(errno.EPERM, 'Operation not permitted')
+    monkeypatch.setattr(os, 'link', refuse)
+    ts = IntegratedNotebookToolSet('rename-test', workdir=str(tmp_path), streaming_mode='local')
+    nbformat.write(nbformat.v4.new_notebook(cells=[nbformat.v4.new_code_cell('x = 1')]), tmp_path / 'a.ipynb')
+    (tmp_path / 'taken.ipynb').write_text('keep me')
+    assert not (await ts.rename_notebook('a.ipynb', 'taken'))['success']
+    assert (tmp_path / 'taken.ipynb').read_text() == 'keep me' and (tmp_path / 'a.ipynb').exists()
+    result = await ts.rename_notebook('a.ipynb', 'renamed')
+    assert result['success'], result
+    assert not (tmp_path / 'a.ipynb').exists()
+    assert nbformat.read(tmp_path / 'renamed.ipynb', as_version=4).cells[0].source == 'x = 1'

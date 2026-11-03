@@ -1,6 +1,7 @@
 """QuPath IPC publication, identity, and retry guarantees (no JVM required)."""
 
 import asyncio
+import errno
 import importlib.util
 import json
 import os
@@ -146,3 +147,23 @@ async def test_hierarchy_notification_policy_is_retained_for_retries(bridge, upd
     with pytest.raises(ValueError, match="different request"):
         await bridge.call("script", {**params, "update_hierarchy": not update},
                           request_id="refresh-policy", timeout=0)
+
+
+@pytest.mark.asyncio
+async def test_publication_where_hard_links_are_refused(bridge, monkeypatch):
+    """Modal Volumes v2 refuse link(2) with EPERM: requests still publish
+    whole, once, and a retry with other content is still refused."""
+    def refuse(*_args, **_kwargs):
+        raise PermissionError(errno.EPERM, "Operation not permitted")
+    monkeypatch.setattr(os, "link", refuse)
+    params = {"script": "return 42"}
+    first = await bridge.call("script", params, request_id="nolink", timeout=0)
+    assert first["request_id"] == "nolink"
+    path = bridge.directory / "nolink.request.json"
+    before = path.read_bytes()
+    assert json.loads(before)["params"] == params
+    await bridge.call("script", params, request_id="nolink", timeout=0)
+    with pytest.raises(ValueError, match="different request"):
+        await bridge.call("script", {"script": "return 43"}, request_id="nolink", timeout=0)
+    assert path.read_bytes() == before
+    assert not list(bridge.directory.glob("*.tmp")) and not list(bridge.directory.glob(".*.tmp"))

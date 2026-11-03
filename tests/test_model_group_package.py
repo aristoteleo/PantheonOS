@@ -371,3 +371,18 @@ async def test_platform_private_ranks_package_as_host_processes(tmp_path, prepar
     wrong = dict(row, plan=container_plan, topology=topology_for(container_plan).document())
     with pytest.raises(Exception):
         await store(wrong, 0)
+
+
+def test_package_store_publishes_where_hard_links_are_refused(tmp_path, monkeypatch):
+    """Modal Volumes v2 refuse link(2) with EPERM: bytes still publish under
+    their digest, idempotently, and no temporary file is left behind."""
+    import errno
+
+    def refuse(*_args, **_kwargs):
+        raise PermissionError(errno.EPERM, 'Operation not permitted')
+    monkeypatch.setattr(os, 'link', refuse)
+    store = GroupPackageStore(tmp_path / 'packages')
+    sha = store.put('source', b'group source')
+    assert store.put('source', b'group source') == sha
+    assert store.read('source', sha) == b'group source'
+    assert not list(store.root.glob('.writing-*'))

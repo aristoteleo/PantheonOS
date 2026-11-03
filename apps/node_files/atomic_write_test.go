@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -138,5 +139,47 @@ func TestAtomicNewFileAndBounds(t *testing.T) {
 	args["file_path"] = filepath.Join(t.TempDir(), "outside")
 	if _, err := a.transfer("begin_atomic_write", args); err == nil {
 		t.Fatal("escaped shared roots")
+	}
+}
+
+// Modal Volumes v2 refuse hard links with EPERM: a new file still saves, and
+// an existing sibling is still never clobbered.
+func TestAtomicNewFileWithoutHardLinks(t *testing.T) {
+	saved := linkAt
+	linkAt = func(*os.Root, string, string) error { return &os.LinkError{Op: "link", Err: syscall.EPERM} }
+	defer func() { linkAt = saved }()
+	root := t.TempDir()
+	a, _ := New([]string{root}, "node")
+	defer a.Close()
+	save := func(name string, content []byte) error {
+		args := map[string]any{"file_path": filepath.Join(root, name), "expected_sha256": "", "sha256": digest(content), "total_size": len(content)}
+		opened := transferCall(t, a, "begin_atomic_write", args)
+		id := opened["handle_id"]
+		transferCall(t, a, "write_chunk_at", map[string]any{"handle_id": id, "offset": 0, "data": base64.StdEncoding.EncodeToString(content)})
+		_, err := a.transfer("commit_atomic_write", map[string]any{"handle_id": id})
+		return err
+	}
+	if err := save("new.docx", []byte("new")); err != nil {
+		t.Fatal(err)
+	}
+	if actual, _ := os.ReadFile(filepath.Join(root, "new.docx")); string(actual) != "new" {
+		t.Fatal("new file missing")
+	}
+	// Created by someone else after the save began: kept, not replaced.
+	args := map[string]any{"file_path": filepath.Join(root, "raced.docx"), "expected_sha256": "", "sha256": digest([]byte("mine")), "total_size": 4}
+	opened := transferCall(t, a, "begin_atomic_write", args)
+	id := opened["handle_id"]
+	transferCall(t, a, "write_chunk_at", map[string]any{"handle_id": id, "offset": 0, "data": base64.StdEncoding.EncodeToString([]byte("mine"))})
+	if err := os.WriteFile(filepath.Join(root, "raced.docx"), []byte("theirs"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.transfer("commit_atomic_write", map[string]any{"handle_id": id}); err == nil {
+		t.Fatal("clobbered a sibling created meanwhile")
+	}
+	if actual, _ := os.ReadFile(filepath.Join(root, "raced.docx")); string(actual) != "theirs" {
+		t.Fatal("sibling changed")
+	}
+	if left, _ := filepath.Glob(filepath.Join(root, ".pantheon-save-*")); len(left) != 0 {
+		t.Fatalf("temporary files left: %v", left)
 	}
 }

@@ -6,6 +6,7 @@ Only small code and public model receipts are stored here, never model weights,
 credentials, installed engines or process state.
 """
 import asyncio
+import errno
 import hashlib
 import json
 import os
@@ -46,6 +47,10 @@ def read_regular(path, limit):
         if len(value) != info.st_size or len(value) > limit:
             raise ValueError('Group package input changed while reading')
         return value
+
+
+# link(2) errors of a filesystem without hard links, as opposed to a conflict.
+_NO_HARD_LINKS = {errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.ENOSYS, errno.EMLINK}
 
 
 class GroupPackageStore:
@@ -95,6 +100,16 @@ class GroupPackageStore:
                 os.link(temporary, target)
             except FileExistsError:
                 self.read(kind, sha)
+            except OSError as exc:
+                # Hard links refused (Modal Volumes v2: EPERM). The complete,
+                # read-only bytes are renamed into place; the name is their
+                # digest, so a racing writer can only put identical bytes.
+                if exc.errno not in _NO_HARD_LINKS:
+                    raise
+                if target.exists() or target.is_symlink():
+                    self.read(kind, sha)
+                else:
+                    os.replace(temporary, target)
             if os.name != 'nt':
                 directory = os.open(self.root, os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0))
                 try:
@@ -102,7 +117,10 @@ class GroupPackageStore:
                 finally:
                     os.close(directory)
         finally:
-            os.unlink(temporary)
+            try:
+                os.unlink(temporary)
+            except FileNotFoundError:
+                pass  # renamed into place
         return sha
 
     def capture(self, record, process=False):

@@ -2,6 +2,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import tarfile
 import threading
@@ -102,6 +103,25 @@ def test_archive_keeps_internal_libraries_and_limits_expansion(tmp_path):
     cancelled = threading.Event(); cancelled.set()
     with pytest.raises(InterruptedError):
         engines.extract(path, limited, 'tar.gz', cancelled)
+
+
+def test_archive_links_materialize_where_hard_links_are_refused(tmp_path, monkeypatch):
+    """Modal Volumes v2 refuse link(2) with EPERM: archive hard links become
+    copies of the same bytes instead of failing the engine install."""
+    import errno
+
+    def refuse(*_args, **_kwargs):
+        raise PermissionError(errno.EPERM, 'Operation not permitted')
+    monkeypatch.setattr(os, 'link', refuse)
+    path = tmp_path / 'input.tgz'
+    archive(path, [('lib/version.dylib', 'file', b'library'),
+                   ('lib/current.dylib', 'symlink', 'version.dylib'),
+                   ('engine', 'hardlink', 'lib/version.dylib')])
+    out = tmp_path / 'out'; out.mkdir()
+    files = engines.extract(path, out, 'tar.gz', threading.Event())
+    assert len(files) == 3
+    for name in ('lib/current.dylib', 'engine'):
+        assert (out / name).read_bytes() == b'library' and not (out / name).is_symlink()
 
 
 def test_archive_resolves_forward_alias_chains_without_symlinks(tmp_path):

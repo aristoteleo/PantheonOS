@@ -19,6 +19,7 @@ Frontend-only tools (not for agents):
 import json
 import base64
 from contextlib import contextmanager
+import errno
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -33,6 +34,37 @@ from .jedi_integration import EnhancedCompletionService
 from .jupyter_kernel import JupyterKernelToolSet
 from .notebook_contents import NotebookContentsToolSet
 from .handlers import NatsStreamHandler, FileLogHandler
+
+
+# link(2) errors of a filesystem that has no hard links (Modal Volumes v2
+# answer EPERM), as opposed to a real conflict or a missing source.
+_NO_HARD_LINKS = {errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.ENOSYS, errno.EMLINK}
+
+
+def _move_no_replace(source: Path, target: Path) -> None:
+    """Move source to target in the same directory, never replacing target.
+
+    link fails with EEXIST atomically, including against concurrent saves by
+    another process. Where the filesystem refuses hard links, a checked rename
+    keeps that guarantee except for a file created in the instant between the
+    check and the rename.
+    """
+    try:
+        os.link(source, target)
+    except FileExistsError:
+        raise
+    except OSError as exc:
+        if exc.errno not in _NO_HARD_LINKS:
+            raise
+        if os.path.lexists(target):
+            raise FileExistsError(errno.EEXIST, 'File exists', str(target)) from None
+        os.rename(source, target)
+        return
+    try:
+        source.unlink()
+    except OSError:
+        target.unlink()
+        raise
 
 
 # rpy2 initialization code - executed once per kernel session when first %%R cell is detected
@@ -1747,14 +1779,7 @@ class IntegratedNotebookToolSet(ToolSet):
                     session = self.kernel_toolset.sessions.get(sid)
                     if self.kernel_toolset._get_execution_lock(sid).locked() or (session and session.status.value in ('busy', 'starting', 'restarting')):
                         return {"success": False, "error": "Wait for the running cell to finish before renaming."}
-                # link fails with EEXIST atomically, including concurrent saves
-                # by another process. Both paths are in the same directory.
-                os.link(source, target)
-                try:
-                    source.unlink()
-                except OSError:
-                    target.unlink()
-                    raise
+                _move_no_replace(source, target)
                 for key, context in matches:
                     new_path = str(Path(key[0]).with_name(name))
                     del self.notebook_contexts[key]

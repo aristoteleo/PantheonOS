@@ -178,7 +178,7 @@ func (a *App) commitAtomicWrite(id string, h *handle) (any, error) {
 	}
 	if u.expected == "" {
 		// Link is an atomic create-if-absent; never clobber a newly created sibling.
-		err = u.root.dir.Link(u.temp, u.target)
+		err = createIfAbsent(u.root.dir, u.temp, u.target)
 	} else {
 		err = u.root.dir.Rename(u.temp, u.target)
 	}
@@ -186,4 +186,24 @@ func (a *App) commitAtomicWrite(id string, h *handle) (any, error) {
 		return nil, err
 	}
 	return map[string]any{"success": true, "sha256": digest, "total_size": u.size}, nil
+}
+
+// linkAt is the create-if-absent publication (a test seam).
+var linkAt = func(dir *os.Root, oldname, newname string) error { return dir.Link(oldname, newname) }
+
+// createIfAbsent publishes temp as target only when target does not exist.
+// Some filesystems refuse hard links (Modal Volumes v2: EPERM); there a
+// checked rename keeps "never clobber" except for a sibling created in the
+// instant between the check and the rename.
+func createIfAbsent(dir *os.Root, temp, target string) error {
+	err := linkAt(dir, temp, target)
+	if err == nil || errors.Is(err, os.ErrExist) {
+		return err
+	}
+	if _, statErr := dir.Lstat(target); statErr == nil {
+		return &os.LinkError{Op: "link", Old: temp, New: target, Err: os.ErrExist}
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return statErr
+	}
+	return dir.Rename(temp, target)
 }

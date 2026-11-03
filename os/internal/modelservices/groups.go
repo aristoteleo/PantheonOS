@@ -72,6 +72,9 @@ func (s *packageStore) read(kind, sha string) ([]byte, error) {
 	return data, nil
 }
 
+// linkPackage is the exclusive publication step of put (a test seam).
+var linkPackage = os.Link
+
 // put publishes bytes exclusively under their digest.
 func (s *packageStore) put(kind string, data []byte) (string, error) {
 	limit := maxGroupArtifact
@@ -109,11 +112,15 @@ func (s *packageStore) put(kind string, data []byte) (string, error) {
 	}
 	// Exclusive publication: concurrent builders never overwrite
 	// acknowledged bytes.
-	if err := os.Link(f.Name(), target); err != nil {
-		if !errors.Is(err, os.ErrExist) {
-			return "", err
-		}
-		if _, err := s.read(kind, sha); err != nil {
+	if err := linkPackage(f.Name(), target); err != nil {
+		if _, statErr := os.Lstat(target); statErr == nil || errors.Is(err, os.ErrExist) {
+			if _, err := s.read(kind, sha); err != nil {
+				return "", err
+			}
+		} else if err := os.Rename(f.Name(), target); err != nil {
+			// Hard links refused (Modal Volumes v2: EPERM): the complete,
+			// read-only bytes are renamed into place. The name is their
+			// digest, so a racing writer can only put identical bytes there.
 			return "", err
 		}
 	}

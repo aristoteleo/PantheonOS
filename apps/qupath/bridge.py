@@ -8,6 +8,7 @@ cancels a script: inspect that same ID to discover its eventual outcome.
 from __future__ import annotations
 
 import asyncio
+import errno
 import json
 import os
 from pathlib import Path
@@ -19,6 +20,31 @@ import uuid
 
 _ID = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}$")
 _TERMINAL = {"succeeded", "failed", "expired"}
+
+# link(2) errors of a filesystem without hard links (Modal Volumes v2 answer
+# EPERM), as opposed to a real conflict.
+_NO_HARD_LINKS = {errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.ENOSYS, errno.EMLINK}
+
+
+def _publish_new(temporary: Path, path: Path) -> None:
+    """Publish a complete file at path only if path does not exist.
+
+    The hard link is an atomic CREATE_NEW. Where the filesystem refuses hard
+    links, a checked rename still never exposes partial JSON and never
+    replaces a request, except one created in the instant between the check
+    and the rename.
+    """
+    try:
+        os.link(temporary, path)
+    except FileExistsError:
+        raise
+    except OSError as exc:
+        if exc.errno not in _NO_HARD_LINKS:
+            raise
+        if os.path.lexists(path):
+            raise FileExistsError(errno.EEXIST, "File exists", str(path)) from None
+        os.rename(temporary, path)
+
 _MAX_REQUEST = 600_000
 
 
@@ -130,7 +156,7 @@ class QuPathBridge:
             with os.fdopen(fd, "wb") as stream:
                 stream.write(raw)
             try:
-                os.link(temporary, path)
+                _publish_new(temporary, path)
             except FileExistsError:
                 old = self._read(path)
                 if old is None or any(old.get(k) != request[k] for k in (
