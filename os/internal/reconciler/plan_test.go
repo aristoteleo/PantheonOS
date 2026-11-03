@@ -664,3 +664,21 @@ func TestAnAppWaitsForTheNodeThatHoldsItsData(t *testing.T) {
 		t.Fatalf("back on its node: %+v", got)
 	}
 }
+
+func TestStopWithUnknownOutcomeIsRetriedUnderANewOperation(t *testing.T) {
+	w := newWorld()
+	w.install("sandbox", revFiles)
+	prepared := w.instance("sandbox", "i-files", "pantheon-files", revFiles, "prepared", 82)
+	prepared.StartPreparationID = opID("prepared earlier")
+	d := testDeployment()
+	d.Status.Apps = map[string]deployments.AppStatus{"files": {State: "starting", Reason: "start: grant agent: " + startPreparationExpired}}
+	// The Workspace's Runner restarted before acknowledging the cancellation:
+	// the same operation ID only answers "unknown" again.
+	first := opID("f_1", "\x00", "general-team", "\x00", "files", "\x00", StepStop, "\x00", "sandbox", "\x00", revFiles, "\x00", uint64(82), "\x00", int64(0))
+	w.view.Nodes["sandbox"].Ledger.Operations[first] = &lifecycle.Operation{State: "unknown",
+		Error: "Runner restarted before operation acknowledgement; reconcile before retrying"}
+	again := steps(PlanDeployment(d, testRelease(revAgent), w.view))["files"]
+	if again.Kind != StepStop || again.OpID == first || !ours(again.OpID) {
+		t.Fatalf("cancelled under a new operation: first %q, again %+v", first, again)
+	}
+}

@@ -1081,7 +1081,11 @@ func (p *appPlanner) stopOne(node string, in *lifecycle.Instance, reason string)
 	if busy, _ := pending(ledger, id); busy {
 		return result{status: s}
 	}
-	if op := ledger.Operations[id]; op != nil && op.State == "succeeded" && in.State != "stopped" {
+	// The instance outlived a stop under this ID (it succeeded and the
+	// instance was started again, or it failed, or the Runner restarted
+	// before acknowledging it): resubmitting the ID only returns that
+	// outcome again, so stop under a new one.
+	if op := ledger.Operations[id]; op != nil && in.State != "stopped" {
 		id = p.op(StepStop, node, in.Digest, in.Generation, p.now/60)
 	}
 	step := &Step{App: p.name, Kind: StepStop, Node: node, Variant: Variant{Revision: in.Digest}, Scope: p.a.Scope,
