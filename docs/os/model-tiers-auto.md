@@ -92,7 +92,9 @@ the defaults:
 5. **Chains**: primary + 2 fallbacks in the same order of preference, from
    other vendors first. Fallback is `failover`, as before.
 6. **Stability**: a tier keeps its current primary unless the new one is better
-   by a margin (+5 % quality at ≤ price, or −30 % price at ≥ quality), or the
+   by a margin (+5 % quality at ≤ price, or −30 % price at ≥ quality; for high,
+   the best-quality tier, +5 % quality within its price cap even when it costs
+   more), or the
    current one fails a filter, the probe or health, or has no quality score
    while the new one has. A tier changes at most once per run. Fallbacks that
    fail a filter are replaced even when the primary stays.
