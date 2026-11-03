@@ -53,7 +53,8 @@ Sign-in is `desktop/App.vue`'s gate: `useAuthStore().token` → the App, otherwi
 `desktop/views/LoginView.vue` drawn in place, so the URL never changes; OAuth
 completes in a popup (`network/oauth.ts`); one Hub session per origin for the
 chat page, the desktop and App pages; `onSessionExpired` brings the login back.
-No Hub change.
+No Hub change. A `public` App opens without signing in (see "Who can open an
+App link").
 
 ## The App host interface
 
@@ -149,11 +150,8 @@ any other packaged App to `["page"]`.
 `defaultFor`, packaged before built-in, Quick Look for files outside shared
 folders as `linkOpener` does):
 
-1. Target App has `panel` → open in the page's **panel stack**: a right-side
-   drawer (resizable, up to 3 stacked, Esc closes the top) holding an
-   `EmbeddedApp` (packaged) or a built-in component with a local view id. Each
-   panel has **Open in own tab** and **Send to desktop**. Context (the
-   conversation, the tab) stays put.
+1. Target App has `panel` → open as a tab in the page's **side panel**
+   (below). Context (the conversation, the Coding Agents tab) stays put.
 2. Else `page` → new browser tab at `/app/<id>?open=<target>` (Browser,
    Notebook `integrated-notebook`, Office, Files for a folder, another Coding
    Agents).
@@ -165,6 +163,35 @@ folders as `linkOpener` does):
    (`linkOpener.menuItems`) also offers "Open in Pantheon Browser" →
    `/app/browser?open=<url>` in a new tab.
 
+**The side panel.** One per App page, on the right, beside the App:
+
+* **Tabs.** Each open file or viewer is a tab: App icon, title (file name),
+  close button; a tab whose App is still loading shows its status. Each tab is
+  an `EmbeddedApp` (packaged viewers) or a built-in component with a local view
+  id (`local-panel-<uuid>`), kept mounted while hidden so switching is instant
+  (up to 8 tabs mounted; older hidden ones unmount and remount on select).
+  Opening a target already open (same App, same file id) selects that tab
+  instead of adding one. Up to 20 tabs; the oldest unpinned one closes beyond
+  that. Tab menu: **Open in own tab** (`/app/<id>?open=<target>`, closes the
+  panel tab), **Send to desktop**, **Copy link**, Close, Close others.
+* **Keys** (while focus is in the page, not inside an editor that takes them):
+  `Ctrl/Cmd+\` collapse/expand the panel; `Ctrl+Tab` / `Ctrl+Shift+Tab` next /
+  previous tab; `Ctrl/Cmd+W` close the tab when focus is in the panel (the
+  browser's own `Cmd+W` is not overridden elsewhere); `Esc` returns focus to
+  the App.
+* **Collapse.** A toggle in the top bar (and the key) hides the panel without
+  closing its tabs; collapsed, the toggle shows a badge with the open-tab
+  count. Opening a new target expands it.
+* **Width.** A divider drags the width (min 280 px, max 70 % of the page,
+  double-click resets to 40 %).
+* **Remembered** per App in its per-App state (below), under `page.panel`:
+  `{open: bool, width: px, tabs: [{app, target}] (≤ 20), selected}`; a reload
+  restores the tabs. Signed-in users remember in their own key; signed-out
+  `public` pages and hosted-link visitors in the browser.
+* **Narrow screens** (< 900 px wide): the panel is a full-width overlay over
+  the App with a back button; the same tabs and keys; collapse hides the
+  overlay.
+
 **Canonical links.** A link to an App, file or URL is one URL that works
 everywhere: `/app/<id>?open=…` or `/open?target=…`. The desktop intercepts these
 (same-origin link clicks in Markdown and chat, paste onto the desktop surface,
@@ -173,12 +200,44 @@ everywhere: `/app/<id>?open=…` or `/open?target=…`. The desktop intercepts t
 visitor page allows only what the share grants. "Copy link" in the link menu
 and the window menu produce this form.
 
-**Visitors** (`VisitorHost`). A visitor may only `view` files under the share's
-`share.paths`, read through the visitor grant, in a `panel`, with a viewer the
-owner lists in a new `share.viewers` (public frontend-only Store Apps, served
-from their Store version as `frontend` mode does). URLs open a plain browser
-tab. Never the owner's other Apps, desktop, Agent, or Send to desktop; anything
-else answers "Not available in a shared App".
+## Who can open an App link
+
+An `/app/…` link can reach someone other than its owner (pasted in a chat, a
+README). The rule is per App class, never per link:
+
+| Class | Which Apps | Signed out | Signed in |
+|---|---|---|---|
+| `public` | no backend **and** nothing that acts on an account or node: no `call`, no `fs`, empty `placement.requires`, no `share` needed (Game of Life, a calculator, a viewer opening a URL) | usable, frontend from its public Store version (as hosted `frontend` mode), state in the browser | the same, state in their per-App key |
+| `account` | a backend, or acts on the user's account or nodes: all built-ins (Coding Agents, Agent Canvas, Terminal, Files, Fleet, Store, Settings, Model Services, LLM Playground, Browser, Agent), viewers opening a node file, any packaged App with a backend or `fs` | a sign-in page | used **as themselves**: their own Fleet, nodes, instance and state |
+
+The class is derived from the manifest (`entry.backend`/`fleetBackend`,
+`placement.requires`, use of `fs`), and for built-ins declared in `registry.ts`.
+A manifest may only tighten it: `"standalone": {"access": "account"}`; nothing
+can loosen an App with a backend to `public`.
+
+**Signed out, `account` App:** the page shows the App's icon and name (from its
+public Store listing, or the built-in registry), "Sign in to use <App> with your
+own account", and the sign-in form in place. The URL, including `?open=` and
+App args, is not touched, so after sign-in (password or OAuth popup) the page
+continues with the same App and intent.
+
+**Signed in as someone else:** the App opens on *their* account. A packaged App
+they have not installed shows the hosted `install` offer (name, version,
+publisher, what it may do) and then returns to the same `/app/…?open=…` URL.
+Args that point into the owner's world are not followed: a file id on a node
+that is not theirs answers "This file is on a computer you cannot reach", an
+unknown conversation or project id opens the App's home. Nothing of the owner's
+is reachable from a plain `/app/` link.
+
+**The owner's instance and files, for others**, only through a hosted link
+(`/#/a/<id>`) in `host` mode, limited to the App's `share.methods` and
+`share.paths` (`VisitorHost`). There a visitor may only `view` files under
+`share.paths`, read through the visitor grant, as a side-panel tab, with a
+viewer the owner lists in a new `share.viewers` (public Store Apps, served from
+their Store version as `frontend` mode does). URLs open a plain browser tab.
+Never the owner's other Apps, desktop, Agent, or Send to desktop; anything else
+answers "Not available in a shared App". Built-ins have no `share` section and
+cannot be hosted; another person uses them on their own account.
 
 ## The App page shell
 
@@ -191,13 +250,14 @@ else answers "Not available in a shared App".
    for settings and per-App state. Presence registers a viewport that does not
    render the desktop (`network/presence.ts`).
 2. **Hosts**: `DialogHost`, `ToastHost`, `ContextMenu`, `TransferPanel`, drop
-   overlay, panel stack; `PageHost` provided.
+   overlay, side panel; `PageHost` provided.
 3. **The App**, full page (`active: true`); packaged ones through `PackagedApp`
    with a `windowHost`, frontend and instance resolved as on the desktop
    (`windowNode.ts`, `startPlacedInstance`), "Waiting for <node>…" while it
    starts.
 4. **Top bar** (36 px): icon and title, the App's live menus (`appMenus`),
    node status, Workspace status only for `needsPod` Apps, attention badge,
+   the side-panel toggle (with its tab count when collapsed),
    **Open on desktop**, account menu (name, budget, recent Apps, sign out).
 
 ## Per-App state
@@ -214,7 +274,9 @@ Tools `app_state_get(app_id)`, `app_state_put(app_id, state | patch, revision)`,
 change event `{type: "desktop.app_state", app_id, revision}`. **Both surfaces use
 it**: the desktop window and the App page show the same projects and canvases;
 window args keep only the view (open tab, open canvas, viewport), the page keeps
-its view in the URL. Migration: when the key is absent, the first reader merges
+its view in the URL and its side panel under `page.panel` in the same key
+(every App page has a key for that, small; moving an App's durable state out
+of window args is per App, Coding Agents and Canvas first). Migration: when the key is absent, the first reader merges
 every window's old args into it with the merge rules `persist.ts` already has
 for several viewports, and writes it. Settings gains `pages.recent`
 (≤ 20 `{app_id, url, at}`) for the account menu.
@@ -257,7 +319,7 @@ starting/stopped/absent states move into `network/agentSetup.ts` for both;
 `presetSuccessor` follows restarts and upgrades; the Agent's `setState({chatId})`
 updates the URL; `host.apps.open` (`src/agent/navigation.ts`) goes through
 `PageHost.open`, so "This host cannot open other Apps yet" goes away; files the
-Agent links open in the panel stack. Legacy (non-deployment) users keep
+Agent links open as side-panel tabs. Legacy (non-deployment) users keep
 `ChatView`.
 
 Why: ChatLayout binds to the ChatRoom's NATS service, not the Agent App
@@ -280,7 +342,7 @@ built-ins only. No offline mode (Apps need the bus).
 
 **Phase 1 — shell, host interface, intents, Coding Agents, Agent Canvas**
 (≈ 9 days). `app.html` + rewrites; `AppPage.vue`; `AppHost` with DesktopHost
-and PageHost; intent router, panel stack, Send to desktop, canonical links on
+and PageHost; intent router, tabbed side panel, Send to desktop, canonical links on
 both surfaces; per-App state tools in the controller (Go) and migration; the two
 Apps and the three viewers moved to it.
 
@@ -289,8 +351,23 @@ Apps and the three viewers moved to it.
 - S2 With the Workspace stopped, Coding Agents lists the Mac's sessions and
   takes input within 3 s of the page painting.
 - S3 In page Coding Agents, clicking a `.py` path in a session opens Text
-  Viewer in the side panel, the conversation still visible; a `.pdf` opens PDF
-  Viewer stacked on it; **Open in own tab** moves it to `/app/pkg:text-viewer?open=…`.
+  Viewer as a side-panel tab, the conversation still visible; a `.pdf` opens
+  PDF Viewer as a second tab; clicking the `.py` path again selects its tab
+  (no third tab); **Open in own tab** moves it to `/app/pkg:text-viewer?open=…`
+  and closes the panel tab.
+- S3a Tabs: each shows the App icon and file name and closes with its button
+  or `Ctrl/Cmd+W` (focus in the panel); `Ctrl+Tab`/`Ctrl+Shift+Tab` cycle them;
+  switching back to a tab keeps its scroll position (still mounted).
+- S3b Collapse: the top-bar toggle and `Ctrl/Cmd+\` hide and show the panel
+  without closing tabs; collapsed, the toggle shows the tab count (`2`);
+  opening another file expands it.
+- S3c Width: dragging the divider resizes within 280 px–70 %; double-click
+  resets to 40 %.
+- S3d Remembered: after a reload, the panel's open/collapsed state, width,
+  tabs and selected tab are as they were, per App (Coding Agents and Canvas
+  remember separately), from the per-App key.
+- S3e Narrow (< 900 px): the panel opens as a full-width overlay with a back
+  button; tabs, keys and collapse work the same.
 - S4 Clicking a URL opens a browser tab; "Open in Pantheon Browser" opens
   `/app/browser?open=<url>` in a new tab.
 - S5 An intent for `xwindow` (or any `desktop-only` App) offers Send to
@@ -306,7 +383,15 @@ Apps and the three viewers moved to it.
 - S8 The desktop session holds no record for an App page (test).
 - S9 vitest for the router, hosts, URL parsing and migration (fail without the
   change); Go tests (`-race`) for the per-App state tools; `vue-tsc`; staging
-  check of S1–S8.
+  check of S1–S8 (S1 also with Google OAuth).
+- S10 Signed out, `/app/agent-canvas` and `/app/pkg:<App with a backend>` show
+  the sign-in page with the App's name and icon; after sign-in the same URL
+  (and its `?open=`) continues; a `public` App at `/app/pkg:<id>` opens with no
+  sign-in.
+- S11 Signed in as another user, the owner's `/app/coding-agents?node=<owner's
+  node>&conversation=<id>` opens Coding Agents on the other user's own nodes,
+  shows none of the owner's sessions, and says the node cannot be reached
+  (test with two staging accounts).
 
 **Phase 2 — Pantheon Agent at `/`** (≈ 3 days).
 
@@ -334,16 +419,21 @@ Apps and the three viewers moved to it.
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and
    readable links; one nginx and one dev rewrite.
-2. **Per-App state for every App, or only Apps that opt in?** Opt-in
-   (Coding Agents, Canvas first); others keep window args until they need it.
+2. **Move every App's durable state out of window args, or only Apps that
+   opt in?** Opt-in (Coding Agents, Canvas first); others keep window args
+   until they need it. Every App page still gets a key for `page.*` (panel).
 3. **URL default on an App page: system browser or Pantheon Browser?**
    System browser (as today), Pantheon Browser in the link menu and as a
    setting.
-4. **Panel stack depth and width.** Up to 3, 40 % of the page, resizable;
-   more opens in a tab.
+4. **Side panel limits.** 20 tabs, 8 kept mounted, default width 40 %,
+   overlay below 900 px; `Ctrl/Cmd+\` to collapse (check it is free in
+   Chrome, Safari and Firefox before fixing it).
 5. **`/` for deployment users becomes the Agent page (Phase 2)?** Yes; the
    desktop stays at `/desktop.html`, one click away in the top bar.
 6. **Visitor viewers**: owner lists them per share (`share.viewers`), not
    every installed viewer.
 7. **Installable packaged Apps** (Hub endpoint reading the App index): built-ins
    first, packaged when asked.
+8. **App class from the manifest, or an explicit flag on every App?** Derived
+   (backend, `fs`, `placement.requires`), with `standalone.access: "account"`
+   to tighten only; no flag can make an App with a backend `public`.
