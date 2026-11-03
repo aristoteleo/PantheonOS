@@ -56,7 +56,7 @@ func Note(s Settings, l Launch) string {
 const accessNote = `You are running on {node}, a node of the user's PantheonOS. The ` + "`pantheon`" + ` command in your shell is signed in as the user and reaches PantheonOS. The commands that matter:
 - pantheon skills list; pantheon skills view <name>: the user's skills (written procedures). Read a matching one before the task.
 - pantheon browser open url=https://example.com, then pantheon browser read (title, text, selectors), click selector=..., type selector=... text=..., screenshot: a real browser the user can watch.
-- pantheon desktop windows; pantheon desktop open path=/abs/file [node_id=$PANTHEON_NODE_ID for a file on this machine]; pantheon desktop read window_id=W: windows on the user's PantheonOS desktop (opening one needs the desktop open in their browser).
+- pantheon desktop windows; pantheon desktop open path=/abs/file; pantheon desktop read window_id=W: windows on the user's PantheonOS desktop (opening one needs the desktop open in their browser). Files open from the user's workspace folder on the Workspace node (usually /workspace/default_workspace): copy one from this machine first with pantheon transfer $PANTHEON_NODE_ID:/abs/file <workspace node>:/workspace/default_workspace/file (pantheon nodes list names the node).
 - pantheon apps list; pantheon apps describe <app>; pantheon apps call <app> <tool> key=value: the user's Apps (notebook, files, model services, ...).
 - pantheon nodes list; pantheon run --node N -- <command>; pantheon transfer <node>:<path> <node>:<path>: the user's other machines.
 - pantheon agent chat -i "<message>": ask the user's Pantheon Agent.

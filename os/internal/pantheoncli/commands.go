@@ -776,7 +776,7 @@ func (r *runner) run() error {
 	if kind == "" {
 		kind = "shell"
 	}
-	code := strings.Join(r.p.rest, " ")
+	code := commandLine(r.p.rest, kind)
 	if len(r.p.rest) == 1 && r.p.rest[0] == "-" {
 		data, err := io.ReadAll(bufio.NewReader(r.stdin))
 		if err != nil {

@@ -116,11 +116,45 @@ func TestBrowserAndDesktopSayTheNextStep(t *testing.T) {
 	if code != 0 || !strings.Contains(out, `"shown": false`) || !strings.Contains(out, "pantheon browser read page_id=p1") {
 		t.Fatalf("open: %d %q %s", code, out, errOut)
 	}
+	// A window the desktop did not confirm: the page is there all the same.
+	f.answer = func(method string, args map[string]any) (any, bool) {
+		if method == "browser_open" {
+			return map[string]any{"success": false, "page_id": "p2", "error": "the desktop did not answer in 270s"}, true
+		}
+		if method == "desktop_open" {
+			return map[string]any{"success": false, "error": noViewport}, true
+		}
+		return nil, false
+	}
+	out, errOut, code = run(t, "browser", "open", "url=https://example.com")
+	if code != 0 || !strings.Contains(out, "did not confirm") || !strings.Contains(out, "page_id=p2") {
+		t.Fatalf("unconfirmed open: %d %q %s", code, out, errOut)
+	}
 	_, errOut, code = run(t, "desktop", "open", "path=/w/a.md")
 	if code == 0 || !strings.Contains(errOut, f.server.URL+"/desktop.html") || !strings.Contains(errOut, "run this again") {
 		t.Fatalf("desktop open: %d %s", code, errOut)
 	}
 	if out, _, code = run(t, "browser", "--help"); code != 0 || !strings.Contains(out, "pantheon browser read") {
 		t.Fatalf("help: %s", out)
+	}
+}
+
+func TestRunKeepsTheCallersQuoting(t *testing.T) {
+	for _, c := range []struct {
+		words []string
+		want  string
+	}{
+		{[]string{"ls", "-l", "/tmp"}, "ls -l /tmp"},
+		{[]string{"ls", "*.py"}, "ls *.py"},
+		{[]string{"sh", "-c", "ls -l /w; echo"}, "sh -c 'ls -l /w; echo'"},
+		{[]string{"echo", "it's here"}, `echo 'it'\''s here'`},
+		{[]string{"ls -l /w | head"}, "ls -l /w | head"},
+	} {
+		if got := commandLine(c.words, "shell"); got != c.want {
+			t.Errorf("%q: %q, want %q", c.words, got, c.want)
+		}
+	}
+	if got := commandLine([]string{"print(1)", "x"}, "python"); got != "print(1) x" {
+		t.Errorf("python: %q", got)
 	}
 }

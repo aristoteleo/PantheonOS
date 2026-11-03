@@ -504,8 +504,9 @@ the other Fleet nodes and their files, models, and the Pantheon Agent.
 - **Note.** The same note for every agent (`codingagents.Note`, under
   2 KB): what the command reaches, and the commands that matter, one line
   each with an example: `skills list|view`, `browser open|read|click|type|
-  screenshot`, `desktop windows|open|read` (with `node_id=$PANTHEON_NODE_ID`
-  for a file on the agent's machine), `apps list|describe|call`,
+  screenshot`, `desktop windows|open|read` (a file on the agent's own machine is
+  copied to the Workspace first with `pantheon transfer
+  $PANTHEON_NODE_ID:…`, since a node may not share its files), `apps list|describe|call`,
   `nodes list`, `run`, `transfer`, and `agent chat -i`; then `pantheon
   --help` and `pantheon <command> --help` for the rest. Claude Code and Pi
   get it through `--append-system-prompt`, Codex through

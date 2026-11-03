@@ -184,7 +184,7 @@ func (r *runner) viaAgent(link *agentLink, group string) error {
 		if err != nil {
 			return err
 		}
-		return send("run", map[string]any{"node_id": r.p.flags["node"], "code": strings.Join(r.p.rest, " "),
+		return send("run", map[string]any{"node_id": r.p.flags["node"], "code": commandLine(r.p.rest, kind),
 			"kind": kind, "timeout": int(timeout.Seconds())}, timeout)
 	case "transfer":
 		if len(pos) != 2 {

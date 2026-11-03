@@ -31,7 +31,9 @@ Without page_id a command acts on the newest page.`,
 	"desktop": `pantheon desktop — the windows on the user's PantheonOS desktop (their web desktop)
   pantheon desktop windows                           the open windows, their window_id and actions
   pantheon desktop open path=/abs/file [node_id=N]   open a file in its App, as a double-click does
-                                                     (node_id: the node that has the file; default the Workspace)
+                                                     (a file in the workspace folder on the Workspace node, usually
+                                                     /workspace/default_workspace; node_id: another node that shares its
+                                                     files; else copy it there first: pantheon transfer N:/f <workspace>:/…)
   pantheon desktop open app=<app> [state='{…}']      open an App (pantheon apps list shows them)
   pantheon desktop read window_id=W                  what a window shows
   pantheon desktop call window_id=W action=A args='{…}'   one of the window's actions (see desktop windows)
@@ -256,14 +258,21 @@ func (r *runner) windowResult(group, action string, result json.RawMessage) erro
 	failed := v["success"] == false
 	message := fmt.Sprint(v["error"])
 	switch {
-	case group == "browser" && action == "open" && failed && strings.Contains(message, noDesktop) && v["page_id"] != nil:
-		// The page opened; only showing it failed.
-		v["success"], v["shown"] = true, false
+	case group == "browser" && action == "open" && failed && v["page_id"] != nil:
+		// The page opened; only showing it failed (or was not confirmed).
+		v["success"] = true
 		delete(v, "error")
 		delete(v, "show_error")
-		v["note"] = fmt.Sprintf("The page is open but not shown: the user's PantheonOS desktop is not open in a browser. "+
-			"Use it with pantheon browser read page_id=%v (and click, type, screenshot). "+
-			"Pass show=false to open pages without a window.", v["page_id"])
+		why := "the user's PantheonOS desktop is not open in a browser"
+		if strings.Contains(message, noDesktop) {
+			v["shown"] = false
+		} else {
+			v["shown"] = nil
+			why = "the desktop did not confirm its window (" + message + ")"
+		}
+		v["note"] = fmt.Sprintf("The page is open; showing it on the desktop failed: %s. "+
+			"Use it with pantheon browser read page_id=%v (and click, type, screenshot); do not open it again. "+
+			"show=false opens pages without a window.", why, v["page_id"])
 		return r.emit(v)
 	case failed:
 		if message == "<nil>" {
@@ -293,4 +302,23 @@ func (r *runner) windowResult(group, action string, result json.RawMessage) erro
 		return nil
 	}
 	return r.print(result)
+}
+
+// commandLine is the command after `--` as the node's shell should read it.
+// One word is a command line already (`-- 'a | b'`). Several are joined as
+// ssh joins them, so `-- ls '*.py'` globs on the node; but a word holding
+// whitespace was quoted by the caller and stays one word there
+// (`-- sh -c 'a; b'`, `-- grep 'two words' f`).
+func commandLine(words []string, kind string) string {
+	if len(words) == 1 || kind != "shell" {
+		return strings.Join(words, " ")
+	}
+	quoted := make([]string, len(words))
+	for i, w := range words {
+		quoted[i] = w
+		if w == "" || strings.ContainsAny(w, " \t\n") {
+			quoted[i] = "'" + strings.ReplaceAll(w, "'", `'\''`) + "'"
+		}
+	}
+	return strings.Join(quoted, " ")
 }
