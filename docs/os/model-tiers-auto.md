@@ -85,12 +85,12 @@ the defaults:
 2. **Price** = what we would pay per million tokens. Where LiteLLM's spend
    logs (`LiteLLM_SpendLogs`, without this job's own calls) have 100+ calls
    in 14 days, our observed cost per token, caching included. Otherwise the
-   price of the provider our LiteLLM `openrouter/*` route picks: its
-   `extra_body.provider` order and ignore list, read from the mounted LiteLLM
-   config (the model maker's own endpoint first when it serves the model),
-   else OpenRouter's own choice among the rest, taken as the median healthy,
-   tool-capable provider of `/models/{id}/endpoints` (not the catalog's
-   headline price). Prices are cache-aware with our measured token mix
+   price at the provider our routing uses: the first provider of our LiteLLM
+   `openrouter/*` route's `extra_body.provider` order (read from the mounted
+   LiteLLM config, ignore list honoured) that serves the model, else the model
+   maker's own endpoint from `/models/{id}/endpoints`. Cheap third-party hosts
+   are not used by default; only a model without a maker endpoint falls back to
+   the median healthy, tool-capable provider (labelled). Prices are cache-aware with our measured token mix
    (cached input / fresh input / output over 14 days of our OpenRouter
    traffic; 70/20/10 without data); on Anthropic models fresh input is a
    cache write. The catalog's 3 : 1 blend is the last resort. The report names
@@ -98,10 +98,10 @@ the defaults:
 3. **Frontier**: models with a quality score that no cheaper-or-equal model
    matches or beats.
 4. **high**: the best quality on the frontier with price ≤ $12/M.
-   **normal**: the knee, i.e. the best quality per dollar among frontier models
-   with ≥ 60 % of the high tier's quality and price ≤ $3/M (or, with
-   `normal_rule='marginal'`, walk up the frontier from its cheapest model while
-   each step adds ≥ `normal_marginal_gain` points per $1/M).
+   **normal**: walk up the frontier from its cheapest model while each step
+   adds ≥ 5 index points per $1/M of effective price, within $3/M
+   (`normal_rule='marginal'`; `'knee'`, the best quality per dollar above 60 %
+   of the top quality, remains available).
    **low**: the cheapest model with ≥ 40 % of the high tier's quality.
    Quality within 1 point counts as equal; ties go to higher OpenRouter usage,
    then a lower error rate.
