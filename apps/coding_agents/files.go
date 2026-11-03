@@ -16,6 +16,10 @@ const fileChunkMax = 48 * 1024
 // node's file service reaches only its shared folders). A file qualifies
 // when it is in the conversation's folder, or when the conversation named
 // it: its path, or its name and its folder (`cd dir && cat name`).
+//
+// An agent in a terminal Coding Agents started (a Claude Code tab) has no
+// conversation record, but its terminal: by the terminal's id, a file in the
+// folder it runs in qualifies, as for a conversation.
 func (a *App) conversationFile(id, path string, offset, length int64) map[string]any {
 	a.mu.Lock()
 	c := a.convs[id]
@@ -23,8 +27,15 @@ func (a *App) conversationFile(id, path string, offset, length int64) map[string
 	if c != nil {
 		cwd = c.Cwd
 	}
-	a.mu.Unlock()
+	var term *TerminalSession
 	if c == nil {
+		if t := a.terminals[id]; t != nil && t.Task == "" && t.Cwd != "" {
+			term = t
+			cwd = t.Cwd
+		}
+	}
+	a.mu.Unlock()
+	if c == nil && term == nil {
 		return failure("No conversation %s on this node", id)
 	}
 	if !filepath.IsAbs(path) {
@@ -32,6 +43,9 @@ func (a *App) conversationFile(id, path string, offset, length int64) map[string
 	}
 	path = filepath.Clean(path)
 	if !within(cwd, path) {
+		if term != nil {
+			return failure("%s is not a file this conversation worked with", path)
+		}
 		a.logMu.Lock()
 		log, err := os.ReadFile(a.logPath(id))
 		a.logMu.Unlock()

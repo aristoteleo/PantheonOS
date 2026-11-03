@@ -47,4 +47,19 @@ func TestConversationFile(t *testing.T) {
 	if res := a.conversationFile("nope", inside, 0, 0); res["success"] == true {
 		t.Error("read for a conversation that is not there")
 	}
+
+	// An agent's terminal stands for its conversation: files in its folder, nothing else.
+	a.terminals = map[string]*TerminalSession{"t1": {ID: "t1", Agent: "claude", Cwd: cwd},
+		"task": {ID: "task", Agent: "claude", Cwd: cwd, Task: "update"}}
+	if got := data(a.conversationFile("t1", inside, 0, 0)); got != "inside" {
+		t.Errorf("a file in the terminal's folder: %q", got)
+	}
+	for _, p := range []string{named, secret} {
+		if res := a.conversationFile("t1", p, 0, 0); res["success"] == true {
+			t.Errorf("%s was read through a terminal", p)
+		}
+	}
+	if res := a.conversationFile("task", inside, 0, 0); res["success"] == true {
+		t.Error("read through a task's terminal")
+	}
 }
