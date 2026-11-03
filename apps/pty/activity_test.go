@@ -114,6 +114,19 @@ func TestActivityWorkingThenIdle(t *testing.T) {
 	}
 }
 
+// A spinner whose frames come round every half second looks the same at
+// every half second: what counts is each frame changing the screen.
+func TestActivitySeesASpinnerInStepWithTheTick(t *testing.T) {
+	r := newMeterRun()
+	frames := []string{"|", "/", "-", "\\", "."}
+	for i := 0; i < 40; i++ {
+		r.step("\r" + frames[i%len(frames)] + " thinking")
+	}
+	if !r.working() {
+		t.Fatalf("a spinner turning with the tick is not work: %v", r.ticks)
+	}
+}
+
 // A resize, or a keystroke, while the agent works does not end its work.
 func TestActivityKeepsWorkingThroughAResize(t *testing.T) {
 	r := newMeterRun()

@@ -18,7 +18,9 @@ import (
 // nothing themselves. Output alone says little: a cursor that blinks or
 // moves, a program that redraws the same screen, a clock that ticks once a
 // second all write bytes. activityMeter keeps a model of the screen's cells
-// and counts the cells that really changed in each half second: the agent is
+// and, after each piece of output, whether it left any cell different (a
+// program draws a frame in one write: a screen cleared and drawn again the
+// same leaves none). A half second with such a change counts; the agent is
 // working while most of the last two seconds changed it (streamed text, a
 // spinner), and idle once that has stopped for a moment. What the user types
 // (echoed back) and the repaint after a resize do not count.
@@ -55,7 +57,8 @@ type activityMeter struct {
 	osc    []byte
 	pend   []byte // an incomplete UTF-8 character
 	// what the last ticks saw
-	dirty   bool
+	touched bool // the output being read wrote or erased cells
+	moved   bool // some output left the screen different this half second
 	recent  []bool
 	working bool
 	calm    int
@@ -123,16 +126,8 @@ func later(a, b time.Time) time.Time {
 func (m *activityMeter) tick(now time.Time) (working, changed bool, signals []codingagents.Activity) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	moved := false
-	if m.dirty {
-		for r := range m.grid {
-			if !slices.Equal(m.grid[r], m.prev[r]) {
-				moved = true
-				copy(m.prev[r], m.grid[r])
-			}
-		}
-		m.dirty = false
-	}
+	moved := m.moved
+	m.moved = false
 	if now.Before(m.quiet) {
 		// What changed is the user's or the resize's: this half second
 		// says nothing either way.
@@ -178,11 +173,24 @@ const (
 func (m *activityMeter) write(p []byte) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.dirty = true
 	if len(m.pend) > 0 {
 		p = append(m.pend, p...)
 		m.pend = nil
 	}
+	m.feed(p)
+	if !m.touched {
+		return
+	}
+	m.touched = false
+	for r := range m.grid {
+		if !slices.Equal(m.grid[r], m.prev[r]) {
+			m.moved = true
+			copy(m.prev[r], m.grid[r])
+		}
+	}
+}
+
+func (m *activityMeter) feed(p []byte) {
 	for i := 0; i < len(p); {
 		b := p[i]
 		if m.state != vtGround || b < 0x80 {
@@ -346,6 +354,7 @@ func (m *activityMeter) put(r rune) {
 	}
 	if m.row >= 0 && m.row < m.rows {
 		m.grid[m.row][m.col] = r
+		m.touched = true
 	}
 	m.col++
 }
@@ -367,6 +376,7 @@ func (m *activityMeter) reverseFeed() {
 }
 
 func (m *activityMeter) scrollUp(n int) {
+	m.touched = true
 	for ; n > 0; n-- {
 		copy(m.grid[m.top:m.bot+1], m.grid[m.top+1:m.bot+1])
 		m.grid[m.bot] = blankRow(m.cols)
@@ -374,6 +384,7 @@ func (m *activityMeter) scrollUp(n int) {
 }
 
 func (m *activityMeter) scrollDown(n int) {
+	m.touched = true
 	for ; n > 0; n-- {
 		copy(m.grid[m.top+1:m.bot+1], m.grid[m.top:m.bot])
 		m.grid[m.top] = blankRow(m.cols)
@@ -390,7 +401,7 @@ func (m *activityMeter) csi(final byte) {
 		for _, p := range strings.Split(raw, ";") {
 			if p == "1049" || p == "1047" || p == "47" {
 				// Another screen: what is on it now is what the program draws next.
-				m.grid, m.row, m.col = blankGrid(m.cols, m.rows), 0, 0
+				m.grid, m.row, m.col, m.touched = blankGrid(m.cols, m.rows), 0, 0, true
 				m.top, m.bot = 0, m.rows-1
 			}
 		}
@@ -484,6 +495,7 @@ func (m *activityMeter) blank(row, from, to int) {
 	if row < 0 || row >= m.rows {
 		return
 	}
+	m.touched = true
 	for c := max(0, from); c < min(to, m.cols); c++ {
 		m.grid[row][c] = ' '
 	}

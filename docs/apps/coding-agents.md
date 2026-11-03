@@ -772,11 +772,14 @@ names its session, `os/codingagents/activity.go`):
 - **Screen activity**, for an agent with neither (Gemini CLI, Cursor Agent,
   Copilot, Qwen, a custom command, an older release whose hooks did not
   load; and Codex beside its notify): the service keeps a model of the
-  screen's cells and every half second counts the cells that changed. The
-  agent is `working` once 3 of the last 4 half seconds changed the screen
-  (streamed text, a spinner), and `ready` once that has not held for 1.5 s.
-  Output that changes no cell — a cursor moved, shown or hidden, a title,
-  the same screen drawn again — does not count, nor does a clock ticking
+  screen's cells and notes, after each piece of output, whether it left
+  any cell different (a program draws a frame in one write, so a screen
+  cleared and drawn again the same leaves none; a spinner's every frame
+  does, whatever its period). The agent is `working` once 3 of the last 4
+  half seconds changed the screen (streamed text, a spinner), and `ready`
+  once that has not held for 1.5 s. Output that changes no cell — a cursor
+  moved, shown or hidden, a title, the same screen drawn again — does not
+  count, nor does a clock ticking
   once a second (2 of 4), the echo of what the user types (0.4 s after a
   keystroke), the repaint after a resize (1.5 s), or the first 4 s of the
   launch (the agent drawing its interface): those half seconds are left
