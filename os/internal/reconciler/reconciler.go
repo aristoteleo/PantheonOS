@@ -57,7 +57,9 @@ type Reconciler struct {
 	// start goes reconcile, prepare, configure and start in successive
 	// passes, and a Tick between each made a cold node seconds slower.
 	Tick, Settled, Next time.Duration
-	Now                 func() time.Time
+	// CallTimeout bounds one node call a step makes (default 20 s).
+	CallTimeout time.Duration
+	Now         func() time.Time
 
 	mu       sync.Mutex
 	missing  map[string]time.Time // fleet/node -> first seen absent
@@ -96,6 +98,9 @@ func (r *Reconciler) defaults() {
 	}
 	if r.Next == 0 {
 		r.Next = time.Second
+	}
+	if r.CallTimeout == 0 {
+		r.CallTimeout = 20 * time.Second
 	}
 	if r.Now == nil {
 		r.Now = time.Now
@@ -297,12 +302,33 @@ func (r *Reconciler) observe(ctx context.Context, d deployments.Deployment) (Vie
 	return view, nil
 }
 
+// call is one node call of a step, bounded by CallTimeout. The steps of a
+// pass run together and the next pass waits for all of them: a node that
+// took a request and never answers (a pod replaced mid-pass keeps its
+// subscription until the bus notices the dead connection) would otherwise
+// hold every other App's next step until the pass's deadline. The step fails
+// instead, and the next pass retries it.
+func (r *Reconciler) call(ctx context.Context, fleet, node string, command map[string]any, out any) error {
+	method, _ := command["method"].(string)
+	if method == "export_data" {
+		// The first chunk builds the archive, which may take minutes.
+		return r.Nodes.Call(ctx, fleet, node, command, out)
+	}
+	c, cancel := context.WithTimeout(ctx, r.CallTimeout)
+	defer cancel()
+	err := r.Nodes.Call(c, fleet, node, command, out)
+	if err != nil && ctx.Err() == nil && c.Err() != nil {
+		return fmt.Errorf("%s did not answer %s within %s", node, method, r.CallTimeout)
+	}
+	return err
+}
+
 func (r *Reconciler) submit(ctx context.Context, fleet, node string, req lifecycle.Request) error {
 	req.Protocol = lifecycle.Protocol
 	var out struct {
 		Operation lifecycle.Operation `json:"operation"`
 	}
-	return r.Nodes.Call(ctx, fleet, node, map[string]any{"method": "submit", "request": req}, &out)
+	return r.call(ctx, fleet, node, map[string]any{"method": "submit", "request": req}, &out)
 }
 
 func (r *Reconciler) execute(ctx context.Context, d deployments.Deployment, release *Release, view View, step Step, update *func(*deployments.AppStatus)) error {
@@ -324,7 +350,7 @@ func (r *Reconciler) execute(ctx context.Context, d deployments.Deployment, rele
 		return r.moveData(ctx, d.Fleet, step)
 	case StepKeepAlive:
 		var out map[string]bool
-		return r.Nodes.Call(ctx, d.Fleet, step.Node, map[string]any{"method": "keep_alive", "instance_id": step.Instance,
+		return r.call(ctx, d.Fleet, step.Node, map[string]any{"method": "keep_alive", "instance_id": step.Instance,
 			"revision": step.Variant.Revision, "generation": step.Generation, "keep_alive": true}, &out)
 	}
 	return fmt.Errorf("unknown step %s", step.Kind)
@@ -341,7 +367,7 @@ func (r *Reconciler) stage(ctx context.Context, fleet, node string, release *Rel
 		var out struct {
 			Offset int64 `json:"offset"`
 		}
-		if err := r.Nodes.Call(ctx, fleet, node, map[string]any{"method": "stage", "digest": v.Revision, "offset": offset, "data": payload[offset:end]}, &out); err != nil {
+		if err := r.call(ctx, fleet, node, map[string]any{"method": "stage", "digest": v.Revision, "offset": offset, "data": payload[offset:end]}, &out); err != nil {
 			return fmt.Errorf("staging %s: %w", v.Revision[:12], err)
 		}
 		if out.Offset <= offset || out.Offset > int64(len(payload)) {
@@ -358,7 +384,7 @@ func (r *Reconciler) moveData(ctx context.Context, fleet string, step Step) erro
 	var archive string
 	for offset, size := int64(0), int64(-1); size < 0 || offset < size; {
 		var chunk lifecycle.ExportChunk
-		if err := r.Nodes.Call(ctx, fleet, step.SourceNode, map[string]any{"method": "export_data", "revision": step.Source.Digest,
+		if err := r.call(ctx, fleet, step.SourceNode, map[string]any{"method": "export_data", "revision": step.Source.Digest,
 			"scope": step.Scope, "generation": step.Source.Generation, "offset": offset}, &chunk); err != nil {
 			return fmt.Errorf("export from %s: %w", step.SourceNode, err)
 		}
@@ -370,7 +396,7 @@ func (r *Reconciler) moveData(ctx context.Context, fleet string, step Step) erro
 		var out struct {
 			Offset int64 `json:"offset"`
 		}
-		if err := r.Nodes.Call(ctx, fleet, step.Node, map[string]any{"method": "import_stage", "digest": archive,
+		if err := r.call(ctx, fleet, step.Node, map[string]any{"method": "import_stage", "digest": archive,
 			"offset": offset, "data": chunk.Data}, &out); err != nil {
 			return fmt.Errorf("import to %s: %w", step.Node, err)
 		}
@@ -393,7 +419,7 @@ func (r *Reconciler) manifest(ctx context.Context, fleet, node, revision string)
 		}
 		return out, fmt.Errorf("the controller hosts no App at revision %s", revision[:min(12, len(revision))])
 	}
-	if err := r.Nodes.Call(ctx, fleet, node, map[string]any{"method": "app_manifest", "revision": revision}, &out); err != nil {
+	if err := r.call(ctx, fleet, node, map[string]any{"method": "app_manifest", "revision": revision}, &out); err != nil {
 		return out, err
 	}
 	if out.Protocol != 1 || out.Revision != revision {
@@ -523,7 +549,7 @@ func (r *Reconciler) deliver(ctx context.Context, fleet, node, name string) (map
 	}
 	ref := deployments.VaultRef(name, info.Version)
 	var challenge modelcredentials.ImportChallenge
-	if err := r.Nodes.Call(ctx, fleet, node, map[string]any{"method": "credential_prepare", "credential_ref": ref, "credential_endpoint": info.Endpoint}, &challenge); err != nil {
+	if err := r.call(ctx, fleet, node, map[string]any{"method": "credential_prepare", "credential_ref": ref, "credential_endpoint": info.Endpoint}, &challenge); err != nil {
 		return nil, fmt.Errorf("secret %s: %w", name, err)
 	}
 	if challenge.Protocol != 1 || challenge.Owner != fleet || challenge.Node != node || challenge.Ref != ref {
@@ -534,7 +560,7 @@ func (r *Reconciler) deliver(ctx context.Context, fleet, node, name string) (map
 		return nil, fmt.Errorf("secret %s: %w", name, err)
 	}
 	var ok map[string]bool
-	if err := r.Nodes.Call(ctx, fleet, node, map[string]any{"method": "credential_ensure", "credential_challenge": challenge.ID, "credential_envelope": envelope}, &ok); err != nil {
+	if err := r.call(ctx, fleet, node, map[string]any{"method": "credential_ensure", "credential_challenge": challenge.ID, "credential_envelope": envelope}, &ok); err != nil {
 		return nil, fmt.Errorf("secret %s: %w", name, err)
 	}
 	return map[string]string{"ref": ref, "endpoint": info.Endpoint}, nil
@@ -674,7 +700,7 @@ func (r *Reconciler) start(ctx context.Context, d deployments.Deployment, step S
 	if len(components) > 0 {
 		config := lifecycle.AppConfiguration{Preparation: step.Preparation, Components: components}
 		var ok map[string]bool
-		if err := r.Nodes.Call(ctx, d.Fleet, step.Node, map[string]any{"method": "configure", "instance_id": step.Instance,
+		if err := r.call(ctx, d.Fleet, step.Node, map[string]any{"method": "configure", "instance_id": step.Instance,
 			"revision": step.Variant.Revision, "generation": step.Generation, "configuration": config}, &ok); err != nil {
 			// The node writes a preparation's configuration once (an exact
 			// retry succeeds); one written with other grants is final.

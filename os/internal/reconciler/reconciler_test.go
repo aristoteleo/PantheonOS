@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -40,6 +41,9 @@ type fakeFleet struct {
 	mu    sync.Mutex
 	nodes map[string]*fakeNode
 	calls []string
+	// hang holds "node method revision" calls until their context ends, as a
+	// node replaced mid-pass does (the bus still routes to its old connection).
+	hang map[string]bool
 }
 
 func (f *fakeFleet) Nodes(ctx context.Context, fleet string) ([]proto.Node, error) {
@@ -55,6 +59,11 @@ func (f *fakeFleet) Nodes(ctx context.Context, fleet string) ([]proto.Node, erro
 
 func (f *fakeFleet) Call(ctx context.Context, fleet, node string, q map[string]any, out any) error {
 	f.mu.Lock()
+	if f.hang[fmt.Sprint(node, " ", q["method"], " ", q["revision"])] {
+		f.mu.Unlock()
+		<-ctx.Done()
+		return ctx.Err()
+	}
 	defer f.mu.Unlock()
 	n := f.nodes[node]
 	if n == nil {
@@ -520,8 +529,8 @@ func TestProgressIsFollowedWithoutWaitingForTheTick(t *testing.T) {
 	pin := fmt.Sprintf("%064d", 0)
 	releases.cache[pin] = release
 	node := &fakeNode{id: "brain", kind: "pod", caps: []string{"proc"}, staged: map[string][]byte{}, configs: map[string]lifecycle.AppConfiguration{},
-		defs: map[string]lifecycle.Definition{rev: {AppID: "pantheon-allocator", Version: "1.0.0", Components: []lifecycle.Component{{Name: "backend"}}}},
-		mans: map[string]json.RawMessage{rev: json.RawMessage(`{"apiVersion":2,"id":"pantheon-allocator","version":"1.2.0"}`)},
+		defs:   map[string]lifecycle.Definition{rev: {AppID: "pantheon-allocator", Version: "1.0.0", Components: []lifecycle.Component{{Name: "backend"}}}},
+		mans:   map[string]json.RawMessage{rev: json.RawMessage(`{"apiVersion":2,"id":"pantheon-allocator","version":"1.2.0"}`)},
 		ledger: lifecycle.Ledger{Owner: "f_1", Node: "brain", Installations: map[string]*lifecycle.Installation{}, Instances: map[string]*lifecycle.Instance{}, Operations: map[string]*lifecycle.Operation{}}}
 	store, err := deployments.Open(filepath.Join(dir, "deployments"))
 	if err != nil {
@@ -546,5 +555,93 @@ func TestProgressIsFollowedWithoutWaitingForTheTick(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatalf("waited for the tick: %+v", d.Status)
 		}
+	}
+}
+
+// A provider whose node takes a request and never answers fails only its
+// consumer's start, in CallTimeout; the pass returns and the other Apps keep
+// converging instead of waiting for the pass's deadline.
+func TestUnansweredProviderDoesNotHoldThePass(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "release", "artifacts"), 0o700)
+	allocRev, alloc := artifact(t, filepath.Join(dir, "release"), "allocator package")
+	agentRev, agent := artifact(t, filepath.Join(dir, "release"), "agent package")
+	webRev, web := artifact(t, filepath.Join(dir, "release"), "web package")
+	alloc.AppID, agent.AppID, web.AppID = "pantheon-allocator", "pantheon-agent", "pantheon-web"
+	release := &Release{SHA256: "x", dir: filepath.Join(dir, "release"), Index: Index{Protocol: 2, Apps: map[string]map[string]Variant{
+		"allocator": {"linux-amd64": alloc}, "agent": {"linux-amd64": agent}, "web": {"linux-amd64": web}}}}
+	releases, _ := NewReleases(filepath.Join(dir, "cache"), nil)
+	pin := fmt.Sprintf("%064d", 0)
+	releases.cache[pin] = release
+	defs := map[string]lifecycle.Definition{
+		allocRev: {AppID: "pantheon-allocator", Version: "1.0.0", Components: []lifecycle.Component{{Name: "backend"}}},
+		agentRev: {AppID: "pantheon-agent", Version: "1.0.0", Components: []lifecycle.Component{{Name: "backend",
+			Configuration: &lifecycle.ConfigDeclaration{Credentials: map[string]lifecycle.ConfigField{"allocator": {Required: true}}}}}},
+		webRev: {AppID: "pantheon-web", Version: "1.0.0", Components: []lifecycle.Component{{Name: "backend"}}},
+	}
+	mans := map[string]json.RawMessage{
+		allocRev: json.RawMessage(`{"apiVersion":2,"id":"pantheon-allocator","version":"1.2.0","provides":{"interfaces":[{"name":"alloc","tools":["allocate"]}],"tools":[{"name":"allocate","params":[{"name":"kind"},{"name":"session","required":false}]}]}}`),
+		agentRev: json.RawMessage(`{"apiVersion":2,"id":"pantheon-agent","version":"1.0.0","dependencies":{"pantheon-allocator":{"range":"^1.0.0","uses":["alloc@1"]}}}`),
+		webRev:   json.RawMessage(`{"apiVersion":2,"id":"pantheon-web","version":"1.0.0"}`),
+	}
+	brain := &fakeNode{id: "brain", kind: "pod", caps: []string{"proc"}, staged: map[string][]byte{}, configs: map[string]lifecycle.AppConfiguration{},
+		defs: defs, mans: mans,
+		ledger: lifecycle.Ledger{Owner: "f_1", Node: "brain", Installations: map[string]*lifecycle.Installation{}, Instances: map[string]*lifecycle.Instance{}, Operations: map[string]*lifecycle.Operation{}}}
+	fleet := &fakeFleet{nodes: map[string]*fakeNode{"brain": brain}}
+	store, err := deployments.Open(filepath.Join(dir, "deployments"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	spec := deployments.Spec{Release: deployments.Release{URL: "https://releases.test/set.tar.gz", SHA256: pin},
+		Apps: map[string]deployments.AppSpec{
+			"allocator": {Package: "allocator", Scope: "deployment", Intent: deployments.Running},
+			"agent": {Package: "agent", Scope: "deployment", Intent: deployments.Running,
+				Bindings: map[string]deployments.Binding{"allocator": {App: "allocator", Component: "backend",
+					Methods: json.RawMessage(`{"allocate":{"arguments":["kind"],"bound":{"session":"s1"}}}`)}}},
+			"web": {Package: "web", Scope: "deployment", Intent: deployments.Running},
+		}}
+	if _, err := store.Put("f_1", "team", 0, spec); err != nil {
+		t.Fatal(err)
+	}
+	r := &Reconciler{Store: store, Releases: releases, Nodes: fleet, Grants: &fakeGrants{issued: map[string]appgateway.DependencyRequest{}},
+		CallTimeout: 50 * time.Millisecond}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	for i := 0; i < 12; i++ {
+		started := time.Now()
+		if _, err := r.Pass(ctx, "f_1", "team"); err != nil {
+			t.Fatal(err)
+		}
+		if took := time.Since(started); took > 5*time.Second {
+			t.Fatalf("pass %d waited %s on the unanswered provider", i, took)
+		}
+		// Once the provider runs, its node stops answering.
+		if d, _ := store.Get("f_1", "team"); d.Status.Apps["allocator"].State == "ready" && fleet.hang == nil {
+			fleet.mu.Lock()
+			fleet.hang = map[string]bool{"brain app_manifest " + allocRev: true}
+			fleet.mu.Unlock()
+		}
+	}
+	d, _ := store.Get("f_1", "team")
+	if d.Status.Apps["web"].State != "ready" || d.Status.Apps["allocator"].State != "ready" {
+		t.Fatalf("independent Apps converged: %+v", d.Status.Apps)
+	}
+	if s := d.Status.Apps["agent"]; s.State == "ready" || !strings.Contains(s.Reason, "provider allocator: brain did not answer app_manifest") {
+		t.Fatalf("consumer reports its unanswered provider: %+v", s)
+	}
+
+	// The provider's node answers again: the next passes start the consumer.
+	fleet.mu.Lock()
+	fleet.hang = nil
+	fleet.mu.Unlock()
+	settled := false
+	for i := 0; i < 12 && !settled; i++ {
+		if settled, err = r.Pass(ctx, "f_1", "team"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if d, _ = store.Get("f_1", "team"); !settled || d.Status.Apps["agent"].State != "ready" {
+		t.Fatalf("consumer started once its provider answered: %+v", d.Status.Apps["agent"])
 	}
 }
