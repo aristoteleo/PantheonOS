@@ -48,6 +48,18 @@ func TestConversationFile(t *testing.T) {
 		t.Error("read for a conversation that is not there")
 	}
 
+	// Read after a cd into a folder of it: `cd dir && sed -n 1,80p references/palette.md`.
+	refs := filepath.Join(other, "skill", "references")
+	if err := os.MkdirAll(refs, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	palette := write(filepath.Join(refs, "palette.md"), "palette")
+	write(a.logPath("c1"), `{"type":"tool","name":"Bash","input":"cd `+other+` && wc -l x.txt"}`+"\n"+
+		`{"type":"tool","name":"Bash","input":"cd `+filepath.Join(other, "skill")+` && sed -n 1,80p references/palette.md"}`+"\n")
+	if got := data(a.conversationFile("c1", palette, 0, 0)); got != "palette" {
+		t.Errorf("a file read after a cd: %q", got)
+	}
+
 	// An agent's terminal stands for its conversation: files in its folder, nothing else.
 	a.terminals = map[string]*TerminalSession{"t1": {ID: "t1", Agent: "claude", Cwd: cwd},
 		"task": {ID: "task", Agent: "claude", Cwd: cwd, Task: "update"}}

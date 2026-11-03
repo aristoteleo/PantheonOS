@@ -49,8 +49,7 @@ func (a *App) conversationFile(id, path string, offset, length int64) map[string
 		a.logMu.Lock()
 		log, err := os.ReadFile(a.logPath(id))
 		a.logMu.Unlock()
-		named := err == nil && (bytes.Contains(log, []byte(path)) ||
-			bytes.Contains(log, []byte(filepath.Base(path))) && bytes.Contains(log, []byte(filepath.Dir(path))))
+		named := err == nil && namedIn(log, path)
 		if !named {
 			return failure("%s is not a file this conversation worked with", path)
 		}
@@ -78,4 +77,23 @@ func (a *App) conversationFile(id, path string, offset, length int64) map[string
 	}
 	return map[string]any{"success": true, "size": info.Size(), "offset": offset, "modified": info.ModTime().Unix(),
 		"mime": mime.TypeByExtension(filepath.Ext(path)), "data": base64.StdEncoding.EncodeToString(buf[:n])}
+}
+
+// namedIn: the log names the file — its path, or a folder of it and the rest
+// of the path from there (`cd /skills/dataviz && sed -n 1,80p
+// references/palette.md`), as the canvas lists what a command read.
+func namedIn(log []byte, path string) bool {
+	if bytes.Contains(log, []byte(path)) {
+		return true
+	}
+	for i := 1; i < len(path); i++ {
+		if path[i] != '/' {
+			continue
+		}
+		dir, rest := path[:i], path[i+1:]
+		if rest != "" && bytes.Contains(log, []byte(dir)) && bytes.Contains(log, []byte(rest)) {
+			return true
+		}
+	}
+	return false
 }
