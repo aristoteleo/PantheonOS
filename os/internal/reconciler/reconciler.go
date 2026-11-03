@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -70,6 +71,18 @@ const grantTTL = 15 * time.Minute
 // startPreparationExpired marks a start whose dependency grants expired before
 // it could run; the planner then cancels that preparation and prepares again.
 const startPreparationExpired = "start preparation expired"
+
+// startPreparationStale marks a start whose preparation already holds an
+// authorization or configuration for other dependencies (a provider was
+// replaced between its grant or configure and its start); like an expired
+// one, it is cancelled and prepared again.
+const startPreparationStale = "start preparation is stale"
+
+// preparationEnded reports a start step failure that retrying the same
+// preparation can never fix.
+func preparationEnded(reason string) bool {
+	return strings.Contains(reason, startPreparationExpired) || strings.Contains(reason, startPreparationStale)
+}
 
 func (r *Reconciler) defaults() {
 	if r.Grace == 0 {
@@ -633,8 +646,11 @@ func (r *Reconciler) start(ctx context.Context, d deployments.Deployment, step S
 			// the same preparation). Retrying the same preparation can never
 			// succeed; the planner prepares a new start.
 			var de *appgateway.DependencyError
-			if errors.As(err, &de) && (de.Status == 410 || de.Status == 409 && de.Reason == appgateway.PolicyMismatch) {
+			if errors.As(err, &de) && de.Status == 410 {
 				return fmt.Errorf("grant %s: %s", alias, startPreparationExpired)
+			}
+			if errors.As(err, &de) && de.Status == 409 && de.Reason == appgateway.PolicyMismatch {
+				return fmt.Errorf("grant %s: %s: %w", alias, startPreparationStale, err)
 			}
 			return fmt.Errorf("grant %s: %w", alias, err)
 		}
@@ -660,6 +676,11 @@ func (r *Reconciler) start(ctx context.Context, d deployments.Deployment, step S
 		var ok map[string]bool
 		if err := r.Nodes.Call(ctx, d.Fleet, step.Node, map[string]any{"method": "configure", "instance_id": step.Instance,
 			"revision": step.Variant.Revision, "generation": step.Generation, "configuration": config}, &ok); err != nil {
+			// The node writes a preparation's configuration once (an exact
+			// retry succeeds); one written with other grants is final.
+			if strings.Contains(err.Error(), "cancel and prepare a new start") {
+				return fmt.Errorf("configure: %s: %w", startPreparationStale, err)
+			}
 			return fmt.Errorf("configure: %w", err)
 		}
 	}

@@ -31,8 +31,8 @@ type fakeNode struct {
 	vault    string
 	defs     map[string]lifecycle.Definition
 	mans     map[string]json.RawMessage
-	// failConfigure fails the next configure calls, as a node that is busy
-	// or restarting does after the grants were minted.
+	// failConfigure loses the acknowledgement of the next configure calls
+	// (the configuration is written), as a node that restarts does.
 	failConfigure int
 }
 
@@ -89,11 +89,20 @@ func (n *fakeNode) handle(c lifecycle.Command) (any, error) {
 		if in == nil || in.State != "prepared" || in.Generation != c.Generation || in.StartPreparationID != c.Configuration.Preparation {
 			return nil, fmt.Errorf("configure needs the exact prepared start")
 		}
-		if n.failConfigure > 0 {
-			n.failConfigure--
-			return nil, fmt.Errorf("node busy")
+		// A prepared start's configuration is written once (lifecycle
+		// putAppConfigFile): only an exact retry succeeds.
+		if old, ok := n.configs[c.Instance]; ok && old.Preparation == c.Configuration.Preparation {
+			a, _ := json.Marshal(old)
+			b, _ := json.Marshal(c.Configuration)
+			if string(a) != string(b) {
+				return nil, fmt.Errorf("App configuration is immutable; cancel and prepare a new start to change it")
+			}
 		}
 		n.configs[c.Instance] = *c.Configuration
+		if n.failConfigure > 0 {
+			n.failConfigure--
+			return nil, fmt.Errorf("no responders")
+		}
 		return map[string]bool{"ok": true}, nil
 	case "keep_alive":
 		in := l.Instances[c.Instance]
