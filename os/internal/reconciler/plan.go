@@ -638,6 +638,29 @@ func (p *appPlanner) prepare() result {
 	return result{status: p.status("starting", ""), step: p.step(StepPrepare, gen, p.target, id)}
 }
 
+// startEnded cancels a preparation whose start operation ended without
+// consuming it: the Runner restarted while the start was still queued
+// (outcome unknown), or the node refused it. The start's operation ID derives
+// from the preparation, so resubmitting it only returns that outcome again
+// and the App would stay "starting" for good (an App with dependency grants
+// escaped only when its grant expired). The failure counts once; the next
+// preparation is a new attempt under new operation IDs.
+func (p *appPlanner) startEnded() *result {
+	busy, failed := pending(p.ledger, opID("start", p.target.StartPreparationID))
+	if busy || failed == "" {
+		return nil
+	}
+	s := p.failedAttempt("start: " + failed)
+	if p.prev.State == "failed" && p.prev.Reason == s.Reason && p.backingOff() {
+		// Already counted; the cancellation is still on its way.
+		s.Attempts, s.NextAttempt = p.prev.Attempts, p.prev.NextAttempt
+	}
+	p.prev = s
+	r := p.stopOne(p.node, p.target, s.Reason)
+	r.status = s
+	return &r
+}
+
 // start consumes our prepared start with the given dependency identities.
 func (p *appPlanner) start(identities map[string]apptransport.Binding) result {
 	id := opID("start", p.target.StartPreparationID)
@@ -760,6 +783,9 @@ func (p *appPlanner) plan() result {
 				// A dependency went away after preparation; cancel and wait.
 				return p.stopOne(p.node, p.target, "waiting for "+d.app)
 			}
+		}
+		if r := p.startEnded(); r != nil {
+			return *r
 		}
 		return p.start(p.ready)
 	case "starting", "draining":

@@ -130,6 +130,62 @@ func TestPrepareWithUnknownOutcomeIsRetriedUnderANewOperation(t *testing.T) {
 	}
 }
 
+// A Workspace restarted while an App's start was still queued behind the
+// others: the instance keeps its prepared hold and the start's outcome is
+// unknown. Resubmitting the start (its ID derives from the preparation) only
+// returns that outcome again, so the hold is cancelled and prepared anew.
+func TestPreparedStartWithUnknownOutcomeIsCancelledAndPreparedAgain(t *testing.T) {
+	w := newWorld()
+	w.install("sandbox", revFiles)
+	d := testDeployment()
+	p := PlanDeployment(d, testRelease(revAgent), w.view)
+	prep := steps(p)["files"]
+	if prep.Kind != StepPrepare {
+		t.Fatalf("prepare first: %+v", prep)
+	}
+	ledger := w.view.Nodes["sandbox"].Ledger
+	ledger.Operations[prep.OpID] = &lifecycle.Operation{State: "succeeded"}
+	in := w.instance("sandbox", "i-files", "pantheon-files", revFiles, "prepared", 1)
+	in.StartPreparationID = prep.OpID
+	d.Status = p.Status
+	p = PlanDeployment(d, testRelease(revAgent), w.view)
+	start := steps(p)["files"]
+	if start.Kind != StepStart || start.Preparation != prep.OpID {
+		t.Fatalf("start: %+v", start)
+	}
+	ledger.Operations[start.OpID] = &lifecycle.Operation{State: "unknown",
+		Error: "Runner restarted before operation acknowledgement; reconcile before retrying"}
+
+	d.Status = p.Status
+	p = PlanDeployment(d, testRelease(revAgent), w.view)
+	s := p.Status.Apps["files"]
+	if got := steps(p)["files"]; got.Kind != StepStop || got.Instance != "i-files" || got.Generation != 1 {
+		t.Fatalf("the unconsumed hold is cancelled, not the start resubmitted: %+v", got)
+	}
+	if s.State != "failed" || s.Attempts != 1 || !strings.Contains(s.Reason, "Runner restarted") {
+		t.Fatalf("counted as one failed attempt: %+v", s)
+	}
+	// The cancellation is still on its way: the failure is not counted again.
+	d.Status = p.Status
+	p = PlanDeployment(d, testRelease(revAgent), w.view)
+	if s := p.Status.Apps["files"]; s.Attempts != 1 {
+		t.Fatalf("counted once: %+v", s)
+	}
+	if got := steps(p)["files"]; got.Kind != StepStop {
+		t.Fatalf("cancel again: %+v", got)
+	}
+
+	// Cancelled (the node bumps the generation): after the backoff a new
+	// preparation, under a new operation.
+	w.instance("sandbox", "i-files", "pantheon-files", revFiles, "stopped", 2)
+	d.Status = p.Status
+	w.view.Now = w.view.Now.Add(time.Minute)
+	again := steps(PlanDeployment(d, testRelease(revAgent), w.view))["files"]
+	if again.Kind != StepPrepare || again.OpID == prep.OpID || again.Generation != 2 {
+		t.Fatalf("prepared again under a new operation: %+v", again)
+	}
+}
+
 func TestConsumerWaitsForProviderThenStartsPinnedToIt(t *testing.T) {
 	w := newWorld()
 	w.install("brain", revAlloc, revAgent)
