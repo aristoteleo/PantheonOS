@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/url"
 	"os"
@@ -161,12 +162,41 @@ func Put(root, ref, endpoint, key string, replace bool) error {
 	if replace {
 		err = r.Rename(tmp, filename(name))
 	} else {
-		err = r.Link(tmp, filename(name))
+		err = linkFile(r, tmp, filename(name))
+		if err != nil && !errors.Is(err, fs.ErrExist) {
+			// Some filesystems refuse hard links (Modal Volumes v2: EPERM),
+			// which left every first delivery failing for good. Publish by
+			// exclusive creation instead: still never replaces a credential.
+			err = createExclusive(r, filename(name), raw)
+		}
 	}
 	if err != nil {
 		return fmt.Errorf("credential already exists or cannot be stored; use explicit replacement only to rotate it")
 	}
 	return nil
+}
+
+// linkFile is the publication step of a non-replacing Put (a test seam).
+var linkFile = func(r *os.Root, oldname, newname string) error { return r.Link(oldname, newname) }
+
+// createExclusive writes raw to name only if name does not exist. A write
+// that fails removes what it created; an existing record is never touched.
+func createExclusive(r *os.Root, name string, raw []byte) error {
+	f, err := r.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(raw)
+	if err == nil {
+		err = f.Sync()
+	}
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		r.Remove(name)
+	}
+	return err
 }
 
 // Ensure supports resumable local provisioning. An existing credential must

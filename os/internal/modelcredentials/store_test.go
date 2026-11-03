@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 )
 
@@ -218,4 +219,39 @@ func TestCredentialRotationIsAtomicForConcurrentReaders(t *testing.T) {
 		}
 	}
 	workers.Wait()
+}
+
+// A filesystem without hard links (Modal Volumes v2 refuse link(2) with
+// EPERM) must still accept a first delivery, and still never rotate one.
+func TestEnsureWithoutHardLinksStoresOnceAndNeverRotates(t *testing.T) {
+	saved := linkFile
+	linkFile = func(*os.Root, string, string) error { return &os.LinkError{Op: "link", Err: syscall.EPERM} }
+	t.Cleanup(func() { linkFile = saved })
+	root := filepath.Join(t.TempDir(), "store")
+	const ref = "node-secret://owner-controller"
+	const endpoint = "wss://fleet.example/nats"
+	var group sync.WaitGroup
+	for range 8 {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			if err := Ensure(root, ref, endpoint, "first-key"); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	group.Wait()
+	if got, err := Read(root, ref, endpoint); err != nil || got != "first-key" {
+		t.Fatalf("stored without hard links: %q %v", got, err)
+	}
+	if err := Ensure(root, ref, endpoint, "changed-key"); err == nil {
+		t.Fatal("ensure rotated a credential")
+	}
+	if got, _ := Read(root, ref, endpoint); got != "first-key" {
+		t.Fatalf("credential changed: %q", got)
+	}
+	leftovers, _ := filepath.Glob(filepath.Join(root, ".credential-*"))
+	if len(leftovers) != 0 {
+		t.Fatalf("temporary files left: %v", leftovers)
+	}
 }
