@@ -511,6 +511,25 @@ func (d *DesktopState) Call(ctx context.Context, c *Call) (any, error) {
 			return nil, err
 		}
 		return d.appsIcon(ctx, s, a.AppID)
+	case "app_state_get":
+		var a struct {
+			AppID string `json:"app_id"`
+		}
+		if err := c.Decode(&a); err != nil {
+			return nil, err
+		}
+		return d.appState(ctx, s, a.AppID)
+	case "app_state_put":
+		var a struct {
+			AppID    string                     `json:"app_id"`
+			State    json.RawMessage            `json:"state"`
+			Patch    map[string]json.RawMessage `json:"patch"`
+			Revision *uint64                    `json:"revision"`
+		}
+		if err := c.Decode(&a); err != nil {
+			return nil, err
+		}
+		return d.appStatePut(ctx, s, a.AppID, a.State, a.Patch, a.Revision)
 	}
 	return nil, &ArgumentError{fmt.Sprintf("unknown method %s", c.Method)}
 }
