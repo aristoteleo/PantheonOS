@@ -54,6 +54,13 @@ func primeShareOptions(args []string) (string, []string, bool, error) {
 
 // Only local CLI/configuration can change shares. RPC app_start never supplies roots.
 func configureShares(stateDir string, requested []string, disabled bool) ([]string, error) {
+	return shareRoots(stateDir, requested, disabled, true)
+}
+
+// shareRoots resolves the shared folders; persist saves the choice. The macOS
+// primer only reads: it runs before `up` chooses which fleet's state
+// directory the join belongs to, and must not change another fleet's shares.
+func shareRoots(stateDir string, requested []string, disabled, persist bool) ([]string, error) {
 	if disabled && len(requested) > 0 {
 		return nil, errors.New("choose --share-dir or --no-files, not both")
 	}
@@ -80,7 +87,7 @@ func configureShares(stateDir string, requested []string, disabled bool) ([]stri
 	if err != nil {
 		return nil, err
 	}
-	if changed {
+	if changed && persist {
 		data, err := json.Marshal(roots)
 		if err != nil {
 			return nil, err

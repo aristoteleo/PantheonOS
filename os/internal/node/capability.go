@@ -124,7 +124,7 @@ func detectRuntimes() map[string]string {
 		return f[len(f)-1]
 	}
 	probe("python", []string{"python3", "--version"}, lastField)
-	probe("git", []string{"git", "--version"}, lastField)
+	probe("git", []string{"git", "--version"}, gitVersion)
 	probe("pantheon", []string{"python3", "-c", "import pantheon; print(pantheon.__version__)"},
 		func(s string) string { return strings.SplitN(s, "\n", 2)[0] })
 	return out
@@ -226,3 +226,18 @@ func detectGPU() string {
 }
 
 func bytesToGB(b uint64) float64 { return float64(b) / (1024 * 1024 * 1024) }
+
+// gitVersion reads "git version 2.39.5 (Apple Git-157)" as 2.39.5: the
+// version is the word after "version", not the last one.
+func gitVersion(s string) string {
+	f := strings.Fields(strings.SplitN(s, "\n", 2)[0])
+	for i := 0; i+1 < len(f); i++ {
+		if f[i] == "version" {
+			return f[i+1]
+		}
+	}
+	if len(f) == 0 {
+		return ""
+	}
+	return f[len(f)-1]
+}

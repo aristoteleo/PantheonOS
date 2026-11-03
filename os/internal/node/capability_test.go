@@ -100,3 +100,15 @@ func TestDetectCapabilityCarriesSystemInfo(t *testing.T) {
 		t.Errorf("git runtime expected on dev machine, got %v", c.Runtimes)
 	}
 }
+
+func TestGitVersionReadsTheVersionWord(t *testing.T) {
+	for in, want := range map[string]string{
+		"git version 2.39.5 (Apple Git-157)": "2.39.5",
+		"git version 2.43.0":                 "2.43.0",
+		"git version 2.45.1.windows.1\n":     "2.45.1.windows.1",
+	} {
+		if got := gitVersion(in); got != want {
+			t.Fatalf("gitVersion(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

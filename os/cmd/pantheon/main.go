@@ -14,7 +14,9 @@ import (
 	"github.com/aristoteleo/pantheonos/os/internal/streamrtc"
 
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -136,7 +138,7 @@ func cmdPrime(args []string) {
 		fmt.Fprintln(os.Stderr, err)
 		return
 	}
-	roots, err := configureShares(stateDir, requested, disabled)
+	roots, err := shareRoots(stateDir, requested, disabled, false)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return
@@ -205,12 +207,12 @@ func cmdUp(args []string) {
 	controllerCA := fs.String("controller-ca", "", "private Controller CA PEM file (only for this Controller; saved on this node)")
 	localRPC := fs.Bool("local-dependency-rpc", false, "accept dependency RPC grants for this private loopback Controller (saved on this node)")
 	natsURL := fs.String("nats", "", "NATS url (dev: bypass the Controller)")
-	fleetID := fs.String("fleet", "", "fleet id (dev: bypass the Controller)")
+	fleetID := fs.String("fleet", "", "run this machine's saved membership of this fleet (one per account); dev: with --nats, bypass the Controller")
 	relaysCSV := fs.String("relays", "", "comma-separated relay multiaddrs")
 	p2pPort := fs.Int("p2p-port", 0, "fixed UDP/QUIC port for the data plane (0 = random)")
 	forceRelay := fs.Bool("force-relay", true, "reserve a relay slot so peers on other networks can reach this node (default on; direct addrs are still advertised — pass --force-relay=false only for a node with a stable public address)")
 	noDataplane := fs.Bool("no-dataplane", false, "control plane only (no libp2p / Transfers)")
-	stateDir := fs.String("state-dir", defaultStateDir(), "where the stable node id is kept (set per-node to run several on one host)")
+	stateDir := fs.String("state-dir", defaultStateDir(), "where the stable node id is kept (set per-node to run several on one host); other fleets' memberships live in <state-dir>/fleets/<fleet id>")
 	var shares sharedDirs
 	fs.Var(&shares, "share-dir", "share only these folders instead of home (repeatable; use '~' for home; saved locally)")
 	noFiles := fs.Bool("no-files", false, "turn off Files access and remember this choice (default: share home)")
@@ -237,17 +239,42 @@ func cmdUp(args []string) {
 			fatal("--group-platform-network=%s: %v", *platformNetwork, err)
 		}
 	}
-	fileRoots, err := configureShares(*stateDir, shares, *noFiles)
+	// --fleet without --nats chooses a saved membership (see membership.go).
+	selectedFleet := ""
+	if *natsURL == "" && *fleetID != "" {
+		selectedFleet, *fleetID = *fleetID, ""
+	}
+	freshJoin := *controllerURL != "" && (*key != "" || *joinToken != "")
+	devMode := *controllerURL == "" && *natsURL != "" && *fleetID != ""
+	baseStateDir := *stateDir
+	if !devMode {
+		dir, err := chooseStateDir(baseStateDir, selectedFleet, freshJoin, joinTokenFleet(*joinToken))
+		must(err)
+		*stateDir = dir
+	}
+	releaseMembership, err := holdMembership(*stateDir, freshJoin)
 	must(err)
+	defer func() { releaseMembership() }()
 
-	nodeID, err := node.Identity(*stateDir)
-	must(err)
-	exposeCommand(*stateDir)
-	// The node's Ed25519 key (private key never leaves this machine) proves
-	// possession when refreshing credentials. See docs/fleet-security-model.md.
-	nodeKey, err := node.LoadOrCreateKey(*stateDir)
-	must(err)
-	nodePub := node.PubB64(nodeKey)
+	var fileRoots []string
+	var nodeID, nodePub string
+	var nodeKey ed25519.PrivateKey
+	loadIdentity := func() {
+		var err error
+		fileRoots, err = configureShares(*stateDir, shares, *noFiles)
+		must(err)
+		nodeID, err = node.Identity(*stateDir)
+		must(err)
+		// The node's Ed25519 key (private key never leaves this machine) proves
+		// possession when refreshing credentials. See docs/fleet-security-model.md.
+		nodeKey, err = node.LoadOrCreateKey(*stateDir)
+		must(err)
+		nodePub = node.PubB64(nodeKey)
+	}
+	loadIdentity()
+	if isMembershipDir(baseStateDir, *stateDir) {
+		fmt.Printf("Fleet state: %s (this machine's node for that fleet)\n", *stateDir)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -258,8 +285,6 @@ func cmdUp(args []string) {
 	var credsPath, refreshToken string
 	var savedState fleetState
 	var hasSavedState bool
-	freshJoin := *controllerURL != "" && (*key != "" || *joinToken != "")
-	devMode := *controllerURL == "" && *natsURL != "" && *fleetID != ""
 	if !freshJoin && !devMode {
 		var err error
 		savedState, hasSavedState, err = loadFleetState(*stateDir)
@@ -287,10 +312,45 @@ func cmdUp(args []string) {
 	}
 	defer controllerClient.Close()
 	if freshJoin {
-		asg, err := controllerClient.Join(ctx, *controllerURL, proto.JoinRequest{
-			Key: *key, JoinToken: *joinToken, NodePub: nodePub, NodeID: nodeID,
-		})
-		must(err)
+		// A join never rewrites another fleet's membership: when the fleet
+		// turns out to be another one than this directory's, join again from
+		// that fleet's own directory, with its own node id and key.
+		var asg proto.JoinResponse
+		for attempt := 0; ; attempt++ {
+			prior := savedFleet(*stateDir)
+			var err error
+			asg, err = controllerClient.Join(ctx, *controllerURL, proto.JoinRequest{
+				Key: *key, JoinToken: *joinToken, NodePub: nodePub, NodeID: nodeID,
+			})
+			other := ""
+			var refused *join.OtherFleetError
+			switch {
+			case errors.As(err, &refused):
+				other = refused.FleetID
+			case err == nil && prior != "" && asg.FleetID != prior:
+				if *key == "" {
+					// A join token is spent; its fleet should have chosen the directory.
+					fatal("joined fleet %s, but %s belongs to fleet %s; not saved. Run the command again", asg.FleetID, *stateDir, prior)
+				}
+				other = asg.FleetID
+			default:
+				must(err)
+			}
+			if other == "" {
+				break
+			}
+			if attempt > 0 {
+				fatal("fleet %s refused this machine's node identity", other)
+			}
+			next, err := retargetMembership(baseStateDir, *stateDir, other)
+			must(err)
+			releaseMembership()
+			releaseMembership, err = holdMembership(next, true)
+			must(err)
+			*stateDir = next
+			loadIdentity()
+			fmt.Printf("This machine already belongs to another fleet; joining fleet %s as a separate node (%s)\n", other, *stateDir)
+		}
 		*natsURL, *fleetID = asg.NatsURL, asg.FleetID
 		refreshToken = asg.RefreshToken
 		if len(asg.Relays) > 0 {
@@ -353,6 +413,7 @@ func cmdUp(args []string) {
 	if *natsURL == "" || *fleetID == "" {
 		fatal("need --controller <url> --key <key> or --join-token <token>, dev --nats <url> --fleet <id>, or a prior successful join")
 	}
+	exposeCommand(*stateDir)
 
 	// Data plane (libp2p) — advertise its addresses in the Node record.
 	var dp *dataplane.Plane
@@ -370,7 +431,7 @@ func cmdUp(args []string) {
 		capa.Runtimes = map[string]string{}
 	}
 	capa.Runtimes["runner"] = version
-	capa.Runtimes["coding-agents"] = "1" // the coding-agents builtin
+	capa.Runtimes["coding-agents"] = "1"    // the coding-agents builtin
 	capa.CodingAgents = node.CodingAgents() // starts detection; heartbeats carry it
 	// An HPC login node starts compute nodes through Slurm (hpc_* commands).
 	var launcher *hpc.Launcher
@@ -441,7 +502,15 @@ func cmdUp(args []string) {
 
 	reg, err := registry.Open(ctx, nc, *fleetID, nodeID, 30*time.Second)
 	must(err)
-	rememberAppLaunch(args)
+	// Restarts and the macOS app's reopen resume this membership, pinned by
+	// its fleet: the default state directory may hold another fleet's.
+	resumeArgs := append([]string{"up"}, args...)
+	pinned := ""
+	if refreshToken != "" {
+		pinned = *fleetID
+		resumeArgs = membershipArgs(args, pinned)
+	}
+	rememberAppLaunch(baseStateDir, *stateDir, membershipArgs(args, pinned))
 
 	r := runner.New(nc, *fleetID, nodeID, reg, dp, &rec)
 	defer func() {
@@ -467,12 +536,8 @@ func cmdUp(args []string) {
 	if selfUpdating {
 		r.EnableSelfUpdate(&selfupdate.Updater{Current: version}, func(executable string) error {
 			// The join is spent; the saved refresh token rejoins after the restart.
-			restartArgs := append([]string{"up"}, args...)
-			if refreshToken != "" {
-				restartArgs = resumableArgs(args)
-			}
 			os.Setenv(inAppEnv, "1") // see appLaunchBootstrap (macOS app bundle)
-			return selfupdate.Restart(executable, append(nodeArgv0(), restartArgs...))
+			return selfupdate.Restart(executable, append(nodeArgv0(), resumeArgs...))
 		})
 	}
 	if launcher != nil {

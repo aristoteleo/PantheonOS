@@ -94,6 +94,18 @@ node.key        # Ed25519 private key, 0600, NEVER leaves
 fleet-state.json # assignment + refresh token, 0600
 fleet.creds      # 0600, short-lived, rewritten by the refresh loop
 ```
+- **One membership per fleet.** A machine can be a node of several fleets (one
+  per account). Each membership has its own state directory, so its own node id,
+  `node.key`, credentials and Apps: the first stays in the state directory, every
+  other fleet gets `<state-dir>/fleets/<fleet_id>/`. A join token names its fleet,
+  so `up` picks the directory before spending it; a join of the fleet a
+  directory already belongs to keeps that node id. The Controller refuses (409
+  `node_in_other_fleet`, before consuming the token) a node id or node key that
+  belongs to another fleet, so a key-based join, which names no fleet, moves to
+  that fleet's own directory too. `fleet up --fleet <id>` resumes a chosen
+  membership; restarts and the macOS app pin theirs the same way. One node
+  process holds a membership (`node.lock`); running the same fleet's install
+  command again replaces that node only.
 - `fleet up --join-token <tok>` the first time; the assignment and refresh token
   are persisted before the NATS connection. Afterwards plain `fleet up` refreshes
   with the stored refresh_token + node.key (no token needed again), including

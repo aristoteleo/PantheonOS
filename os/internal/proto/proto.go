@@ -265,6 +265,20 @@ type RevokeRequest struct {
 // to reach the control plane, and the data-plane relays. Creds (a scoped NATS
 // credential) is short-lived; RefreshToken is used with the node key to mint
 // fresh creds via /token without re-presenting the API key.
+// JoinConflictNodeInOtherFleet is the /join refusal (409) for a node identity
+// that already belongs to another fleet. A machine joins several fleets (one per
+// account) with one identity per fleet: the node retries with a separate state
+// directory, and so a separate node id and key, for this fleet.
+const JoinConflictNodeInOtherFleet = "node_in_other_fleet"
+
+// JoinConflict is the JSON body of a 409 /join refusal. FleetID is the fleet
+// the caller's own credential selects (never the other fleet).
+type JoinConflict struct {
+	Error   string `json:"error"`
+	FleetID string `json:"fleet_id"`
+	Message string `json:"message"`
+}
+
 type JoinResponse struct {
 	FleetID      string   `json:"fleet_id"`
 	NatsURL      string   `json:"nats_url"`

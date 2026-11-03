@@ -88,7 +88,9 @@ if [ "$os" = "darwin" ]; then
 	alias_fleet "$app/Contents/MacOS/fleet"
 	echo "pantheon: installed $("$app/Contents/MacOS/fleet" version 2>/dev/null | sed -E 's/^pantheon(-fleet runner| node) /Pantheon /') at $app"
 	[ -n "${FLEET_INSTALL_ONLY:-}" ] && exit 0
-	pkill -f "Fleet.app/Contents/MacOS/fleet" 2>/dev/null || true
+	# No pkill here: this machine may run nodes of other fleets (other
+	# accounts) from this app. `up` replaces only the running node of the
+	# fleet this command joins, and joins another fleet as a separate node.
 	# The native folder prompt only appears for an `open`-launched .app, so first
 	# prime the grant via LaunchServices (-W waits until you answer the prompt).
 	# The grant then sticks to the signed .app identity — so we run the node in the

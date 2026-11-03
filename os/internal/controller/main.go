@@ -226,6 +226,11 @@ func Main(args []string) {
 				http.Error(w, "invalid join token: "+err.Error(), http.StatusUnauthorized)
 				return
 			}
+			// Refuse before consuming: the node retries this token with a
+			// separate identity for this fleet.
+			if refuseOtherFleetNode(w, nodeFleets, nodePubs, req, jp.FleetID) {
+				return
+			}
 			if !consumed.consume(jp.JTI, jp.Exp) {
 				http.Error(w, "join token already used", http.StatusForbidden)
 				return
@@ -236,6 +241,9 @@ func Main(args []string) {
 			vfid, ok := resolveFleet(req.Key)
 			if !ok {
 				http.Error(w, "key not allowed", http.StatusForbidden)
+				return
+			}
+			if refuseOtherFleetNode(w, nodeFleets, nodePubs, req, vfid) {
 				return
 			}
 			fid = vfid
@@ -1070,6 +1078,57 @@ func (n *nodePubMap) claim(nodeID, nodePub string) bool {
 			_ = os.WriteFile(n.path, b, 0o600)
 		}
 	}
+	return true
+}
+
+// nodesWithValue lists the node ids mapped to value (a node key in nodePubs).
+func (n *nodePubMap) nodesWithValue(value string) []string {
+	if value == "" {
+		return nil
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	var ids []string
+	for id, v := range n.m {
+		if v == value {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// otherFleetNode reports whether a join into fid reuses a node identity that
+// belongs to another fleet: the node id itself, or the node key of another
+// node id. One machine may be a node of several fleets (several accounts), but
+// each membership has its own node id and key. Shared ones would let one
+// fleet's revoke (by key) or kick (by node id) remove the other fleet's node,
+// and the node's single local state would follow whichever fleet joined last.
+func otherFleetNode(nodeFleets, nodePubs *nodePubMap, nodeID, nodePub, fid string) bool {
+	if owner := nodeFleets.lookup(nodeID); owner != "" && owner != fid {
+		return true
+	}
+	for _, other := range nodePubs.nodesWithValue(nodePub) {
+		if owner := nodeFleets.lookup(other); other != nodeID && owner != "" && owner != fid {
+			return true
+		}
+	}
+	return false
+}
+
+// refuseOtherFleetNode answers 409 for otherFleetNode. The body names only the
+// caller's own fleet: the node starts a separate identity for it and retries.
+func refuseOtherFleetNode(w http.ResponseWriter, nodeFleets, nodePubs *nodePubMap, req proto.JoinRequest, fid string) bool {
+	if !otherFleetNode(nodeFleets, nodePubs, req.NodeID, req.NodePub, fid) {
+		return false
+	}
+	log.Printf("[join] refused node %q for fleet %s: its identity belongs to another fleet", req.NodeID, fid)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusConflict)
+	json.NewEncoder(w).Encode(proto.JoinConflict{ //nolint:errcheck
+		Error:   proto.JoinConflictNodeInOtherFleet,
+		FleetID: fid,
+		Message: "This machine is already a node of another fleet under the same node identity. Update Pantheon and run the command again: it adds this fleet as a separate node.",
+	})
 	return true
 }
 

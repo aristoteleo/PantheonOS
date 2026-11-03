@@ -19,7 +19,19 @@ func bundleResumePath() string {
 	return filepath.Join(defaultStateDir(), "macos-launch.json")
 }
 
-func rememberAppLaunch(args []string) {
+// appLaunchPath is where a node remembers its reopen settings. Opening the
+// app resumes the default state directory's; another fleet's membership keeps
+// its own, so joining that fleet never changes what the app reopens.
+func appLaunchPath(base, stateDir string) string {
+	if isMembershipDir(base, stateDir) {
+		return filepath.Join(stateDir, "macos-launch.json")
+	}
+	return bundleResumePath()
+}
+
+// rememberAppLaunch saves resumeArgs, an `up` command line without one-time
+// join credentials (membershipArgs).
+func rememberAppLaunch(base, stateDir string, resumeArgs []string) {
 	executable, err := os.Executable()
 	if err != nil || fleetBundle(executable) == "" {
 		return
@@ -28,12 +40,13 @@ func rememberAppLaunch(args []string) {
 	if err != nil {
 		return
 	}
-	data, err := json.Marshal(bundleResume{Args: resumableArgs(args), Dir: cwd})
+	path := appLaunchPath(base, stateDir)
+	data, err := json.Marshal(bundleResume{Args: resumeArgs, Dir: cwd})
 	if err == nil {
-		err = os.MkdirAll(filepath.Dir(bundleResumePath()), 0700)
+		err = os.MkdirAll(filepath.Dir(path), 0700)
 	}
 	if err == nil {
-		err = writePrivateFile(bundleResumePath(), data)
+		err = writePrivateFile(path, data)
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Could not save Pantheon Fleet reopen settings: %v\n", err)

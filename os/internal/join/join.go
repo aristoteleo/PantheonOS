@@ -25,6 +25,18 @@ var defaultClient = &Client{http: httpClient}
 // treats this as terminal — it stops instead of retrying forever.
 var ErrRevoked = errors.New("node revoked by the fleet owner")
 
+// OtherFleetError is the Controller's refusal of a node identity that belongs
+// to another fleet. FleetID is the fleet the join credential selects; the node
+// joins it again with a separate identity (see proto.JoinConflict).
+type OtherFleetError struct {
+	FleetID string
+	Message string
+}
+
+func (e *OtherFleetError) Error() string {
+	return fmt.Sprintf("controller join refused: this node identity belongs to another fleet (joining %s)", e.FleetID)
+}
+
 // Join calls the Controller's /join (with a key or a single-use join token, plus
 // the node's public key) and returns the assignment (fleet, nats url, short-lived
 // creds, refresh token).
@@ -51,7 +63,12 @@ func (c *Client) Join(ctx context.Context, controllerURL string, jr proto.JoinRe
 	if resp.StatusCode != http.StatusOK {
 		// Surface the controller's reason (e.g. "join token already used",
 		// "node revoked") — a bare "403 Forbidden" leaves the user guessing.
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		var conflict proto.JoinConflict
+		if resp.StatusCode == http.StatusConflict && json.Unmarshal(b, &conflict) == nil &&
+			conflict.Error == proto.JoinConflictNodeInOtherFleet && conflict.FleetID != "" {
+			return out, &OtherFleetError{FleetID: conflict.FleetID, Message: conflict.Message}
+		}
 		if msg := strings.TrimSpace(string(b)); msg != "" {
 			return out, fmt.Errorf("controller join failed: %s: %s", resp.Status, msg)
 		}
