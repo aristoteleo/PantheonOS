@@ -416,8 +416,8 @@ Apps and the three viewers moved to it.
 - S17 Another signed-in user opening `/app/pkg:<App with a backend they
   haven't installed>` gets the install offer, then returns to the same URL.
 
-Not in Phase 1 as built: a `public` App opening signed out (S10's last
-clause). Its frontend has to come from its public Store version with no share
+Deferred to Phase 3 (visitors), decided 2026-11-03: a `public` App opening
+signed out (S10's last clause). Its frontend has to come from its public Store version with no share
 and no sign-in, which the Hub serves today only through a share link
 (`/api/app-shares/{id}/package/…`); it needs a Hub endpoint for a public Store
 version's files. Until then a signed-out visitor of any `/app/pkg:` link gets
@@ -442,6 +442,9 @@ the sign-in page, which is the safe direction.
 - P3 On a hosted link, a file under `share.paths` opens in a `share.viewers`
   panel; opening another App, Send to desktop and a path outside `share.paths`
   are refused (tests, and a staging link).
+- P3a Signed out, a `public` App at `/app/pkg:<id>` opens with no sign-in,
+  its frontend from its public Store version (moved here from S10; needs the
+  Hub endpoint above).
 - P4 A built-in App installs from Chrome's install button and opens at its
   own URL. P5 Tests as S9.
 
