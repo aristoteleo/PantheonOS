@@ -68,6 +68,25 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # The node version below is the nearest Fleet release tag.
+          fetch-depth: 0
+
+      - name: Node version (nearest Fleet release tag)
+        id: node_version
+        run: |
+          set -euo pipefail
+          # The same version fleet-release.yml stamps into its pantheon
+          # binaries (-X main.version=${RELEASE_TAG#fleet-v}), so a Workspace
+          # node reports the release its source is built on.
+          TAG=$(git describe --tags --match 'fleet-v*' --abbrev=0)
+          VERSION=${TAG#fleet-v}
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-z]+\.[0-9]+)?$ ]]; then
+            echo "Fleet tag $TAG is not a version a node can self-update from" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Node version: $VERSION"
 
       - name: Extract version from os/python/pantheonos/__init__.py
         id: version
@@ -144,6 +163,7 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             CACHE_VERSION=v1
+            PANTHEON_NODE_VERSION=${{ steps.node_version.outputs.version }}
 
       - name: Generate image summary
         if: github.event_name != 'pull_request'

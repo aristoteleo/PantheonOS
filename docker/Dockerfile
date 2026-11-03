@@ -12,8 +12,15 @@ WORKDIR /src/os
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY os/ /src/os/
 COPY apps/ /src/apps/
+# The node's version, stamped as the Fleet release workflow does
+# (fleet-release.yml: -X main.version=${RELEASE_TAG#fleet-v}). The image
+# workflow passes the nearest fleet-v* tag; a build without it keeps the
+# source's default.
+ARG PANTHEON_NODE_VERSION=
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -trimpath -o /out/pantheon ./cmd/pantheon
+    CGO_ENABLED=0 go build -trimpath \
+      -ldflags="-s -w${PANTHEON_NODE_VERSION:+ -X main.version=${PANTHEON_NODE_VERSION}}" \
+      -o /out/pantheon ./cmd/pantheon
 
 FROM python:3.12-slim-bookworm AS builder
 
