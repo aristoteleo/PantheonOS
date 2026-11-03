@@ -81,16 +81,19 @@ the defaults:
    aliases, preview or experimental; 7-day error rate under 20 % once a model
    has 20+ requests. Among ids with the same key, a dated (pinned) id is
    preferred.
-2. **Price** = what we would pay per million tokens. Where our LiteLLM logs
-   have the traffic (20+ requests and 200k+ tokens in 14 days), our observed
-   cost per token, caching included. Otherwise the provider prices of
-   OpenRouter's `/models/{id}/endpoints` (not the catalog's headline price),
-   cache-aware with our measured token mix (cached input / fresh input /
-   output over all our OpenRouter traffic; 70/20/10 without data), routed as
-   our LiteLLM `openrouter/*` route asks: the model maker's own endpoint first
-   when it serves the model (`provider.order`), else the median of the
-   cheapest three healthy, tool-capable providers. The catalog's 3 : 1 blend
-   is the last resort. The report names the basis of every price.
+2. **Price** = what we would pay per million tokens. Where LiteLLM's spend
+   logs (`LiteLLM_SpendLogs`, without this job's own calls) have 100+ calls
+   in 14 days, our observed cost per token, caching included. Otherwise the
+   price of the provider our LiteLLM `openrouter/*` route picks: its
+   `extra_body.provider` order and ignore list, read from the mounted LiteLLM
+   config (the model maker's own endpoint first when it serves the model),
+   else OpenRouter's own choice among the rest, taken as the median healthy,
+   tool-capable provider of `/models/{id}/endpoints` (not the catalog's
+   headline price). Prices are cache-aware with our measured token mix
+   (cached input / fresh input / output over 14 days of our OpenRouter
+   traffic; 70/20/10 without data); on Anthropic models fresh input is a
+   cache write. The catalog's 3 : 1 blend is the last resort. The report names
+   the basis of every price, the mix and the routing it used.
 3. **Frontier**: models with a quality score that no cheaper-or-equal model
    matches or beats.
 4. **high**: the best quality on the frontier with price ≤ $12/M.
@@ -112,7 +115,10 @@ the defaults:
    fail a filter are replaced even when the primary stays.
 7. **Checks**: every model in a new chain must answer the probe; a new primary
    must pass the smoke eval (call a tool with the right arguments, use the
-   tool's result, pick the right one of two tools). A failing model is skipped.
+   tool's result, pick the right one of two tools) and have evidence beyond it:
+   20+ real calls through our proxy in 14 days, or a larger eval (the smoke
+   tasks three more rounds, all passing). A model without that evidence can
+   still enter a chain as a fallback. A failing model is skipped.
 
 **Without quality data** (no key, or the API fails) the run is degraded and
 says so: high and normal keep their current chains (nothing is chosen without
