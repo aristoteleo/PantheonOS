@@ -668,8 +668,10 @@ func ModelLabel(id string) string {
 			continue
 		}
 		switch w {
-		case "gpt", "oss":
+		case "gpt", "oss", "glm":
 			out = append(out, strings.ToUpper(w))
+		case "qwq":
+			out = append(out, "QwQ")
 		case "deepseek":
 			out = append(out, "DeepSeek")
 		default:

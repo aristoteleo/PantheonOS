@@ -161,7 +161,8 @@ func TestPlatformDefaultDeepSeek(t *testing.T) {
 		t.Errorf("codex without DeepSeek %q", m.Default)
 	}
 	for id, want := range map[string]string{"openrouter/deepseek/deepseek-v4-flash-0731": "DeepSeek V4 Flash", "gpt-4-0613": "GPT-4",
-		"openrouter/mistralai/codestral-2508": "Codestral 2508"} {
+		"openrouter/mistralai/codestral-2508": "Codestral 2508", "openrouter/z-ai/glm-5.3": "GLM 5.3",
+		"openrouter/qwen/qwq-32b": "QwQ 32b"} {
 		if got := ModelLabel(id); got != want {
 			t.Errorf("%s: %q, want %q", id, got, want)
 		}
