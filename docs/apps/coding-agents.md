@@ -501,13 +501,24 @@ the other Fleet nodes and their files, models, and the Pantheon Agent.
   `PANTHEON_HUB_URL`, `PANTHEON_CLIENT=coding-agent/<id>` (sent by the CLI as
   `X-Pantheon-Client`), `PANTHEON_CODING_AGENT`, the conversation or terminal
   id and the node id. The node's own `pantheon` comes first on PATH.
-- **Note.** A short note says what the command is for and to run
-  `pantheon --help`: Claude Code gets it through `--append-system-prompt`,
-  Codex through `-c developer_instructions=…` (which holds from a thread's
-  first turn); Gemini CLI and Cursor Agent
-  get it before the first prompt of a conversation; the Pantheon Agent, which
-  knows PantheonOS, gets none. Nothing is written into
-  the agents' own configuration or the project.
+- **Note.** The same note for every agent (`codingagents.Note`, under
+  2 KB): what the command reaches, and the commands that matter, one line
+  each with an example: `skills list|view`, `browser open|read|click|type|
+  screenshot`, `desktop windows|open|read` (with `node_id=$PANTHEON_NODE_ID`
+  for a file on the agent's machine), `apps list|describe|call`,
+  `nodes list`, `run`, `transfer`, and `agent chat -i`; then `pantheon
+  --help` and `pantheon <command> --help` for the rest. Claude Code and Pi
+  get it through `--append-system-prompt`, Codex through
+  `-c developer_instructions=…` (which holds from a thread's first turn);
+  agents without an instructions flag (OpenCode, Gemini CLI, Cursor Agent)
+  get it before the first prompt of a conversation, and nothing in a terminal
+  launch. The Pantheon Agent, which knows PantheonOS, gets none. Nothing is
+  written into the agents' own configuration or the project.
+- **Outside a conversation.** The agent's commands are not run by a Pantheon
+  Agent conversation, so they act with the node's key
+  (docs/os/pantheon-cli.md, "Outside a conversation"): `skills list|view`
+  read the Agent's skills; `task`, `agent run|list|…` and `jobs`, which
+  belong to a conversation, refuse and name what to do instead.
 
 A terminal launch never carries the key in its command line: the line reads
 the variables from a file only the user can read, removes it, and runs the

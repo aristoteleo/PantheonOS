@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -86,10 +87,11 @@ func routeCommand() bool {
 		return false
 	}
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		pantheonUsage()
 		if len(args) == 0 {
+			pantheonUsage(os.Stderr)
 			os.Exit(2)
 		}
+		pantheonUsage(os.Stdout)
 		os.Exit(0)
 	}
 	switch first := args[0]; {
@@ -110,8 +112,18 @@ func routeCommand() bool {
 		os.Exit(localmode.Main(context.Background(), args, localmode.IO{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr}))
 	case agentCommands[first]:
 		os.Exit(runAgentCommand(args))
+	case !nodeCommands[first]:
+		fmt.Fprintf(os.Stderr, "pantheon: unknown command %q. Run `pantheon --help` for the commands.\n", first)
+		os.Exit(2)
 	}
 	return false
+}
+
+// nodeCommands are the node's own commands, which `pantheon` also takes
+// without `node` in front: the node starts its helpers and workers by them.
+var nodeCommands = map[string]bool{
+	"up": true, "credentials": true, "model-credential-read": true, "capture": true, "prime": true,
+	"app-dial": true, "app-session": true, "controller": true, "broker": true,
 }
 
 // runAgentCommand forwards an agent command to the Python package's own
@@ -135,8 +147,8 @@ func runAgentCommand(args []string) int {
 	return 0
 }
 
-func pantheonUsage() {
-	fmt.Fprintf(os.Stderr, `pantheon %s — the PantheonOS command
+func pantheonUsage(out io.Writer) {
+	fmt.Fprintf(out, `pantheon %s — the PantheonOS command
 
 %s
 

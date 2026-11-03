@@ -50,6 +50,19 @@ class NativeAgentApplication(ConfiguredAgentApplication):
                                  content=content, revision=revision, offset=offset,
                                  target_scope=target_scope, overwrite=overwrite)
 
+    @tool(exclude=True)
+    async def agent_skills(self, action: str = 'list', name: str = '', file: str = '') -> dict:
+        """The skills this Agent's conversations see, for `pantheon skills
+        list|view` run outside a conversation (docs/os/pantheon-cli.md)."""
+        from pantheon.chatroom import skill_catalog
+        settings = self.app_models.settings
+        if action == 'list':
+            return await run_owned_io(skill_catalog.list_skills, settings)
+        if action == 'view':
+            return await run_owned_io(skill_catalog.view_skill, settings, name, file)
+        return {'success': False, 'error': 'Outside a conversation the skills can be listed and read: '
+                'pantheon skills list | pantheon skills view <name> [<file>]'}
+
     def _store_packages(self):
         # Store content (skills, agents, teams) belongs to this App's own
         # .pantheon directory, beside its settings; the record stays with it.

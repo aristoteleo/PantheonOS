@@ -3,6 +3,7 @@ package pantheoncli
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -80,6 +81,8 @@ type fakePlatform struct {
 	connects atomic.Int32
 	refuse   atomic.Bool // the next call with the Desktop's grant is refused once
 	calls    []map[string]any
+	// answer replies to a method instead of the defaults, when it says so.
+	answer func(method string, args map[string]any) (any, bool)
 }
 
 func newFakePlatform(t *testing.T) *fakePlatform {
@@ -106,7 +109,7 @@ func newFakePlatform(t *testing.T) *fakePlatform {
 				"revision": strings.Repeat("a", 64), "generation": 2}
 		}
 		json.NewEncoder(w).Encode(map[string]any{"revision": 3, "status": map[string]any{"apps": map[string]any{
-			"desktop": app("n_ws", "desk"), "fleet": app("controller", "flt"), "files": app("n_ws", "fil")}}})
+			"desktop": app("n_ws", "desk"), "fleet": app("controller", "flt"), "files": app("n_ws", "fil"), "agent": app("n_ag", "agt")}}})
 	})
 	mux.HandleFunc("POST /api/fleet/apps/workload-connect", func(w http.ResponseWriter, r *http.Request) {
 		if !auth(w, r, "pbk_test") {
@@ -129,6 +132,17 @@ func newFakePlatform(t *testing.T) *fakePlatform {
 		call["instance"] = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer grant-")
 		f.calls = append(f.calls, call)
 		var result any = map[string]any{"success": true}
+		if f.answer != nil {
+			args, _ := call["args"].(map[string]any)
+			if reply, ok := f.answer(fmt.Sprint(call["method"]), args); ok {
+				if failure, isErr := reply.(error); isErr {
+					http.Error(w, `{"detail":"`+failure.Error()+`"}`, http.StatusBadRequest)
+					return
+				}
+				json.NewEncoder(w).Encode(map[string]any{"success": true, "result": reply})
+				return
+			}
+		}
 		switch call["method"] {
 		case "agent_app_directory":
 			result = map[string]any{"success": true, "apps": []any{map[string]any{
@@ -365,7 +379,7 @@ func TestSubAgentsSkillsAndJobsGoThroughTheAgent(t *testing.T) {
 	}
 	// Outside a conversation they say where they work.
 	t.Setenv("PANTHEON_TOKEN", "")
-	if _, errOut, code = run(t, "agent", "list"); code == 0 || !strings.Contains(errOut, "a command a Pantheon agent runs") {
+	if _, errOut, code = run(t, "agent", "list"); code == 0 || !strings.Contains(errOut, "Pantheon Agent conversation that runs it") {
 		t.Fatal(errOut)
 	}
 }

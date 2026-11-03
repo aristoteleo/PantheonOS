@@ -47,12 +47,20 @@ func Note(s Settings, l Launch) string {
 	if l.NodeName != "" {
 		where = l.NodeName
 	}
-	return "You are running on " + where + ", a node of the user's PantheonOS. The `pantheon` command " +
-		"reaches PantheonOS as the user: their desktop and its windows, Apps (notebooks, model services and " +
-		"others), their other machines (Fleet nodes) and the files on them, models, and the Pantheon Agent. " +
-		"Run `pantheon --help` to see the commands; use them when the task needs that environment, and ask " +
-		"the user before changing things outside the task."
+	return strings.ReplaceAll(accessNote, "{node}", where)
 }
+
+// accessNote is the same for every agent: what PantheonOS gives it and the
+// commands that matter, each with an example. Short, since some agents take
+// it on their command line.
+const accessNote = `You are running on {node}, a node of the user's PantheonOS. The ` + "`pantheon`" + ` command in your shell is signed in as the user and reaches PantheonOS. The commands that matter:
+- pantheon skills list; pantheon skills view <name>: the user's skills (written procedures). Read a matching one before the task.
+- pantheon browser open url=https://example.com, then pantheon browser read (title, text, selectors), click selector=..., type selector=... text=..., screenshot: a real browser the user can watch.
+- pantheon desktop windows; pantheon desktop open path=/abs/file [node_id=$PANTHEON_NODE_ID for a file on this machine]; pantheon desktop read window_id=W: windows on the user's PantheonOS desktop (opening one needs the desktop open in their browser).
+- pantheon apps list; pantheon apps describe <app>; pantheon apps call <app> <tool> key=value: the user's Apps (notebook, files, model services, ...).
+- pantheon nodes list; pantheon run --node N -- <command>; pantheon transfer <node>:<path> <node>:<path>: the user's other machines.
+- pantheon agent chat -i "<message>": ask the user's Pantheon Agent.
+pantheon --help lists every command and pantheon <command> --help explains one; a failing command says what to run next. Use PantheonOS when the task needs it; ask the user before changing things outside the task.`
 
 // cliPath puts the node's own pantheon command first on PATH: the node sets
 // PANTHEON_CLI_BIN when it provides one.

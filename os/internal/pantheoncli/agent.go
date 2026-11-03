@@ -147,7 +147,20 @@ func (r *runner) viaAgent(link *agentLink, group string) error {
 		if !ok {
 			def = 120 * time.Second
 		}
-		return send(group, map[string]any{"action": strings.ReplaceAll(arg(0), "-", "_"), "args": r.p.args}, def)
+		timeout, err := r.p.timeout(def)
+		if err != nil {
+			return err
+		}
+		action := strings.ReplaceAll(arg(0), "-", "_")
+		result, err := link.do(r.ctx, group, map[string]any{"action": action, "args": r.p.args}, timeout)
+		if err != nil {
+			var rpc *RPCError
+			if errors.As(err, &rpc) {
+				return &RPCError{Message: r.desktopAdvice(rpc.Message)}
+			}
+			return err
+		}
+		return r.windowResult(group, action, result)
 	case "coding-agent":
 		return r.codingAgent(r.linkedCodingAgents(link))
 	case "nodes":

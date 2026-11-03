@@ -180,3 +180,21 @@ func TestPantheonTurnArgs(t *testing.T) {
 		t.Errorf("note %q", n)
 	}
 }
+
+func TestTheNoteNamesTheCommandsThatMatter(t *testing.T) {
+	n := Note(Settings{Access: Access{Key: "pbk_x"}}, Launch{Agent: "pi", NodeName: "mac-1"})
+	for _, want := range []string{"running on mac-1", "pantheon skills list", "pantheon browser open url=",
+		"pantheon desktop open path=", "pantheon apps list", "pantheon nodes list", "pantheon agent chat -i",
+		"pantheon --help", "pantheon <command> --help"} {
+		if !strings.Contains(n, want) {
+			t.Errorf("note lacks %q", want)
+		}
+	}
+	// Codex takes it on its command line; keep it short.
+	if len(n) > 2000 {
+		t.Errorf("note is %d bytes", len(n))
+	}
+	if Note(Settings{}, Launch{Agent: "pi"}) != "" {
+		t.Error("a note without access")
+	}
+}

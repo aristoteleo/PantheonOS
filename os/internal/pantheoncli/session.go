@@ -228,6 +228,9 @@ func (s *Session) request(ctx context.Context, method, target, bearer string, bo
 		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 			detail = "the server redirected the request; check the Hub address"
 		}
+		if detail == "" && (resp.StatusCode == 502 || resp.StatusCode == 503 || resp.StatusCode == 504) {
+			detail = req.URL.Host + " is not answering right now (it may be restarting); run the command again in a minute"
+		}
 		return &HTTPError{Status: resp.StatusCode, Detail: detail}
 	}
 	if out == nil {

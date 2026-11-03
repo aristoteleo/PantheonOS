@@ -147,6 +147,35 @@ How the variables are made and delivered:
 * A node installed only as `fleet` puts a `pantheon` linked to its own binary
   at the end of its commands' `PATH`.
 
+## Outside a conversation
+
+A command run by a person or an outside agent (a coding agent with
+PantheonOS access has `PANTHEON_KEY`) has no conversation behind it.
+
+* **Skills.** `pantheon skills list` and `pantheon skills view <name>
+  [<file>]` read the skills the Agent's conversations see (project, the
+  user's, and the ones the Agent ships with) through the Agent App's
+  `agent_skills` method. An Agent released before it answers with its
+  private skill folders (`agent_skill_files`): the user's own skills only,
+  and the command says so. Changing skills and the Store actions stay with a
+  conversation.
+* **Conversation commands.** `pantheon task`, `pantheon agent list|run|runs|
+  wait|stop` and `pantheon jobs` report to, or follow, the conversation that
+  runs them. Outside one they fail and say what to do instead (report in the
+  agent's own reply; `pantheon agent chat -i` hands work to the Pantheon
+  Agent).
+* **The desktop.** Opening, acting on or capturing a window needs the
+  desktop open in one of the user's browsers. The Desktop's "no desktop to
+  ask" failure is shown with the address to open and what works meanwhile.
+  `pantheon browser open` whose page opened but could not be shown succeeds
+  with `"shown": false` and the `page_id` to use; `show=false` opens a page
+  without a window.
+* **Next steps.** `pantheon browser pages` with none open says how to open
+  one; `pantheon <group> --help` explains `browser`, `desktop` and `skills`
+  with examples; an unknown command says to run `pantheon --help` (it used
+  to print the node's usage); a Hub that answers 502–504 is reported as not
+  answering, to try again.
+
 ## The command gateway (Agent App)
 
 The Agent App serves the command's requests for its conversations.

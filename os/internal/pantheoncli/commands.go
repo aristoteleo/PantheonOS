@@ -118,7 +118,11 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	r := &runner{ctx: context.Background(), stdin: stdin, stdout: stdout, stderr: stderr, p: p, json: p.bools["json"],
 		raw: args[1:]}
 	if p.bools["help"] || p.bools["h"] {
-		fmt.Fprintln(stdout, Usage)
+		if help, ok := groupHelp[args[0]]; ok {
+			fmt.Fprintln(stdout, help)
+		} else {
+			fmt.Fprintln(stdout, Usage)
+		}
 		return 0
 	}
 	switch args[0] {
@@ -154,10 +158,16 @@ func (r *runner) signedIn(group string) error {
 		return errors.New(reason)
 	}
 	chat := group == "agent" && len(r.p.positional) > 0 && r.p.positional[0] == "chat"
+	action := ""
+	if len(r.p.positional) > 0 {
+		action = r.p.positional[0]
+	}
+	// Reading the skills needs no conversation.
+	readSkills := group == "skills" && (action == "" || action == "list" || action == "view")
 	switch group {
 	case "task", "agent", "skills", "jobs":
-		if !chat {
-			return fmt.Errorf("pantheon %s works in a command a Pantheon agent runs", group)
+		if !chat && !readSkills {
+			return agentOnly(group, action)
 		}
 	}
 	creds, err := LoadCredentials()
@@ -166,6 +176,9 @@ func (r *runner) signedIn(group string) error {
 	}
 	if r.s, err = NewSession(creds); err != nil {
 		return err
+	}
+	if readSkills {
+		return r.ownerSkills()
 	}
 	if chat {
 		if r.json {
@@ -621,9 +634,10 @@ var windowTimeouts = map[string]time.Duration{
 
 func (r *runner) window(group string) error {
 	if len(r.p.positional) != 1 {
-		return fmt.Errorf("usage: pantheon %s <action> [key=value ...]", group)
+		return fmt.Errorf("usage: pantheon %s <action> [key=value ...]\n%s", group, groupHelp[group])
 	}
-	method := group + "_" + strings.ReplaceAll(r.p.positional[0], "-", "_")
+	action := strings.ReplaceAll(r.p.positional[0], "-", "_")
+	method := group + "_" + action
 	def, ok := windowTimeouts[method]
 	if !ok {
 		def = 120 * time.Second
@@ -638,9 +652,13 @@ func (r *runner) window(group string) error {
 	}
 	result, err := r.desktopCall(dep, method, r.p.args, timeout)
 	if err != nil {
+		var rpc *RPCError
+		if errors.As(err, &rpc) {
+			return &RPCError{Message: r.desktopAdvice(rpc.Message)}
+		}
 		return err
 	}
-	return r.print(result)
+	return r.windowResult(group, action, result)
 }
 
 // ---- nodes ----
