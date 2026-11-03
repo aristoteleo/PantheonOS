@@ -369,3 +369,32 @@ async def test_release_gui_conversation_and_settings(release, tmp_path, model_de
         assert (await request(base, '/_fleet/drain', {}))['safe_to_stop']
     assert process.returncode == 0
     assert model_dependency.data_calls == ['/v1/chat/completions']
+
+
+# Imported only on the platform host or optionally, never by the packaged Agent.
+UNPACKAGED_CHAT_IMPORTS = {'room', 'start', 'stream'}
+
+
+def test_packaged_chat_modules_import_only_packaged_chat_modules():
+    """A module the packaged Agent imports must ship with it (a missing one fails only when called)."""
+    import ast
+    from pantheon.chatroom import package
+    base = Path(package.__file__).parent
+    shipped = set(package.CHAT_MODULES)
+    available = {p.stem for p in base.glob('*.py')} | {p.name for p in base.iterdir() if p.is_dir()}
+    missing = []
+    for module in sorted(shipped):
+        for node in ast.walk(ast.parse((base / f'{module}.py').read_text())):
+            names = []
+            if isinstance(node, ast.ImportFrom):
+                if node.module == 'pantheon.chatroom' or node.level == 1 and not node.module:
+                    names = [alias.name for alias in node.names]
+                elif node.module and node.module.startswith('pantheon.chatroom.'):
+                    names = [node.module.split('.')[2]]
+                elif node.level == 1 and node.module:
+                    names = [node.module.split('.')[0]]
+            elif isinstance(node, ast.Import):
+                names = [a.name.split('.')[2] for a in node.names if a.name.startswith('pantheon.chatroom.')]
+            missing += [f'{module} -> {name}' for name in names
+                        if name in available and name not in shipped and name not in UNPACKAGED_CHAT_IMPORTS]
+    assert missing == []

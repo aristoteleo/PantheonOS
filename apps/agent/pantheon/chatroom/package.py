@@ -25,7 +25,7 @@ schema toolset_backend'''.split()
 TEAM_MODULES = ['__init__', 'agent_defaults']
 CHAT_MODULES = '''__init__ app_data app_models application command_gateway data_transition data_format environment event_hooks
 event_store execution_engine execution_service export launch lifecycle native routed_memory runtime settings_document
-skill_files special_agents terminal_frontend thread token_stats view_services'''.split()
+skill_catalog skill_files special_agents terminal_frontend thread token_stats view_services'''.split()
 MODEL_MODULES = '''__init__ client dependency direct direct_session errors http_pool
 idle jobs management_tools media messages routing'''.split()
 
