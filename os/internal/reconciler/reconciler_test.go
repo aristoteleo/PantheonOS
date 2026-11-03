@@ -450,7 +450,8 @@ func TestCyclicUnitStartsTogetherAndRestartsTogether(t *testing.T) {
 		t.Fatal(err)
 	}
 	clock := time.Unix(3_000_000, 0)
-	r := &Reconciler{Store: store, Releases: releases, Nodes: fleet, Grants: &fakeGrants{issued: map[string]appgateway.DependencyRequest{}},
+	grants := &fakeGrants{issued: map[string]appgateway.DependencyRequest{}}
+	r := &Reconciler{Store: store, Releases: releases, Nodes: fleet, Grants: grants,
 		Now: func() time.Time { return clock }}
 	converge := func() {
 		t.Helper()
@@ -493,6 +494,16 @@ func TestCyclicUnitStartsTogetherAndRestartsTogether(t *testing.T) {
 	check()
 	if brain.ledger.Instances["i-"+allocRev[:6]].Generation != 4 {
 		t.Fatalf("allocator restarted with the unit: %+v", brain.ledger.Instances["i-"+allocRev[:6]])
+	}
+	// A member's preparation that can no longer start (its grant expired,
+	// or was minted for a replaced provider) is prepared again, as outside
+	// a unit, instead of retrying the dead preparation forever.
+	grants.expireNext = true
+	brain.ledger.Instances["i-"+agentRev[:6]].State = "failed"
+	converge()
+	check()
+	if len(grants.expired) != 1 {
+		t.Fatalf("expired preparation exercised: %v", grants.expired)
 	}
 }
 

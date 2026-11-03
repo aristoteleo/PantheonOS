@@ -986,6 +986,12 @@ func planUnit(members []*appPlanner) []result {
 				results[i] = m.prepare()
 			}
 		case t.State == "prepared":
+			if preparationEnded(m.prev.Reason) {
+				// Its start can never run (see appPlanner.plan); the unit
+				// prepares again once this member is stopped.
+				results[i] = m.stopOne(m.node, t, "renewing the start authorization")
+				continue
+			}
 			if !all {
 				results[i] = m.is("starting", "waiting for the unit to be prepared")
 				continue
