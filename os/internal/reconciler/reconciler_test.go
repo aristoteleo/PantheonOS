@@ -31,6 +31,9 @@ type fakeNode struct {
 	vault    string
 	defs     map[string]lifecycle.Definition
 	mans     map[string]json.RawMessage
+	// failConfigure fails the next configure calls, as a node that is busy
+	// or restarting does after the grants were minted.
+	failConfigure int
 }
 
 type fakeFleet struct {
@@ -85,6 +88,10 @@ func (n *fakeNode) handle(c lifecycle.Command) (any, error) {
 		in := l.Instances[c.Instance]
 		if in == nil || in.State != "prepared" || in.Generation != c.Generation || in.StartPreparationID != c.Configuration.Preparation {
 			return nil, fmt.Errorf("configure needs the exact prepared start")
+		}
+		if n.failConfigure > 0 {
+			n.failConfigure--
+			return nil, fmt.Errorf("node busy")
 		}
 		n.configs[c.Instance] = *c.Configuration
 		return map[string]bool{"ok": true}, nil
@@ -148,6 +155,11 @@ type fakeGrants struct {
 	// gateway's durable record does once grantTTL has passed.
 	expireNext bool
 	expired    map[string]bool
+	// policies is the gateway's durable operation record: a repeated
+	// operation ID must carry the request it first minted.
+	policies map[string]string
+	// conflictNext makes the next operation ID one minted for another policy.
+	conflictNext bool
 }
 
 func (g *fakeGrants) IssueDependency(ctx context.Context, q appgateway.DependencyRequest) (map[string]any, error) {
@@ -157,6 +169,20 @@ func (g *fakeGrants) IssueDependency(ctx context.Context, q appgateway.Dependenc
 	if g.expired[q.Operation] {
 		return nil, &appgateway.DependencyError{Status: 410, Reason: "dependency operation revoked or expired"}
 	}
+	policy := q
+	policy.Expires = 0
+	raw, _ := json.Marshal(policy)
+	if g.policies == nil {
+		g.policies = map[string]string{}
+	}
+	if old, ok := g.policies[q.Operation]; ok && old != string(raw) {
+		return nil, &appgateway.DependencyError{Status: 409, Reason: appgateway.PolicyMismatch}
+	}
+	if g.conflictNext {
+		g.conflictNext, g.policies[q.Operation] = false, "minted for another request"
+		return nil, &appgateway.DependencyError{Status: 409, Reason: appgateway.PolicyMismatch}
+	}
+	g.policies[q.Operation] = string(raw)
 	token := fmt.Sprintf("%064x", len(g.issued)+1)
 	sum := sha256.Sum256([]byte(token))
 	g.issued[hex.EncodeToString(sum[:])] = q
@@ -326,6 +352,54 @@ func TestReconcilerConvergesWithGrantsAndSecrets(t *testing.T) {
 	if !settled || len(grants.expired) != 1 || grants.issued[renewed.ID].Provider.Generation != allocIn.Generation ||
 		grants.expired[grants.issued[renewed.ID].Operation] {
 		t.Fatalf("expired start prepared again: %+v", d.Status.Apps["agent"])
+	}
+
+	// The provider restarts between the consumer's grant and its start: the
+	// grant was minted, configure failed, and the retry of the same
+	// preparation names the provider's new generation. It gets a grant for
+	// that provider instead of a policy conflict on every retry.
+	allocIn.Generation++
+	allocIn.ReadyGeneration = allocIn.Generation
+	brain.failConfigure = 1
+	for i := 0; i < 16; i++ {
+		if _, err = r.Pass(context.Background(), "f_1", "general-team"); err != nil {
+			t.Fatal(err)
+		}
+		if brain.failConfigure == 0 {
+			break
+		}
+	}
+	if agentIn = brain.ledger.Instances["i-"+agentRev[:6]]; brain.failConfigure != 0 || agentIn.State != "prepared" {
+		t.Fatalf("consumer left prepared after a failed configure: %+v", agentIn)
+	}
+	allocIn.Generation++
+	allocIn.ReadyGeneration = allocIn.Generation
+	settled = false
+	for i := 0; i < 16 && !settled; i++ {
+		if settled, err = r.Pass(context.Background(), "f_1", "general-team"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d, _ = store.Get("f_1", "general-team")
+	raced := brain.configs["i-"+agentRev[:6]].Components["backend"].Dependencies["allocator"]
+	if !settled || d.Status.Apps["agent"].State != "ready" || grants.issued[raced.ID].Provider.Generation != allocIn.Generation {
+		t.Fatalf("start after a provider restart converged: %+v", d.Status.Apps["agent"])
+	}
+
+	// Any other policy conflict on a preparation's grant is final for that
+	// preparation, as an expiry is: the start is prepared again.
+	grants.conflictNext = true
+	allocIn.Generation++
+	allocIn.ReadyGeneration = allocIn.Generation
+	settled = false
+	for i := 0; i < 16 && !settled; i++ {
+		if settled, err = r.Pass(context.Background(), "f_1", "general-team"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d, _ = store.Get("f_1", "general-team")
+	if !settled || d.Status.Apps["agent"].State != "ready" || grants.conflictNext {
+		t.Fatalf("conflicting start prepared again: %+v", d.Status.Apps["agent"])
 	}
 }
 

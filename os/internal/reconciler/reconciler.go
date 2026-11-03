@@ -616,17 +616,24 @@ func (r *Reconciler) start(ctx context.Context, d deployments.Deployment, step S
 		provider := step.Providers[alias]
 		var pm manifest
 		_ = json.Unmarshal(providers[alias].Manifest, &pm)
+		// The operation ID names the provider it authorizes as well as the
+		// preparation: a provider replaced after this preparation's grant was
+		// minted (its start then failed) gets its own grant on the retry
+		// instead of colliding with the first one forever.
 		q := appgateway.DependencyRequest{
-			Operation: opID("grant", step.Preparation, alias)[:41], Consumer: identity, Preparation: step.Preparation,
+			Operation: opID("grant", step.Preparation, alias, "\x00", provider.Node, "\x00", provider.Instance, "\x00", provider.Revision, "\x00", provider.Generation)[:41],
+			Consumer:  identity, Preparation: step.Preparation,
 			Provider: provider, AppID: pm.ID, Methods: rules[alias], Expires: r.Now().Add(grantTTL).Unix(), Timeout: appgateway.MaxDependencyTimeout,
 		}
 		result, err := r.Grants.IssueDependency(ctx, q)
 		if err != nil {
 			// The grant is bound to this preparation and outlived it (the start
-			// kept failing for longer than grantTTL). Retrying the same
-			// preparation can never succeed; the planner prepares a new start.
+			// kept failing for longer than grantTTL), or the operation was
+			// minted for a different policy (methods or timeout changed under
+			// the same preparation). Retrying the same preparation can never
+			// succeed; the planner prepares a new start.
 			var de *appgateway.DependencyError
-			if errors.As(err, &de) && de.Status == 410 {
+			if errors.As(err, &de) && (de.Status == 410 || de.Status == 409 && de.Reason == appgateway.PolicyMismatch) {
 				return fmt.Errorf("grant %s: %s", alias, startPreparationExpired)
 			}
 			return fmt.Errorf("grant %s: %w", alias, err)

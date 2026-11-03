@@ -193,6 +193,10 @@ type DependencyError struct {
 
 func (e *DependencyError) Error() string { return e.Reason }
 
+// PolicyMismatch is the reason a repeated operation ID is refused when its
+// request (identities, methods, timeout) differs from the one it first minted.
+const PolicyMismatch = "dependency operation has a different policy"
+
 func dependencyError(status int, reason string) error {
 	return &DependencyError{Status: status, Reason: reason}
 }
@@ -227,7 +231,7 @@ func (g *Gateway) IssueDependency(parent context.Context, q DependencyRequest) (
 	if q.Operation != "" {
 		if old, ok := g.dependencyStore.records[dependencyOperation(q)]; ok {
 			if old.Policy != dependencyPolicy(q) {
-				return nil, dependencyError(409, "dependency operation has a different policy")
+				return nil, dependencyError(409, PolicyMismatch)
 			}
 			if old.Request == nil || old.Expires <= time.Now().Unix() {
 				return nil, dependencyError(410, "dependency operation revoked or expired")
