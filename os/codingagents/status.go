@@ -56,6 +56,15 @@ func version(path string) string {
 	if ok {
 		return v
 	}
+	// An npm or Bun install says its version in its package.json: no start
+	// of the agent, which on a cold network volume (a Workspace's) can take
+	// longer than the wait below and leave the version blank.
+	if v = packageVersion(path); v != "" {
+		versionMu.Lock()
+		versions[key] = v
+		versionMu.Unlock()
+		return v
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, "--version")
@@ -76,6 +85,31 @@ func version(path string) string {
 		versionMu.Unlock()
 	}
 	return v
+}
+
+// packageVersion is the version in the package.json of the npm or Bun
+// package the command at path was installed from, or "".
+func packageVersion(path string) string {
+	o := OriginOf(path)
+	if (o.Via != "npm" && o.Via != "bun") || o.Package == "" {
+		return ""
+	}
+	dir := filepath.Join(o.Prefix, "lib", "node_modules")
+	if o.Via == "bun" {
+		dir = filepath.Join(o.Prefix, "install", "global", "node_modules")
+	}
+	body, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(o.Package), "package.json"))
+	if err != nil {
+		return ""
+	}
+	var m struct {
+		Name    string `json:"name"`
+		Version string `json:"version"`
+	}
+	if json.Unmarshal(body, &m) != nil || m.Name != o.Package || VersionNumber(m.Version) == "" {
+		return ""
+	}
+	return m.Version
 }
 
 func yes(b bool) *bool { return &b }

@@ -89,8 +89,10 @@ A node finds an agent by looking for its command, without running it:
    bun, Homebrew, `/usr/local/bin`, nix, snap.
 
 A hit must be a regular file with the executable bit. Detection reads no
-credentials. The Coding Agents service adds each agent's version
-(`--version`, cached until the binary changes) and whether a sign-in exists:
+credentials. The Coding Agents service adds each agent's version (an npm or
+Bun install's `package.json`, else `--version`; cached until the binary
+changes; a Workspace's cold network volume can take longer to start an agent
+than the 8 s `--version` gets) and whether a sign-in exists:
 a credential file or API key variable, the Keychain item's presence for Claude
 Code on macOS, `cursor-agent status` for Cursor. It never reads a credential;
 when it cannot tell it says nothing. A sign-in that exists may still not serve: an

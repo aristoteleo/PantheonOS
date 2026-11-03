@@ -447,3 +447,28 @@ func TestVersionIsAskedAgainAfterNoAnswer(t *testing.T) {
 		t.Fatalf("second version = %q, want 1.2.3", v)
 	}
 }
+
+func TestVersionOfAnNpmInstallIsItsPackageVersion(t *testing.T) {
+	prefix := t.TempDir()
+	pkg := filepath.Join(prefix, "lib", "node_modules", "@earendil-works", "pi-coding-agent")
+	if err := os.MkdirAll(filepath.Join(pkg, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The agent itself answers nothing (a cold volume's slow start).
+	if err := os.WriteFile(filepath.Join(pkg, "dist", "cli.js"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "package.json"), []byte(`{"name":"@earendil-works/pi-coding-agent","version":"0.74.2"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(prefix, "bin", "pi")
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../lib/node_modules/@earendil-works/pi-coding-agent/dist/cli.js", bin); err != nil {
+		t.Fatal(err)
+	}
+	if v := version(bin); v != "0.74.2" {
+		t.Fatalf("version = %q, want 0.74.2", v)
+	}
+}
