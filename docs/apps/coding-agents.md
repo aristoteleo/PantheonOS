@@ -705,19 +705,30 @@ comes from hooks given to that launch only:
   permission, notification and stop events, and, when the user has no status
   line of their own, a status line that forwards the account's limits at
   most every 15 s.
-- Codex: `-c notify=…`, which reports each finished turn.
+- Codex: `-c notify=…`, which reports each finished turn, and
+  `-c tui.notifications=true -c tui.notification_method=osc9
+  -c tui.notification_condition=always`, so its notifications ("Approval
+  requested: …") reach the terminal as OSC 9 (below).
 - Pi: `-e <state>/hooks/pi-hooks.js`, an extension that posts
   `SessionStart` (Pi's `session_start`: started, resumed, or switched to with
-  `/new` or `/resume`), `UserPromptSubmit` (its `input`, slash commands left
-  out) and `Stop` (`agent_end`), each with the session id. It loads with any
-  model source, next to the platform's own extension.
+  `/new` or `/resume`), `Prompt` (its `input`, slash commands left out: it
+  titles the session but starts no turn, since an input may never reach a
+  model, e.g. without a sign-in), `Busy` (`agent_start`,
+  `tool_execution_start`), `PermissionRequest` (`ui_prompt_start`: a dialog
+  that blocks on the user; `ui_prompt_end` goes back to `Busy` or `Stop`)
+  and `Stop` (`agent_settled`; in a Pi without it, `agent_end` with no new
+  run 1.5 s later), each with the session id. It loads with any model
+  source, next to the platform's own extension.
 - OpenCode: a plugin, `<state>/hooks/opencode-hooks.js`, added to the
   `plugin` list of the launch's `OPENCODE_CONFIG_CONTENT` (OpenCode lays it
   over the user's configuration and joins the plugin lists; the platform's
-  provider stays in it): `UserPromptSubmit` from its `chat.message` hook
-  (also in a session resumed with `--session`) and `Stop` from
-  `session.idle`, each with the session id; a sub-agent's sessions (those
-  with a parent) are left out.
+  provider stays in it): `SessionStart` once it loads, `UserPromptSubmit`
+  from its `chat.message` hook (also in a session resumed with
+  `--session`), `Busy` from `session.status` busy or retry and from a
+  permission or question answered, `PermissionRequest` from
+  `permission.asked` and `question.asked` (with what it asks), and `Stop`
+  from `session.status` idle and `session.idle`, each with the session id;
+  a sub-agent's sessions (those with a parent) are left out.
 - Pantheon Agent: the terminal chat posts `UserPromptSubmit` (with the chat
   id and its prompt) and `Stop` around each turn when the launch gave it the
   hook address.
@@ -733,6 +744,50 @@ session, and the session id it carries makes that session the desktop's
 (listed in its project, not offered to import). Each hook posts the event to a listener of the service on 127.0.0.1 with a
 token from the launch. The desktop shows the state and notifies the user
 when an agent waits for them.
+
+### Live state
+
+Every terminal session carries `state`, `since` (when that state began)
+and `source`: `hook` (the agent's own events), `activity` (its screen) or
+`exit` (its process or its terminal ended). Each change goes out on
+`pantheon.stream.coding_terminals` as it happens.
+
+| State | Means | Shown as |
+|---|---|---|
+| `working` | running a turn: thinking, calling tools | a turning ring |
+| `waiting` | waiting for the user: a permission, a question, an approval (`detail` says which) | an attention dot, "Needs you" |
+| `ready` (`starting` until the first word) | done, waiting for the next prompt | calm; marked unread when it finished in a tab not on screen, until that tab is shown |
+| `ended` | the agent exited (`exit_code`), or its terminal closed | hollow; red with the exit status when it failed |
+
+The PTY of a terminal launch tells the service what its terminal shows
+(`apps/pty/activity.go`; the launch's command line, as given to `pty_open`,
+names its session, `os/codingagents/activity.go`):
+
+- **The agent's own state on its terminal.** `OSC 7501;state=working`,
+  `idle` or `blocked[:kind=permission]` (Codex sends these) count as hooks.
+- **Notifications.** `OSC 9;text` and `OSC 777;notify;title;body` that ask
+  for the user (approval, permission, input, a question) make the session
+  `waiting`, with the text as `detail`; one that only says a turn finished
+  is left out.
+- **Screen activity**, for an agent with neither (Gemini CLI, Cursor Agent,
+  Copilot, Qwen, a custom command, an older release whose hooks did not
+  load; and Codex beside its notify): the service keeps a model of the
+  screen's cells and every half second counts the cells that changed. The
+  agent is `working` once 3 of the last 4 half seconds changed the screen
+  (streamed text, a spinner), and `ready` once that has not held for 1.5 s.
+  Output that changes no cell — a cursor moved, shown or hidden, a title,
+  the same screen drawn again — does not count, nor does a clock ticking
+  once a second (2 of 4), the echo of what the user types (0.4 s after a
+  keystroke), the repaint after a resize (1.5 s), or the first 4 s of the
+  launch (the agent drawing its interface): those half seconds are left
+  out, so a resize does not end a working state either. Once an agent's
+  own events arrive (Claude Code's `SessionStart`, Pi's, OpenCode's), its
+  screen says nothing more about it; a `waiting` stays until the agent works again.
+  Claude Code's events from a sub-agent (`agent_id` set) are left out: one
+  in the background goes on after the turn ended, while Claude Code waits
+  for the user.
+- **Exit.** The launch line's `Exit` report (above); a terminal that closes
+  first ends the session with "Terminal closed".
 
 ## Quota
 

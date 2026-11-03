@@ -441,6 +441,7 @@ func (a *App) terminalCommand(p TerminalArgs) map[string]any {
 	default:
 		command += "exec " + line + " )"
 	}
+	a.watchActivity(command, term.ID)
 	home, _ := os.UserHomeDir()
 	return map[string]any{"success": true, "command": command, "argv": argv, "label": r.found.Label, "home": home,
 		"terminal_id": term.ID, "prompted": prompted}

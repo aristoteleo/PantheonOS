@@ -62,27 +62,37 @@ func userHasStatusLine() bool {
 }
 
 // CodexNotifyArgs makes Codex report each finished turn (its only
-// launch-time notification).
+// launch-time hook), and send its terminal notifications — an approval it
+// waits for among them — as OSC 9 whether or not the terminal has focus: the
+// node's PTY reads them from the screen (apps/pty/activity.go).
 func CodexNotifyArgs() []string {
 	script := `curl -s -m 3 -X POST -H "X-Pantheon-Hook: $PANTHEON_AGENT_HOOK_TOKEN" --data-binary "$1" ` +
 		`"$PANTHEON_AGENT_HOOK_URL/Notify" >/dev/null 2>&1; exit 0`
 	b, _ := json.Marshal([]string{"sh", "-c", script, "pantheon-notify"})
-	return []string{"-c", "notify=" + string(b)}
+	return []string{"-c", "notify=" + string(b), "-c", "tui.notifications=true",
+		"-c", "tui.notification_method=osc9", "-c", "tui.notification_condition=always"}
 }
 
 // Pi and OpenCode take no hook commands; code of theirs loaded for the launch
-// posts the same events instead (none without the launch's hook address):
-// SessionStart (Pi: a session started, resumed or switched to), then
-// UserPromptSubmit with the prompt and Stop when the agent is done, each with
-// the session id. Both files live in the node's state folder.
+// posts the same events instead (none without the launch's hook address),
+// each with the session id: SessionStart (Pi: a session started, resumed or
+// switched to; OpenCode: the plugin loaded), the prompt that titles the
+// session (UserPromptSubmit; Pi's is Prompt, as an input may never reach the
+// model), Busy while the agent runs a turn, PermissionRequest (with a
+// message) while it waits for the user, and Stop once it is done. Both files
+// live in the node's state folder.
 
-// piHooks is a Pi extension (-e): Pi's session_start, input and agent_end.
+// piHooks is a Pi extension (-e). Pi works from agent_start to
+// agent_settled; agent_end alone may be followed by another run (a retry, a
+// compaction, queued messages), so it stands for the end only in a Pi
+// without agent_settled, after a moment without a new run. ui_prompt_start
+// and ui_prompt_end bracket a dialog that blocks on the user.
 const piHooks = `// Written by PantheonOS: tells the PantheonOS terminal Pi runs in which session
-// it is in and when it works.
+// it is in and what it is doing.
 export default function (pi) {
   const url = process.env.PANTHEON_AGENT_HOOK_URL, token = process.env.PANTHEON_AGENT_HOOK_TOKEN;
   if (!url || !token) return;
-  let queue = Promise.resolve();
+  let queue = Promise.resolve(), running = false, settles = false, ending;
   const post = (event, ctx, extra) => {
     let body;
     try {
@@ -93,20 +103,35 @@ export default function (pi) {
     queue = queue.then(() => fetch(url + "/" + event, { method: "POST", body, signal: AbortSignal.timeout(3000),
       headers: { "X-Pantheon-Hook": token, "Content-Type": "application/json" } })).catch(() => {});
   };
-  pi.on("session_start", (_event, ctx) => { post("SessionStart", ctx); });
+  const stop = (ctx) => { clearTimeout(ending); ending = undefined; if (running) { running = false; post("Stop", ctx); } };
+  const busy = (ctx, extra) => { clearTimeout(ending); ending = undefined; running = true; post("Busy", ctx, extra); };
+  pi.on("session_start", (_event, ctx) => { running = false; post("SessionStart", ctx); });
   pi.on("input", (event, ctx) => {
     const text = String(event.text ?? "");
-    if (!text.startsWith("/")) post("UserPromptSubmit", ctx, { prompt: text });
+    if (!text.startsWith("/")) post("Prompt", ctx, { prompt: text });
   });
-  pi.on("agent_end", (_event, ctx) => { post("Stop", ctx); });
+  pi.on("agent_start", (_event, ctx) => { busy(ctx); });
+  pi.on("tool_execution_start", (event, ctx) => { busy(ctx, { tool_name: event?.toolName }); });
+  pi.on("agent_end", (_event, ctx) => {
+    if (settles) return;
+    clearTimeout(ending);
+    ending = setTimeout(() => stop(ctx), 1500);
+  });
+  pi.on("agent_settled", (_event, ctx) => { settles = true; stop(ctx); });
+  pi.on("ui_prompt_start", (event, ctx) => {
+    post("PermissionRequest", ctx, { message: String(event?.title || "Pi asks you to choose") });
+  });
+  pi.on("ui_prompt_end", (_event, ctx) => { post(running ? "Busy" : "Stop", ctx); });
 }
 `
 
 // opencodeHooks is an OpenCode plugin: its chat.message hook (a prompt,
-// with its session, also a resumed one) and session.idle event. A
-// sub-agent's sessions (those with a parent) are left out.
+// with its session, also a resumed one) and its events: session.status
+// (busy, retry, idle), session.idle, and a permission or question asked
+// (permission.asked, question.asked) until it is answered. A sub-agent's
+// sessions (those with a parent) are left out.
 const opencodeHooks = `// Written by PantheonOS: tells the PantheonOS terminal OpenCode runs in which
-// session it is in and when it works.
+// session it is in and what it is doing.
 export const PantheonTerminal = async () => {
   const url = process.env.PANTHEON_AGENT_HOOK_URL, token = process.env.PANTHEON_AGENT_HOOK_TOKEN;
   if (!url || !token) return {};
@@ -116,17 +141,43 @@ export const PantheonTerminal = async () => {
     queue = queue.then(() => fetch(url + "/" + event, { method: "POST", body: JSON.stringify(payload),
       signal: AbortSignal.timeout(3000), headers: { "X-Pantheon-Hook": token, "Content-Type": "application/json" } })).catch(() => {});
   };
+  post("SessionStart", {});
+  const mine = (id) => id && !children.has(id);
   return {
     "chat.message": async (input, output) => {
       const id = input?.sessionID;
-      if (!id || children.has(id)) return;
+      if (!mine(id)) return;
       const text = (output?.parts ?? []).filter((p) => p.type === "text" && !p.synthetic).map((p) => p.text).join("\n");
       post("UserPromptSubmit", { session_id: id, prompt: text });
     },
     event: async ({ event }) => {
       const p = event?.properties ?? {};
-      if (event?.type === "session.created" && p.info?.parentID) children.add(p.info.id);
-      if (event?.type === "session.idle" && p.sessionID && !children.has(p.sessionID)) post("Stop", { session_id: p.sessionID });
+      const id = p.sessionID;
+      switch (event?.type) {
+        case "session.created":
+          if (p.info?.parentID) children.add(p.info.id);
+          break;
+        case "session.status":
+          if (!mine(id)) break;
+          if (p.status?.type === "idle") post("Stop", { session_id: id });
+          else post("Busy", { session_id: id });
+          break;
+        case "session.idle":
+          if (mine(id)) post("Stop", { session_id: id });
+          break;
+        case "permission.asked":
+          if (mine(id)) post("PermissionRequest", { session_id: id,
+            message: ["Permission", p.permission, (p.patterns ?? []).join(", ")].filter(Boolean).join(": ") });
+          break;
+        case "question.asked":
+          if (mine(id)) post("PermissionRequest", { session_id: id, message: p.questions?.[0]?.question || "OpenCode asks a question" });
+          break;
+        case "permission.replied":
+        case "question.replied":
+        case "question.rejected":
+          if (mine(id)) post("Busy", { session_id: id });
+          break;
+      }
     },
   };
 };
@@ -202,6 +253,11 @@ func ExitReportCommand(status string) string {
 func HookState(agent, event string, payload map[string]any) string {
 	switch agent {
 	case "claude":
+		if str(payload["agent_id"]) != "" {
+			// A sub-agent's event: one in the background may go on after the
+			// turn that started it ended, while Claude Code waits for the user.
+			return ""
+		}
 		switch event {
 		case "SessionStart", "Stop":
 			return "ready"
@@ -226,8 +282,10 @@ func HookState(agent, event string, payload map[string]any) string {
 		}
 	case PantheonAgent, "pi", "opencode":
 		switch event {
-		case "UserPromptSubmit":
+		case "UserPromptSubmit", "Busy":
 			return "working"
+		case "PermissionRequest":
+			return "waiting"
 		case "SessionStart", "Stop":
 			return "ready"
 		}

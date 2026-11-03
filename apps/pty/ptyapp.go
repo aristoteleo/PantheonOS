@@ -85,6 +85,9 @@ type ptySession struct {
 	exited     bool
 	terminated bool // this service ended it (close, reaping, shutdown)
 	exitCode   *int
+	// meter: the screen of a coding agent's terminal launch, measured for
+	// whether the agent is working (activity.go); nil for other sessions.
+	meter *activityMeter
 }
 
 func (s *ptySession) streamID() string { return "pty_" + s.id }
@@ -188,6 +191,9 @@ func (a *App) pump(s *ptySession) {
 		}
 		data := joinBytes(parts)
 		s.remember(data)
+		if s.meter != nil {
+			s.meter.write(data)
+		}
 		a.publish(s, map[string]any{
 			"type": "pty.data",
 			"data": base64.StdEncoding.EncodeToString(data),
@@ -344,6 +350,9 @@ func (a *App) open(cols, rows int, cwd, shell, command string) map[string]any {
 		chunks:     make(chan []byte, 1024),
 		waitDone:   make(chan struct{}),
 	}
+	if terminal := codingagents.CommandTerminal(command); terminal != "" {
+		s.watchActivity(terminal)
+	}
 	a.mu.Lock()
 	a.sessions[s.id] = s
 	a.mu.Unlock()
@@ -369,6 +378,9 @@ func (a *App) open(cols, rows int, cwd, shell, command string) map[string]any {
 	}
 	initial = append(initial, drainInitial(s)...)
 	s.remember(initial)
+	if s.meter != nil {
+		s.meter.write(initial)
+	}
 	go a.pump(s)
 
 	res := map[string]any{
@@ -426,6 +438,9 @@ func (a *App) write(sessionID, data string) map[string]any {
 	if _, err := s.master.Write(raw); err != nil {
 		return map[string]any{"success": false, "error": err.Error()}
 	}
+	if s.meter != nil {
+		s.meter.typed(time.Now())
+	}
 	s.touch()
 	return map[string]any{"success": true}
 }
@@ -457,6 +472,9 @@ func (a *App) resize(sessionID string, cols, rows int) map[string]any {
 			time.Sleep(redrawSettle)
 		}
 	}
+	if s.meter != nil {
+		s.meter.resized(cols, rows, time.Now())
+	}
 	s.setSize(cols, rows)
 	s.mu.Lock()
 	s.cols, s.rows = cols, rows
@@ -482,6 +500,9 @@ func (a *App) attach(sessionID string, cols, rows int) map[string]any {
 	s.touch()
 	if cols > 0 && rows > 0 && (cols != s.cols || rows != s.rows) {
 		_ = pty.Setsize(s.master, &pty.Winsize{Rows: uint16(rows), Cols: uint16(cols)})
+		if s.meter != nil {
+			s.meter.resized(cols, rows, time.Now())
+		}
 		s.mu.Lock()
 		s.cols, s.rows = cols, rows
 		s.mu.Unlock()
