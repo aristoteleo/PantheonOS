@@ -50,7 +50,8 @@ do the same writes.
 | Input | Source | Use |
 |---|---|---|
 | Callable models | LiteLLM proxy `/v1/models`, joined with the models the owners' `platform` deployments publish | Pool |
-| Price, context, tools, modality | OpenRouter `/api/v1/models` (the Hub's cached mirror) | Filters, price |
+| Context, tools, modality | OpenRouter `/api/v1/models` (the Hub's cached mirror) | Filters |
+| Price | Our LiteLLM spend per model (14 days), else OpenRouter `/api/v1/models/{id}/endpoints` | Effective price |
 | Quality | Artificial Analysis `/api/v2/language/models/free` (`artificial_analysis_intelligence_index`, with `intelligence_index_version`) | Frontier, tiers |
 | Usage | OpenRouter `/api/v1/datasets/rankings-daily`, last 7 days, keyed by `canonical_slug` | Tie-break, low tier without quality data |
 | Health | LiteLLM `/user/daily/activity` (all keys), last 7 days: successful / failed requests per model | Error-rate filter |
@@ -80,12 +81,23 @@ the defaults:
    aliases, preview or experimental; 7-day error rate under 20 % once a model
    has 20+ requests. Among ids with the same key, a dated (pinned) id is
    preferred.
-2. **Price** = blended dollars per million tokens, 3 input : 1 output.
+2. **Price** = what we would pay per million tokens. Where our LiteLLM logs
+   have the traffic (20+ requests and 200k+ tokens in 14 days), our observed
+   cost per token, caching included. Otherwise the provider prices of
+   OpenRouter's `/models/{id}/endpoints` (not the catalog's headline price),
+   cache-aware with our measured token mix (cached input / fresh input /
+   output over all our OpenRouter traffic; 70/20/10 without data), routed as
+   our LiteLLM `openrouter/*` route asks: the model maker's own endpoint first
+   when it serves the model (`provider.order`), else the median of the
+   cheapest three healthy, tool-capable providers. The catalog's 3 : 1 blend
+   is the last resort. The report names the basis of every price.
 3. **Frontier**: models with a quality score that no cheaper-or-equal model
    matches or beats.
 4. **high**: the best quality on the frontier with price ≤ $12/M.
    **normal**: the knee, i.e. the best quality per dollar among frontier models
-   with ≥ 60 % of the high tier's quality and price ≤ $3/M.
+   with ≥ 60 % of the high tier's quality and price ≤ $3/M (or, with
+   `normal_rule='marginal'`, walk up the frontier from its cheapest model while
+   each step adds ≥ `normal_marginal_gain` points per $1/M).
    **low**: the cheapest model with ≥ 40 % of the high tier's quality.
    Quality within 1 point counts as equal; ties go to higher OpenRouter usage,
    then a lower error rate.
