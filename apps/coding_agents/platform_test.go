@@ -245,7 +245,7 @@ func TestTerminalOnPlatformModels(t *testing.T) {
 		if strings.Contains(cmd, platformKey) || strings.Contains(fmt.Sprint(res["argv"]), platformKey) {
 			t.Errorf("%s: the key is in the command line", agent)
 		}
-		envFile := strings.Trim(strings.Fields(cmd)[4], "';")
+		envFile := strings.Trim(strings.Fields(cmd)[5], "';")
 		if env := readText(t, envFile); !strings.Contains(env, platformKey) {
 			t.Errorf("%s: the env file (the user's only) carries the key", agent)
 		}

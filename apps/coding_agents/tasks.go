@@ -48,7 +48,7 @@ func (a *App) taskCommand(agent, task string) map[string]any {
 	// As an agent's launch: the hook token comes from a file only the user
 	// can read, the command runs in a subshell that outlives it and reports
 	// how it exited, and the shell left behind has none of it.
-	command := "( set -a; . " + shellQuote(envFile) + "; set +a; rm -f " + shellQuote(envFile) + "; " +
+	command := launchPrologue(envFile) +
 		"printf '\\033[2m$ %s\\033[0m\\n' " + shellQuote(line) + "; trap : INT\n" + line +
 		"\npantheon_exit=$?; trap '' INT; " + codingagents.ExitReportCommand("pantheon_exit") + "; " +
 		`if [ "$pantheon_exit" = 0 ]; then printf '\n\033[32m%s\033[0m\n' 'Done.'; ` +

@@ -422,7 +422,7 @@ func (a *App) terminalCommand(p TerminalArgs) map[string]any {
 	if err != nil {
 		return failure("%v", err)
 	}
-	command := "( set -a; . " + shellQuote(envFile) + "; set +a; rm -f " + shellQuote(envFile) + "; "
+	command := launchPrologue(envFile)
 	if unset := codingagents.LaunchUnset(r.settings, launch); len(unset) > 0 {
 		// The user's own keys would take the agent off PantheonOS models.
 		command += "unset " + strings.Join(unset, " ") + "; "
@@ -470,6 +470,20 @@ func withOpenCodeHooks(env []string) []string {
 	env[at] = name + "=" + merged
 	return env
 }
+
+// launchPrologue opens a launch's subshell: it reads the launch's secrets
+// from envFile and removes it, so a launch runs once. Run again (a desktop
+// that lost the answer to its first start, or a computer restarted since)
+// it says so and stops, rather than starting the agent without its
+// environment ("not signed in").
+func launchPrologue(envFile string) string {
+	f := shellQuote(envFile)
+	return "( if [ ! -r " + f + " ]; then printf '\\033[31m%s\\033[0m\\n' " +
+		shellQuote(spentLaunch) + "; exit 1; fi; set -a; . " + f + "; set +a; rm -f " + f + "; "
+}
+
+// spentLaunch is what a launch run a second time says.
+const spentLaunch = "This start was already used, or its computer restarted since. Start the agent again from Coding Agents."
 
 func (a *App) writeTerminalFile(name string, data []byte) (string, error) {
 	dir := filepath.Join(a.root, "terminals")

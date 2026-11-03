@@ -162,11 +162,11 @@ func TestTerminalCommand(t *testing.T) {
 	}
 	res := a.terminalCommand(TerminalArgs{Agent: "codex", Resume: "it's-1", Auto: true, Cwd: "/w"})
 	cmd, _ := res["command"].(string)
-	if !strings.HasPrefix(cmd, "( set -a; . ") || !strings.Contains(cmd, `/codex resume 'it'\''s-1' --dangerously-bypass-approvals-and-sandbox`) ||
+	if !strings.HasPrefix(cmd, "( if [ ! -r ") || !strings.Contains(cmd, "; set -a; . ") || !strings.Contains(cmd, `/codex resume 'it'\''s-1' --dangerously-bypass-approvals-and-sandbox`) ||
 		!strings.Contains(cmd, "developer_instructions=") || !strings.Contains(cmd, "notify=") || strings.Contains(cmd, "pbk_test") {
 		t.Fatalf("command %q", cmd)
 	}
-	envFile := strings.Trim(strings.Fields(cmd)[4], "';")
+	envFile := strings.Trim(strings.Fields(cmd)[5], "';")
 	st, err := os.Stat(envFile)
 	if err != nil || st.Mode().Perm() != 0o600 {
 		t.Fatalf("env file %s: %v %v", envFile, st, err)

@@ -91,6 +91,16 @@ func TestTaskCommandReportsExit(t *testing.T) {
 	if !strings.Contains(string(calls), "ARGS auth login") {
 		t.Errorf("calls: %s", calls)
 	}
+	// The launch is spent: run again (a desktop that never heard its pty
+	// open, or one reopened after its computer restarted) it says so and
+	// does not run the agent without its environment.
+	again, err := exec.Command("/bin/sh", "-c", res["command"].(string)).CombinedOutput()
+	if code := exitCode(err); code != 1 || !strings.Contains(string(again), spentLaunch) || strings.Contains(string(again), "auth login") {
+		t.Fatalf("second run: exit %d: %s", code, again)
+	}
+	if after, _ := os.ReadFile(record); string(after) != string(calls) {
+		t.Fatalf("the agent ran again: %s", after)
+	}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		var term *TerminalSession

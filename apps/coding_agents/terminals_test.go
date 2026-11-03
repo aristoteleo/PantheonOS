@@ -192,7 +192,7 @@ EOF2
 
 	res = a.terminalCommand(TerminalArgs{Agent: "opencode", Cwd: "/w/proj"})
 	cmd := res["command"].(string)
-	env := readText(t, strings.Trim(strings.Fields(cmd)[4], "';"))
+	env := readText(t, strings.Trim(strings.Fields(cmd)[5], "';"))
 	plugin := "file://" + filepath.Join(codingagents.Root(), "hooks", "opencode-hooks.js")
 	if !strings.Contains(env, `OPENCODE_CONFIG_CONTENT='{"plugin":["`+plugin+`"]}'`) {
 		t.Fatalf("opencode env %s", env)
