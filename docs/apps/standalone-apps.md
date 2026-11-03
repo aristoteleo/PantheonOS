@@ -1,6 +1,10 @@
 # Standalone Apps: one App, full page, without the desktop (2026-11-03)
 
-Status: design. Nothing here is built yet.
+Status: Phase 1 built and on staging (2026-11-03): `app.html`, the App host
+interface (DesktopHost, PageHost), the intent router and side panel, canonical
+links on both surfaces, per-App state (`app_state_get`/`app_state_put`) with
+Coding Agents and Agent Canvas moved to it. Open decisions 1–4 and 8 taken as
+recommended below. Phases 2 and 3 are not built.
 
 The owner opens one of their own Apps (Coding Agents, Agent Canvas, Files, a
 Store App, the Pantheon Agent) as a page of its own, signed in to their own
@@ -270,6 +274,9 @@ window and dies with it. It moves to desktop-state, one key per App:
 <fid>.owner.app.<app id>    {revision, state}   ≤ 256 KB, CAS on revision
 ```
 
+(A packaged App's `pkg:<id>` is the key `app.pkg.<id>`: a colon is not a key
+character, and built-in ids hold no dot.)
+
 Tools `app_state_get(app_id)`, `app_state_put(app_id, state | patch, revision)`,
 change event `{type: "desktop.app_state", app_id, revision}`. **Both surfaces use
 it**: the desktop window and the App page show the same projects and canvases;
@@ -392,6 +399,29 @@ Apps and the three viewers moved to it.
   node>&conversation=<id>` opens Coding Agents on the other user's own nodes,
   shows none of the owner's sessions, and says the node cannot be reached
   (test with two staging accounts).
+- S12 A deep `/app/<id>?…` URL loaded directly or reloaded serves the App
+  page (no 404, no redirect loop) on both staging hosts — frontend nginx
+  rewrite and ingress paths checked.
+- S13 Top bar: App menus work, node status correct, the account menu lists
+  recent Apps (`pages.recent`), "Open on desktop" opens `/desktop.html` with
+  the same App open (a window via desktop-state, its view args carried).
+- S14 No desktop regression: opening windows, Coding Agents and Agent Canvas
+  on the desktop behave as before; the existing vitest suites of the touched
+  areas pass.
+- S15 Page Coding Agents is fully functional: live session states,
+  opening/attaching terminals (as its own tabs), model picker, Agents page,
+  node switch.
+- S16 First paint of an App page ≤ 2 s on a warm cache; light and dark themes
+  correct.
+- S17 Another signed-in user opening `/app/pkg:<App with a backend they
+  haven't installed>` gets the install offer, then returns to the same URL.
+
+Not in Phase 1 as built: a `public` App opening signed out (S10's last
+clause). Its frontend has to come from its public Store version with no share
+and no sign-in, which the Hub serves today only through a share link
+(`/api/app-shares/{id}/package/…`); it needs a Hub endpoint for a public Store
+version's files. Until then a signed-out visitor of any `/app/pkg:` link gets
+the sign-in page, which is the safe direction.
 
 **Phase 2 — Pantheon Agent at `/`** (≈ 3 days).
 
@@ -426,8 +456,9 @@ Apps and the three viewers moved to it.
    System browser (as today), Pantheon Browser in the link menu and as a
    setting.
 4. **Side panel limits.** 20 tabs, 8 kept mounted, default width 40 %,
-   overlay below 900 px; `Ctrl/Cmd+\` to collapse (check it is free in
-   Chrome, Safari and Firefox before fixing it).
+   overlay below 900 px; `Ctrl/Cmd+\` to collapse — checked free: the key
+   reaches the page, unclaimed, in Chrome and Firefox (Playwright, Chromium
+   156 and Firefox 157, macOS).
 5. **`/` for deployment users becomes the Agent page (Phase 2)?** Yes; the
    desktop stays at `/desktop.html`, one click away in the top bar.
 6. **Visitor viewers**: owner lists them per share (`share.viewers`), not
