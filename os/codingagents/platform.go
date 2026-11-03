@@ -270,10 +270,10 @@ func PlatformModel(model string, m Models) string {
 }
 
 // SubscriptionModel is the model a turn on the agent's own subscription
-// asks for: a platform model (chosen while it ran on PantheonOS) is none of
-// its account's, so its default stands in.
+// asks for: a platform model or a route (chosen while it ran on PantheonOS)
+// is none of its account's, so its default stands in.
 func SubscriptionModel(model string) string {
-	if strings.HasPrefix(model, "openrouter/") {
+	if strings.HasPrefix(model, "openrouter/") || strings.HasPrefix(model, RouteRef) {
 		return ""
 	}
 	return model

@@ -486,7 +486,19 @@ func (a *App) send(p SendArgs) map[string]any {
 	if model == "" {
 		model = r.settings.Agents[c.Agent].Model
 	}
-	if onPlatform {
+	routeArgs, routeEnv, routeModel, isRoute, routeErr := codingagents.RouteLaunch(c.Agent, model, r.settings)
+	if isRoute && onPlatform {
+		// A Model Services route: through the node's route gateway.
+		if routeErr != nil {
+			if p.ConversationID == "" {
+				delete(a.convs, c.ID)
+			}
+			a.mu.Unlock()
+			return failure("Could not start %s on the route: %v", agent.Label, routeErr)
+		}
+		platformArgs, model = routeArgs, routeModel
+		env = codingagents.SetEnv(env, routeEnv...)
+	} else if onPlatform {
 		model = codingagents.PlatformModelArg(c.Agent, codingagents.PlatformModel(model, platformModels))
 	} else {
 		model = codingagents.SubscriptionModel(model)

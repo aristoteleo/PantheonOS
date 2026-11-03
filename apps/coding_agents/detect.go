@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -142,6 +143,9 @@ func (a *App) detect(refresh bool) map[string]any {
 				if platformOK {
 					m := codingagents.PlatformModels(f.ID, platform)
 					canvas.Models, canvas.ModelLabels, canvas.DefaultModel = m.IDs, m.Labels, m.Default
+					if slices.Contains(codingagents.RouteAgents, f.ID) {
+						canvas.Routes = codingagents.PlatformRoutes(s)
+					}
 				}
 			}
 			infos[i].Canvas = &canvas
@@ -371,7 +375,14 @@ func (a *App) terminalCommand(p TerminalArgs) map[string]any {
 		// Before the user's own arguments, which may turn it back on.
 		argv = append(argv, agent.QuietArgs...)
 		model := codingagents.SubscriptionModel(set.Model)
-		if onPlatform {
+		if routeArgs, routeEnv, routeModel, isRoute, err := codingagents.RouteLaunch(p.Agent, set.Model, r.settings); isRoute && onPlatform {
+			// A Model Services route: through the node's route gateway.
+			if err != nil {
+				return failure("Could not start %s on the route: %v", r.found.Label, err)
+			}
+			argv = append(argv, routeArgs...)
+			env, model = codingagents.SetEnv(env, routeEnv...), routeModel
+		} else if onPlatform {
 			models := codingagents.PlatformModels(p.Agent, platform)
 			extra, err := codingagents.PlatformArgs(p.Agent, platform, models)
 			if err != nil {

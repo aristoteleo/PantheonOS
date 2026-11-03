@@ -96,6 +96,9 @@ type Canvas struct {
 	// ModelSource is set where the agent runs on PantheonOS models
 	// (SourcePantheon): the models are the platform's.
 	ModelSource string `json:"model_source,omitempty"`
+	// Routes are the user's Model Services routes the agent can run, chosen
+	// as its model by their Ref (RouteAgents on PantheonOS models).
+	Routes []Route `json:"routes,omitempty"`
 	// ImagesNote heads the reference images listed in the message.
 	ImagesNote string `json:"-"`
 	// PinSkills: skills pinned for a turn are named in its message, with

@@ -351,3 +351,47 @@ echo '{"type":"agent_end","messages":[]}'
 		t.Errorf("opencode terminal %s", cmd)
 	}
 }
+
+// Pi and OpenCode list the user's Model Services routes, and run one through
+// the node's route gateway: the launch has a token of its own, not the
+// platform's key (the pantheon command's stays, as on any launch).
+func TestPiOnARoute(t *testing.T) {
+	dir, _ := platformAgents(t, map[string]string{"pi": `echo '{"type":"session","version":3,"id":"01a1"}'
+echo '{"type":"agent_end","messages":[]}'
+`})
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer pbk_route-test" {
+			http.Error(w, "no", http.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write([]byte(`{"routes":[{"route_id":"tier-normal","name":"Normal","requires":{"operation":"text"},` +
+			`"candidates":[{"deployment_id":"platform","model_id":"openrouter/openai/gpt-5.5"}]}]}`))
+	}))
+	t.Cleanup(hub.Close)
+	a := NewApp(nil, "", t.TempDir())
+	defer a.Close()
+	setSource(t, a, map[string]string{"pi": codingagents.SourcePantheon})
+	if r := a.setAccess("pbk_route-test", 9, hub.URL, false); r["success"] != true {
+		t.Fatal(r)
+	}
+	if got := agentInfo(t, a, "pi").Canvas.Routes; len(got) != 1 || got[0].Ref != "fleet-route://tier-normal" || got[0].Name != "Normal" {
+		t.Fatalf("routes %+v", got)
+	}
+	id := a.send(SendArgs{Agent: "pi", Prompt: "hi", Model: "fleet-route://tier-normal", Auto: true})["conversation_id"].(string)
+	waitIdle(t, a, id)
+	calls, env := readText(t, filepath.Join(dir, "pi-calls.txt")), readText(t, filepath.Join(dir, "pi-env.txt"))
+	if !strings.Contains(calls, "--model tier-normal -e ") || !strings.Contains(calls, "pi-route-tier-normal.js --provider pantheon-routes") ||
+		strings.Contains(calls, "--provider pantheon ") || strings.Contains(calls, platformKey) || strings.Contains(env, "PANTHEON_LLM_API_KEY="+platformKey) || strings.Contains(calls, "pbk_route-test") ||
+		!strings.Contains(env, "PANTHEON_ROUTE_TOKEN=prt_") {
+		t.Errorf("pi on a route: %s\n%s", calls, env)
+	}
+	// The terminal too, from the agent's default model.
+	if r := a.configure(Configure{Agents: map[string]codingagents.AgentSettings{"pi": {ModelSource: codingagents.SourcePantheon,
+		Model: "fleet-route://tier-normal"}}}); r["success"] != true {
+		t.Fatal(r)
+	}
+	cmd, _ := a.terminalCommand(TerminalArgs{Agent: "pi", Auto: true})["command"].(string)
+	if !strings.Contains(cmd, "--provider pantheon-routes") || !strings.Contains(cmd, "--model tier-normal") {
+		t.Errorf("pi terminal %s", cmd)
+	}
+}
