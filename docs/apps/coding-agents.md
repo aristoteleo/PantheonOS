@@ -512,8 +512,15 @@ the other Fleet nodes and their files, models, and the Pantheon Agent.
   get it through `--append-system-prompt`, Codex through
   `-c developer_instructions=…` (which holds from a thread's first turn);
   agents without an instructions flag (OpenCode, Gemini CLI, Cursor Agent)
-  get it before the first prompt of a conversation, and nothing in a terminal
-  launch. The Pantheon Agent, which knows PantheonOS, gets none. Nothing is
+  get it before the first prompt of a conversation, and in a terminal launch
+  through what each reads at start (`codingagents.NoteLaunch`, files under
+  `<coding-agents>/instructions/<agent>`): OpenCode an instructions file
+  named in `OPENCODE_CONFIG_CONTENT` (OpenCode joins the instructions of all
+  its configurations); Gemini CLI a `GEMINI.md` in a folder given with
+  `--include-directories` (Gemini asks once to trust that folder; "remember"
+  keeps it trusted); Cursor Agent a local plugin (`--plugin-dir`) whose
+  `sessionStart` hook returns the note as `additional_context` (not on
+  Windows). The Pantheon Agent, which knows PantheonOS, gets none. Nothing is
   written into the agents' own configuration or the project.
 - **Outside a conversation.** The agent's commands are not run by a Pantheon
   Agent conversation, so they act with the node's key

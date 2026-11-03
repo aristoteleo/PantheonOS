@@ -393,6 +393,8 @@ func (a *App) terminalCommand(p TerminalArgs) map[string]any {
 		argv = append(argv, set.Args...)
 		if note := codingagents.Note(r.settings, launch); note != "" && agent.Instructions != nil {
 			argv = append(argv, agent.Instructions(note)...)
+		} else if extra, withNote, err := codingagents.NoteLaunch(p.Agent, note, env); err == nil {
+			argv, env = append(argv, extra...), withNote
 		}
 		if hookErr == nil {
 			switch p.Agent {
