@@ -248,8 +248,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     r-base \
     r-base-dev \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/cache/apt/archives/* \
-    # Install Node.js from NodeSource
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    # Install Node.js from NodeSource. Node 24 (LTS): the coding agents users
+    # install into the Volume (npm install -g, docs/apps/coding-agents.md)
+    # need it — on Node 20 npm picks the newest release whose engines it
+    # meets, so Pi (>=22.19) came out at 0.74.2, its legacy-node20 line.
+    && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && npm install -g ajv ajv-formats \

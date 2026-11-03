@@ -67,8 +67,14 @@ type AgentInfo struct {
 	// Canvas is what a canvas turn can ask of an agent with a headless mode.
 	Canvas *codingagents.Canvas `json:"canvas,omitempty"`
 	// Update is the command line that updates the agent in place, which the
-	// desktop runs in a terminal when the user asks.
-	Update string `json:"update,omitempty"`
+	// desktop runs in a terminal when the user asks. Latest is the newest
+	// version its source publishes; UpdateTo is that version when it is
+	// newer than the installed one (Update installs it); UpdateNote says
+	// why a newer one is not offered.
+	Update     string `json:"update,omitempty"`
+	Latest     string `json:"latest,omitempty"`
+	UpdateTo   string `json:"update_to,omitempty"`
+	UpdateNote string `json:"update_note,omitempty"`
 	// Login is the command line that signs the agent in, run in a terminal
 	// (agent_task_command); absent for an agent without one.
 	Login string `json:"login,omitempty"`
@@ -150,12 +156,12 @@ func (a *App) detect(refresh bool) map[string]any {
 			}
 			infos[i].Canvas = &canvas
 		}
-		infos[i].Update = updateCommand(f)
 		infos[i].Login = loginCommand(f)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			infos[i].Status = codingagents.Inspect(f)
+			infos[i].setUpdate(codingagents.PlanUpdate(f, infos[i].Version))
 		}()
 		// An agent on PantheonOS spends the platform budget, not its account's quota.
 		if fetch := quotaReader(f); fetch != nil && !onPlatform {
@@ -240,16 +246,6 @@ func (a *App) setPlatform(base, key string) map[string]any {
 		return failure("%v", err)
 	}
 	return map[string]any{"success": true, "settings": s.Redacted()}
-}
-
-// updateCommand is the command line that updates a detected agent in place;
-// empty for an agent without one.
-func updateCommand(f codingagents.Found) string {
-	c, ok := codingagents.Lookup(f.ID)
-	if !ok || len(c.UpdateArgs) == 0 || f.Custom {
-		return ""
-	}
-	return shellJoin(append([]string{f.Path}, c.UpdateArgs...))
 }
 
 // quotaReader is how an agent's account quota is read, for agents whose turns

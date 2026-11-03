@@ -582,11 +582,73 @@ restart Codex"). A terminal launch therefore passes the catalog's
 | Gemini CLI | nothing | in the background (`general.enableAutoUpdate`); the new version runs next time | — |
 | Cursor Agent | nothing | in the background into its `versions` folder; the new version runs next time | `cursor-agent update` |
 
-`agents_detect` gives each agent that has an update command (`UpdateArgs`)
-as `update`, its detected path first. The desktop runs it in a terminal tab
-of the App when the user asks (the Agents page), through `agent_task_command`. An agent already running keeps
-its version until it is started again; an exited tab resumes on the new one,
-since a launch starts the detected path, which an update replaces in place.
+`agents_detect` gives each agent's update command as `update` (below). The
+desktop runs it in a terminal tab of the App when the user asks, through
+`agent_task_command`. An agent already running keeps its version until it is
+started again; an exited tab resumes on the new one, since a launch starts
+the detected path, which an update replaces in place.
+
+### Installing and updating, per agent
+
+PantheonOS installs nothing on its own and pins no version: the Install
+button runs the vendor's own install command, which installs the latest
+release, as the user (never sudo). Where the agent then lives depends on
+that command:
+
+| Agent | Install (catalog) | Lands in | Latest version from | Update where installed that way |
+|---|---|---|---|---|
+| Claude Code | `curl -fsSL https://claude.ai/install.sh \| bash` | `~/.local/bin/claude` → `~/.local/share/claude/versions/<v>` (user) | `downloads.claude.ai/claude-code-releases/latest` (what its installer reads) | `claude update` |
+| Codex | `npm install -g @openai/codex` | npm's global prefix (user's or system's) | npm registry | npm (below) |
+| Gemini CLI | `npm install -g @google/gemini-cli` | npm's global prefix | npm registry | npm |
+| Cursor Agent | `curl https://cursor.com/install -fsS \| bash` | `~/.local/bin/cursor-agent` → `~/.local/share/cursor-agent/versions/<build>` (user) | the build its install script names | `cursor-agent update` |
+| OpenCode | `npm install -g opencode-ai` | npm's global prefix | npm registry | npm |
+| Pi | `npm install -g @earendil-works/pi-coding-agent` | npm's global prefix | npm registry (`pi.dev/api/latest-version` for its managed install) | npm |
+| Qwen Code | `npm install -g @qwen-code/qwen-code` | npm's global prefix | npm registry | npm |
+| GitHub Copilot CLI | `npm install -g @github/copilot` | npm's global prefix | npm registry | npm |
+| Pantheon Agent | comes with the node (`pantheon`) | the node's own command | — | updates with the node |
+
+An agent installed some other way is updated the way it was installed. The
+node reads that from the detected command's resolved path
+(`codingagents.OriginOf`):
+
+- **npm** (`<prefix>/lib/node_modules/<package>/…`): `<prefix>/bin/npm`
+  (else `npm`) `install -g --prefix <prefix> <package>@latest`. The prefix is
+  the one that holds the agent, so `~/.local` (npm's `prefix` set there),
+  nvm's `~/.nvm/versions/node/<v>`, Homebrew's Node and a Workspace's
+  `/workspace/.local` (the Volume, `npm_config_prefix`) each update in
+  place. A system prefix (`/usr/lib`) needs root; npm says so in the tab.
+  Latest: `<registry>/<package>/latest` (`npm_config_registry` when set).
+- **bun** (`~/.bun/install/global/node_modules/…`): `bun add -g <package>@latest`.
+- **Homebrew** (`…/Cellar/<formula>/…`, `…/Caskroom/<cask>/…`): `brew upgrade
+  [--cask] <name>`; latest from `formulae.brew.sh/api`.
+- **The vendor's own installer** (anything else): its own updater —
+  `claude update`, `codex update` (its standalone install), `cursor-agent
+  update`, `opencode upgrade` (its curl install), `pi update` (pi.dev's
+  managed install) — with the latest version from the feed in the table
+  (the npm package for Codex and OpenCode, which publish the same version
+  numbers). An agent with neither a package manager nor an updater (Goose,
+  Aider, …) gets no update.
+
+Each detected agent's report carries `version` (its `--version`), `latest`
+(the newest its source publishes, when known) and `update_to` (that version,
+when it is newer than the installed one and `update` installs it). The
+desktop shows **Update to x.y.z** on the agent's row of the Agents page and
+in an "Updates" list on a workspace's page; an agent known to be current
+gets no button, and one whose latest is unknown (an older node, no network)
+keeps the plain **Update**.
+
+An npm package's latest release may need a newer Node.js than the one at its
+prefix (Pi 1.x: `>=22.19.0`). npm then installs the newest release that Node
+can run (Pi 0.74.2 on Node 20, the `legacy-node20` line), so the node offers
+no update and says why (`update_note`: "Pi 1.5.0 needs Node.js >=22.19.0;
+this computer has v20.19.0"). The Workspace image therefore ships Node 24
+(`docker/Dockerfile`).
+
+The lookups never hold detection up: each source is asked at most every six
+hours, after a failure (offline) not again for 20 minutes, the last answer
+kept meanwhile; at most four are in flight, each with a 15 second limit, and
+detection waits for one (at most 3 seconds) only the first time it is asked.
+`PANTHEON_NO_UPDATE_CHECK=1` turns them off.
 
 ## Settings
 

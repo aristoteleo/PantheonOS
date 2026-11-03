@@ -370,6 +370,9 @@ var Catalog = []Agent{
 		Login:     func(string) []string { return []string{"auth", "login"} },
 		AutoFlags: []string{"--auto"},
 		Resume:    func(id string) []string { return ids(id, "--session") },
+		// Its own updater, for an install npm or Homebrew did not make (its
+		// curl installer); those update through their package manager.
+		UpdateArgs: []string{"upgrade"},
 		Headless: &Headless{
 			// The message goes on stdin: one that starts with a dash is no option.
 			Args: func(t Turn) []string {
@@ -399,6 +402,9 @@ var Catalog = []Agent{
 		Login:        func(string) []string { return []string{} },
 		Instructions: func(text string) []string { return []string{"--append-system-prompt", text} },
 		Resume:       func(id string) []string { return ids(id, "--session") },
+		// Its own updater (pi.dev's managed install); an npm install updates
+		// through npm, at its prefix.
+		UpdateArgs: []string{"update"},
 		Headless: &Headless{
 			// The message goes on stdin, which print mode reads.
 			Args: func(t Turn) []string {
