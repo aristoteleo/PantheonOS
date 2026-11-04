@@ -45,12 +45,18 @@ var modelManagementManifest []byte
 //go:embed manifests/desktop-state.json
 var desktopStateManifest []byte
 
+// team-chat, like desktop-state, is implemented by the controller only
+// (docs/apps/team-chat.md).
+//
+//go:embed manifests/team-chat.json
+var teamChatManifest []byte
+
 // catalog holds each hosted service's App manifest, the contract consumers
 // bind against. They are the manifests the Python packages were built with,
 // except desktop-state's, which only the controller implements.
 var catalog = map[string][]byte{"fleet": fleetManifest, "dependency-binding": allocatorManifest,
 	"model-services-control": modelAccessManifest, "model-services-management": modelManagementManifest,
-	"desktop-state": desktopStateManifest}
+	"desktop-state": desktopStateManifest, "team-chat": teamChatManifest}
 
 // Manifest is a hosted service's App manifest.
 func Manifest(service string) ([]byte, bool) {

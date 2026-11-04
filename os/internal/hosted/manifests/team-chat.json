@@ -1,0 +1,490 @@
+{
+  "apiVersion": 2,
+  "id": "team-chat",
+  "name": "Team Chat",
+  "version": "1.0.0",
+  "kind": "service",
+  "surface": "headless",
+  "description": "People and agents in channels, DMs and threads, with agents woken on their computers, kept by the Fleet controller (docs/apps/team-chat.md).",
+  "notes": "Controller-hosted; no package. Every call is scoped to the caller's Fleet by the controller. Changes are announced on fleet.<fid>.apps.team-chat.events.",
+  "provides": {
+    "interfaces": [
+      {
+        "name": "team-chat",
+        "version": 1,
+        "tools": [
+          "space_get",
+          "space_update",
+          "me_update",
+          "conv_create",
+          "conv_update",
+          "conv_join",
+          "conv_leave",
+          "conv_archive",
+          "messages",
+          "post",
+          "edit",
+          "delete",
+          "read",
+          "follow",
+          "agent_create",
+          "agent_update",
+          "agent_control",
+          "agent_live",
+          "file_put",
+          "file_get"
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "space_get",
+        "description": "The space (created with #general on first use), members, conversations, the caller's read marks and follows, agent statuses, unread counts, guard use, the change revision and subject.",
+        "params": []
+      },
+      {
+        "name": "space_update",
+        "description": "Rename the space or change its guards (settings: turns_per_agent_hour, turns_per_space_day, hop_limit, turn_max_minutes).",
+        "params": [
+          {
+            "name": "name",
+            "type": "str",
+            "required": false,
+            "default": null
+          },
+          {
+            "name": "settings",
+            "type": "dict",
+            "required": false,
+            "default": null
+          }
+        ]
+      },
+      {
+        "name": "me_update",
+        "description": "Change the person's name, handle or avatar.",
+        "params": [
+          {
+            "name": "name",
+            "type": "str",
+            "required": false,
+            "default": null
+          },
+          {
+            "name": "handle",
+            "type": "str",
+            "required": false,
+            "default": null
+          },
+          {
+            "name": "avatar",
+            "type": "str",
+            "required": false,
+            "default": null
+          }
+        ]
+      },
+      {
+        "name": "conv_create",
+        "description": "Create a channel (name, private, members, topic, agent_reply mention|all) or a DM (kind dm, members: the other member); an existing DM is returned.",
+        "params": [
+          {
+            "name": "kind",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "private",
+            "type": "bool",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "members",
+            "type": "list",
+            "required": false,
+            "default": null
+          },
+          {
+            "name": "topic",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "agent_reply",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "conv_update",
+        "description": "Change a conversation's name, topic, privacy, agent_reply or members (the whole list).",
+        "params": [
+          {
+            "name": "cid",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "required": false,
+            "default": null
+          },
+          {
+            "name": "topic",
+            "type": "str",
+            "required": false,
+            "default": null
+          },
+          {
+            "name": "private",
+            "type": "bool",
+            "required": false,
+            "default": null
+          },
+          {
+            "name": "agent_reply",
+            "type": "str",
+            "required": false,
+            "default": null
+          },
+          {
+            "name": "members",
+            "type": "list",
+            "required": false,
+            "default": null
+          }
+        ]
+      },
+      {
+        "name": "conv_join",
+        "description": "Add a member (default: the caller) to a channel.",
+        "params": [
+          {
+            "name": "cid",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "mid",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "conv_leave",
+        "description": "Remove a member (default: the caller) from a channel; #general cannot be left.",
+        "params": [
+          {
+            "name": "cid",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "mid",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "conv_archive",
+        "description": "Archive (or with archived false, restore) a channel.",
+        "params": [
+          {
+            "name": "cid",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "archived",
+            "type": "bool",
+            "required": false,
+            "default": true
+          }
+        ]
+      },
+      {
+        "name": "messages",
+        "description": "A page of folded messages of a conversation (its top level, or one thread with root), newest limit between before and after.",
+        "params": [
+          {
+            "name": "cid",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "before",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "after",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "root",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "limit",
+            "type": "int",
+            "required": false,
+            "default": 50
+          }
+        ]
+      },
+      {
+        "name": "post",
+        "description": "Post a message (in root's thread when given; files: ids from file_put); @handles are parsed and wake agents.",
+        "params": [
+          {
+            "name": "cid",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "text",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "root",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "files",
+            "type": "list",
+            "required": false,
+            "default": null
+          },
+          {
+            "name": "as_task",
+            "type": "bool",
+            "required": false,
+            "default": false
+          }
+        ]
+      },
+      {
+        "name": "edit",
+        "description": "Edit one of the caller's messages.",
+        "params": [
+          {
+            "name": "id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "text",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "cid",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "delete",
+        "description": "Delete one of the caller's messages.",
+        "params": [
+          {
+            "name": "id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "cid",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "read",
+        "description": "Set the caller's read mark in a conversation.",
+        "params": [
+          {
+            "name": "cid",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "id",
+            "type": "str",
+            "required": true
+          }
+        ]
+      },
+      {
+        "name": "follow",
+        "description": "Follow (or with on false, stop following) a thread.",
+        "params": [
+          {
+            "name": "root",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "on",
+            "type": "bool",
+            "required": false,
+            "default": true
+          },
+          {
+            "name": "cid",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "agent_create",
+        "description": "Create an agent: spec {name, handle, description, avatar, node_id, runtime, model, effort, folder, access, access_list, listen, channels, dry_run}. dry_run checks the computer, runtime and folder and returns {folder, warning}.",
+        "params": [
+          {
+            "name": "spec",
+            "type": "dict",
+            "required": true
+          }
+        ]
+      },
+      {
+        "name": "agent_update",
+        "description": "Change an agent's settings (mid and the fields: name, handle, avatar, description, model, effort, listen, access, access_list, node_id, folder, runtime).",
+        "params": [
+          {
+            "name": "mid",
+            "type": "str",
+            "required": true
+          }
+        ]
+      },
+      {
+        "name": "agent_control",
+        "description": "start, stop, stop_turn, retry, reset_session, reset_full (confirm: the agent's folder) or delete an agent.",
+        "params": [
+          {
+            "name": "mid",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "action",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "confirm",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "agent_live",
+        "description": "An agent's running turn for Watch: running, node_id, conversation_id, stream_id, stream_subject, started, line, cid, root.",
+        "params": [
+          {
+            "name": "mid",
+            "type": "str",
+            "required": true
+          }
+        ]
+      },
+      {
+        "name": "file_put",
+        "description": "Upload a file in base64 pieces: the first without upload_id (offset 0) starts it, each next at the size so far, the last with final: true returns {file}. At most 25 MB.",
+        "params": [
+          {
+            "name": "data",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "upload_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "mime",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "offset",
+            "type": "int",
+            "required": false,
+            "default": 0
+          },
+          {
+            "name": "final",
+            "type": "bool",
+            "required": false,
+            "default": false
+          }
+        ]
+      },
+      {
+        "name": "file_get",
+        "description": "A piece (at most 256 KB, base64) of a file of the space: {file, offset, data, eof}.",
+        "params": [
+          {
+            "name": "id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "offset",
+            "type": "int",
+            "required": false,
+            "default": 0
+          },
+          {
+            "name": "length",
+            "type": "int",
+            "required": false,
+            "default": 0
+          }
+        ]
+      }
+    ]
+  }
+}

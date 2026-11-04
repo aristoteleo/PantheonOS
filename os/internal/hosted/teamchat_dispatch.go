@@ -1,0 +1,1053 @@
+package hosted
+
+// The dispatcher: wake rules, per-agent queues kept in the bucket, one turn
+// at a time per agent on its node, the turn's final text posted for it,
+// status, retries, guards and plain-language failure lines
+// (docs/apps/team-chat.md, "Waking" and "Dispatching a turn").
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"strings"
+	"time"
+
+	"github.com/aristoteleo/pantheonos/os/codingagents"
+)
+
+type tcRecipient struct {
+	agent string
+	wake  tcWake
+}
+
+// wakesFor decides which agents a new message wakes, and which agents a
+// mention in a public channel adds to it. stopped: a wake was held back
+// because the agent chain reached its hop limit.
+func (t *TeamChat) wakesFor(fl *tcFleet, c *tcConv, m *tcConvMsgs, e *tcEvent) (out []tcRecipient, joined []string, stopped bool) {
+	if e.Kind != "post" {
+		return nil, nil, false
+	}
+	sender := fl.members[e.From]
+	fromAgent := sender != nil && sender.agent()
+	for _, mid := range sortedKeys(fl.members) {
+		a := fl.members[mid]
+		if !a.agent() || mid == e.From {
+			continue
+		}
+		reason := ""
+		switch {
+		case c.Kind == "dm" && c.has(mid):
+			reason = "dm"
+		case contains(e.Mentions, mid):
+			if c.has(mid) {
+				reason = "mention"
+			} else if c.Kind == "channel" && !c.Private {
+				reason = "mention"
+				joined = append(joined, mid)
+			}
+		case e.Root != "" && fl.visible(c, mid) && fl.followsThread(m, mid, e.Root):
+			reason = "thread"
+		case c.Kind == "channel" && c.has(mid) && (c.AgentReply == "all" || a.Listen == "all"):
+			reason = "all"
+		}
+		if reason == "" {
+			continue
+		}
+		if fromAgent && e.Hop >= fl.space.Settings.HopLimit {
+			stopped = true
+			continue
+		}
+		out = append(out, tcRecipient{mid, tcWake{ID: e.ID, Event: e.ID, CID: e.CID, Root: e.Root, Kind: "post",
+			Reason: reason, From: e.From, Hop: e.Hop, At: e.At}})
+	}
+	return out, joined, stopped
+}
+
+// enqueue adds a wake event to an agent's queue (once) and starts a turn
+// when it can; fl.mu is held.
+func (t *TeamChat) enqueue(ctx context.Context, fl *tcFleet, mid string, w tcWake) {
+	q := fl.queues[mid]
+	for _, have := range q {
+		if have.key() == w.key() {
+			return
+		}
+	}
+	if tr := fl.turns[mid]; tr != nil && tr.State == "running" {
+		for _, have := range tr.Events {
+			if have.key() == w.key() {
+				return
+			}
+		}
+	}
+	next := append(append([]tcWake(nil), q...), w)
+	if err := t.put(ctx, fl, "queue."+mid, next); err != nil {
+		log.Printf("[team-chat] %s queue %s: %v", fl.fid, mid, err)
+		return
+	}
+	fl.queues[mid] = next
+	t.emitStatus(fl, mid)
+	t.kick(fl.fid, mid)
+}
+
+func (t *TeamChat) emitStatus(fl *tcFleet, mid string) {
+	if m := fl.members[mid]; m != nil && m.agent() {
+		t.emit(fl, map[string]any{"type": "agent_status", "mid": mid, "status": t.statusOf(fl, m)})
+	}
+}
+
+// statusOf is an agent's status: ready, working, attention or offline.
+func (t *TeamChat) statusOf(fl *tcFleet, m *tcMember) map[string]any {
+	l := fl.liveOf(m.MID)
+	out := map[string]any{"queue": len(fl.queues[m.MID])}
+	node, known := fl.nodes[m.NodeID]
+	tr := fl.turns[m.MID]
+	switch {
+	case m.State == "stopped":
+		out["state"], out["reason"] = "offline", m.Name+" is stopped"
+	case tr != nil:
+		out["state"], out["since"], out["cid"], out["root"] = "working", tr.Started, tr.Cause.CID, tr.Cause.Root
+		out["line"] = l.line
+		if tr.State == "starting" {
+			out["line"] = "Starting"
+		}
+		if known && !node.Online {
+			out["line"] = nodeLabel(node, m.NodeID) + " is offline; waiting for it"
+		}
+	case known && !node.Online:
+		out["state"], out["reason"] = "offline", nodeLabel(node, m.NodeID)+" is offline"
+	case m.Attention != nil:
+		out["state"], out["reason"], out["fix"] = "attention", m.Attention.Reason, m.Attention.Fix
+	case l.paused != "":
+		out["state"], out["reason"] = "attention", l.paused
+	default:
+		out["state"] = "ready"
+		if !l.retryAt.IsZero() && len(fl.queues[m.MID]) > 0 {
+			out["line"] = "Retrying soon"
+		}
+	}
+	return out
+}
+
+func nodeLabel(n TeamNode, id string) string {
+	if n.Name != "" {
+		return n.Name
+	}
+	return id
+}
+
+// kick starts a turn for an agent when it can (in the background).
+func (t *TeamChat) kick(fid, mid string) {
+	go t.dispatch(context.Background(), fid, mid)
+}
+
+func (t *TeamChat) dispatch(ctx context.Context, fid, mid string) {
+	if t.isClosed() {
+		return
+	}
+	fl, err := t.lockFleet(ctx, fid)
+	if err != nil {
+		log.Printf("[team-chat] %s dispatch: %v", fid, err)
+		return
+	}
+	l := fl.liveOf(mid)
+	if l.dispatching {
+		fl.mu.Unlock()
+		return
+	}
+	l.dispatching = true
+	fl.mu.Unlock()
+	defer func() {
+		fl.mu.Lock()
+		l.dispatching = false
+		fl.mu.Unlock()
+	}()
+	for i := 0; i < 3 && t.tryStart(ctx, fl, mid); i++ {
+	}
+}
+
+// guard says why an agent may not start a turn now ("" when it may).
+func (t *TeamChat) guard(fl *tcFleet, m *tcMember) string {
+	now := t.clock()
+	s := fl.space.Settings
+	var hour []int64
+	for _, at := range m.Turns {
+		if now.Unix()-at < 3600 {
+			hour = append(hour, at)
+		}
+	}
+	if len(hour) >= s.TurnsPerAgentHour {
+		next := time.Unix(hour[0]+3600, 0).UTC().Format("15:04 UTC")
+		return fmt.Sprintf("%s reached its limit of %d turns an hour; it continues at %s (space settings)", m.Name, s.TurnsPerAgentHour, next)
+	}
+	day := 0
+	for _, a := range fl.members {
+		for _, at := range a.Turns {
+			if now.Unix()-at < 86400 {
+				day++
+			}
+		}
+	}
+	if day >= s.TurnsPerSpaceDay {
+		return fmt.Sprintf("this space reached its limit of %d agent turns a day (space settings)", s.TurnsPerSpaceDay)
+	}
+	return ""
+}
+
+// tryStart starts one turn for an agent with waiting events; true when it
+// should look again (a retry after a stale session).
+func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
+	fl.mu.Lock()
+	if !fl.loaded {
+		if err := t.load(ctx, fl); err != nil {
+			fl.mu.Unlock()
+			return false
+		}
+	}
+	m := fl.members[mid]
+	l := fl.liveOf(mid)
+	q := fl.queues[mid]
+	if m == nil || !m.agent() || fl.turns[mid] != nil || len(q) == 0 || m.State == "stopped" || m.Attention != nil ||
+		t.clock().Before(l.retryAt) {
+		fl.mu.Unlock()
+		return false
+	}
+	if why := t.guard(fl, m); why != "" {
+		if l.paused != why {
+			l.paused = why
+			if !l.pausedNoted {
+				l.pausedNoted = true
+				cause := q[len(q)-1]
+				_, _ = t.system(ctx, fl, cause.CID, cause.Root, mid, "", "Paused: "+why+".")
+			}
+			t.emitStatus(fl, mid)
+		}
+		fl.mu.Unlock()
+		return false
+	}
+	if l.paused != "" {
+		l.paused, l.pausedNoted = "", false
+	}
+	events := append([]tcWake(nil), q...)
+	prompt, files, reads := t.turnInput(ctx, fl, m, events)
+	cause := events[len(events)-1]
+	for i := len(events) - 1; i >= 0; i-- {
+		if events[i].Kind == "post" {
+			cause = events[i]
+			break
+		}
+	}
+	hop := events[0].Hop
+	for _, e := range events {
+		if e.Hop < hop {
+			hop = e.Hop
+		}
+	}
+	tr := &tcTurn{State: "starting", NodeID: m.NodeID, Started: t.stamp(), Hop: hop, Cause: cause, Events: events,
+		Runtime: m.Runtime, Model: m.Model}
+	if err := t.put(ctx, fl, "turn."+mid, tr); err != nil {
+		fl.mu.Unlock()
+		return false
+	}
+	fl.turns[mid] = tr
+	agent := *m
+	t.emitStatus(fl, mid)
+	fl.mu.Unlock()
+
+	fail := func(reason, fix string, transient bool) bool {
+		t.abortStart(ctx, fl, mid, reason, fix, transient)
+		return false
+	}
+	node, err := t.Nodes.Node(ctx, fl.fid, agent.NodeID)
+	if err != nil {
+		return fail(err.Error(), "", true)
+	}
+	t.noteNode(fl, node)
+	if !node.Online {
+		return fail("", "", true) // waits for the node; the queue is kept
+	}
+	setup, err := t.Nodes.Call(ctx, fl.fid, agent.NodeID, "team_setup", map[string]any{"folder": agent.Folder,
+		"agent_md": agentBrief(&agent)}, 30*time.Second)
+	if err != nil {
+		return fail(err.Error(), "", true)
+	}
+	if setup["success"] != true {
+		reason, fix, transient := explain(&agent, node, str(setup["error"]))
+		return fail(reason, fix, transient)
+	}
+	var saved []string
+	for _, f := range files {
+		path, err := t.pushFile(ctx, fl.fid, agent.NodeID, agent.Folder, f)
+		if err != nil {
+			saved = append(saved, fmt.Sprintf("%s could not be saved in your folder (%v)", f.Name, err))
+			continue
+		}
+		saved = append(saved, fmt.Sprintf("%s is saved in your folder as %s", f.Name, path))
+	}
+	if len(saved) > 0 {
+		prompt += "\nFiles:\n- " + strings.Join(saved, "\n- ") + "\n"
+	}
+	args := map[string]any{"prompt": prompt, "cwd": agent.Folder, "auto": true, "origin": "team-chat",
+		"model": agent.Model, "effort": agent.Effort,
+		"team": map[string]any{"mid": mid, "token": t.agentToken(fl.fid, mid), "handle": agent.Handle, "name": agent.Name}}
+	if agent.Session != "" {
+		args["conversation_id"] = agent.Session
+	} else {
+		args["agent"], args["title"] = agent.Runtime, "Team Chat · @"+agent.Handle
+	}
+	reply, err := t.Nodes.Call(ctx, fl.fid, agent.NodeID, "agent_send", args, 60*time.Second)
+	if err != nil {
+		return fail(err.Error(), "", true)
+	}
+	if reply["success"] != true {
+		why := str(reply["error"])
+		if agent.Session != "" && strings.Contains(why, "No conversation") {
+			// Its session is gone from the node: a new one starts.
+			t.abortStart(ctx, fl, mid, "", "", false)
+			t.setSession(ctx, fl, mid, "")
+			return true
+		}
+		if strings.Contains(why, "still working on the previous message") {
+			return fail("its session is busy on "+nodeLabel(node, agent.NodeID), "", true)
+		}
+		reason, fix, transient := explain(&agent, node, why)
+		return fail(reason, fix, transient)
+	}
+	conversation := str(reply["conversation_id"])
+	fromSeq := int64(num(reply["from_seq"]))
+
+	fl.mu.Lock()
+	defer fl.mu.Unlock()
+	tr = fl.turns[mid]
+	m = fl.members[mid]
+	if tr == nil || m == nil {
+		return false
+	}
+	tr.State, tr.ConversationID, tr.FromSeq = "running", conversation, fromSeq
+	_ = t.put(ctx, fl, "turn."+mid, tr)
+	// The events it took leave the queue (newer ones stay).
+	taken := map[string]bool{}
+	for _, e := range tr.Events {
+		taken[e.key()] = true
+	}
+	var rest []tcWake
+	for _, e := range fl.queues[mid] {
+		if !taken[e.key()] {
+			rest = append(rest, e)
+		}
+	}
+	t.saveQueue(ctx, fl, mid, rest)
+	next := *m
+	next.Session = conversation
+	now := t.clock().Unix()
+	next.Turns = nil
+	for _, at := range m.Turns {
+		if now-at < 86400 {
+			next.Turns = append(next.Turns, at)
+		}
+	}
+	next.Turns = append(next.Turns, now)
+	if err := t.put(ctx, fl, "member."+mid, &next); err == nil {
+		fl.members[mid] = &next
+	}
+	for cid, id := range reads {
+		_ = t.setRead(ctx, fl, mid, cid, id)
+	}
+	l.retries, l.retryAt = 0, time.Time{}
+	l.line, l.lineCID, l.lineRoot, l.textBuf, l.allText, l.lastSeq = "Starting", tr.Cause.CID, tr.Cause.Root, nil, nil, fromSeq
+	l.stopWanted = false
+	t.emitStatus(fl, mid)
+	if !l.watching {
+		l.watching = true
+		go t.watch(context.Background(), fl, mid)
+	}
+	return false
+}
+
+func (t *TeamChat) saveQueue(ctx context.Context, fl *tcFleet, mid string, q []tcWake) {
+	var err error
+	if len(q) == 0 {
+		err = t.del(ctx, fl, "queue."+mid)
+	} else {
+		err = t.put(ctx, fl, "queue."+mid, q)
+	}
+	if err != nil {
+		log.Printf("[team-chat] %s queue %s: %v", fl.fid, mid, err)
+		return
+	}
+	if len(q) == 0 {
+		delete(fl.queues, mid)
+	} else {
+		fl.queues[mid] = q
+	}
+}
+
+func (t *TeamChat) setSession(ctx context.Context, fl *tcFleet, mid, session string) {
+	fl.mu.Lock()
+	defer fl.mu.Unlock()
+	if m := fl.members[mid]; m != nil && m.Session != session {
+		next := *m
+		next.Session = session
+		if err := t.put(ctx, fl, "member."+mid, &next); err == nil {
+			fl.members[mid] = &next
+			t.emit(fl, map[string]any{"type": "member", "member": &next})
+		}
+	}
+}
+
+func (t *TeamChat) noteNode(fl *tcFleet, n TeamNode) {
+	fl.mu.Lock()
+	defer fl.mu.Unlock()
+	if fl.nodes == nil {
+		fl.nodes = map[string]TeamNode{}
+	}
+	old, known := fl.nodes[n.ID]
+	fl.nodes[n.ID] = n
+	if !known || old.Online != n.Online {
+		for mid, m := range fl.members {
+			if m.agent() && m.NodeID == n.ID {
+				t.emitStatus(fl, mid)
+			}
+		}
+	}
+}
+
+// abortStart undoes a turn that did not start: the events stay queued; a
+// transient failure is retried with backoff (1, 5, 30 s, then each minute);
+// any other needs the owner (a system line says what and how to fix it).
+func (t *TeamChat) abortStart(ctx context.Context, fl *tcFleet, mid, reason, fix string, transient bool) {
+	fl.mu.Lock()
+	defer fl.mu.Unlock()
+	tr := fl.turns[mid]
+	if err := t.del(ctx, fl, "turn."+mid); err != nil {
+		log.Printf("[team-chat] %s turn %s: %v", fl.fid, mid, err)
+	}
+	delete(fl.turns, mid)
+	m := fl.members[mid]
+	l := fl.liveOf(mid)
+	if m == nil {
+		return
+	}
+	if transient && reason == "" {
+		// The node is offline: the sweep starts the turn once it is back.
+		l.retryAt = time.Time{}
+		t.emitStatus(fl, mid)
+		return
+	}
+	if transient {
+		delays := t.backoffs
+		if delays == nil {
+			delays = []time.Duration{time.Second, 5 * time.Second, 30 * time.Second, time.Minute}
+		}
+		d := delays[min(l.retries, len(delays)-1)]
+		l.retries++
+		l.retryAt = t.clock().Add(d)
+		if reason != "" {
+			log.Printf("[team-chat] %s %s: retry in %v: %s", fl.fid, m.Handle, d, reason)
+		}
+		t.emitStatus(fl, mid)
+		go func() {
+			time.Sleep(d)
+			t.kick(fl.fid, mid)
+		}()
+		return
+	}
+	t.attention(ctx, fl, m, tr, "could not start", reason, fix)
+}
+
+// attention marks an agent as needing the owner and says so in the
+// conversation that woke it; fl.mu is held.
+func (t *TeamChat) attention(ctx context.Context, fl *tcFleet, m *tcMember, tr *tcTurn, what, reason, fix string) {
+	next := *m
+	next.Attention = &tcAttention{Reason: reason, Fix: fix, At: t.stamp()}
+	if err := t.put(ctx, fl, "member."+m.MID, &next); err == nil {
+		fl.members[m.MID] = &next
+	}
+	text := m.Name + " " + what + ": " + reason + "."
+	if fix != "" {
+		text += " " + fix
+	}
+	cid, root := "general", ""
+	if tr != nil {
+		cid, root = tr.Cause.CID, tr.Cause.Root
+	} else if q := fl.queues[m.MID]; len(q) > 0 {
+		cid, root = q[len(q)-1].CID, q[len(q)-1].Root
+	}
+	_, _ = t.system(ctx, fl, cid, root, m.MID, "retry", text)
+	t.emitStatus(fl, m.MID)
+}
+
+// explain turns a node's error into plain words and a fix; transient: worth
+// retrying by itself.
+func explain(m *tcMember, n TeamNode, errText string) (reason, fix string, transient bool) {
+	label := codingagents.PantheonAgent
+	if a, ok := codingagents.Lookup(m.Runtime); ok {
+		label = a.Label
+	}
+	where := nodeLabel(n, m.NodeID)
+	low := strings.ToLower(errText)
+	switch {
+	case strings.Contains(low, "not signed in") || strings.Contains(low, "sign in") || strings.Contains(low, "log in") ||
+		strings.Contains(low, "login") || strings.Contains(low, "unauthorized") || strings.Contains(low, "authentication"):
+		return label + " is not signed in on " + where, "Open Coding Agents → Sign in, then press Retry.", false
+	case strings.Contains(low, "unknown coding agent") || strings.Contains(low, "executable file not found") ||
+		strings.Contains(low, "not installed") || strings.Contains(low, "no such file or directory") && strings.Contains(low, "exec"):
+		return label + " is not installed on " + where, "Open Coding Agents → Install, then press Retry.", false
+	case strings.Contains(low, "budget") || strings.Contains(low, "insufficient") || strings.Contains(low, "quota") ||
+		strings.Contains(low, "credit") || strings.Contains(low, "402"):
+		return "the model budget is used up (" + firstLineOf(errText) + ")", "Add budget or wait for the quota to reset, then press Retry.", false
+	case strings.Contains(low, "unknown method") || strings.Contains(low, "not found on service") ||
+		strings.Contains(low, "update fleet") || strings.Contains(low, "update pantheonos"):
+		return "PantheonOS on " + where + " is too old for Team Chat", "Update PantheonOS on " + where + ", then press Retry.", false
+	case strings.Contains(low, "is not a folder") || strings.Contains(low, "permission denied"):
+		return firstLineOf(errText), "Check the agent's folder on " + where + ", then press Retry.", false
+	case strings.Contains(low, "offline") || strings.Contains(low, "timeout") || strings.Contains(low, "timed out") ||
+		strings.Contains(low, "no responders") || strings.Contains(low, "deadline"):
+		return where + " did not answer", "", true
+	}
+	return firstLineOf(errText), "Press Retry when it is fixed.", false
+}
+
+func firstLineOf(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	if len(s) > 300 {
+		s = s[:300] + "…"
+	}
+	return strings.TrimRight(s, ".")
+}
+
+// ── a running turn ─────────────────────────────────────────────────────────
+
+// watch follows an agent's running turn on its node until it ends: the live
+// line, the text it ends with, the time limit.
+func (t *TeamChat) watch(ctx context.Context, fl *tcFleet, mid string) {
+	misses := 0
+	for {
+		time.Sleep(t.pollEvery())
+		if t.isClosed() {
+			return
+		}
+		fl.mu.Lock()
+		tr := fl.turns[mid]
+		l := fl.liveOf(mid)
+		if !fl.loaded {
+			if err := t.load(ctx, fl); err != nil {
+				fl.mu.Unlock()
+				continue
+			}
+			tr, l = fl.turns[mid], fl.liveOf(mid)
+		}
+		if tr == nil || tr.State != "running" {
+			l.watching = false
+			fl.mu.Unlock()
+			return
+		}
+		m := fl.members[mid]
+		node, conv, after := tr.NodeID, tr.ConversationID, l.lastSeq
+		if after < tr.FromSeq {
+			after = tr.FromSeq
+		}
+		started, _ := time.Parse(time.RFC3339Nano, tr.Started)
+		limit := time.Duration(fl.space.Settings.TurnMaxMinutes) * time.Minute
+		overdue := tr.Stop == "" && !started.IsZero() && t.clock().Sub(started) > limit
+		if overdue {
+			tr.Stop = "timeout"
+			_ = t.put(ctx, fl, "turn."+mid, tr)
+		}
+		stop := l.stopWanted || overdue
+		l.stopWanted = false
+		fl.mu.Unlock()
+		if m == nil {
+			return
+		}
+		if stop {
+			if _, err := t.Nodes.Call(ctx, fl.fid, node, "agent_stop", map[string]any{"conversation_id": conv}, 30*time.Second); err != nil {
+				log.Printf("[team-chat] %s stop %s: %v", fl.fid, m.Handle, err)
+			}
+		}
+		reply, err := t.Nodes.Call(ctx, fl.fid, node, "agent_conversation", map[string]any{"conversation_id": conv, "after": after}, 20*time.Second)
+		if err != nil {
+			misses++
+			if misses == 3 {
+				if n, err := t.Nodes.Node(ctx, fl.fid, node); err == nil {
+					t.noteNode(fl, n)
+				}
+			}
+			continue
+		}
+		if misses >= 3 {
+			if n, err := t.Nodes.Node(ctx, fl.fid, node); err == nil {
+				t.noteNode(fl, n)
+			}
+		}
+		misses = 0
+		if reply["success"] != true {
+			t.finish(ctx, fl, mid, codingagents.Event{Type: "done", Error: "its session is gone from " + node + " (" + str(reply["error"]) + ")"})
+			continue
+		}
+		raw, _ := json.Marshal(reply["events"])
+		var events []codingagents.Event
+		_ = json.Unmarshal(raw, &events)
+		var done *codingagents.Event
+		fl.mu.Lock()
+		changed := false
+		for i := range events {
+			e := events[i]
+			if e.Seq > l.lastSeq {
+				l.lastSeq = e.Seq
+			}
+			if e.Parent != "" {
+				continue
+			}
+			switch e.Type {
+			case "text":
+				l.textBuf = append(l.textBuf, e.Text)
+				l.allText = append(l.allText, e.Text)
+			case "tool":
+				if len(l.textBuf) > 0 {
+					l.textBuf = nil
+				}
+				if line := toolLine(e); line != "" && line != l.line {
+					l.line, changed = line, true
+				}
+			case "done":
+				done = &e
+			}
+		}
+		if changed {
+			t.emit(fl, map[string]any{"type": "typing", "mid": mid, "cid": l.lineCID, "root": l.lineRoot, "line": l.line})
+		}
+		fl.mu.Unlock()
+		if done != nil {
+			t.finish(ctx, fl, mid, *done)
+		}
+	}
+}
+
+// toolLine is a tool call as a short live line.
+func toolLine(e codingagents.Event) string {
+	input := strings.TrimSpace(e.Input)
+	if i := strings.IndexByte(input, '\n'); i >= 0 {
+		input = input[:i]
+	}
+	if len(input) > 100 {
+		input = input[:100] + "…"
+	}
+	switch e.Kind {
+	case codingagents.KindShell:
+		return "Running " + input
+	case codingagents.KindRead:
+		return "Reading " + firstNonBlank(e.Path, input)
+	case codingagents.KindWrite:
+		return "Editing " + firstNonBlank(e.Path, input)
+	case codingagents.KindSearch:
+		return "Searching " + input
+	case codingagents.KindFetch:
+		return "Reading the web: " + input
+	case codingagents.KindAgent:
+		return "Running a sub-agent"
+	}
+	if e.Name == "" {
+		return ""
+	}
+	if input == "" {
+		return e.Name
+	}
+	return e.Name + ": " + input
+}
+
+func firstNonBlank(v ...string) string {
+	for _, s := range v {
+		if strings.TrimSpace(s) != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+// finish ends an agent's turn: its final text is posted for it when it did
+// not post where it was woken; a failed turn keeps its events queued and
+// says why.
+func (t *TeamChat) finish(ctx context.Context, fl *tcFleet, mid string, done codingagents.Event) {
+	fl.mu.Lock()
+	defer fl.mu.Unlock()
+	tr := fl.turns[mid]
+	m := fl.members[mid]
+	l := fl.liveOf(mid)
+	if tr == nil {
+		return
+	}
+	final := strings.TrimSpace(strings.Join(l.textBuf, ""))
+	if final == "" {
+		final = strings.TrimSpace(strings.Join(l.allText, ""))
+	}
+	failed := done.Error != "" && !done.Stopped && tr.Stop == ""
+	if err := t.del(ctx, fl, "turn."+mid); err != nil {
+		log.Printf("[team-chat] %s turn %s: %v", fl.fid, mid, err)
+	}
+	delete(fl.turns, mid)
+	l.line, l.textBuf, l.allText, l.lastSeq = "", nil, nil, 0
+	if m == nil {
+		return
+	}
+	switch {
+	case failed:
+		// The events wait for a retry (ahead of newer ones).
+		have := map[string]bool{}
+		for _, e := range fl.queues[mid] {
+			have[e.key()] = true
+		}
+		var back []tcWake
+		for _, e := range tr.Events {
+			if !have[e.key()] {
+				back = append(back, e)
+			}
+		}
+		t.saveQueue(ctx, fl, mid, append(back, fl.queues[mid]...))
+		node := fl.nodes[m.NodeID]
+		reason, fix, _ := explain(m, node, done.Error)
+		t.attention(ctx, fl, m, tr, "could not answer", reason, fix)
+	case tr.Stop == "timeout":
+		_, _ = t.system(ctx, fl, tr.Cause.CID, tr.Cause.Root, mid, "", fmt.Sprintf("%s's turn was stopped after %d minutes, the limit for one turn (space settings).",
+			m.Name, fl.space.Settings.TurnMaxMinutes))
+	case done.Stopped:
+		// Stopped by the owner: nothing is posted for it.
+	case final != "" && !contains(tr.Posted, tr.Cause.CID):
+		if _, err := t.agentPost(ctx, fl, m, tr, tr.Cause.CID, tr.Cause.Root, final, nil); err != nil {
+			log.Printf("[team-chat] %s auto-post %s: %v", fl.fid, m.Handle, err)
+		}
+	}
+	t.emitStatus(fl, mid)
+	t.kick(fl.fid, mid)
+}
+
+// agentPost posts as an agent during (or at the end of) its turn: the
+// message carries the turn's hop, runtime and model; longer text than a
+// message holds is attached as a Markdown file. fl.mu is held.
+func (t *TeamChat) agentPost(ctx context.Context, fl *tcFleet, m *tcMember, tr *tcTurn, cid, root, text string, files []string) (*tcMsg, error) {
+	hop := 1
+	if tr != nil {
+		hop = tr.Hop + 1
+	}
+	if len(text) > tcMaxText {
+		f, err := t.storeBytes(ctx, fl, m.MID, "reply-"+time.Now().UTC().Format("20060102-150405")+".md", "text/markdown", []byte(text))
+		if err != nil {
+			return nil, err
+		}
+		cut := text[:tcMaxText-200]
+		for len(cut) > 0 && !validTail(cut) {
+			cut = cut[:len(cut)-1]
+		}
+		text = cut + "\n\n… (the full text is attached: " + f.Name + ")"
+		files = append(files, f.ID)
+	}
+	model := m.Model
+	if tr != nil && tr.Model != "" {
+		model = tr.Model
+	}
+	msg, err := t.postEvent(ctx, fl, &tcEvent{From: m.MID, CID: cid, Root: root, Kind: "post", Text: text, Hop: hop,
+		Runtime: m.Runtime, Model: model}, files)
+	if err != nil {
+		return nil, err
+	}
+	if tr != nil && !contains(tr.Posted, cid) {
+		tr.Posted = append(tr.Posted, cid)
+		if fl.turns[m.MID] == tr {
+			_ = t.put(ctx, fl, "turn."+m.MID, tr)
+		}
+	}
+	return msg, nil
+}
+
+func validTail(s string) bool {
+	r := []rune(s[len(s)-min(len(s), 4):])
+	return len(r) > 0 && r[len(r)-1] != '\uFFFD'
+}
+
+// ── turn input ─────────────────────────────────────────────────────────────
+
+// turnInput is what an agent is told at the start of a turn: who it is, what
+// is new for it, what happened in its conversations since it last looked,
+// and how to answer. It also returns the files of those messages, and the
+// read marks to set once the turn started. fl.mu is held.
+func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, events []tcWake) (string, []tcFileRef, map[string]string) {
+	var b strings.Builder
+	script := teamScript(m.Folder)
+	who := "@" + m.Handle + " (" + m.Name
+	if m.Description != "" {
+		who += ": " + firstLineOf(m.Description)
+	}
+	fmt.Fprintf(&b, "[Team Chat] You are %s).\n", who+"")
+	if m.Session == "" {
+		b.WriteString("This is a fresh session: first read AGENT.md and MEMORY.md in your folder.\n")
+	}
+	b.WriteString("New for you:\n")
+	var files []tcFileRef
+	seen := map[string]bool{}
+	reads := map[string]string{}
+	for _, e := range events {
+		c := fl.convs[e.CID]
+		cm, err := t.convMsgs(ctx, fl, e.CID)
+		if c == nil || err != nil {
+			continue
+		}
+		msg := cm.byID[e.ID]
+		if msg == nil {
+			continue
+		}
+		where := c.label(fl, m.MID)
+		if msg.Root != "" {
+			if root := cm.byID[msg.Root]; root != nil {
+				where += fmt.Sprintf(" (thread on %s: %q)", root.ID, clipText(root.Text, 60))
+			}
+		}
+		from := handleOf(fl, msg.From)
+		switch e.Kind {
+		case "edit":
+			fmt.Fprintf(&b, "%s, %s edited message %s at %s:\n", where, from, msg.ID, fmtTime(e.At))
+		case "delete":
+			fmt.Fprintf(&b, "%s, %s deleted message %s at %s.\n", where, from, msg.ID, fmtTime(e.At))
+			continue
+		default:
+			fmt.Fprintf(&b, "%s, %s at %s [%s]:\n", where, from, fmtTime(msg.At), msg.ID)
+		}
+		if msg.Deleted {
+			b.WriteString("  (deleted)\n")
+			continue
+		}
+		b.WriteString(indent(msg.Text))
+		for _, f := range msg.Files {
+			if !seen[f.ID] {
+				seen[f.ID] = true
+				files = append(files, f)
+			}
+		}
+		if id := cm.all[len(cm.all)-1]; id > reads[e.CID] {
+			reads[e.CID] = id
+		}
+	}
+	// Since it last looked: its other conversations.
+	inTurn := map[string]bool{}
+	for _, e := range events {
+		inTurn[e.ID] = true
+	}
+	var since []string
+	for _, cid := range sortedKeys(fl.convs) {
+		c := fl.convs[cid]
+		if !c.has(m.MID) || c.Archived {
+			continue
+		}
+		cm, err := t.convMsgs(ctx, fl, cid)
+		if err != nil || len(cm.all) == 0 {
+			continue
+		}
+		mark := fl.reads[m.MID+"."+cid]
+		var unseen []*tcMsg
+		for _, id := range cm.all {
+			msg := cm.byID[id]
+			if id > mark && !inTurn[id] && msg.From != m.MID && !msg.Deleted && msg.Kind == "post" {
+				unseen = append(unseen, msg)
+			}
+		}
+		reads[cid] = max(reads[cid], cm.all[len(cm.all)-1])
+		if len(unseen) == 0 {
+			continue
+		}
+		name := c.label(fl, m.MID)
+		if len(unseen) > tcSinceMax {
+			since = append(since, fmt.Sprintf("%s: %d messages (%s read %s)", name, len(unseen), script, readTarget(fl, c, m.MID)))
+			continue
+		}
+		var lines []string
+		for _, msg := range unseen {
+			lines = append(lines, fmt.Sprintf("  %s %s [%s]: %s", fmtTime(msg.At), handleOf(fl, msg.From), msg.ID, clipText(msg.Text, 300)))
+		}
+		since = append(since, fmt.Sprintf("%s, %d messages:\n%s", name, len(unseen), strings.Join(lines, "\n")))
+	}
+	if len(since) > 0 {
+		b.WriteString("Since you last looked:\n" + strings.Join(since, "\n") + "\n")
+	}
+	last := events[len(events)-1]
+	if c := fl.convs[last.CID]; c != nil {
+		switch {
+		case last.Root != "":
+			fmt.Fprintf(&b, "Reply with: %s reply %s - <<'EOF' … EOF\n", script, last.Root)
+		case c.Kind == "dm":
+			fmt.Fprintf(&b, "Reply with: %s dm %s - <<'EOF' … EOF\n", script, readTarget(fl, c, m.MID))
+		default:
+			fmt.Fprintf(&b, "Reply with: %s post %s - <<'EOF' … EOF (or reply %s to answer in its thread)\n", script, c.Name, last.ID)
+		}
+	}
+	b.WriteString("If you end the turn without posting there, your final answer is posted for you. Run `" + script +
+		" inbox` between steps to see messages that arrive while you work.\n")
+	return b.String(), files, reads
+}
+
+func teamScript(folder string) string {
+	sep := "/"
+	if strings.Contains(folder, `\`) && !strings.Contains(folder, "/") {
+		sep = `\`
+	}
+	return shellQuote(strings.TrimRight(folder, sep) + sep + ".team" + sep + "pantheon-team")
+}
+
+func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+func handleOf(fl *tcFleet, mid string) string {
+	if mid == "system" {
+		return "Team Chat"
+	}
+	if m := fl.members[mid]; m != nil {
+		return "@" + m.Handle
+	}
+	return mid
+}
+
+func readTarget(fl *tcFleet, c *tcConv, viewer string) string {
+	if c.Kind == "channel" {
+		return c.Name
+	}
+	for _, mid := range c.Members {
+		if mid != viewer {
+			return handleOf(fl, mid)
+		}
+	}
+	return c.CID
+}
+
+func indent(text string) string {
+	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	return "  " + strings.Join(lines, "\n  ") + "\n"
+}
+
+func clipText(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	r := []rune(s)
+	if len(r) > n {
+		return string(r[:n]) + "…"
+	}
+	return s
+}
+
+// ── the loop ───────────────────────────────────────────────────────────────
+
+// Run resumes queues and running turns after a start, then every tick looks
+// at waiting agents (a node back online, a guard window passed) and takes the
+// day's snapshot, until ctx ends.
+func (t *TeamChat) Run(ctx context.Context) {
+	every := t.tick
+	if every <= 0 {
+		every = 15 * time.Second
+	}
+	resumed := false
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		if !resumed {
+			if err := t.resume(ctx); err != nil {
+				log.Printf("[team-chat] resume: %v", err)
+			} else {
+				resumed = true
+			}
+		}
+		t.sweep(ctx)
+		if t.Backups != "" {
+			t.dailySnapshot(ctx)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// resume loads every space with a queue or a turn: a turn that was starting
+// when the service stopped is dropped (its events are still queued), a
+// running one is followed again.
+func (t *TeamChat) resume(ctx context.Context) error {
+	if _, err := t.open(ctx); err != nil {
+		return err
+	}
+	lister, err := t.kv.ListKeysFiltered(ctx, "*.queue.*", "*.turn.*")
+	if err != nil {
+		return err
+	}
+	fids := map[string]bool{}
+	for key := range lister.Keys() {
+		fid, _, _ := strings.Cut(key, ".")
+		fids[fid] = true
+	}
+	for fid := range fids {
+		fl, err := t.lockFleet(ctx, fid)
+		if err != nil {
+			log.Printf("[team-chat] resume %s: %v", fid, err)
+			continue
+		}
+		for mid, tr := range fl.turns {
+			if tr.State == "starting" {
+				_ = t.del(ctx, fl, "turn."+mid)
+				delete(fl.turns, mid)
+				continue
+			}
+			l := fl.liveOf(mid)
+			l.lastSeq = tr.FromSeq
+			if !l.watching {
+				l.watching = true
+				go t.watch(context.Background(), fl, mid)
+			}
+		}
+		fl.mu.Unlock()
+	}
+	return nil
+}
+
+// sweep refreshes the state of the nodes agents wait for and starts what
+// can start.
+func (t *TeamChat) sweep(ctx context.Context) {
+	t.fleetsMu.Lock()
+	var fleets []*tcFleet
+	for _, fl := range t.fleets {
+		fleets = append(fleets, fl)
+	}
+	t.fleetsMu.Unlock()
+	for _, fl := range fleets {
+		fl.mu.Lock()
+		if !fl.loaded {
+			fl.mu.Unlock()
+			continue
+		}
+		nodes := map[string]bool{}
+		var waiting []string
+		for mid, m := range fl.members {
+			if !m.agent() {
+				continue
+			}
+			nodes[m.NodeID] = true
+			if len(fl.queues[mid]) > 0 && fl.turns[mid] == nil {
+				waiting = append(waiting, mid)
+			}
+			if tr := fl.turns[mid]; tr != nil && tr.State == "running" {
+				if l := fl.liveOf(mid); !l.watching {
+					l.watching = true
+					go t.watch(context.Background(), fl, mid)
+				}
+			}
+		}
+		fl.mu.Unlock()
+		for id := range nodes {
+			c, cancel := context.WithTimeout(ctx, 10*time.Second)
+			if n, err := t.Nodes.Node(c, fl.fid, id); err == nil {
+				t.noteNode(fl, n)
+			}
+			cancel()
+		}
+		for _, mid := range waiting {
+			t.kick(fl.fid, mid)
+		}
+	}
+	t.sweepFiles()
+}
