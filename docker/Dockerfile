@@ -535,7 +535,10 @@ RUN sh /opt/pantheon/install-qupath.sh
 # this layer, so code changes do not rebuild it.
 ARG WORKSPACE_APP_RELEASE_URL=https://github.com/aristoteleo/PantheonOS/releases/download/agent-app-v0.9.107/agent-release-set-linux-amd64.tar.gz
 ARG WORKSPACE_APP_RELEASE_SHA256=43a395cc787d5824938e0b362740dfae93e5f4dd06e26bb6a1ba796554fcce7d
-ARG WORKSPACE_SEEDED_APPS="web desktop evolution notebook files"
+# The Agent is among them: when the Workspace's machine joins before the
+# account's Agent pod, the Agent is placed on the Workspace, and its pip build
+# (about 25 s) held every App installed after it.
+ARG WORKSPACE_SEEDED_APPS="web desktop evolution notebook files agent"
 COPY os/python/pantheonos/appkit/portable_runtime/install.py /tmp/seed-install.py
 RUN set -e; work="$(mktemp -d)"; \
     curl --fail --location --show-error --silent --retry 3 --retry-all-errors \
