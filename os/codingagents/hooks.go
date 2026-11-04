@@ -32,16 +32,26 @@ const statusLineCommand = `s="${TMPDIR:-/tmp}/pantheon-statusline-$PANTHEON_AGEN
 var ClaudeHookEvents = []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
 	"PermissionRequest", "Notification", "Stop", "SessionEnd"}
 
-// ClaudeSettings is the --settings document for a terminal launch. The
-// status line is only taken when the user has none of their own.
-func ClaudeSettings() []byte {
-	hooks := map[string]any{}
-	for _, e := range ClaudeHookEvents {
-		hooks[e] = []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": hookCommand(e)}}}}
+// ClaudeSettings is the --settings document for a terminal launch: the
+// hooks when withHooks (the status line only when the user has none of
+// their own), and, for a launch with --dangerously-skip-permissions (auto),
+// the consent its confirmation would ask for, so the first start does not
+// stop on it. Claude Code reads that consent from --settings too; it stays
+// with this launch and is never written to the user's settings.
+func ClaudeSettings(withHooks, auto bool) []byte {
+	doc := map[string]any{}
+	if withHooks {
+		hooks := map[string]any{}
+		for _, e := range ClaudeHookEvents {
+			hooks[e] = []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": hookCommand(e)}}}}
+		}
+		doc["hooks"] = hooks
+		if !userHasStatusLine() {
+			doc["statusLine"] = map[string]any{"type": "command", "command": statusLineCommand}
+		}
 	}
-	doc := map[string]any{"hooks": hooks}
-	if !userHasStatusLine() {
-		doc["statusLine"] = map[string]any{"type": "command", "command": statusLineCommand}
+	if auto {
+		doc["skipDangerousModePermissionPrompt"] = true
 	}
 	b, _ := json.Marshal(doc)
 	return b

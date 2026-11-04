@@ -396,12 +396,13 @@ func (a *App) terminalCommand(p TerminalArgs) map[string]any {
 		} else if extra, withNote, err := codingagents.NoteLaunch(p.Agent, note, env); err == nil {
 			argv, env = append(argv, extra...), withNote
 		}
+		if p.Agent == "claude" && (hookErr == nil || p.Auto) {
+			if file, err := a.writeTerminalFile(term.ID+".settings.json", codingagents.ClaudeSettings(hookErr == nil, p.Auto)); err == nil {
+				argv = append(argv, "--settings", file)
+			}
+		}
 		if hookErr == nil {
 			switch p.Agent {
-			case "claude":
-				if file, err := a.writeTerminalFile(term.ID+".settings.json", codingagents.ClaudeSettings()); err == nil {
-					argv = append(argv, "--settings", file)
-				}
 			case "codex":
 				argv = append(argv, codingagents.CodexNotifyArgs()...)
 			case "pi":
@@ -417,6 +418,15 @@ func (a *App) terminalCommand(p TerminalArgs) map[string]any {
 			prompted = true
 		}
 		line = shellJoin(argv)
+	}
+	// The agent's own first-start questions, answered where its
+	// configuration is PantheonOS's to set (codingagents/firstrun.go).
+	if !r.found.Custom {
+		cwd := p.Cwd
+		if cwd == "" {
+			cwd, _ = os.UserHomeDir()
+		}
+		env = append(env, codingagents.PrepareFirstRun(p.Agent, cwd, codingagents.LaunchEnv(r.settings, launch))...)
 	}
 	envFile, err := a.writeTerminalFile(term.ID+".env", []byte(exportLines(env)))
 	if err != nil {

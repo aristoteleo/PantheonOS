@@ -493,6 +493,41 @@ Claude Code refuses its full-auto flag as root. A node running as root is
 normally a disposable workspace container, so the service sets `IS_SANDBOX=1`
 for Claude there.
 
+## First start
+
+An agent's own interface asks a few questions the first time it starts:
+Claude Code a theme, whether to trust the folder and, with its full-auto
+flag, to accept bypass permissions (the last two with "No, exit"
+preselected); Gemini CLI whether to trust the folder. A terminal launch
+answers them before the agent starts (`os/codingagents/firstrun.go`), so a
+first launch opens on a session that takes a prompt:
+
+- **Bypass consent** (Claude Code, full-auto launches only): the launch's own
+  `--settings` file carries `skipDangerousModePermissionPrompt: true`, which
+  Claude Code reads from there as from its user settings. It stays with that
+  launch; no file of the user's changes. This holds on every node.
+- **Onboarding, theme and folder trust** (Claude Code): merged into its own
+  configuration file (`<CLAUDE_CONFIG_DIR>/.claude.json`, else
+  `~/.claude.json`, as the launch's environment says): `hasCompletedOnboarding`,
+  `theme` (`dark`, Claude Code's default) and
+  `projects[<folder>].hasTrustDialogAccepted` for the launched folder (as
+  given and as its real path). Only missing values are added; sign-in,
+  settings and other projects are kept, a file that does not parse is left
+  alone, and the write waits for Claude Code's own lock (`.claude.json.lock`)
+  and replaces the file in one rename, keeping its mode. This happens only
+  where that configuration is PantheonOS's to set: on a hosted Workspace (a
+  `sandbox` or `pod` node, `FLEET_NODE_KIND`), or when Claude Code's config
+  dir lies in the membership's pantheon home (`PANTHEON_CLI_HOME`,
+  `~/.pantheon/cli` for the first fleet). The node does not move Claude
+  Code's config dir itself, so on a person's own computer their
+  `~/.claude.json` is never touched and Claude Code asks as usual.
+- **Folder trust** (Gemini CLI): `GEMINI_CLI_TRUST_WORKSPACE=true` for that
+  process, on the same nodes, unless the user's environment sets it.
+
+Codex asks nothing on a full-auto launch (giving it the sandbox mode skips its
+trust question), and a conversation (headless mode) asks nothing either, so
+neither needs an answer.
+
 ## Agents using PantheonOS
 
 An agent can use PantheonOS itself through the `pantheon` command: the
