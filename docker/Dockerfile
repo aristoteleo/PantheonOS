@@ -523,6 +523,32 @@ RUN for f in /opt/pantheon/analysis-envs/*.yml; do \
 COPY docker/install-qupath.sh /opt/pantheon/install-qupath.sh
 RUN sh /opt/pantheon/install-qupath.sh
 
+# The Workspace Apps' Python environments, ready-made. A brand-new Workspace
+# installed its Apps one at a time and built each environment with pip (the Web
+# App alone, with its browser, took about 100 s). The node passes
+# PANTHEON_PYTHON_ENV_SEEDS to the install hooks, and install.py binds an App
+# whose environment key matches (App id, exact requirements text, this
+# image's pantheon-base interpreter) to the environment here instead of
+# building one. Any other key, such as a release that changed an App's
+# requirements, builds as before. The App packages come from the Agent App
+# release set the hub deploys; only install.py and that pinned download feed
+# this layer, so code changes do not rebuild it.
+ARG WORKSPACE_APP_RELEASE_URL=https://github.com/aristoteleo/PantheonOS/releases/download/agent-app-v0.9.107/agent-release-set-linux-amd64.tar.gz
+ARG WORKSPACE_APP_RELEASE_SHA256=43a395cc787d5824938e0b362740dfae93e5f4dd06e26bb6a1ba796554fcce7d
+ARG WORKSPACE_SEEDED_APPS="web desktop evolution notebook files"
+COPY os/python/pantheonos/appkit/portable_runtime/install.py /tmp/seed-install.py
+RUN set -e; work="$(mktemp -d)"; \
+    curl --fail --location --show-error --silent --retry 3 --retry-all-errors \
+      --connect-timeout 15 --max-time 600 "${WORKSPACE_APP_RELEASE_URL}" --output "$work/release.tar.gz"; \
+    echo "${WORKSPACE_APP_RELEASE_SHA256}  $work/release.tar.gz" | sha256sum --check --strict; \
+    mkdir "$work/release"; tar -xzf "$work/release.tar.gz" -C "$work/release"; \
+    for app in ${WORKSPACE_SEEDED_APPS}; do \
+        /opt/pantheon/envs/pantheon-base/bin/python3 -I /tmp/seed-install.py \
+            --seed /opt/pantheon/app-envs --package "$work/release/$app"; \
+    done; \
+    rm -rf "$work" /tmp/seed-install.py /opt/pantheon/app-envs/.downloads
+ENV PANTHEON_PYTHON_ENV_SEEDS=/opt/pantheon/app-envs
+
 COPY --from=builder /app /app
 
 # One 32-byte fingerprint of the packaged factory templates, computed at build
