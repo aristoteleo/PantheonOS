@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var namePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
@@ -216,11 +217,21 @@ func Ensure(root, ref, endpoint, key string) error {
 	if err := Put(root, ref, endpoint, key, false); err == nil {
 		return nil
 	}
-	if current, err := Read(root, ref, endpoint); err == nil &&
-		subtle.ConstantTimeCompare([]byte(current), []byte(key)) == 1 {
-		return nil
+	// Where hard links are refused the winner publishes by exclusive
+	// creation, so its record can still be partly written: read again
+	// for a moment before giving up.
+	for wait := time.Millisecond; ; wait *= 2 {
+		if current, err := Read(root, ref, endpoint); err == nil {
+			if subtle.ConstantTimeCompare([]byte(current), []byte(key)) == 1 {
+				return nil
+			}
+			return ErrCredential
+		}
+		if wait > 512*time.Millisecond {
+			return ErrCredential
+		}
+		time.Sleep(wait)
 	}
-	return ErrCredential
 }
 
 func Read(root, ref, endpoint string) (string, error) {
