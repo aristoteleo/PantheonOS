@@ -9,6 +9,16 @@ I1–I13 and I15–I18; I14 for Agent Canvas, while the Agent ends on its App
 page, which until the Agent has a page of its own (standalone Apps phase 2)
 says it works on the desktop. Not on prod.
 
+**Status (2026-11-04, later):** the two leftover first-run frictions are
+fixed on staging: fleet node `fleet-v0.5.1-staging.6` (controller
+`latest-tag`, and Workspace image `nanguage/pantheon-agents@sha256:72c8e002…`)
+answers Claude Code's first-run questions on a Workspace, and the invite
+page's installer log renders the installer's output whole (frontend
+`e00009e5`). Verified with a new account invited by acct3: Claude Code's
+first terminal took a prompt at once; a conversation started with
+`pantheon coding-agent run` replied and resumed in a terminal without a
+question.
+
 An owner sends one link. The person who opens it (the invitee) may have no
 account, no Workspace, no node and no coding agent. The link page takes them
 through every step until the App is open and usable on **their own** account,
@@ -199,9 +209,11 @@ against `max_signups`, rate-limited per IP), `POST /api/app-invites/{id}/credit`
   the Store at the pinned version or from the invite's own release. A public
   App's invite opens a hosted `frontend` link of the owner's, signed out.
 * The page opens the App by itself only when nothing had to run on load.
-* Known gaps: Claude Code's own first-run questions (theme, trust the
-  folder, bypass permissions) still appear in its first terminal; the
-  installer log drops a few characters of colored output.
+* Claude Code's first terminal opens on a session: no theme, trust or
+  bypass-permissions question (docs/apps/coding-agents.md, First start).
+* The installer log is the terminal's text as a screen shows it (cursor
+  moves, carriage returns and erases followed, colours dropped), so
+  Claude Code's installer, which redraws lines in place, reads whole.
 
 ## Out of scope
 

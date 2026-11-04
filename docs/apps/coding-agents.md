@@ -495,6 +495,9 @@ for Claude there.
 
 ## First start
 
+**Status (2026-11-04):** on staging (node `fleet-v0.5.1-staging.6`, Workspace
+image `72c8e002…`); verified on a new account's Workspace. Not on prod.
+
 An agent's own interface asks a few questions the first time it starts:
 Claude Code a theme, whether to trust the folder and, with its full-auto
 flag, to accept bypass permissions (the last two with "No, exit"
