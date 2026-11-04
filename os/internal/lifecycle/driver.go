@@ -134,6 +134,11 @@ func cleanEnv() []string {
 	if config := os.Getenv("PANTHEON_STREAM_ICE_SERVERS"); config != "" {
 		out = append(out, "PANTHEON_STREAM_ICE_SERVERS="+config)
 	}
+	// Ready App environments the node's image ships (a Workspace image): the
+	// install hook binds to a matching one instead of building it with pip.
+	if dir := os.Getenv("PANTHEON_PYTHON_ENV_SEEDS"); dir != "" {
+		out = append(out, "PANTHEON_PYTHON_ENV_SEEDS="+dir)
+	}
 	if path := nativecapture.Path(); path != "" {
 		out = append(out, "PANTHEON_NATIVE_CAPTURE_HELPER="+path)
 	}

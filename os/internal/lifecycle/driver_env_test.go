@@ -28,3 +28,20 @@ func TestTheManagedPythonComesFirstOnTheAppsPath(t *testing.T) {
 		}
 	}
 }
+
+// An image's shipped App environments reach the install hooks; nothing else
+// of the node's environment does.
+func TestTheImagesShippedEnvironmentsReachTheInstallHooks(t *testing.T) {
+	t.Setenv("PANTHEON_PYTHON_ENV_SEEDS", "/opt/pantheon/app-envs")
+	t.Setenv("PANTHEON_UNRELATED_SECRET", "x")
+	found := false
+	for _, kv := range cleanEnv() {
+		found = found || kv == "PANTHEON_PYTHON_ENV_SEEDS=/opt/pantheon/app-envs"
+		if strings.HasPrefix(kv, "PANTHEON_UNRELATED_SECRET=") {
+			t.Fatal(kv)
+		}
+	}
+	if !found {
+		t.Fatal("seed directory not passed")
+	}
+}
