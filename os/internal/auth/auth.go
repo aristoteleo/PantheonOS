@@ -385,6 +385,70 @@ func (a *Authority) MintDesktopState(ttl time.Duration) ([]byte, error) {
 	return jwt.FormatUserConfig(userJWT, useed)
 }
 
+// TeamChatInbox is the reply prefix of the team-chat service.
+const TeamChatInbox = "_INBOX_team-chat"
+
+// TeamChatRequests is where a node's Coding Agents service sends the requests
+// of a Team Chat agent's tool (docs/apps/team-chat.md), inside the owner's App
+// namespace: fleet.<fid>.apps.team-chat.rpc. The service takes the Fleet from
+// the subject, so a credential of one Fleet reaches only its own space.
+const TeamChatRequests = "fleet.*.apps.team-chat.rpc"
+
+// MintTeamChat issues the controller's team-chat service its .creds: the
+// TEAMCHAT KV bucket, the TEAMCHAT_MSG stream and the TEAMCHAT_FILES object
+// store (every Fleet's spaces), publishing change notices into each owner's
+// App namespace under fleet.<fid>.apps.team-chat, and answering the agents'
+// requests nodes send there. No Fleet, node or App-namespace credential names
+// these streams, so only this service reads or writes them.
+func (a *Authority) MintTeamChat(ttl time.Duration) ([]byte, error) {
+	ukp, err := nkeys.CreateUser()
+	if err != nil {
+		return nil, err
+	}
+	upub, err := ukp.PublicKey()
+	if err != nil {
+		return nil, err
+	}
+	useed, err := ukp.Seed()
+	if err != nil {
+		return nil, err
+	}
+	uc := jwt.NewUserClaims(upub)
+	uc.Name = "team-chat"
+	uc.Expires = time.Now().Add(ttl).Unix()
+	allow := jwt.StringList{"fleet.*.apps.team-chat.>", "$JS.API.INFO", "tc.>", "$KV.TEAMCHAT.>", "$O.TEAMCHAT_FILES.>",
+		TeamChatInbox + ".>"}
+	for _, stream := range []string{"KV_TEAMCHAT", "TEAMCHAT_MSG", "OBJ_TEAMCHAT_FILES"} {
+		allow = append(allow,
+			"$JS.API.STREAM.CREATE."+stream,
+			"$JS.API.STREAM.UPDATE."+stream,
+			"$JS.API.STREAM.INFO."+stream,
+			"$JS.API.STREAM.PURGE."+stream,
+			"$JS.API.STREAM.MSG.GET."+stream,
+			"$JS.API.STREAM.MSG.DELETE."+stream,
+			"$JS.API.DIRECT.GET."+stream,
+			"$JS.API.DIRECT.GET."+stream+".>",
+			"$JS.API.CONSUMER.CREATE."+stream,
+			"$JS.API.CONSUMER.CREATE."+stream+".>",
+			"$JS.API.CONSUMER.DELETE."+stream+".>",
+			"$JS.API.CONSUMER.INFO."+stream+".>",
+			"$JS.API.CONSUMER.MSG.NEXT."+stream+".>",
+			"$JS.FC."+stream+".>",
+			"$JS.FC.*.*."+stream+".>",
+			"$JS.ACK."+stream+".>",
+		)
+	}
+	uc.Permissions.Pub.Allow = allow
+	uc.Permissions.Sub.Allow = jwt.StringList{TeamChatInbox + ".>", TeamChatRequests}
+	// Answers go to the reply subject of each request it received.
+	uc.Permissions.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: time.Minute}
+	userJWT, err := uc.Encode(a.accKP)
+	if err != nil {
+		return nil, err
+	}
+	return jwt.FormatUserConfig(userJWT, useed)
+}
+
 // AccountPubKey is the stable FLEET account id (handy for diagnostics).
 func (a *Authority) AccountPubKey() string { return a.accPub }
 

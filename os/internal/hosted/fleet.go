@@ -529,22 +529,37 @@ func (f *Fleet) nodeCall(ctx context.Context, c *Call) (any, error) {
 	} else if a.NodeID == "" || !nodeFileMethods[a.Method] {
 		return map[string]any{"success": false, "error": "Call a Files method (read_file, write_file, stat_path, list_files, manage_path, get_cwd) on one of your nodes"}, nil
 	}
-	caller, ok := f.Bus.(ServiceCaller)
-	if !ok {
-		return map[string]any{"success": false, "error": "This controller cannot call node services"}, nil
-	}
-	credential, err := f.appsCredential(c.Fleet)
-	if err != nil {
-		return Failure(err), nil
-	}
-	serviceID, err := f.ensureNodeService(ctx, c.Fleet, service, a.NodeID, false, credential)
-	if err != nil {
-		return Failure(err), nil
-	}
 	if a.Args == nil {
 		a.Args = map[string]any{}
 	}
 	timeout := time.Duration(min(max(a.Timeout, 30), 120)) * time.Second
+	reply, err := f.CallNodeService(ctx, c.Fleet, a.NodeID, service, a.Method, a.Args, timeout)
+	if err != nil {
+		return Failure(err), nil
+	}
+	return reply, nil
+}
+
+// CallNodeService calls one method of a node's builtin service (Files, PTY or
+// Coding Agents), starting the service when needed, with timeout per attempt.
+// An error is a call that did not reach the node or got no answer; a method's
+// own failure is its reply ({success: false, error}). The reply names the node.
+func (f *Fleet) CallNodeService(ctx context.Context, fleet, nodeID, service, method string, args map[string]any, timeout time.Duration) (map[string]any, error) {
+	caller, ok := f.Bus.(ServiceCaller)
+	if !ok {
+		return nil, fmt.Errorf("This controller cannot call node services")
+	}
+	credential, err := f.appsCredential(fleet)
+	if err != nil {
+		return nil, err
+	}
+	serviceID, err := f.ensureNodeService(ctx, fleet, service, nodeID, false, credential)
+	if err != nil {
+		return nil, err
+	}
+	if args == nil {
+		args = map[string]any{}
+	}
 	subject := "pantheon.service." + serviceID
 	if credential.SubjectPrefix != "" {
 		subject = credential.SubjectPrefix + "." + subject
@@ -553,37 +568,37 @@ func (f *Fleet) nodeCall(ctx context.Context, c *Call) (any, error) {
 	// A service just started may not subscribe yet: retry briefly.
 	for attempt := 0; ; attempt++ {
 		call, cancel := context.WithTimeout(ctx, timeout)
-		raw, err = caller.CallService(call, c.Fleet, subject, map[string]any{"method": a.Method, "parameters": a.Args})
+		raw, err = caller.CallService(call, fleet, subject, map[string]any{"method": method, "parameters": args})
 		cancel()
 		if err == nil || attempt >= 5 || !strings.Contains(err.Error(), "no responders") {
 			break
 		}
 		select {
 		case <-ctx.Done():
-			return Failure(ctx.Err()), nil
+			return nil, ctx.Err()
 		case <-time.After(time.Second):
 		}
 	}
 	if err != nil {
-		return Failure(err), nil
+		return nil, err
 	}
 	var reply struct {
 		Result json.RawMessage `json:"result"`
 		Error  string          `json:"error"`
 	}
 	if json.Unmarshal(raw, &reply) != nil {
-		return map[string]any{"success": false, "error": "The node returned an invalid reply"}, nil
+		return map[string]any{"success": false, "error": "The node returned an invalid reply", "node_id": nodeID}, nil
 	}
 	if reply.Error != "" {
-		return map[string]any{"success": false, "error": reply.Error, "node_id": a.NodeID}, nil
+		return map[string]any{"success": false, "error": reply.Error, "node_id": nodeID}, nil
 	}
 	var result any
 	_ = json.Unmarshal(reply.Result, &result)
 	if m, ok := result.(map[string]any); ok {
-		m["node_id"] = a.NodeID
+		m["node_id"] = nodeID
 		return m, nil
 	}
-	return map[string]any{"success": true, "result": result, "node_id": a.NodeID}, nil
+	return map[string]any{"success": true, "result": result, "node_id": nodeID}, nil
 }
 
 // ensureNodeService finds or starts a node's Files or PTY builtin service in
