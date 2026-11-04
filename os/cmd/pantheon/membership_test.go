@@ -174,3 +174,27 @@ func TestPrimerDoesNotSaveShares(t *testing.T) {
 		t.Fatalf("primer changed the saved shares: %s", b)
 	}
 }
+
+func TestScopeMembershipStateKeepsEachAccountsOwnState(t *testing.T) {
+	base := t.TempDir()
+	other := filepath.Join(base, "fleets", "f_b")
+	for _, v := range membershipStateVars {
+		t.Setenv(v.name, "")
+	}
+	// The first membership keeps the shared per-user directories.
+	if set := scopeMembershipState(base, base); len(set) != 0 || os.Getenv("PANTHEON_CODING_AGENTS_DIR") != "" {
+		t.Fatalf("the first membership was moved: %v", set)
+	}
+	// Another fleet's membership gets its own, unless one is set already.
+	t.Setenv("PANTHEON_CLI_HOME", "/custom/cli")
+	set := scopeMembershipState(base, other)
+	if !reflect.DeepEqual(set, []string{"PANTHEON_CODING_AGENTS_DIR"}) {
+		t.Fatalf("set %v", set)
+	}
+	if got := os.Getenv("PANTHEON_CODING_AGENTS_DIR"); got != filepath.Join(other, "coding-agents") {
+		t.Fatalf("coding agents dir %q", got)
+	}
+	if got := os.Getenv("PANTHEON_CLI_HOME"); got != "/custom/cli" {
+		t.Fatalf("an override was replaced: %q", got)
+	}
+}

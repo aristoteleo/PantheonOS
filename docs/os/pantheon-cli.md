@@ -110,7 +110,10 @@ Who the command acts for decides what it may do.
 
   `PANTHEON_KEY` and `PANTHEON_HUB_URL` override the saved login, for scripts.
   A grant for an App instance is cached until shortly before it expires
-  (`~/.pantheon/cli/grants.json`).
+  (`~/.pantheon/cli/grants.json`). `PANTHEON_CLI_HOME` moves the folder; a
+  node serving a second fleet (another account's membership of the same
+  machine) sets it to `<membership state dir>/cli` for what it runs, so its
+  commands never fall back to the login of another account.
 * **A command the Pantheon agent runs** acts for that conversation only. The
   agent gives every command it runs a short-lived token in the environment
   (`PANTHEON_TOKEN`, `PANTHEON_ENDPOINT`). The token is bound to:

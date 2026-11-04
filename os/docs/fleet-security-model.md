@@ -106,6 +106,16 @@ fleet.creds      # 0600, short-lived, rewritten by the refresh loop
   membership; restarts and the macOS app pin theirs the same way. One node
   process holds a membership (`node.lock`); running the same fleet's install
   command again replaces that node only.
+- **Per-user state follows the membership.** What a node keeps for its account
+  outside the state directory is per membership too: the first keeps
+  `~/.pantheon/coding-agents` (Coding Agents settings, the access key minted for
+  the account, its model service key, projects, conversations) and
+  `~/.pantheon/cli` (the `pantheon` command's login and grant cache); every
+  other membership uses `coding-agents/` and `cli/` in its own
+  `<state-dir>/fleets/<fleet_id>/`, set for the node and what it runs as
+  `PANTHEON_CODING_AGENTS_DIR` and `PANTHEON_CLI_HOME` (either, when already set,
+  wins). Nothing is copied: such a membership starts without a key, and the
+  desktop of its own account gives it one.
 - `fleet up --join-token <tok>` the first time; the assignment and refresh token
   are persisted before the NATS connection. Afterwards plain `fleet up` refreshes
   with the stored refresh_token + node.key (no token needed again), including

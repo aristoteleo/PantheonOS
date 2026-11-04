@@ -414,6 +414,11 @@ func cmdUp(args []string) {
 		fatal("need --controller <url> --key <key> or --join-token <token>, dev --nats <url> --fleet <id>, or a prior successful join")
 	}
 	exposeCommand(*stateDir)
+	// After a key join may have moved to another membership, before the
+	// coding-agents builtin reads its settings.
+	if set := scopeMembershipState(baseStateDir, *stateDir); len(set) > 0 {
+		fmt.Printf("Per-user state for this fleet under %s (%s)\n", *stateDir, strings.Join(set, ", "))
+	}
 
 	// Data plane (libp2p) — advertise its addresses in the Node record.
 	var dp *dataplane.Plane

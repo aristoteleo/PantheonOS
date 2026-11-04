@@ -23,8 +23,48 @@ import (
 // A join (or re-join) of the fleet a directory already belongs to keeps that
 // directory and its node id. A join of another fleet goes to that fleet's own
 // directory. `up --fleet <id>` resumes a chosen membership.
+//
+// Per-user state that belongs to an account moves with the membership too
+// (scopeMembershipState): the first membership keeps ~/.pantheon/..., each
+// other one uses folders in its own state directory.
 
 const membershipsDirName = "fleets"
+
+// membershipStateVars are the per-user state directories that belong to the
+// account a membership serves, with the folder each other membership uses
+// instead, under its state directory:
+//
+//   - PANTHEON_CODING_AGENTS_DIR (~/.pantheon/coding-agents): the Coding
+//     Agents settings with the PantheonOS access key minted for that
+//     account, its model service key and project list, conversations, links
+//     and hooks.
+//   - PANTHEON_CLI_HOME (~/.pantheon/cli): the pantheon command's login and
+//     grant cache, which commands and agents this node starts fall back to
+//     without a key of their own.
+var membershipStateVars = []struct{ name, dir string }{
+	{"PANTHEON_CODING_AGENTS_DIR", "coding-agents"},
+	{"PANTHEON_CLI_HOME", "cli"},
+}
+
+// scopeMembershipState points this process (and what it starts) at dir's
+// own per-user state when dir is a membership other than the first, so one
+// account never uses another's access key, projects or login. A variable
+// already set wins. It returns the variables it set.
+func scopeMembershipState(base, dir string) []string {
+	if !isMembershipDir(base, dir) {
+		return nil
+	}
+	var set []string
+	for _, v := range membershipStateVars {
+		if os.Getenv(v.name) != "" {
+			continue
+		}
+		if os.Setenv(v.name, filepath.Join(dir, v.dir)) == nil {
+			set = append(set, v.name)
+		}
+	}
+	return set
+}
 
 var fleetIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
 

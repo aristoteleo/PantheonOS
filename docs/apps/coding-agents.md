@@ -144,8 +144,14 @@ events, appended to the conversation's log, and published on
 `pantheon.stream.coding_<conversation_id>`. stderr is kept for the error shown
 when a turn fails.
 
-Conversations live under `~/.pantheon/coding-agents/` on the node: an index
-and one event log per conversation. A conversation records the agent, the
+Conversations live under `~/.pantheon/coding-agents/` on the node (with the
+settings, below, and everything else of the service's; `PANTHEON_CODING_AGENTS_DIR`
+moves it). A machine that is a node of several fleets (one per account) keeps
+this folder for its first membership only; every other membership uses
+`<state-dir>/fleets/<fleet_id>/coding-agents/`, so no account sees another's
+projects, conversations or access key (os/docs/fleet-security-model.md, "Per-user
+state follows the membership"). The conversations are an index and one event
+log per conversation. A conversation records the agent, the
 directory, a title (the first prompt), the agent's session id and the time of
 its last turn. A turn running when the service stops (or dies) ends with a
 `done` event saying it was interrupted, and the conversation is marked
