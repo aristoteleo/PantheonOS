@@ -366,6 +366,17 @@ class AppStoreManager:
                     "forked_from": {'repository_id': upstream['id'], 'version': upstream['version']} if upstream.get('id') and upstream.get('version') else None,
                     **prepare_release(Path(app["dir"]))}
 
+    def release_of(self, app_id: str, scope: str, commit: str, repository_id: str = '') -> dict:
+        """A release of the revision the user runs (any commit, tagged or
+        not), e.g. to host it; the repository itself is not changed."""
+        from pantheonos.appkit.store_release import commit_release
+        app = self.find(app_id, scope, repository_id)
+        root = self.versions.repository(Path(app["dir"]), app['scope'], app_id)
+        prepared = commit_release(root, commit)
+        if prepared['manifest']['id'] != app_id:
+            raise ValueError('This version belongs to another App')
+        return {"success": True, "repository_id": app['repository_id'], **prepared}
+
     def history(self, app_id: str, scope: str, limit: int = 100, repository_id: str = '') -> dict:
         app = self.find(app_id, scope, repository_id)
         if not app["git"].get("independent"):

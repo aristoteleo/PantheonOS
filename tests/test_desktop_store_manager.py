@@ -115,6 +115,27 @@ def test_tag_and_bundle_cannot_lie(manager, tmp_path):
         manager.tag('demo', '1.0.0')
 
 
+def test_release_of_an_untagged_commit_leaves_the_repository_alone(manager, tmp_path):
+    """Hosting what the user runs: any commit, tagged or not, dirty tree or not."""
+    manager.copy_to_user('demo', 'builtin')
+    directory = manager.user_root / 'demo'
+    manifest = json.loads((directory / 'app.json').read_text())
+    (directory / 'app.json').write_text(json.dumps({**manifest, 'version': '1.2.0'}))
+    git(directory, 'commit', '-qam', 'Untagged work')
+    commit = git(directory, 'rev-parse', 'HEAD').strip()
+    (directory / 'index.js').write_text('dirty')
+    refs = git(directory, 'for-each-ref')
+    out = manager.release_of('demo', 'user', commit)
+    assert out['manifest']['version'] == '1.2.0' and out['app_release']['commit'] == commit
+    assert out['app_release']['tag'] == 'v1.2.0'
+    assert git(directory, 'for-each-ref') == refs and (directory / 'index.js').read_text() == 'dirty'
+    unpacked = unpack_release(out['app_release'], tmp_path / 'check', '1.2.0')
+    assert unpacked['version'] == '1.2.0'
+    assert (tmp_path / 'check' / 'index.js').read_text() == 'export default {}'
+    with pytest.raises(ValueError):
+        manager.release_of('demo', 'user', 'f' * 40)
+
+
 def test_remove_user_copy_reveals_official(manager):
     manager.copy_to_user('demo', 'builtin')
     manager.remove('demo')

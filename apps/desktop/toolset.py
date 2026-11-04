@@ -1179,7 +1179,8 @@ class DesktopToolSet(ToolSet):
         new semantic version), default (version='branch:my-work' follows a branch;
         'branch:official' follows upstream; 'latest' follows working HEAD;
         tag/full SHA pins future launches), resolve (latest, tag or full SHA),
-        instances (running backends), start/stop (one version backend), prepare (review a public release), remove
+        instances (running backends), start/stop (one version backend), prepare (review a public release),
+        release (a release of the full commit SHA in version, tagged or not, e.g. to host it), remove
         (recoverable Trash), trash, restore, purge (permanently delete a Trash
         entry and its version snapshots after user confirmation). install accepts a Store download;
         fork_download installs a public release and creates a development branch.
@@ -1236,6 +1237,7 @@ class DesktopToolSet(ToolSet):
                 "restore": lambda: manager.branches.restore(archive_id),
                 "remove": lambda: manager.remove(app_id, scope, repository_id),
                 "prepare": lambda: manager.prepare(app_id, scope, repository_id),
+                "release": lambda: manager.release_of(app_id, scope, version, repository_id),
                 "tag": lambda: manager.tag(app_id, version, scope, repository_id),
                 "initialize": manager.versions.ensure,
                 "versions": lambda: manager.versions.versions(app_id, scope, repository_id, version[7:] if version.startswith("branch:") else ""),
@@ -1255,7 +1257,7 @@ class DesktopToolSet(ToolSet):
                 return {"success": True, "instance": result}
             if action not in operations:
                 raise ValueError(f"Unknown App Store action: {action}")
-            if action in ("published", "fork_download", "prepare", "preview", "initialize", "versions", "default", "resolve", "fork", "copy", "trash", "restore") or (action == "remove" and scope == "fork"):
+            if action in ("published", "fork_download", "prepare", "release", "preview", "initialize", "versions", "default", "resolve", "fork", "copy", "trash", "restore") or (action == "remove" and scope == "fork"):
                 return await asyncio.to_thread(operations[action])
             supervisor = self._apps()
             # Share the spawn lock: an App cannot start halfway through its
@@ -1273,7 +1275,7 @@ class DesktopToolSet(ToolSet):
         finally:
             # Installs, removals, restores, forks and new defaults change what
             # the desktop draws; reads leave the index as it is.
-            if action not in ('versions', 'resolve', 'trash', 'instances', 'prepare'):
+            if action not in ('versions', 'resolve', 'trash', 'instances', 'prepare', 'release'):
                 self._app_index_changed()
 
     @tool(exclude=True)

@@ -210,6 +210,43 @@ def prepare_release(root: Path) -> dict:
             "bundle_bytes": len(raw), "file_count": len(git(root, "ls-tree", "-rz", "--name-only", "HEAD").split("\0")) - 1}
 
 
+def commit_release(root: Path, commit: str) -> dict:
+    """A release of one committed revision, whether or not it is tagged.
+
+    For hosting what the user runs: the commit and its ancestry at tag
+    v<version>, built in a scratch clone so the App's own refs and tags are
+    left exactly as they are."""
+    if not re.fullmatch(r"[a-f0-9]{40}|[a-f0-9]{64}", commit):
+        raise ValueError("A release needs a full commit SHA")
+    with tempfile.TemporaryDirectory() as temp:
+        stage = Path(temp) / "stage"
+        # Shares the App's objects: any commit it has, reachable or not.
+        git(Path(temp), "clone", "-q", "--bare", "--shared", "--no-tags", str(root), str(stage))
+        name = next((n for n in ("app.json", "atrium.json") if _exists(stage, f"{commit}:{n}")), None)
+        if name is None:
+            raise ValueError("This version has no App manifest")
+        manifest = validate_manifest(json.loads(git(stage, "show", f"{commit}:{name}")))
+        tag = f"v{manifest['version']}"
+        git(stage, "tag", "-f", tag, commit)
+        bundle = Path(temp) / "release.bundle"
+        git(stage, "bundle", "create", str(bundle), f"refs/tags/{tag}")
+        raw = bundle.read_bytes()
+        if len(raw) > MAX_BUNDLE_BYTES:
+            raise ValueError("App Git bundle exceeds 32 MiB")
+        release = {"format": "git-bundle-v1", "tag": tag, "commit": commit,
+                   "sha256": hashlib.sha256(raw).hexdigest(), "bundle": base64.b64encode(raw).decode()}
+        unpack_release(release, Path(temp) / "check", manifest["version"])
+    return {"manifest": manifest, "app_release": release, "bundle_bytes": len(raw)}
+
+
+def _exists(root: Path, spec: str) -> bool:
+    try:
+        git(root, "cat-file", "-e", spec)
+        return True
+    except ValueError:
+        return False
+
+
 def git_history(root: Path, limit: int = 100) -> dict:
     """Real topology and refs, bounded for the Store UI."""
     limit = max(1, min(int(limit), 1000))
