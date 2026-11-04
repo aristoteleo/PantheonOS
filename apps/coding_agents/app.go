@@ -94,6 +94,9 @@ type turn struct {
 	started time.Time
 	hop     int      // a turn a linked group's message started: that message's hop
 	box     *linkBox // the folder its agent messages linked groups through
+	// team: a Team Chat agent's .team folder (team.go).
+	team   *teamBox
+	teamMu sync.Mutex
 	// platform: the agent runs on PantheonOS models, not its own sign-in.
 	platform bool
 	scanMu   sync.Mutex
@@ -130,6 +133,8 @@ type App struct {
 	pendingMu sync.Mutex    // one retry of them at a time
 	// call reaches another node's service in tests (nil: over the bus).
 	call func(nodeID, method string, params map[string]any) (map[string]any, error)
+	// teamCaller reaches the controller's team-chat service in tests.
+	teamCaller func(req map[string]any) (map[string]any, error)
 }
 
 type signInFailure struct {
@@ -293,6 +298,8 @@ type SendArgs struct {
 	LinkName string
 	// link: the turn is a linked group's message (Prompt its text).
 	link *linkMessage
+	// Team: a Team Chat turn of this agent (team.go).
+	Team *TeamTurn
 }
 
 // agentLabel names an agent the way people know it.
@@ -464,6 +471,15 @@ func (a *App) send(p SendArgs) map[string]any {
 	if trouble != "" {
 		system = strings.TrimSpace(system + "\n\nLinked groups cannot be messaged this turn: " + trouble + ".")
 	}
+	var team *teamBox
+	if p.Team != nil {
+		var why string
+		if team, why = a.teamBoxFor(c.Cwd, *p.Team); team != nil {
+			system = strings.TrimSpace(system + "\n\n" + teamNote(team))
+		} else {
+			system = strings.TrimSpace(system + "\n\nTeam Chat cannot be reached this turn: " + why + ".")
+		}
+	}
 	agentPrompt := canvas.prompt(prompt)
 	if p.link != nil {
 		agentPrompt = a.linkPrefix(c, *p.link, box) + "\n\n" + agentPrompt
@@ -510,6 +526,9 @@ func (a *App) send(p SendArgs) map[string]any {
 		// inbox is one (the folder itself, with the script, stays the node's).
 		t.AddDirs = append(t.AddDirs, box.inbox)
 	}
+	if team != nil && agent.Headless.Canvas.ShellSandbox {
+		t.AddDirs = append(t.AddDirs, team.inbox)
+	}
 	args := agent.Headless.Args(t)
 	if onPlatform {
 		args = append(args, platformArgs...)
@@ -533,6 +552,7 @@ func (a *App) send(p SendArgs) map[string]any {
 	if err != nil {
 		a.mu.Unlock()
 		box.close()
+		team.close()
 		return failure("%v", err)
 	}
 	stderr := &tailBuffer{max: stderrKeep}
@@ -540,7 +560,8 @@ func (a *App) send(p SendArgs) map[string]any {
 
 	c.Status, c.LastError, c.Interrupted, c.Updated = "running", "", false, now()
 	userSeq := c.Seq + 1
-	tr := &turn{cmd: cmd, done: make(chan struct{}), exited: make(chan struct{}), started: time.Now(), box: box, platform: onPlatform}
+	tr := &turn{cmd: cmd, done: make(chan struct{}), exited: make(chan struct{}), started: time.Now(), box: box, platform: onPlatform,
+		team: team}
 	if p.link != nil {
 		tr.hop = p.link.Hop
 	}
@@ -581,6 +602,9 @@ func (a *App) send(p SendArgs) map[string]any {
 	go a.pump(c.ID, tr, agent, r.found, stdout, stderr)
 	if box != nil {
 		go a.watchBox(c.ID, tr)
+	}
+	if team != nil {
+		go a.watchTeam(c.ID, tr)
 	}
 	return map[string]any{"success": true, "conversation_id": c.ID, "stream_id": streamID(c.ID),
 		"from_seq": userSeq, "conversation": a.snapshot(c.ID)}
@@ -713,6 +737,18 @@ func (a *App) finish(id string, tr *turn, end codingagents.Event) {
 		case <-time.After(finalScan.get()):
 		}
 	}
+	if tr.team != nil {
+		// The agent's last requests, before the turn ends.
+		scanned := make(chan struct{})
+		go func() {
+			a.scanTeam(id, tr)
+			close(scanned)
+		}()
+		select {
+		case <-scanned:
+		case <-time.After(finalScan.get()):
+		}
+	}
 	a.emit(id, end)
 	a.mu.Lock()
 	if c := a.convs[id]; c != nil {
@@ -741,6 +777,13 @@ func (a *App) finish(id string, tr *turn, end codingagents.Event) {
 			tr.scanMu.Lock()
 			tr.box.close()
 			tr.scanMu.Unlock()
+		}()
+	}
+	if tr.team != nil {
+		go func() {
+			tr.teamMu.Lock()
+			tr.team.close()
+			tr.teamMu.Unlock()
 		}()
 	}
 	close(tr.done)

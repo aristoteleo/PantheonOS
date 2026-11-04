@@ -80,10 +80,24 @@ func Tools(app *App) ([]*appsvc.Tool, error) {
 				}
 				args.Links, args.LinkName = &links, strP(p, "link_name")
 			}
+			if raw, ok := p["team"]; ok && raw != nil {
+				var team TeamTurn
+				if err := remarshal(raw, &team); err != nil || team.MID == "" || team.Token == "" {
+					return failure("team: {mid, token, handle, name}"), nil
+				}
+				args.Team = &team
+			}
 			if args.Origin == "canvas" || ct.Effort != "" || !ct.Research || len(ct.Subagents)+len(ct.Focus)+len(ct.Files)+len(ct.Images)+len(ct.Skills) > 0 {
 				args.Canvas = ct
 			}
 			return app.send(args), nil
+		},
+		"team_setup": func(_ context.Context, p map[string]any) (any, error) {
+			return teamSetup(strP(p, "folder"), strP(p, "agent_md"), strP(p, "reset"), boolP(p, "check_only", false)), nil
+		},
+		"team_file_put": func(_ context.Context, p map[string]any) (any, error) {
+			return teamFilePut(strP(p, "folder"), strP(p, "name"), intP(p, "offset"), intP(p, "size"), strP(p, "data"),
+				boolP(p, "final", false)), nil
 		},
 		"agents_skills": func(_ context.Context, p map[string]any) (any, error) {
 			return skills(strP(p, "cwd"), strP(p, "agent")), nil
