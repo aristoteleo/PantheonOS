@@ -339,9 +339,12 @@ else
         _ts "[fleet] joining fleet as node ${NODE_NAME} (caps=${FLEET_NODE_CAPS})"
         export PANTHEON_FLEET_STATE_DIR="${PANTHEON_FLEET_STATE_DIR:-/tmp/fleet-node}"
         mkdir -p "${PANTHEON_FLEET_STATE_DIR}"
-        pantheon node up --controller "${FLEET_CONTROLLER_URL}" --key "${FLEET_KEY}" \
-            --name "${NODE_NAME}" --state-dir "${PANTHEON_FLEET_STATE_DIR}" \
-            > /tmp/fleet-node.log 2>&1 &
+        _start_fleet_runner() {
+            pantheon node up --controller "${FLEET_CONTROLLER_URL}" --key "${FLEET_KEY}" \
+                --name "${NODE_NAME}" --state-dir "${PANTHEON_FLEET_STATE_DIR}" \
+                >> /tmp/fleet-node.log 2>&1 &
+        }
+        _start_fleet_runner
         # A Workspace back from idle lost its Apps' Python environments with
         # its /tmp. Restore those of the Apps that were running from their
         # Volume snapshots, several at once while the node joins: its starts,
@@ -672,10 +675,29 @@ EOF
     if [ -n "$NODE_APPS" ] && ! echo ",$NODE_APPS," | grep -q ",chatroom,"; then
         echo "[launch] node apps [$NODE_APPS]: no chatroom here — runner holds the node"
         _ts "node ready: holding on the fleet runner (no worker on this node)"
-        while pgrep -f '(fleet|pantheon node) up' >/dev/null 2>&1; do
-            sleep 5
+        # A runner that stops within its first minute is started again (twice
+        # at most): a brand-new account's first Workspace once lost its runner
+        # seconds after boot and then waited minutes for the hub's next node
+        # check. Its log goes to the container log, where the platform keeps it.
+        restarts=0
+        while :; do
+            started=$(date +%s)
+            while pgrep -f '(fleet|pantheon node) up' >/dev/null 2>&1; do
+                sleep 5
+            done
+            echo "[launch] runner exited; the end of its log:"
+            tail -n 30 /tmp/fleet-node.log 2>/dev/null | sed 's/^/  [fleet-node] /'
+            if [ "$restarts" -ge 2 ] || [ $(( $(date +%s) - started )) -gt 60 ] \
+                || ! command -v _start_fleet_runner >/dev/null 2>&1; then
+                break
+            fi
+            restarts=$((restarts + 1))
+            sleep 3
+            _ts "[launch] starting the runner again (${restarts} of 2)"
+            _start_fleet_runner
+            sleep 2
         done
-        echo "[launch] runner exited; node container stopping"
+        echo "[launch] node container stopping"
         exit 0
     fi
 
