@@ -74,6 +74,22 @@ Bugs found on staging (browser sweeps 2026-10-19/20):
 4. Workspace cold start (68 s): serial installs and pip environment builds
    remain. Fixed (hub 54bfa3a): the Hub replaced a Runner-only Pod when the
    hub NATS credentials it never uses expired, restarting the Agent.
+   Fixed for a brand-new Workspace (2026-11-04, staging): the Workspace image
+   ships the environments of web, desktop, evolution, notebook and files
+   (`/opt/pantheon/app-envs`, built from the pinned Agent App release set with
+   `install.py --seed`); the node passes `PANTHEON_PYTHON_ENV_SEEDS` to install
+   hooks, and `install.py` binds an App whose environment key matches (App id,
+   exact requirements, the image's pantheon-base interpreter) instead of
+   running pip, with no Volume snapshot. Hash-locked requirements now share a
+   key across artifacts instead of rebuilding per release. Measured from
+   sandbox start to all Apps ready: 167–191 s before (installs 149–175 s, web
+   alone 82–99 s), 32–54 s after (installs about 10 s; the hash-locked Agent
+   environment, when the Workspace hosts it, still builds in about 20 s).
+   Installs stay serial: with the environments shipped, parallel installs
+   would save seconds. A Workspace runner on a new Volume dies at once on
+   `open …/fleet-node/.fleet-state-*: no such file or directory`; the
+   entrypoint starts it again (before, the Workspace waited about 5 minutes
+   for the hub's next node check). Its cause is open.
 5. Hosted/installed Apps cannot come from a private package.
 6. Fixed (ui fd6febee): Settings showed "Chat messages 0/1000" and
    "Storage 0/10 GB" on a Fleet deployment. The Hub counts messages only from

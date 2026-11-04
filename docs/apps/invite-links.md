@@ -43,11 +43,19 @@ verified with a new account invited by acct3 (invite → Coding Agents on a
   desktop users, and the Agent's invite says it opens on the desktop for now.
 * Two tabs on one link: signing in on one moves the other on.
 
-Known: a first Workspace start still spends about 3.5 minutes installing the
-Workspace's Apps one at a time on an empty volume (the node runs every
-lifecycle operation serially, `os/internal/lifecycle/manager.go` `execute()`,
-and builds every App environment from scratch); the page now says so. Claude
-Code's own banner shows the Workspace's real path (`/__modal/volumes/…`).
+**Status (2026-11-04, first start):** a brand-new Workspace's first start
+takes about 55 s from its sandbox to all Apps ready, down from 170–190 s, and
+the invite page reaches "Your Workspace is running" about 60 s after Continue
+(invite-test-13; before: 472 s for invite-test-11, of which 5 minutes were a
+lost runner). The Workspace image (`nanguage/pantheon-agents@sha256:7c183fa0…`)
+ships the Workspace Apps' Python environments ready-made and the node binds a
+matching App to them (Agent App 0.9.108, `docs/agent/agent-app-extraction.md`
+item 4); the entrypoint starts a runner again when it stops in its first minute.
+The hub's `GET /api/chatroom/pod-status` is read-only (hub `09943af`): it no
+longer recreates a missing Agent pod or wakes the Workspace. Verified: the
+page's progress still advances by stage, and Claude Code replied on the new
+account's `hello` project. Claude Code's own banner shows the Workspace's real
+path (`/__modal/volumes/…`).
 
 An owner sends one link. The person who opens it (the invitee) may have no
 account, no Workspace, no node and no coding agent. The link page takes them
