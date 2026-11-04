@@ -244,7 +244,11 @@ class AppStoreManager:
             app_id = manifest["id"]
             if expected_id and expected_id != app_id:
                 raise ValueError("Release manifest identity does not match the requested App")
-            effective = {a["id"]: a["manifest"] for a in self.inventory()["apps"] if a["effective"]}
+            # Manifests and install records decide the install; only the one
+            # repository it replaces needs Git. Reading every App's status on a
+            # Workspace whose volume has just started can take minutes.
+            library = self.inventory(with_git=False, with_defaults=False)["apps"]
+            effective = {a["id"]: a["manifest"] for a in library if a["effective"]}
             effective[app_id] = manifest
             for owner_id, owner in effective.items():
                 for dep_id, spec in (owner.get("dependencies") or {}).items():
@@ -265,7 +269,7 @@ class AppStoreManager:
                 repository_id = str(uuid.UUID(repository_id))
             except ValueError:
                 repository_id = str(uuid.uuid5(uuid.NAMESPACE_URL, 'store-package:' + repository_id))
-            unified = next((a for a in self.inventory()['apps'] if a['id'] == app_id and
+            unified = next((a for a in library if a['id'] == app_id and
                             (a.get('install') or {}).get('branch_model') and
                             ((a.get('install') or {}).get('upstream') or {}).get('id') == repository.get('id') and repository.get('id')), None)
             if unified:
@@ -276,8 +280,10 @@ class AppStoreManager:
                     '+refs/tags/*:refs/remotes/upstream/tags/*')
                 result = update_official(self, unified, repository, commit, version=version)
                 return {**result, 'version': version}
-            previous = next((a for a in self.inventory()['apps'] if a['scope'] == 'user' and
+            previous = next((a for a in library if a['scope'] == 'user' and
                              (a.get('install') or {}).get('package_id') == download['package_id']), None)
+            if previous:
+                previous['git'] = self._git_info(Path(previous['dir']), previous.get('install') or {})
             target = Path(previous['dir']) if previous else self.user_root / app_id
             if not previous and target.exists():
                 target = self.records / 'installed' / str(uuid.UUID(repository_id))

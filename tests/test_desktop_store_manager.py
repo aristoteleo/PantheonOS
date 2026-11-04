@@ -59,6 +59,32 @@ def test_release_roundtrip_upgrade_and_rollback(manager, tmp_path):
     assert target.inventory()['apps'][0]['install']['package_id'] == 'publisher-demo'
 
 
+def test_install_reads_git_only_for_the_repository_it_replaces(manager, tmp_path, monkeypatch):
+    manager.copy_to_user('demo', 'builtin')
+    release = download(manager.user_root / 'demo')
+    target = AppStoreManager([(tmp_path / 'other' / 'apps', 'user')])
+    other = app(target.user_root, app_id='other')
+    git(other, 'init', '-q')
+    inspected = []
+    original = AppStoreManager._git_info
+    monkeypatch.setattr(AppStoreManager, '_git_info',
+                        staticmethod(lambda d, r: inspected.append(d.name) or original(d, r)))
+    target.install(release)
+    target.install(release)
+    assert inspected == ['demo']
+
+
+def test_git_that_does_not_answer_is_a_plain_error(tmp_path, monkeypatch):
+    import subprocess
+
+    def slow(*args, **kwargs):
+        raise subprocess.TimeoutExpired(args[0], 45)
+    monkeypatch.setattr(subprocess, 'run', slow)
+    with pytest.raises(ValueError) as error:
+        git(tmp_path, 'status', '--porcelain')
+    assert not any(raw in str(error.value) for raw in ('Command', 'porcelain', 'timed out after'))
+
+
 @pytest.mark.parametrize('edit', ['dirty', 'committed'])
 def test_replacement_preserves_local_changes(manager, tmp_path, edit):
     manager.copy_to_user('demo', 'builtin')

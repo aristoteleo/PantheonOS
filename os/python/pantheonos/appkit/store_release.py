@@ -21,10 +21,14 @@ SEMVER = r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?"
 
 def git(root: Path, *args: str) -> str:
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}
-    proc = subprocess.run(
-        ["git", "-c", "core.hooksPath=/dev/null", *args], cwd=root,
-        capture_output=True, timeout=45, env=env,
-    )
+    try:
+        proc = subprocess.run(
+            ["git", "-c", "core.hooksPath=/dev/null", *args], cwd=root,
+            capture_output=True, timeout=45, env=env,
+        )
+    except subprocess.TimeoutExpired:
+        # Callers report ValueError text to people; never a raw command line.
+        raise ValueError("Git did not answer in time; the disk may still be starting. Try again in a moment") from None
     if proc.returncode:
         raise ValueError(proc.stderr.decode(errors="replace").strip() or "Git operation failed")
     return proc.stdout.decode("utf-8")
