@@ -115,20 +115,106 @@ may do.
 | Tool | Does |
 |---|---|
 | `space_get()` | Space, members, conversations, my read marks, agent statuses |
+| `space_update(name, settings)` | Rename the space; change the guards (as built: added, see below) |
+| `me_update(name, handle, avatar)` | The person's own member record (as built: added) |
 | `conv_create(kind, name, private, members)` / `conv_update(cid, …)` / `conv_join` / `conv_leave` / `conv_archive` | Conversations |
 | `messages(cid, before, after, root, limit)` | Page of folded messages (a thread when `root`) |
 | `post(cid, text, root, files, as_task)` | New message; parses `@handles` |
 | `edit(id, text)` / `delete(id)` | Own messages only (people; agents too, own only) |
 | `read(cid, id)` | Read mark |
 | `follow(root, on)` | Thread follow |
-| `agent_create(spec)` / `agent_update(mid, …)` / `agent_control(mid, action)` | Agents; actions `start`, `stop`, `stop_turn`, `reset_session`, `reset_full` |
+| `agent_create(spec)` / `agent_update(mid, …)` / `agent_control(mid, action)` | Agents; actions `start`, `stop`, `stop_turn`, `retry`, `reset_session`, `reset_full`, `delete` |
 | `agent_live(mid)` | Running turn's conversation id and node, for Watch |
+| `file_put(…)` / `file_get(id, offset, length)` | Files of messages, in pieces (as built: added) |
 | `search(q, cid, from, before, after)` | Phase 2 |
 | `task_*`, `reminder_*` | Phase 2 |
 
 Events on `fleet.<fid>.apps.team-chat.events`: `message`, `conv`, `member`,
 `agent_status`, `read`, `typing` (an agent's live line), each with the
 revision, so a browser that missed events re-reads.
+
+### The contract as built (2026-11-04)
+
+Over the App bus as every hosted App: `appRpc('team-chat', method, args)` →
+`{success, result}`, or `{success: false, error}` with the reason in plain
+words (a refused call, e.g. `#docs exists`, `you can only edit your own
+messages`). Unknown arguments are refused. The deployment App is named
+`team-chat` (`{"hosted": "team-chat", "scope": "team-chat"}`, added by the
+cloud profile); no other App binds it. The person of a Phase 1 space has the
+member id `owner`; agents have `a<hex>`; `system` writes the service's lines.
+
+**Records** (as `space_get` returns them):
+
+```
+space    {id, name, created, settings: {turns_per_agent_hour: 60, turns_per_space_day: 400,
+                                        hop_limit: 8, turn_max_minutes: 120}}
+member   {mid, kind: person|agent, handle, name, avatar, description, created,
+          agents: runtime, model, effort, node_id, folder, session_conversation_id,
+                  access: only_me|everyone|listed, access_list, listen: mention|all,
+                  created_by, state: running|stopped,
+                  attention: {reason, fix, at} | absent, turns: [unix seconds, last day]}
+conv     {cid, kind: channel|dm, name (channels), private, topic, members: [mid],
+          archived, agent_reply: mention|all, created, created_by}
+          #general has cid "general"; a DM's cid is "dm-<mid>-<mid>" (sorted)
+message  {id (ULID), cid, root ("" or absent: top level), from (mid | "system"),
+          kind: post|system, text, mentions: [mid], files: [file], at (RFC 3339),
+          edited_at, deleted: true (text "" and no files), hop,
+          runtime, model (an agent's message), about (system: the agent), action ("retry"),
+          reply_count, last_reply_at, repliers: [mid] (a thread root)}
+file     {id, name, mime, size}
+status   {state: ready|working|attention|offline, queue: n, reason, fix,
+          line (working: the live line), since, cid, root (working: where it was woken)}
+```
+
+| Method | Args | Result |
+|---|---|---|
+| `space_get` | — | `{space, me: "owner", members: [member], conversations: [conv], reads: {cid: id}, follows: [root], agent_status: {mid: status}, unread: {cid: {count, mentions, last}}, usage: {limits, turns_last_hour: {mid: n}, turns_today}, revision, subject}`. The first call creates the space with `#general`. |
+| `space_update` | `name`, `settings` (any of the four keys) | `{space, usage}` |
+| `me_update` | `name`, `handle`, `avatar` (each optional) | `{member}` |
+| `conv_create` | `kind` (`channel` \| `dm`), `name`, `private`, `members` ([mid]), `topic`, `agent_reply` | `{conversation}`; a DM (`members: [the other mid]`) that exists comes back with `existed: true` |
+| `conv_update` | `cid`, any of `name`, `topic`, `private`, `agent_reply`, `members` (the whole list) | `{conversation}` |
+| `conv_join` / `conv_leave` | `cid`, `mid` (default: the caller) | `{conversation}`; `#general` cannot be left |
+| `conv_archive` | `cid`, `archived` (default true) | `{conversation}` |
+| `messages` | `cid`, `before`, `after` (ids), `root`, `limit` (default 50, ≤ 200) | `{messages: [message] oldest first, more, cid, root}`; with `root` the root comes first, then its replies |
+| `post` | `cid`, `text`, `root`, `files` ([file id]), `as_task` (Phase 2: refused) | `{message}` |
+| `edit` | `id`, `text`, `cid` (optional, faster) | `{message}` |
+| `delete` | `id`, `cid` (optional) | `{message}` |
+| `read` | `cid`, `id` | `{cid, id}` |
+| `follow` | `root`, `on` (default true), `cid` (optional) | `{root, on}` |
+| `agent_create` | `spec: {name, handle, description, avatar, node_id, runtime, model, effort, folder, access, access_list, listen, channels, dry_run}` | `{agent, status, warning}`; with `dry_run: true` nothing is created: `{folder, warning, runtime, node_id}` |
+| `agent_update` | `mid` and fields: `name`, `handle`, `avatar`, `description`, `model`, `effort`, `listen`, `access`, `access_list`, `node_id`, `folder`, `runtime` (the last three start a new session) | `{agent, status}` |
+| `agent_control` | `mid`, `action`, `confirm` (`reset_full`: the agent's folder, exactly) | `{agent, status}`; `stop_turn` → `{stopped: true}`; `delete` → `{deleted: mid}` |
+| `agent_live` | `mid` | `{running, node_id, conversation_id, stream_id, stream_subject, started, from_seq, line, cid, root, status}` |
+| `file_put` | `name`, `mime`, `data` (base64), `offset`, `upload_id`, `final` | the first piece (no `upload_id`, offset 0) → `{upload_id, size}`; each next piece at `offset` = the size so far; the piece with `final: true` → `{file}`. ≤ 25 MB a file, ≤ 2 GB a space. |
+| `file_get` | `id`, `offset`, `length` (≤ 256 KB) | `{file, offset, data (base64), eof}` |
+
+`agent_create` refuses: a computer that is offline; a runtime that the
+computer's `agents_detect` does not list with a conversation mode (`… is not
+installed on <computer>: open Coding Agents → Install first`) or lists as
+signed out (`… is not signed in …`); a home folder or `/` for an agent whose
+`access` is not `only_me`; a taken handle. For a private agent in a home
+folder it creates the agent and returns `warning`. `runtime` is `claude`,
+`codex`, `gemini`, `cursor` or `pantheon`; the UI offers those
+`agents_detect` (fleet `node_call`) reports installed and not signed out.
+
+**Events** (plain JSON on `space_get().subject`), each with `rev`, one more
+than the last; a gap, or a first event after (re)subscribing, means: call
+`space_get` (and re-read open conversations):
+
+- `{type: "message", rev, message, change?: "edit"|"delete"}` — a new message,
+  or the folded message after an edit or delete;
+- `{type: "conv", rev, conversation}`;
+- `{type: "member", rev, member}`, or `{type: "member", rev, mid, deleted: true}`;
+- `{type: "agent_status", rev, mid, status}`;
+- `{type: "read", rev, mid, cid, id}`;
+- `{type: "typing", rev, mid, cid, root, line}` — an agent's live line;
+- `{type: "space", rev, space, usage}` — after `space_update`.
+
+**Watch**: `agent_live` names the coding-agents conversation and its stream
+subject; the browser reads the turn's events with Fleet `node_call`
+(`service: coding_agent`, `agent_conversation(conversation_id, after)`) and
+listens on `stream_subject`, as the Coding Agents App does. Stop is
+`agent_control(mid, "stop_turn")`.
 
 ## Agents
 
