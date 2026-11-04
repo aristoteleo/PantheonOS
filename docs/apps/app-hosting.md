@@ -176,3 +176,11 @@ version is not in the Store" while the Store had 0.1.0/0.1.1. The Host dialog
 now sends the commit; the Hub pins the Store version when it is that commit
 and otherwise asks for (404) and keeps the owner's release. Dialog errors are
 the Hub's sentence, never the request line.
+Live on staging (hub 4fe75d1, ui d893de33; the workspace `release` action
+908acbcc needs an Agent release, until then the dialog falls back to `prepare`,
+which packages a tagged, committed latest version only): a Cytoscape 0.2.1
+release kept with its link ran signed out; its install link installed 0.2.1
+into another account's workspace from the link and opened it; Store 0.1.1
+links were created from the dialog; Hello Host was hosted on its running
+instance for anonymous and signed-in visitors. A first visit of a hosted App
+now starts from its `demo.json`, as on the desktop (Cytoscape opened blank).
