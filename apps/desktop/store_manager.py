@@ -490,7 +490,8 @@ def _git_state(directory: Path, record: dict, with_index: bool) -> list | None:
     """Identity of the files Git replaces when refs, HEAD, config (or index) change.
 
     Git writes each of them to a lock file and renames it into place, so a
-    change always shows up as a new inode, size or mtime. Linked worktrees
+    change always shows up as a new mtime or size. Inodes are left out: the
+    Workspace volume numbers files afresh on every mount. Linked worktrees
     and reftable repositories keep refs elsewhere; they are read every time.
     """
     root = directory / ".git"
@@ -506,7 +507,7 @@ def _git_state(directory: Path, record: dict, with_index: bool) -> list | None:
     for path in paths:
         try:
             info = path.stat()
-            state.append([str(path.relative_to(root)), info.st_ino, info.st_mtime_ns, info.st_size])
+            state.append([str(path.relative_to(root)), info.st_mtime_ns, info.st_size])
         except FileNotFoundError:
             state.append([str(path.relative_to(root))])
     # The baseline and branch model also decide modified and branches.
