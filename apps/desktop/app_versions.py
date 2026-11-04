@@ -17,6 +17,24 @@ from pantheonos.appkit.store_release import git, unpack_release, validate_manife
 from pantheonos.appkit.versioning import fork
 
 
+def has_tag(repo: Path, tag: str) -> bool:
+    """Whether a version tag exists, from Git's ref files without running Git.
+
+    Runs for every official App on each Store read; a subprocess per App is
+    slow on a volume that has just started.
+    """
+    root = repo / '.git'
+    if not root.is_dir() or (root / 'reftable').exists():
+        return bool(git(repo, 'tag', '--list', tag).strip())
+    if (root / 'refs' / 'tags' / tag).is_file():
+        return True
+    try:
+        packed = (root / 'packed-refs').read_text()
+    except FileNotFoundError:
+        return False
+    return any(line.split(' ', 1)[-1] == f'refs/tags/{tag}' for line in packed.splitlines() if not line.startswith(('#', '^')))
+
+
 class AppVersions:
     def __init__(self, manager):
         self.manager = manager
@@ -59,7 +77,7 @@ class AppVersions:
                             git(source, 'tag', f"v{app['manifest']['version']}")
                     elif app['scope'] == 'builtin' and repo != source:
                         tag = f"v{app['manifest']['version']}"
-                        if not git(repo, 'tag', '--list', tag).strip():
+                        if not has_tag(repo, tag):
                             # New official versions extend the same graph. Never
                             # move an existing version tag or import runtime caches.
                             with tempfile.TemporaryDirectory(dir=self.root) as temp:

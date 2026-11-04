@@ -178,12 +178,12 @@ def test_workspace_publication_does_not_rebind_same_named_user_repo(manager):
 def test_targeted_repository_lookup_does_not_inspect_unrelated_git_trees(manager, monkeypatch):
     app = new_app(manager)
     fork = manager.branches.fork_app('demo', 'user', name='Experiment')
-    original = manager._git_info
+    original = manager._git_summary
     inspected = []
-    def inspect(path, record):
+    def inspect(path, record, scope, cache):
         inspected.append(path)
-        return original(path, record)
-    monkeypatch.setattr(manager, '_git_info', inspect)
+        return original(path, record, scope, cache)
+    monkeypatch.setattr(manager, '_git_summary', inspect)
     selected = manager.find('demo', fork['scope'], fork['repository_id'])
     assert inspected == [Path(fork['directory'])]
     assert selected['effective']

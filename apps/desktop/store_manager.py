@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import fcntl
 import json
+import os
 import shutil
 import tempfile
 import uuid
@@ -94,7 +95,7 @@ class AppStoreManager:
                                                 "upstream": record.get('upstream'), "publication": record.get('published'),
                                                 "label": record.get('label')}, "effective": effective,
                                  "default": self.versions.default(app_id),
-                                 "git": repo, "install": record or None})
+                                 "git": repo, "install": record or None, "_repository": repository})
                     repositories.append((repository, record))
                 except (ValueError, KeyError, OSError) as exc:
                     warnings.append(f"Cannot inspect {scope}/{directory.name}: {exc}")
@@ -102,21 +103,29 @@ class AppStoreManager:
             # Repository reads are independent. Bound concurrency so a large
             # library does not serialize hundreds of Git subprocesses or spawn
             # an unbounded number of them on a small workspace node.
+            cache = self._load_git_cache()
+            scopes = [app['scope'] for app in apps]
             def inspect(item):
-                directory, record = item
-                info = self._git_info(directory, record)
-                info['path'] = str(directory) if info.get('independent') else None
-                if info.get('independent') and record.get('branch_model'):
-                    from .local_repository import branches
-                    manifest_id = self.versions._manifest(directory, info['commit'])['id']
-                    info['branches'] = branches(self, directory, manifest_id, record)
-                return info
+                (directory, record), scope = item
+                return self._git_summary(directory, record, scope, cache)
             if len(apps) == 1:
-                apps[0]['git'] = inspect(repositories[0])
+                results = [inspect((repositories[0], scopes[0]))]
             else:
-                with ThreadPoolExecutor(max_workers=4) as pool:
-                    for app, info in zip(apps, pool.map(inspect, repositories)):
-                        app['git'] = info
+                with ThreadPoolExecutor(max_workers=8) as pool:
+                    results = list(pool.map(inspect, zip(repositories, scopes)))
+            changed = any(entry for _, entry in results)
+            if not (match_id or match_scope is not None or match_repository):
+                # A full read knows every repository; forget removed ones.
+                current = {str(app['_repository']) for app in apps}
+                changed = changed or any(key not in current for key in cache if key != 'version')
+                cache = {key: value for key, value in cache.items() if key == 'version' or key in current}
+            for app, (info, entry) in zip(apps, results):
+                app['git'] = info
+                if entry:
+                    cache[str(app['_repository'])] = entry
+            self._save_git_cache(cache, changed)
+        for app in apps:
+            app.pop('_repository', None)
         if with_defaults and with_git:
             defaults = {app_id: self.versions.launch_default(app_id, None if match_scope or match_repository else apps)
                         for app_id in {app['id'] for app in apps}}
@@ -129,26 +138,88 @@ class AppStoreManager:
         if not (directory / ".git").exists():
             return {"independent": False, "modified": False}
         try:
-            commit = git(directory, "rev-parse", "HEAD").strip()
+            info = AppStoreManager._git_refs(directory, record)
             changes = git(directory, "status", "--porcelain").splitlines()
-            baseline = record.get("installed_commit")
-            extra_commits = bool(git(directory, "rev-list", "--branches", "--not", baseline).strip()) if baseline else False
-            try:
-                remote = git(directory, "remote", "get-url", "origin").strip()
-                # Never expose credentials embedded in a remote URL.
-                from urllib.parse import urlsplit, urlunsplit
-                parsed = urlsplit(remote)
-                if parsed.scheme:
-                    remote = urlunsplit((parsed.scheme, parsed.hostname or "", parsed.path, "", ""))
-            except ValueError:
-                remote = ""
-            return {"independent": True, "commit": commit, "remote": remote,
-                    "changes": changes, "tags": git(directory, "tag", "--list", "--sort=-version:refname").splitlines(),
-                    "branch": git(directory, "branch", "--show-current").strip(),
-                    "updated_at": git(directory, "log", "-1", "--format=%cI").strip(),
-                    "modified": bool(changes) or extra_commits or bool(baseline and baseline != commit)}
         except ValueError as exc:
             return {"independent": True, "modified": True, "error": str(exc)}
+        committed = info.pop("committed")
+        return {**info, "changes": changes, "modified": bool(changes) or committed}
+
+    @staticmethod
+    def _git_refs(directory: Path, record: dict) -> dict:
+        """Everything but the working tree: a function of refs, HEAD and config."""
+        commit = git(directory, "rev-parse", "HEAD").strip()
+        baseline = record.get("installed_commit")
+        extra_commits = bool(git(directory, "rev-list", "--branches", "--not", baseline).strip()) if baseline else False
+        try:
+            remote = git(directory, "remote", "get-url", "origin").strip()
+            # Never expose credentials embedded in a remote URL.
+            from urllib.parse import urlsplit, urlunsplit
+            parsed = urlsplit(remote)
+            if parsed.scheme:
+                remote = urlunsplit((parsed.scheme, parsed.hostname or "", parsed.path, "", ""))
+        except ValueError:
+            remote = ""
+        return {"independent": True, "commit": commit, "remote": remote,
+                "tags": git(directory, "tag", "--list", "--sort=-version:refname").splitlines(),
+                "branch": git(directory, "branch", "--show-current").strip(),
+                "updated_at": git(directory, "log", "-1", "--format=%cI").strip(),
+                "committed": extra_commits or bool(baseline and baseline != commit)}
+
+    def _git_summary(self, directory: Path, record: dict, scope: str, cache: dict) -> tuple[dict, dict | None]:
+        """One repository's Store summary and, when it was read again, its new cache entry.
+
+        Refs, tags, branches and history are reused while the files Git
+        rewrites for them are unchanged. Personal repositories still read
+        their working tree; official copies are not edited by people, so their
+        status is reused until their index or refs change.
+        """
+        if not (directory / ".git").exists():
+            return {"independent": False, "modified": False, "path": None}, None
+        official = scope == "builtin"
+        state = _git_state(directory, record, official)
+        hit = cache.get(str(directory))
+        try:
+            if state is not None and hit and hit.get("state") == state:
+                info, entry = json.loads(json.dumps(hit["info"])), None
+            else:
+                info = self._git_refs(directory, record)
+                if record.get("branch_model"):
+                    from .local_repository import branches
+                    manifest_id = self.versions._manifest(directory, info["commit"])["id"]
+                    info["branches"] = branches(self, directory, manifest_id, record)
+                if official:
+                    info["changes"] = git(directory, "status", "--porcelain").splitlines()
+                # A status read may refresh the index; key on what it left.
+                state = _git_state(directory, record, official)
+                entry = {"state": state, "info": info} if state is not None else None
+            info = json.loads(json.dumps(info))
+            if not official:
+                info["changes"] = git(directory, "status", "--porcelain").splitlines()
+        except ValueError as exc:
+            return {"independent": True, "modified": True, "error": str(exc), "path": str(directory)}, None
+        committed = info.pop("committed")
+        info["modified"] = bool(info["changes"]) or committed
+        info["path"] = str(directory)
+        return info, entry
+
+    def _load_git_cache(self) -> dict:
+        try:
+            cache = json.loads((self.records / "git-summaries.json").read_text())
+            return cache if isinstance(cache, dict) and cache.get("version") == 1 else {"version": 1}
+        except (OSError, ValueError):
+            return {"version": 1}
+
+    def _save_git_cache(self, cache: dict, changed: bool):
+        if not changed:
+            return
+        try:
+            self.records.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile("w", dir=self.records, prefix=".git-summaries-", delete=False) as out:
+                json.dump(cache, out)
+            Path(out.name).replace(self.records / "git-summaries.json")
+        except OSError:
+            pass  # Only a cache: the next read inspects Git again.
 
     def find(self, app_id: str, scope: str | None = None, repository_id: str = '') -> dict:
         # A targeted source operation must not inspect sibling repositories just
@@ -413,3 +484,31 @@ class AppStoreManager:
                 path.write_text(original)
                 raise
             return {"success": True, "tag": tag}
+
+
+def _git_state(directory: Path, record: dict, with_index: bool) -> list | None:
+    """Identity of the files Git replaces when refs, HEAD, config (or index) change.
+
+    Git writes each of them to a lock file and renames it into place, so a
+    change always shows up as a new inode, size or mtime. Linked worktrees
+    and reftable repositories keep refs elsewhere; they are read every time.
+    """
+    root = directory / ".git"
+    if not root.is_dir() or (root / "reftable").exists():
+        return None
+    names = ["HEAD", "config", "packed-refs", *(["index"] if with_index else [])]
+    paths = [root / name for name in names]
+    for refs in (root / "refs" / "heads", root / "refs" / "tags"):
+        for parent, folders, files in os.walk(refs):
+            folders.sort()
+            paths.extend(Path(parent) / name for name in sorted(files))
+    state = []
+    for path in paths:
+        try:
+            info = path.stat()
+            state.append([str(path.relative_to(root)), info.st_ino, info.st_mtime_ns, info.st_size])
+        except FileNotFoundError:
+            state.append([str(path.relative_to(root))])
+    # The baseline and branch model also decide modified and branches.
+    state.append(json.dumps({k: record.get(k) for k in ("installed_commit", "branch_model", "official_branch", "upstream")}, sort_keys=True))
+    return state

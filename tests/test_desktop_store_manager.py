@@ -323,3 +323,77 @@ async def test_summary_inventory_does_not_wait_for_git_or_migrate_repositories(m
     assert len([row for row in result['apps'] if row['id'] == 'demo']) == 2
     assert not (directory / '.git').exists()
     toolset.serve_local_data.assert_not_called()
+
+
+def git_commands(monkeypatch):
+    import subprocess
+    from pantheonos.appkit import store_release
+    calls, run = [], subprocess.run
+    def record(cmd, *args, **kwargs):
+        calls.append((Path(kwargs.get('cwd') or '.').name, cmd[3] if cmd[1] == '-c' else cmd[1]))
+        return run(cmd, *args, **kwargs)
+    monkeypatch.setattr(store_release.subprocess, 'run', record)
+    return calls
+
+
+@pytest.mark.asyncio
+async def test_store_reads_reuse_git_summaries_until_a_repository_changes(manager, monkeypatch):
+    from apps.desktop.toolset import DesktopToolSet
+    app(manager.roots[2][0], app_id='viewer')
+    manager.copy_to_user('demo', 'builtin')
+    toolset = DesktopToolSet()
+    toolset._app_scope_roots = lambda: manager.roots
+    first = await toolset.desktop_store_apps()
+    assert first['success'], first
+    calls = git_commands(monkeypatch)
+    again = await toolset.desktop_store_apps()
+    # Official copies run no Git at all; a personal repository only reads its
+    # working tree. The answer is the same as a full read.
+    assert calls == [('demo', 'status')]
+    assert again == first
+    assert not (manager.records / 'git-summaries.json').read_text().count('"changes": ["')
+
+    user = manager.user_root / 'demo'
+    (user / 'index.js').write_text('edited')
+    row = next(a for a in (await toolset.desktop_store_apps())['apps'] if a['scope'] == 'user')
+    assert row['git']['modified'] and row['git']['changes'] == [' M index.js']
+    manager.tag('demo', '1.0.1')
+    row = next(a for a in (await toolset.desktop_store_apps())['apps'] if a['scope'] == 'user')
+    assert row['git']['tags'][0] == 'v1.0.1' and row['git']['commit'] == git(user, 'rev-parse', 'HEAD').strip()
+    assert row['git']['modified'] and not row['git']['changes']
+
+    # A new official version extends the retained repository on the next read.
+    app(manager.roots[2][0], version='1.1.0', app_id='viewer')
+    rows = (await toolset.desktop_store_apps())['apps']
+    assert next(a for a in rows if a['id'] == 'viewer')['git']['tags'][0] == 'v1.1.0'
+    calls.clear()
+    await toolset.desktop_store_apps()
+    assert calls == [('demo', 'status')]
+
+
+def test_store_read_without_a_cache_matches_the_full_git_read(manager):
+    manager.copy_to_user('demo', 'builtin')
+    manager.versions.ensure()
+    (manager.user_root / 'demo' / 'new.txt').write_text('untracked')
+    cached = manager.inventory()['apps']
+    (manager.records / 'git-summaries.json').write_text('{not json')
+    fresh = manager.inventory()['apps']
+    assert cached == fresh
+    for row in fresh:
+        repository = manager.versions.repository(Path(row['dir']), row['scope'], row['id'])
+        full = AppStoreManager._git_info(repository, row.get('install') or {})
+        assert row['git'] == {**full, 'path': str(repository)}
+
+
+def test_official_version_check_reads_loose_and_packed_tags(tmp_path):
+    from apps.desktop.app_versions import has_tag
+    repo = app(tmp_path)
+    git(repo, 'init', '-q')
+    git(repo, 'add', '-A')
+    git(repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'one')
+    git(repo, 'tag', 'v1.0.0')
+    git(repo, 'tag', '-a', 'v1.0.1', '-m', 'annotated')
+    assert has_tag(repo, 'v1.0.0') and has_tag(repo, 'v1.0.1') and not has_tag(repo, 'v1.0')
+    git(repo, 'pack-refs', '--all')
+    assert not (repo / '.git/refs/tags/v1.0.0').exists()
+    assert has_tag(repo, 'v1.0.0') and has_tag(repo, 'v1.0.1') and not has_tag(repo, 'v2.0.0')
