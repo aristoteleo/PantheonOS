@@ -7,16 +7,25 @@ App in their own browser, with no Atrium desktop around it.
 
 | Mode | Visitor signs in | Runs on | What the link is |
 |---|---|---|---|
-| `frontend` | no | nothing (static) | The App's frontend, served from its pinned Store version |
+| `frontend` | no | nothing (static) | The App's frontend, served from its pinned release |
 | `host` | optional (owner's choice) | the owner's running instance | A visitor grant to that instance, limited to what the App declares shareable |
-| `install` | yes | the visitor's own workspace | An offer to install the pinned Store version and open it on the visitor's desktop |
+| `install` | yes | the visitor's own workspace | An offer to install the pinned release and open it on the visitor's desktop |
 
 * An App without a backend is always `frontend`.
 * An App with a backend can be `host` only if its manifest declares a `share`
   section (below); otherwise it can only be offered as `install`.
-* `install` and `frontend` pin the Store version current at hosting time; `host`
-  follows whatever instance the owner runs (an upgrade or restart keeps the
-  link working).
+* `install` and `frontend` pin the revision the owner runs at hosting time
+  (their launch default: repository + commit); `host` follows whatever
+  instance the owner runs (an upgrade or restart keeps the link working).
+* **Which release.** When the Store has that exact commit as a version of the
+  package the App was installed from or publishes to (public, or the owner's
+  own), the link pins that Store version. Otherwise (the owner's own commit,
+  a local tag, a fork never published) the owner's workspace packages the
+  commit (`desktop_store_manage(action='release', version=<commit>)`: the
+  commit and its ancestry at tag `v<version>`, built in a scratch clone, the
+  repository untouched) and the Hub keeps that release with the link, verified
+  exactly like a Store upload. Hosting never needs the Store to have caught up
+  with what the owner runs, and never publishes it.
 
 Every link has an optional expiry (none means until revoked), can be revoked at
 any time, and records visits (who, when; anonymous visitors by session).
@@ -92,17 +101,18 @@ instance of the same App (deployment App by name, or node + app_id + scope).
   with `?install=<package>@<version>`: the desktop opens the Store on that
   release with `installRelease`, which waits for the workspace, runs the
   existing Store install (skipped when that version is already installed) and
-  opens the App. Any App with a public Store version can be offered this way,
-  with or without a backend; a private package is refused when hosting
-  (Store downloads serve public packages only; per-link access to a private
-  repository is a follow-up).
+  opens the App. A link with its own release (not a public Store version)
+  instead opens `?install-share=<id>`: the desktop fetches the release from
+  `GET /api/app-shares/<id>/release` (sign-in, the link's allowed people) and
+  installs it as package `app-share-<id>`, then opens the App.
 
 ## Data
 
 Hub table `app_shares`: `id` (URL token, 128-bit), `owner_user_id`, `mode`,
 `require_login`, `allowed_users` (optional usernames/emails for `host`),
 `target` (`{deployment, app}` or `{node_id, app_id, scope}`), `package_id` +
-`version` (`frontend`/`install`), `title`, `expires_at`, `revoked_at`,
+`version` (`frontend`/`install`), `app_release` + `app_bundle` (the link's own
+release when the Store has not that revision; the bundle is dropped on revoke), `title`, `expires_at`, `revoked_at`,
 `created_at`, plus `app_share_visits` (`share_id`, visitor kind/id, first/last
 seen, count).
 
@@ -158,3 +168,11 @@ for PhyloTree 0.1.1 showed the offer, opened the desktop, installed it from
 the Store and opened it. The install intent lives outside the Store window
 (`openAppInStore.ts`): the window remounts when the server confirms it, before
 the workspace is ready.
+
+Status 2026-11-03: links host the revision the owner runs. Since Apps install
+from repositories (official `main`, personal branches and tags), what an owner
+runs is often not a Store version: Cytoscape 0.2.1 failed with "This App
+version is not in the Store" while the Store had 0.1.0/0.1.1. The Host dialog
+now sends the commit; the Hub pins the Store version when it is that commit
+and otherwise asks for (404) and keeps the owner's release. Dialog errors are
+the Hub's sentence, never the request line.
