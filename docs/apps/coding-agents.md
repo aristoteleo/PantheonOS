@@ -498,6 +498,13 @@ for Claude there.
 **Status (2026-11-04):** on staging (node `fleet-v0.5.1-staging.6`, Workspace
 image `72c8e002…`); verified on a new account's Workspace. Not on prod.
 
+**Status (2026-11-04, later):** the App opened from an invite makes a starter
+project (`starter: "hello"`, the `onboarding.start` args: a `hello` folder in
+the chosen computer's home, made once when it has no project) and opens on
+it, ready to chat; the status bar reads the quota as words ("Monthly limit 0%
+used (resets in 26 days)"); the PantheonOS note names "your Workspace", not
+its host name (ui `617394b1`, frontend `aebb2f1c`, staging).
+
 An agent's own interface asks a few questions the first time it starts:
 Claude Code a theme, whether to trust the folder and, with its full-auto
 flag, to accept bypass permissions (the last two with "No, exit"

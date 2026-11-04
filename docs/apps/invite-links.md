@@ -19,6 +19,36 @@ first terminal took a prompt at once; a conversation started with
 `pantheon coding-agent run` replied and resumed in a terminal without a
 question.
 
+**Status (2026-11-04, fix round):** an independent check's findings fixed on
+staging (frontend `aebb2f1c`, ui `617394b1`; hub `1a0cfbc9`, hub `9461ef3`),
+verified with a new account invited by acct3 (invite → Coding Agents on a
+`hello` project → first Claude Code reply billed to the new account):
+
+* Pasting a link into a tab on another link opens it (every hash route follows the URL).
+* Sign-in says wrong password, no such account, or a network problem.
+* The Workspace step says what is happening in words with a progress bar, that a
+  first start takes a few minutes, and when a stage is slow; a Workspace
+  already up is joined, not started, so an invite whose steps are all done
+  opens the App at once.
+* An App page for one of the account's own computers that is offline says so,
+  how to bring it back, and offers the Workspace; nothing on the page asks the
+  hub for the sandbox (`GET /api/chatroom` is refused while the page holds the
+  Workspace back, and the sandbox status is not polled).
+* Install and Mine links create the account in place (`POST /api/app-links/<id>/register`);
+  invite sign-ups refuse weak passwords; closed, full and unknown links have a
+  page of their own with the next step; the owner is named by display or full
+  name, else username.
+* Coding Agents opens on a `hello` project (`onboarding.start`), a viewer with
+  no file offers an upload or its example, "Open on desktop" is shown only to
+  desktop users, and the Agent's invite says it opens on the desktop for now.
+* Two tabs on one link: signing in on one moves the other on.
+
+Known: a first Workspace start still spends about 3.5 minutes installing the
+Workspace's Apps one at a time on an empty volume (the node runs every
+lifecycle operation serially, `os/internal/lifecycle/manager.go` `execute()`,
+and builds every App environment from scratch); the page now says so. Claude
+Code's own banner shows the Workspace's real path (`/__modal/volumes/…`).
+
 An owner sends one link. The person who opens it (the invitee) may have no
 account, no Workspace, no node and no coding agent. The link page takes them
 through every step until the App is open and usable on **their own** account,
@@ -83,8 +113,11 @@ never shows a Workspace step or its start-up progress, and never starts one.
    either place offer **This Workspace** (when the App allows it) and **My own
    computer**; the choice decides whether step 4 exists.
 4. **Workspace.** Only when the App or the choice in step 3 needs it: starts
-   the invitee's Workspace and waits, with the real stages the desktop
-   already reports (n/14 ready).
+   the invitee's Workspace and waits, saying the real stage in words (the
+   cloud computer starting, the Workspace's apps being set up the first time,
+   then started) with a progress bar, never a bare "n/14". A first start is
+   said to take a few minutes; a stage past its usual length is said to be
+   slow. A Workspace already running is joined without counting as a start.
 5. **Install.** Packaged Apps not installed at the pinned (or a newer)
    version: installs it (the existing `installRelease` path). Built-ins skip.
 6. **App requirements.** From the App's `onboarding` declaration (below). For

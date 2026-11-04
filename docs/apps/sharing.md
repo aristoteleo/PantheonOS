@@ -3,6 +3,14 @@
 **Status (2026-11-04):** live on staging only (hub 5b17d7c, image 4f027f50;
 ui abc848a6). Verified on staging: H1–H8. Not on prod.
 
+**Status (2026-11-04, fix round):** hub `9461ef3` (image `1a0cfbc9`), ui
+`617394b1` (frontend `aebb2f1c`). A Mine link records whether it turned the
+instance's keep-alive on (`keep_alive_by_link`, kept with the link's target
+and never sent to the controller); revoking the last live such link turns it
+off again (verified: off → Mine link → on → revoke → off). Revoke asks
+first; Shared links lists refresh when a link is made or revoked in any tab
+and on focus; Escape closes Share…; a closed `/#/a/` link says why, as `/#/s/`.
+
 Three entries grew separately and overlap: "Open in Own Tab" / "Open in New
 Tab", "Host…" (modes `frontend`, `host`, `install`) and "Invite people…".
 They answer two questions only, so the UI shows two entries.
