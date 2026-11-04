@@ -375,8 +375,10 @@ Apps and the three viewers moved to it.
   remember separately), from the per-App key.
 - S3e Narrow (< 900 px): the panel opens as a full-width overlay with a back
   button; tabs, keys and collapse work the same.
-- S4 Clicking a URL opens a browser tab; "Open in Pantheon Browser" opens
-  `/app/browser?open=<url>` in a new tab.
+- S4 Clicking a URL opens a browser tab; "Open in Pantheon Browser" sends a
+  Browser window with that URL to the desktop, saying whether it is in an
+  open desktop tab or shows when the desktop is opened. (`/app/browser` is a
+  Phase 3 page; until then it offers Send to desktop.)
 - S5 An intent for `xwindow` (or any `desktop-only` App) offers Send to
   desktop; with no desktop open, the window is in the session afterwards
   (`get`) and appears when the desktop is opened.
