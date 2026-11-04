@@ -178,6 +178,15 @@ def test_the_profile_binds_the_desktop_to_the_hosted_service():
     assert 'desktop-state' not in desktop_state({'agent': {}})
 
 
+def test_the_cloud_profile_adds_the_hosted_team_chat():
+    from pantheonos.general_team.release_profile import team_chat
+    apps = team_chat({'desktop': {'package': 'desktop', 'scope': 'shared-desktop', 'intent': 'running'}})
+    assert apps['team-chat'] == {'hosted': 'team-chat', 'scope': 'team-chat', 'intent': 'running'}
+    assert 'team-chat' not in team_chat({'agent': {}})
+    manifest = json.loads((ROOT / 'os/internal/hosted/manifests/team-chat.json').read_text())
+    assert manifest['id'] == 'team-chat' and manifest['version'] == '1.0.0'
+
+
 def test_the_desktop_package_declares_the_optional_dependency(tmp_path):
     from pantheonos.appkit.builtin.desktop.build_managed import build
     from pantheonos.appkit.schema import parse_manifest

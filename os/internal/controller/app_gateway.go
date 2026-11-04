@@ -44,10 +44,20 @@ func connectAppGateway(authority *auth.Authority, fid, natsURL string) (*nats.Co
 // credential is minted afresh on every (re)connect, so an expired one is
 // replaced by reconnecting rather than ending the service.
 func connectDesktopState(authority *auth.Authority, natsURL string) (*nats.Conn, error) {
+	return connectHostedService(natsURL, "desktop-state", auth.DesktopStateInbox, authority.MintDesktopState)
+}
+
+// connectTeamChat is the team-chat service's own bus connection, as
+// desktop-state's.
+func connectTeamChat(authority *auth.Authority, natsURL string) (*nats.Conn, error) {
+	return connectHostedService(natsURL, "team-chat", auth.TeamChatInbox, authority.MintTeamChat)
+}
+
+func connectHostedService(natsURL, name, inbox string, mint func(time.Duration) ([]byte, error)) (*nats.Conn, error) {
 	var mu sync.Mutex
 	var seed nkeys.KeyPair
 	user := func() (string, error) {
-		creds, err := authority.MintDesktopState(24 * time.Hour)
+		creds, err := mint(24 * time.Hour)
 		if err != nil {
 			return "", err
 		}
@@ -69,13 +79,13 @@ func connectDesktopState(authority *auth.Authority, natsURL string) (*nats.Conn,
 		kp := seed
 		mu.Unlock()
 		if kp == nil {
-			return nil, fmt.Errorf("no desktop-state credential")
+			return nil, fmt.Errorf("no %s credential", name)
 		}
 		return kp.Sign(nonce)
 	}
 	// As for the App gateway: a write is never replayed after a reconnect.
-	return nats.Connect(natsURL, nats.UserJWT(user, sign), nats.Name("desktop-state"),
-		nats.CustomInboxPrefix(auth.DesktopStateInbox), nats.Timeout(5*time.Second), nats.ReconnectBufSize(-1),
+	return nats.Connect(natsURL, nats.UserJWT(user, sign), nats.Name(name),
+		nats.CustomInboxPrefix(inbox), nats.Timeout(5*time.Second), nats.ReconnectBufSize(-1),
 		nats.MaxReconnects(-1), nats.RetryOnFailedConnect(true))
 }
 

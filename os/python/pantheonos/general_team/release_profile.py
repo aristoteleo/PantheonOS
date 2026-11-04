@@ -165,6 +165,18 @@ def desktop_state(apps):
     return apps
 
 
+# Team Chat (docs/apps/team-chat.md), kept by the controller like the
+# desktop: the owner's browser calls it directly, so no App binds it.
+TEAM_CHAT = {'hosted': 'team-chat', 'scope': 'team-chat', 'intent': 'running'}
+
+
+def team_chat(apps):
+    """Add the hosted team-chat to a cloud deployment (one with a Desktop)."""
+    if 'desktop' in apps:
+        apps['team-chat'] = dict(TEAM_CHAT)
+    return apps
+
+
 # Apps whose configuration names other Apps only to use them at request time:
 # the allocator binds providers to Agent sessions when a session asks. With
 # late references it starts before (and independently of) those Apps.
@@ -218,7 +230,7 @@ def compile_profile(spec, *, tiers, catalog=()):
     tiers: {tier: [model, ...]} seeds the tier routes; catalog: extra
     [{id, suggested}] the platform Connector offers when the service has them.
     """
-    apps = desktop_state(hosted_apps({name: _app(name, app) for name, app in spec['apps'].items()}))
+    apps = team_chat(desktop_state(hosted_apps({name: _app(name, app) for name, app in spec['apps'].items()})))
     routes = {'tier-' + tier: list(chain) for tier, chain in tiers.items()}
     for name, item in spec['model_apps'].items():
         apps[name] = model_app(name, item, routes=routes, catalog=catalog)

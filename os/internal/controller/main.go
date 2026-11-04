@@ -637,13 +637,14 @@ func Main(args []string) {
 			r.Grants = grants
 		}
 		host.Store = store
-		host.Register("fleet", &hosted.Fleet{Bus: nodes, Store: store, NATSURL: *natsURL,
+		fleetService := &hosted.Fleet{Bus: nodes, Store: store, NATSURL: *natsURL,
 			MintApps: authority.MintFleetApps,
 			JoinToken: func(fleet string, ttl time.Duration) (string, error) {
 				return token.SignJoin(refreshPriv, token.JoinPayload{FleetID: fleet, JTI: randID(), Exp: time.Now().Add(min(ttl, maxJoinTTL)).Unix()})
 			},
 			Latest: func() string { return currentLatestTag(*stateDir, *latestTag) },
-		})
+		}
+		host.Register("fleet", fleetService)
 		host.Register("model-services-control", &hosted.ModelAccess{Store: store, Hub: &hosted.Hub{Secrets: secrets}})
 		host.Register("model-services-management", &modelservices.Service{Bus: nodes, Hub: &hosted.Hub{Secrets: secrets},
 			State: filepath.Join(*stateDir, "hosted"), Connector: connectorSource(store, releases),
@@ -660,6 +661,18 @@ func Main(args []string) {
 			Connect: func() (*nats.Conn, error) { return connectDesktopState(authority, *natsURL) }}
 		host.Register("desktop-state", desktop)
 		go desktop.Run(context.Background(), time.Hour)
+		// Team Chat: spaces in the TEAMCHAT bucket, messages in TEAMCHAT_MSG,
+		// files in TEAMCHAT_FILES; turns on the owners' nodes through their
+		// Coding Agents service (docs/apps/team-chat.md).
+		teamKey, err := loadOrCreateKey(filepath.Join(*stateDir, "team-chat.key"))
+		if err != nil {
+			log.Fatal(err)
+		}
+		teamChat := &hosted.TeamChat{Backups: filepath.Join(*stateDir, "backups"), Dir: filepath.Join(*stateDir, "team-chat"),
+			Key: teamKey, Nodes: hosted.FleetNodes(fleetService),
+			Connect: func() (*nats.Conn, error) { return connectTeamChat(authority, *natsURL) }}
+		host.Register("team-chat", teamChat)
+		go teamChat.Run(context.Background())
 		if grants != nil {
 			allocator := &hosted.Allocator{Bus: nodes, Store: store, Grants: grants, Root: filepath.Join(*stateDir, "hosted")}
 			host.Register("dependency-binding", allocator)
@@ -1199,4 +1212,19 @@ func fleetResolver(hubConfigured bool, allowed map[string]bool, validate func(st
 		}
 		return deriveFleet(key), true
 	}
+}
+
+// loadOrCreateKey reads a 32-byte secret, or creates one (0600).
+func loadOrCreateKey(path string) ([]byte, error) {
+	if b, err := os.ReadFile(path); err == nil && len(b) >= 32 {
+		return b, nil
+	}
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		return nil, err
+	}
+	return b, nil
 }
