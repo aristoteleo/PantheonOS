@@ -197,4 +197,13 @@ func TestScopeMembershipStateKeepsEachAccountsOwnState(t *testing.T) {
 	if got := os.Getenv("PANTHEON_CLI_HOME"); got != "/custom/cli" {
 		t.Fatalf("an override was replaced: %q", got)
 	}
+	// What another membership set is not an override: a node started from
+	// that node's terminal inherits it.
+	third := filepath.Join(base, "fleets", "f_c")
+	if set := scopeMembershipState(base, third); len(set) != 1 || os.Getenv("PANTHEON_CODING_AGENTS_DIR") != filepath.Join(third, "coding-agents") {
+		t.Fatalf("set %v, dir %q", set, os.Getenv("PANTHEON_CODING_AGENTS_DIR"))
+	}
+	if scopeMembershipState(base, base); os.Getenv("PANTHEON_CODING_AGENTS_DIR") != "" {
+		t.Fatalf("the first membership kept another's dir %q", os.Getenv("PANTHEON_CODING_AGENTS_DIR"))
+	}
 }

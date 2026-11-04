@@ -49,14 +49,21 @@ var membershipStateVars = []struct{ name, dir string }{
 // scopeMembershipState points this process (and what it starts) at dir's
 // own per-user state when dir is a membership other than the first, so one
 // account never uses another's access key, projects or login. A variable
-// already set wins. It returns the variables it set.
+// already set wins, unless it is what another membership of base set (a node
+// started from that node's terminal inherits it). It returns the variables
+// it set.
 func scopeMembershipState(base, dir string) []string {
-	if !isMembershipDir(base, dir) {
-		return nil
-	}
+	own := isMembershipDir(base, dir)
 	var set []string
 	for _, v := range membershipStateVars {
-		if os.Getenv(v.name) != "" {
+		current := os.Getenv(v.name)
+		if current != "" && !(filepath.Base(current) == v.dir && isMembershipDir(base, filepath.Dir(current))) {
+			continue
+		}
+		if !own {
+			if current != "" {
+				_ = os.Unsetenv(v.name)
+			}
 			continue
 		}
 		if os.Setenv(v.name, filepath.Join(dir, v.dir)) == nil {
