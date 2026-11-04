@@ -314,15 +314,28 @@ def file_sha256(path):
     return digest.hexdigest()
 
 
+def shareable(specification):
+    """Index requirements only, optionally hash-locked: their environment depends
+    on nothing but this text, so revisions (and nodes) can share it. Includes,
+    editable projects, URLs, wheel paths and pip options can depend on other App
+    files; those stay isolated per artifact instead of guessing their
+    dependencies."""
+    for line in specification.splitlines():
+        line = line.strip()
+        if line.endswith('\\'):  # a hash-locked requirement continues
+            line = line[:-1].rstrip()
+        if not line or line.startswith('#') or re.fullmatch(r'--hash=sha256:[0-9a-f]{64}', line):
+            continue
+        if (not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.\[\],<>=!~* ;"\'()-]*', line)
+                or re.search(r'\.(whl|zip|tar|gz|bz2|xz)(\s|$)', line)):
+            return False
+    return True
+
+
 def environment_key(package, install, requirements):
     manifest = next(package / n for n in ('app.json', 'atrium.json') if (package / n).is_file())
     specification = requirements.read_text() if requirements else ''
-    # Reuse only index requirements across revisions. Includes, editable
-    # projects, URLs, wheel paths and pip options can depend on other App files;
-    # keep those isolated per artifact instead of guessing their dependencies.
-    simple = all(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.\[\],<>=!~* ;"\'()-]*', line.strip())
-                 and not re.search(r'\.(whl|zip|tar|gz|bz2|xz)(\s|$)', line)
-                 for line in specification.splitlines() if line.strip() and not line.lstrip().startswith('#'))
+    simple = shareable(specification)
     interpreter = Path(sys.executable).resolve()
     identity = {
         'schema': SCHEMA,
@@ -381,57 +394,123 @@ def environment_lock(path, timeout=540):
                 fcntl.flock(lock, fcntl.LOCK_UN)
 
 
+def requirements_file(package):
+    return next((package / n for n in ('backend/requirements.txt', 'requirements.txt')
+                 if (package / n).is_file()), None)
+
+
+def interpreter_of(root):
+    return root / ('Scripts/python.exe' if sys.platform == 'win32' else 'bin/python')
+
+
+def build_environment(root, requirements, package, downloads, log):
+    """Create a fresh environment at root (its final path: moving a venv
+    afterwards breaks console-script interpreter paths)."""
+    python = interpreter_of(root)
+    if root.exists():
+        shutil.rmtree(root)
+    print('Preparing new Python dependency environment', file=log, flush=True)
+    venv.EnvBuilder(with_pip=True, symlinks=sys.platform != 'win32').create(root)
+    if requirements:
+        # App HOME is private. Share the node's pip download cache
+        # explicitly rather than re-downloading wheels each revision.
+        # Prefer a compatible wheel within the App's version bounds.
+        # The newest release may only offer source on an older node,
+        # where compiling scientific dependencies is slow or impossible.
+        # Source-only requirements remain supported.
+        subprocess.run([str(python), '-I', '-m', 'pip', 'install', '--prefer-binary', '--disable-pip-version-check',
+                        '--cache-dir', str(downloads), '-r', str(requirements)],
+                       cwd=package, check=True, stdout=log, stderr=log)
+    subprocess.run([str(python), '-I', '-m', 'pip', 'check'],
+                   cwd=root, check=True, stdout=log, stderr=log)
+    return python
+
+
+def mark_ready(root, key):
+    marker = root / '.fleet-ready.json'
+    pending_marker = marker.with_suffix('.tmp')
+    pending_marker.write_text(json.dumps({'schema': SCHEMA, 'key': key}))
+    pending_marker.replace(marker)
+
+
+def is_ready(root, key):
+    try:
+        marked = json.loads((root / '.fleet-ready.json').read_text()) == {'schema': SCHEMA, 'key': key}
+    except (OSError, ValueError):
+        return False
+    return marked and interpreter_of(root).is_file()
+
+
+#: Node configuration: a directory of ready environments, one per key, that the
+#: node's image ships (a Workspace image builds its Apps' environments with
+#: --seed). A brand-new node then installs those Apps without pip.
+SEEDS = 'PANTHEON_PYTHON_ENV_SEEDS'
+
+
+def seeded(key):
+    """The interpreter of a shipped ready environment for key, or None."""
+    configured = os.environ.get(SEEDS)
+    if not configured or not Path(configured).is_absolute():
+        return None
+    root = Path(configured) / key
+    return interpreter_of(root) if is_ready(root, key) else None
+
+
+def seed(directory, package, log):
+    """Build package's environment into directory/<key> for an image to ship.
+    Only shareable requirements: any other key names one node's artifact."""
+    requirements = requirements_file(package)
+    if requirements and not shareable(requirements.read_text()):
+        raise RuntimeError(f'{package}: requirements are not shareable; nothing to seed')
+    resources = runtime_resources(package)
+    key = environment_key(package, package, requirements)
+    root = directory / key
+    if is_ready(root, key):
+        return key
+    python = build_environment(root, requirements, package, directory / '.downloads', log)
+    if resources:
+        prepare_playwright(python, resources['playwright'], log)
+    mark_ready(root, key)
+    return key
+
+
 def prepare(package, install, log):
     if sys.version_info < (3, 10):
         raise RuntimeError('Python 3.10 or newer is required on this node')
-    requirements = next((package / n for n in ('backend/requirements.txt', 'requirements.txt')
-                         if (package / n).is_file()), None)
+    requirements = requirements_file(package)
     resources = runtime_resources(package)
     key = environment_key(package, install, requirements)
     # Fleet: <node>/installations/<artifact> and <node>/python-environments.
     cache = dependency_cache(install)
     root = cache / key
-    python = root / ('Scripts/python.exe' if sys.platform == 'win32' else 'bin/python')
+    python = interpreter_of(root)
     marker = root / '.fleet-ready.json'
     snapshots = durable_snapshots(install)
     archive = snapshots / (key + '.tar.gz') if snapshots else None
     # Wheels are few large files: keep the download cache on the durable mount too.
     downloads = snapshots.parent / 'pip-downloads' if snapshots else cache / 'downloads'
     with environment_lock(cache / (key + '.lock')):
-        reused = marker.is_file() and python.is_file()
-        if not reused and archive is not None:
+        shipped = seeded(key)
+        reused = shipped is not None or (marker.is_file() and python.is_file())
+        if shipped is not None:
+            python = shipped
+            print("Using the Python dependencies this node's image ships", file=log, flush=True)
+        elif not reused and archive is not None:
             reused = restore_snapshot(archive, root, key, log) and python.is_file()
-        if reused:
+        if reused and shipped is None:
             if json.loads(marker.read_text()) != {'schema': SCHEMA, 'key': key}:
                 raise RuntimeError(f'Invalid dependency cache marker: {marker}')
             print('Reusing installed Python dependencies', file=log, flush=True)
-        else:
-            # Interrupted installs never become ready. Build in the final path:
-            # moving a venv afterwards breaks console-script interpreter paths.
-            if root.exists():
-                shutil.rmtree(root)
-            print('Preparing new Python dependency environment', file=log, flush=True)
-            venv.EnvBuilder(with_pip=True, symlinks=sys.platform != 'win32').create(root)
-            if requirements:
-                # App HOME is private. Share the node's pip download cache
-                # explicitly rather than re-downloading wheels each revision.
-                # Prefer a compatible wheel within the App's version bounds.
-                # The newest release may only offer source on an older node,
-                # where compiling scientific dependencies is slow or impossible.
-                # Source-only requirements remain supported.
-                subprocess.run([str(python), '-I', '-m', 'pip', 'install', '--prefer-binary', '--disable-pip-version-check',
-                                '--cache-dir', str(downloads), '-r', str(requirements)],
-                               cwd=package, check=True, stdout=log, stderr=log)
-            subprocess.run([str(python), '-I', '-m', 'pip', 'check'],
-                           cwd=root, check=True, stdout=log, stderr=log)
+        elif not reused:
+            # Interrupted installs never become ready.
+            build_environment(root, requirements, package, downloads, log)
         subprocess.run([str(python), '-I', '-c', 'import sys; assert sys.version_info >= (3, 10)'],
                        check=True, stdout=log, stderr=log, timeout=15)
         resources_changed = prepare_playwright(python, resources['playwright'], log) if resources else False
         if not reused:
-            pending_marker = marker.with_suffix('.tmp')
-            pending_marker.write_text(json.dumps({'schema': SCHEMA, 'key': key}))
-            pending_marker.replace(marker)
-        if archive is not None and (not reused or resources_changed):
+            mark_ready(root, key)
+        # The image already holds a shipped environment: no Workspace snapshot.
+        if archive is not None and shipped is None and (not reused or resources_changed):
             save_snapshot(archive, root, log)
     # Atomic binding; no symlinks/admin privileges needed on Windows.
     binding = install / 'python-environment.json'
@@ -456,7 +535,16 @@ def main():
     ap.add_argument('--install', type=Path)
     ap.add_argument('--warm', type=Path, metavar='STATE_DIR',
                     help="restore the environments of a node's running Apps (see warm)")
+    ap.add_argument('--seed', type=Path, metavar='DIR',
+                    help="build --package's environment into DIR for an image to ship (see seed)")
     args = ap.parse_args()
+    if args.seed:
+        if not args.package:
+            ap.error('--seed needs --package')
+        started = time.monotonic()
+        key = seed(args.seed.resolve(), args.package.resolve(), sys.stdout)
+        print(f'Seeded {args.package.name} as {key[:12]} in {time.monotonic() - started:.1f}s', flush=True)
+        return
     if args.warm:
         started = time.monotonic()
         count = warm(args.warm, sys.stdout)
