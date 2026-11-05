@@ -108,6 +108,7 @@ func (t *TeamChat) statusOf(fl *tcFleet, m *tcMember) map[string]any {
 	l := fl.liveOf(m.MID)
 	out := map[string]any{"queue": len(fl.queues[m.MID])}
 	node, known := fl.nodes[m.NodeID]
+	node = withMemberNode(node, m)
 	tr := fl.turns[m.MID]
 	switch {
 	case m.State == "stopped":
@@ -151,6 +152,15 @@ func nodeLabel(n TeamNode, id string) string {
 		name = strings.ReplaceAll(base, "-", " ")
 	}
 	return name
+}
+
+// withMemberNode names a node whose record is gone by what the agent's
+// record remembers of it.
+func withMemberNode(n TeamNode, m *tcMember) TeamNode {
+	if n.Name == "" && n.Kind == "" {
+		n.Name, n.Kind = m.NodeName, m.NodeKind
+	}
+	return n
 }
 
 func capFirst(s string) string {
@@ -454,6 +464,18 @@ func (t *TeamChat) noteNode(fl *tcFleet, n TeamNode) TeamNode {
 		}
 	}
 	fl.nodes[n.ID] = n
+	if n.Name != "" || n.Kind != "" {
+		// Agents' records remember it, to name it while it is offline.
+		for mid, m := range fl.members {
+			if m.agent() && m.NodeID == n.ID && (m.NodeName != n.Name || m.NodeKind != n.Kind) {
+				next := *m
+				next.NodeName, next.NodeKind = n.Name, n.Kind
+				if err := t.put(context.Background(), fl, "member."+mid, &next); err == nil {
+					fl.members[mid] = &next
+				}
+			}
+		}
+	}
 	if !known || old.Online != n.Online {
 		for mid, m := range fl.members {
 			if m.agent() && m.NodeID == n.ID {
@@ -588,7 +610,7 @@ func explainKnown(m *tcMember, n TeamNode, errText string) (reason, fix string, 
 	if a, ok := codingagents.Lookup(m.Runtime); ok {
 		label = a.Label
 	}
-	where := nodeLabel(n, m.NodeID)
+	where := nodeLabel(withMemberNode(n, m), m.NodeID)
 	low := strings.ToLower(errText)
 	has := func(words ...string) bool {
 		for _, w := range words {

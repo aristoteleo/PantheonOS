@@ -140,7 +140,7 @@ func (t *TeamChat) agentCreate(ctx context.Context, fid string, spec agentSpec) 
 	}
 	member := &tcMember{MID: "a" + shortID(), Kind: "agent", Handle: spec.Handle, Name: spec.Name, Avatar: spec.Avatar,
 		Description: strings.TrimSpace(spec.Description), Created: t.stamp(), Runtime: spec.Runtime, Model: spec.Model,
-		Effort: spec.Effort, NodeID: spec.NodeID, Folder: folder, Access: spec.Access, AccessList: spec.AccessList,
+		Effort: spec.Effort, NodeID: spec.NodeID, NodeName: node.Name, NodeKind: node.Kind, Folder: folder, Access: spec.Access, AccessList: spec.AccessList,
 		Listen: spec.Listen, CreatedBy: tcOwner, State: "running"}
 	setup, err := t.Nodes.Call(ctx, fid, spec.NodeID, "team_setup", map[string]any{"folder": folder,
 		"agent_md": agentBrief(member), "check_only": spec.DryRun}, 30*time.Second)

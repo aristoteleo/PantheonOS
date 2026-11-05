@@ -745,6 +745,11 @@ func TestFailureLinesArePlainWords(t *testing.T) {
 	if got := nodeLabel(TeamNode{ID: "n_x"}, "n_x"); got != "its computer" {
 		t.Error(got)
 	}
+	// A node whose record is gone is named by what the agent's record keeps.
+	ws := &tcMember{Handle: "pan", Runtime: "pantheon", NodeID: "n_ws", NodeName: "workspace-1", NodeKind: "sandbox"}
+	if reason, _, _ := explain(ws, TeamNode{ID: "n_ws"}, "no responders"); reason != "your Workspace did not answer" {
+		t.Error(reason)
+	}
 }
 
 func TestAgentToolsPostReplyDMReadJoinAndFiles(t *testing.T) {

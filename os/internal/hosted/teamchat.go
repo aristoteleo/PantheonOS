@@ -305,10 +305,13 @@ type tcMember struct {
 	Description string `json:"description,omitempty"`
 	Created     string `json:"created"`
 	// Agents.
-	Runtime    string       `json:"runtime,omitempty"`
-	Model      string       `json:"model,omitempty"`
-	Effort     string       `json:"effort,omitempty"`
-	NodeID     string       `json:"node_id,omitempty"`
+	Runtime string `json:"runtime,omitempty"`
+	Model   string `json:"model,omitempty"`
+	Effort  string `json:"effort,omitempty"`
+	NodeID  string `json:"node_id,omitempty"`
+	// The node's name and kind as last seen, for when it is offline.
+	NodeName   string       `json:"node_name,omitempty"`
+	NodeKind   string       `json:"node_kind,omitempty"`
 	Folder     string       `json:"folder,omitempty"`
 	Session    string       `json:"session_conversation_id,omitempty"`
 	Access     string       `json:"access,omitempty"` // only_me | everyone | listed
