@@ -1249,11 +1249,10 @@ func TestPeopleAndAgentsAreNamedAndOldHandlesStillMention(t *testing.T) {
 		t.Fatalf("%s", brief)
 	}
 	// A deleted agent keeps its name for its messages.
-	eventually(t, "ready", func() bool {
-		s := call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[coder].(map[string]any)
-		return s["state"] == "ready"
+	eventually(t, "deleted between turns", func() bool {
+		_, out := rpc(t, h, mine, "agent_control", map[string]any{"mid": coder, "action": "delete"})
+		return out["success"] == true
 	})
-	call(t, h, mine, "agent_control", map[string]any{"mid": coder, "action": "delete"})
 	space = call(t, h, mine, "space_get", map[string]any{})
 	f := space["space"].(map[string]any)["formers"].(map[string]any)[coder].(map[string]any)
 	if f["name"] != "Coder" || f["handle"] != "coder" || f["runtime"] != "codex" {
