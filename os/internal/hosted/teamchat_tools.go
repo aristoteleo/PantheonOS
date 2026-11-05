@@ -1146,7 +1146,7 @@ func (t *TeamChat) messages(ctx context.Context, fl *tcFleet, me, cid, before, a
 		return nil, err
 	}
 	if !fl.visible(c, me) {
-		return nil, &ArgumentError{"you are not in this conversation"}
+		return nil, &ArgumentError{"You are not in this conversation."}
 	}
 	m, err := t.convMsgs(ctx, fl, cid)
 	if err != nil {
@@ -1368,7 +1368,7 @@ func (t *TeamChat) markRead(ctx context.Context, fl *tcFleet, me, cid, id, root 
 		return nil, err
 	}
 	if !fl.visible(c, me) {
-		return nil, &ArgumentError{"you are not in this conversation"}
+		return nil, &ArgumentError{"You are not in this conversation."}
 	}
 	if !tcIDRE.MatchString(id) {
 		return nil, &ArgumentError{"no message " + id}

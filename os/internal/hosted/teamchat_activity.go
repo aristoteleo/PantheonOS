@@ -376,7 +376,7 @@ func (t *TeamChat) convFiles(ctx context.Context, fl *tcFleet, me, cid string) (
 		return nil, err
 	}
 	if !fl.visible(c, me) {
-		return nil, &ArgumentError{"you are not in this conversation"}
+		return nil, &ArgumentError{"You are not in this conversation."}
 	}
 	m, err := t.convMsgs(ctx, fl, cid)
 	if err != nil {

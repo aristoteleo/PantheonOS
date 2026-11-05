@@ -16,6 +16,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
@@ -29,6 +30,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -675,6 +677,40 @@ func Main(args []string) {
 			Connect:  func() (*nats.Conn, error) { return connectTeamChat(authority, *natsURL) }}
 		host.Register("team-chat", teamChat)
 		go teamChat.Run(context.Background())
+		// The Hub's change to a person of a space (docs/apps/team-chat.md,
+		// "Phase 3 as built"): their live space grants are dropped and the
+		// service updated in the same request.
+		mux.HandleFunc("POST /team-chat/members", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "no-store")
+			if *hubToken == "" || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+*hubToken)) != 1 {
+				http.Error(w, `{"detail":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			var q struct {
+				Fleet  string `json:"fleet_id"`
+				User   string `json:"user_id"`
+				Action string `json:"action"`
+				Role   string `json:"role"`
+			}
+			decoder := json.NewDecoder(io.LimitReader(r.Body, 4096))
+			decoder.DisallowUnknownFields()
+			if decoder.Decode(&q) != nil || !teamFleetRE.MatchString(q.Fleet) || q.User == "" || len(q.User) > 128 {
+				http.Error(w, `{"detail":"fleet_id, user_id and action"}`, http.StatusUnprocessableEntity)
+				return
+			}
+			revoked := 0
+			if grants != nil {
+				revoked = grants.RevokeShare(hosted.TeamChatGrantID(q.Fleet, q.User))
+			}
+			changed, err := teamChat.MemberChange(r.Context(), q.Fleet, q.User, q.Action, q.Role)
+			w.Header().Set("Content-Type", "application/json")
+			if err != nil {
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				_ = json.NewEncoder(w).Encode(map[string]any{"detail": err.Error(), "revoked": revoked})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"revoked": revoked, "changed": changed})
+		})
 		if grants != nil {
 			allocator := &hosted.Allocator{Bus: nodes, Store: store, Grants: grants, Root: filepath.Join(*stateDir, "hosted")}
 			host.Register("dependency-binding", allocator)
@@ -1257,3 +1293,6 @@ func loadOrCreateKey(path string) ([]byte, error) {
 	}
 	return b, nil
 }
+
+// teamFleetRE is a Fleet id as Team Chat takes it.
+var teamFleetRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
