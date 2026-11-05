@@ -11,6 +11,12 @@ off again (verified: off → Mine link → on → revoke → off). Revoke asks
 first; Shared links lists refresh when a link is made or revoked in any tab
 and on focus; Escape closes Share…; a closed `/#/a/` link says why, as `/#/s/`.
 
+**Status (2026-11-04, second check):** frontend `c5ed098c` (ui `c6728ef8`),
+hub `23588fca` (hub `18c0b24`): the Share dialog asks an owner with no name of
+their own, once, "How should people see your name?" and saves it as the hub
+user's full name (`GET/PUT /api/users/me/name`), which links show as the
+owner; Shared links say "not opened yet" and put a space before a version.
+
 Three entries grew separately and overlap: "Open in Own Tab" / "Open in New
 Tab", "Host…" (modes `frontend`, `host`, `install`) and "Invite people…".
 They answer two questions only, so the UI shows two entries.

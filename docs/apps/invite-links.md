@@ -57,6 +57,45 @@ page's progress still advances by stage, and Claude Code replied on the new
 account's `hello` project. Claude Code's own banner shows the Workspace's real
 path (`/__modal/volumes/…`).
 
+**Status (2026-11-04, second check):** a second independent check's findings
+fixed on staging (frontend `c5ed098c`, ui `c6728ef8`; hub `23588fca`, hub
+`18c0b24`; Workspace image `nanguage/pantheon-agents@sha256:cf742616…`), verified
+with new accounts invited by acct3 (invite-test-17, -18):
+
+* An agent with its own login on the person's computer is never switched
+  unasked: the step says "Claude Code on <computer> uses your own Claude login;
+  usage goes to that account" and offers "Use PantheonOS models instead (uses
+  your credit)", which sets that agent's model source to PantheonOS on that
+  node (`agents_configure`, after `agents_platform` when the node has no key).
+  Without a login of its own the agent is set to PantheonOS models as before.
+  The same for Codex (OpenAI login) and Gemini CLI (Google login; no switch,
+  it cannot run on PantheonOS models).
+* Every step follows across tabs, not only the sign-in: a tab that finishes a
+  step or chooses the place says so on a `BroadcastChannel`, and the others
+  check every step again; a tab checks again when it is focused.
+* The Workspace bar is weighted by each stage's measured length (cloud
+  computer 5-58 %, first-start App setup 58-75 %, Apps starting 75-95 %,
+  joining 95-99 %; `steps.ts` `PHASES`) and moves within a stage by time;
+  it is kept in the browser, so a reload resumes from the real stage and
+  never lower.
+* An App page for an offline computer shows one status ("<computer> ·
+  offline", no "Connected" beside it); the Fleet is read 5 s apart rising to a
+  minute, none while hidden; the deployment is read one request at a time,
+  and a Fleet deployment no longer pings it every 2 s for its first minute
+  (28 reads in the first minute → 9).
+* A brand-new Workspace whose machine joined before the Agent pod built the
+  Agent's environment with pip (23 s), and every App install waited behind it
+  (invite-test-16: "Setting up your Workspace's apps for the first time" for
+  30 s). The image now ships the Agent's environment too.
+* "Forgot password?" on the invite page emails a reset link whose page returns
+  to the invite (`next=/invite/...`, checked by the hub and the page).
+* The Share dialog asks an owner with no name of their own, once, how people
+  should see them (`PUT /api/users/me/name`, the hub user's full name).
+* Wording: "invited you to try …", "not opened yet", "Hello Host 0.1.0",
+  "on your Workspace", one command on the computer step, no repeated
+  "set it up" line; Coding Agents says "New project" and "New branch" (not
+  "New workspace"), and a project of one folder shows no branch or "primary".
+
 An owner sends one link. The person who opens it (the invitee) may have no
 account, no Workspace, no node and no coding agent. The link page takes them
 through every step until the App is open and usable on **their own** account,

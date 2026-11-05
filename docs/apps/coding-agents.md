@@ -505,6 +505,11 @@ it, ready to chat; the status bar reads the quota as words ("Monthly limit 0%
 used (resets in 26 days)"); the PantheonOS note names "your Workspace", not
 its host name (ui `617394b1`, frontend `aebb2f1c`, staging).
 
+**Status (2026-11-04, second check):** the Workspace image
+(`sha256:cf742616…`) ships the Agent's Python environment beside the other
+Workspace Apps', so a Workspace whose machine joins before the Agent pod (and
+gets the Agent) no longer builds it with pip on its first start.
+
 An agent's own interface asks a few questions the first time it starts:
 Claude Code a theme, whether to trust the folder and, with its full-auto
 flag, to accept bypass permissions (the last two with "No, exit"
@@ -586,6 +591,13 @@ the variables from a file only the user can read, removes it, and runs the
 agent in a subshell, so the shell left when the agent exits has none of them.
 
 ## PantheonOS models
+
+**Status (2026-11-04, second check):** the invite page and the App's
+setup page never change an agent's model source unasked where it has a login
+of its own (`signed_in` with source `subscription`): they say that its usage
+goes to that login and offer "Use PantheonOS models instead (uses your
+credit)", which sets the source to `pantheon` for that agent on that node.
+Verified on a scratch node with a simulated Claude Code login (staging).
 
 Claude Code, Codex, OpenCode and Pi can run on the platform's model service,
 billed to the user's PantheonOS budget, instead of their own sign-in. Each has a model
