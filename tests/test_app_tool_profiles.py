@@ -22,7 +22,7 @@ def shell_manifest():
     return json.loads((Path(__file__).resolve().parents[1]/'apps/shell/app.json').read_text())
 
 
-def test_owned_shell_schema_preserves_optional_drain_and_removes_session_authority():
+def test_owned_shell_schema_requires_a_command_and_removes_session_authority():
     source = shell_manifest()
     before = copy.deepcopy(source)
     profile, policy, dependency = compile_tool_profile(source, alias='shell', uses=['shell@1'],
@@ -30,8 +30,10 @@ def test_owned_shell_schema_preserves_optional_drain_and_removes_session_authori
     assert source == before
     assert {f['name'] for f in profile['functions']} == {'run_command'}
     schema = profile['functions'][0]['parameters']
-    assert set(schema['properties']) == {'command', 'timeout', 'max_output'}
-    assert 'required' not in schema  # command=None drains the Agent's own session.
+    assert set(schema['properties']) == {'command', 'timeout', 'max_output', 'env'}
+    # A call without a command runs nothing; the schema says so up front.
+    assert schema['required'] == ['command']
+    assert schema['properties']['command']['type'] == 'string'
     assert set(policy['methods']) == {'run_command'}
     assert policy['resource']['arguments'] == {'run_command': 'shell_id'}
     assert not policy['methods']['run_command']['bound']

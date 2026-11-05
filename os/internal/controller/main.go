@@ -670,7 +670,9 @@ func Main(args []string) {
 		}
 		teamChat := &hosted.TeamChat{Backups: filepath.Join(*stateDir, "backups"), Dir: filepath.Join(*stateDir, "team-chat"),
 			Key: teamKey, Nodes: hosted.FleetNodes(fleetService),
-			Connect: func() (*nats.Conn, error) { return connectTeamChat(authority, *natsURL) }}
+			// The owner's Agent App (the Pantheon Agent's turns wait while it starts).
+			AgentApp: agentAppState(store),
+			Connect:  func() (*nats.Conn, error) { return connectTeamChat(authority, *natsURL) }}
 		host.Register("team-chat", teamChat)
 		go teamChat.Run(context.Background())
 		if grants != nil {
@@ -686,6 +688,33 @@ func Main(args []string) {
 		log.Fatal(server.ListenAndServeTLS("", ""))
 	}
 	log.Fatal(server.ListenAndServe())
+}
+
+// agentAppState reads the state of an owner's Agent App (the "agent" App of
+// the general-team deployment), briefly cached: Team Chat asks for it with
+// every agent status.
+func agentAppState(store *deployments.Store) func(string) (string, bool) {
+	type seen struct {
+		state string
+		known bool
+		at    time.Time
+	}
+	var mu sync.Mutex
+	cache := map[string]seen{}
+	return func(fleet string) (string, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		if c, ok := cache[fleet]; ok && time.Since(c.at) < 2*time.Second {
+			return c.state, c.known
+		}
+		c := seen{at: time.Now()}
+		if d, err := store.Get(fleet, "general-team"); err == nil {
+			app, ok := d.Status.Apps["agent"]
+			c.state, c.known = app.State, ok && app.State != ""
+		}
+		cache[fleet] = c
+		return c.state, c.known
+	}
 }
 
 // connectorSource loads the model connector source of a deployment's release

@@ -107,6 +107,11 @@ type TeamChat struct {
 	// Key signs each agent's identity, which its node presents with the
 	// agent's requests.
 	Key []byte
+	// AgentApp reports the state of the owner's Agent App ("ready",
+	// "starting", …); known is false when the owner has none or nothing is
+	// known. A Pantheon Agent's turn waits while that App is not ready (a new
+	// account's first minutes, a Workspace that is starting again).
+	AgentApp func(fleet string) (state string, known bool)
 
 	mu     sync.Mutex
 	infoMu sync.Mutex // the stream handle caches its info
@@ -126,7 +131,10 @@ type TeamChat struct {
 	poll     time.Duration // between reads of a running turn's events
 	tick     time.Duration // between looks at waiting agents
 	backoffs []time.Duration
-	uploads  sync.Map // upload id -> *tcUpload
+	// appWait is how long a turn waits for the Agent App before the owner
+	// is asked; appRecheck how often it looks meanwhile.
+	appWait, appRecheck time.Duration
+	uploads             sync.Map // upload id -> *tcUpload
 }
 
 func (t *TeamChat) clock() time.Time {
@@ -520,6 +528,8 @@ type tcFleet struct {
 	// unreachable: nodes a call found unreachable, with their last heartbeat
 	// then; such a node counts as offline until it sends a newer one.
 	unreachable map[string]time.Time
+	// appState is the owner's Agent App state as last told to browsers.
+	appState string
 }
 
 // tcLive is what the service knows of an agent beyond its record.
@@ -531,8 +541,9 @@ type tcLive struct {
 	watching    bool
 	retries     int
 	retryAt     time.Time
-	retryWhy    string // why it waits to retry, in plain words ("" when not known)
-	paused      string // a guard holds its turns
+	retryWhy    string    // why it waits to retry, in plain words ("" when not known)
+	appWait     time.Time // since when its waiting messages wait for the Agent App to be ready
+	paused      string    // a guard holds its turns
 	pausedNoted bool
 	textBuf     []string // the running turn's text since its last step
 	lastDelta   bool

@@ -134,6 +134,13 @@ func (t *TeamChat) statusOf(fl *tcFleet, m *tcMember) map[string]any {
 		out["state"], out["reason"], out["fix"] = "attention", m.Attention.Reason, m.Attention.Fix
 	case l.paused != "":
 		out["state"], out["reason"] = "attention", l.paused
+	case !l.appWait.IsZero() || t.appStarting(fl, m):
+		// Its Agent App is still starting: messages wait for it (no failure).
+		out["state"], out["line"], out["reason"] = "starting", "Starting", appStartingWhy
+		if q := fl.queues[m.MID]; len(q) > 0 {
+			cause := q[len(q)-1]
+			out["cid"], out["root"], out["since"] = cause.CID, cause.Root, cause.At
+		}
 	default:
 		out["state"] = "ready"
 		if !l.retryAt.IsZero() && len(fl.queues[m.MID]) > 0 {
@@ -485,6 +492,13 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 	if l.paused != "" {
 		l.paused, l.pausedNoted = "", false
 	}
+	if n, known := fl.nodes[m.NodeID]; t.appStarting(fl, m) && (!known || n.Online) {
+		// The Pantheon Agent cannot take a turn before its App is ready; the
+		// messages wait for it (an offline node waits as before).
+		t.waitForApp(ctx, fl, m, nil)
+		fl.mu.Unlock()
+		return false
+	}
 	events := append([]tcWake(nil), q...)
 	prompt, files, reads := t.turnInput(ctx, fl, m, events)
 	cause := events[len(events)-1]
@@ -641,7 +655,7 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 	for cid, id := range reads {
 		_ = t.setRead(ctx, fl, mid, cid, id)
 	}
-	l.retries, l.retryAt, l.retryWhy = 0, time.Time{}, ""
+	l.retries, l.retryAt, l.retryWhy, l.appWait = 0, time.Time{}, "", time.Time{}
 	l.line, l.lineCID, l.lineRoot, l.textBuf, l.allText, l.lastSeq = "Starting", tr.Cause.CID, tr.Cause.Root, nil, nil, fromSeq
 	l.stopWanted = false
 	t.emitStatus(fl, mid)
@@ -784,6 +798,10 @@ func (t *TeamChat) abortStart(ctx context.Context, fl *tcFleet, mid, reason, fix
 	if m == nil {
 		return
 	}
+	if !appNotReady(reason) {
+		// It got past waiting for its Agent App; this is another problem.
+		l.appWait = time.Time{}
+	}
 	if transient && reason == "" {
 		// The node is offline: the sweep starts the turn once it is back.
 		l.retryAt = time.Time{}
@@ -833,6 +851,62 @@ func (t *TeamChat) attention(ctx context.Context, fl *tcFleet, m *tcMember, tr *
 	t.emitStatus(fl, m.MID)
 }
 
+// appStartingWhy says why a Pantheon Agent's messages wait, for people.
+const appStartingWhy = "Your Workspace is still getting the Pantheon Agent ready (the first time takes a few minutes). " +
+	"Messages wait and are answered as soon as it is ready."
+
+// appStarting: the agent runs as the Pantheon Agent and the owner's Agent
+// App is known not to be ready yet.
+func (t *TeamChat) appStarting(fl *tcFleet, m *tcMember) bool {
+	if m.Runtime != codingagents.PantheonAgent || t.AgentApp == nil {
+		return false
+	}
+	state, known := t.AgentApp(fl.fid)
+	return known && state != "ready"
+}
+
+// appNotReady: an error saying the Agent App is not ready yet (the pantheon
+// command's `App "agent" is not ready (starting)`).
+func appNotReady(errText string) bool {
+	return strings.Contains(errText, "is not ready (") && strings.Contains(errText, "App ")
+}
+
+// waitForApp keeps an agent's messages waiting for its Agent App: it looks
+// again shortly, and only after a long wait (appWait, 10 minutes) asks the
+// owner. tr is the turn that failed for it, if any; fl.mu is held.
+func (t *TeamChat) waitForApp(ctx context.Context, fl *tcFleet, m *tcMember, tr *tcTurn) {
+	l := fl.liveOf(m.MID)
+	now := t.clock()
+	first := l.appWait.IsZero()
+	if first {
+		l.appWait = now
+		log.Printf("[team-chat] %s %s: waiting for the Agent App to be ready", fl.fid, m.Handle)
+	}
+	limit := t.appWait
+	if limit <= 0 {
+		limit = 10 * time.Minute
+	}
+	if now.Sub(l.appWait) >= limit {
+		l.appWait, l.retryAt = time.Time{}, time.Time{}
+		t.attention(ctx, fl, m, tr, "could not answer",
+			fmt.Sprintf("your Workspace has not got the Pantheon Agent ready after %d minutes", int(limit.Minutes())),
+			"Your message is kept. Press Retry to wait again; if it still does not start, pause your Workspace and start it again.")
+		return
+	}
+	every := t.appRecheck
+	if every <= 0 {
+		every = 3 * time.Second
+	}
+	l.retryAt = now.Add(every)
+	if first {
+		t.emitStatus(fl, m.MID)
+	}
+	go func() {
+		time.Sleep(every)
+		t.kick(fl.fid, m.MID)
+	}()
+}
+
 // explain turns a node's or an agent's error into plain words and a fix
 // (no host names, ids or status codes; the raw error goes to the log);
 // transient: worth retrying by itself.
@@ -869,6 +943,8 @@ func explainKnown(m *tcMember, n TeamNode, errText string) (reason, fix string, 
 		return false
 	}
 	switch {
+	case appNotReady(errText):
+		return "your Workspace is still getting " + label + " ready", "It answers by itself once it is ready.", true, true
 	case has("budget", "insufficient", "quota", "credit", "billing", "payment required") || tcBudgetErrRE.MatchString(errText):
 		return "its model budget is used up", "Add budget, or wait for the quota to reset, then press Retry.", false, true
 	case has("rate limit", "rate_limit", "ratelimit", "too many requests") || tcRateErrRE.MatchString(errText):
@@ -918,10 +994,10 @@ func explainKnown(m *tcMember, n TeamNode, errText string) (reason, fix string, 
 		return where + " did not answer", "Check that " + where + " is on and connected, then press Retry.", true, true
 	case has("signal: killed", "signal: terminated", "exit status", "exited with", "crashed"):
 		return label + " stopped unexpectedly on " + where,
-			"Press Retry; if it happens again, open its conversation in Coding Agents on " + where + " to see why.", false, true
+			"Press Retry. If it happens again, reset its session from the agent's menu.", false, true
 	}
 	return "its turn failed on " + where,
-		"Press Retry; if it fails again, open its conversation in Coding Agents on " + where + " for the details.", false, false
+		"Press Retry. If it fails again, wait a few minutes or reset its session from the agent's menu.", false, false
 }
 
 func firstLineOf(s string) string {
@@ -1232,6 +1308,11 @@ func (t *TeamChat) finish(ctx context.Context, fl *tcFleet, mid string, done cod
 				t.emit(fl, map[string]any{"type": "member", "member": &next})
 				break
 			}
+		}
+		if appNotReady(done.Error) {
+			// Its Agent App was still starting: the messages wait for it.
+			t.waitForApp(ctx, fl, m, tr)
+			break
 		}
 		node := fl.nodes[m.NodeID]
 		reason, fix, _ := explain(m, node, done.Error)
@@ -1719,6 +1800,18 @@ func (t *TeamChat) sweep(ctx context.Context) {
 				if l := fl.liveOf(mid); !l.watching {
 					l.watching = true
 					go t.watch(context.Background(), fl, mid)
+				}
+			}
+		}
+		if t.AgentApp != nil {
+			// The Pantheon Agents show Starting until their App is ready.
+			state, known := t.AgentApp(fl.fid)
+			if seen := fmt.Sprint(state, "/", known); seen != fl.appState {
+				fl.appState = seen
+				for mid, m := range fl.members {
+					if m.agent() && m.Runtime == codingagents.PantheonAgent {
+						t.emitStatus(fl, mid)
+					}
 				}
 			}
 		}

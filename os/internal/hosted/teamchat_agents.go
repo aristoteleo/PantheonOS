@@ -344,7 +344,7 @@ func (t *TeamChat) agentControl(ctx context.Context, fid, mid, action, confirm s
 			fl.mu.Unlock()
 			return nil, err
 		}
-		l.retries, l.retryAt, l.paused, l.pausedNoted = 0, time.Time{}, "", false
+		l.retries, l.retryAt, l.paused, l.pausedNoted, l.appWait = 0, time.Time{}, "", false, time.Time{}
 		t.kick(fid, mid)
 		return reply()
 	case "stop":

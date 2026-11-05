@@ -1411,3 +1411,81 @@ func waitFor(ok func() bool) bool {
 	}
 	return true
 }
+
+// A Pantheon Agent whose Agent App is still starting (a new account's first
+// minutes) shows Starting; its messages wait, no failure line is written,
+// and they are answered once the App is ready. A turn that still fails
+// because the App was not ready waits again; only a long wait asks the owner.
+func TestMessagesWaitForTheAgentAppToBeReady(t *testing.T) {
+	url := jetStream(t)
+	nodes := newFakeAgents()
+	nodes.detect = append(nodes.detect, map[string]any{"id": "pantheon", "conversation": true, "signed_in": true})
+	tc := teamOn(t, url, nodes)
+	var appMu sync.Mutex
+	app := "starting"
+	tc.AgentApp = func(string) (string, bool) {
+		appMu.Lock()
+		defer appMu.Unlock()
+		return app, true
+	}
+	setApp := func(s string) {
+		appMu.Lock()
+		app = s
+		appMu.Unlock()
+	}
+	tc.appRecheck, tc.appWait = 20*time.Millisecond, 600*time.Millisecond
+	h, mine, _ := teamHost(t, tc)
+	pan := makeAgent(t, h, mine, "Assistant", "n_ws", "pantheon", nil)
+	statusOf := func() map[string]any {
+		return call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[pan].(map[string]any)
+	}
+	if s := statusOf(); s["state"] != "starting" || !strings.Contains(s["reason"].(string), "getting the Pantheon Agent ready") {
+		t.Fatalf("before any message: %v", s)
+	}
+	call(t, h, mine, "post", map[string]any{"cid": "general", "text": "Hello @assistant!"})
+	time.Sleep(150 * time.Millisecond)
+	if n := nodes.promptCount(); n != 0 {
+		t.Fatalf("a turn started while the App was starting (%d)", n)
+	}
+	if s := statusOf(); s["state"] != "starting" || s["queue"] != float64(1) || s["cid"] != "general" {
+		t.Fatalf("waiting: %v", s)
+	}
+	if line := lastFrom(msgs(t, h, mine, "general", ""), "system"); line != nil {
+		t.Fatalf("a failure line while starting: %v", line)
+	}
+	setApp("ready")
+	eventually(t, "the answer once ready", func() bool { return lastFrom(msgs(t, h, mine, "general", ""), pan) != nil })
+
+	// The App said ready, but the turn found it starting (it restarted): wait again.
+	failOnce := true
+	nodes.mu.Lock()
+	nodes.reply = func(string) (string, string) {
+		if failOnce {
+			failOnce = false
+			return "", `Could not start Pantheon Agent: App "agent" is not ready (starting); check it in Fleet`
+		}
+		return "Hi again.", ""
+	}
+	nodes.mu.Unlock()
+	call(t, h, mine, "post", map[string]any{"cid": "general", "text": "Again @assistant?"})
+	eventually(t, "the second answer", func() bool {
+		m := lastFrom(msgs(t, h, mine, "general", ""), pan)
+		return m != nil && m["text"] == "Hi again."
+	})
+	if line := lastFrom(msgs(t, h, mine, "general", ""), "system"); line != nil {
+		t.Fatalf("a failure line for a starting App: %v", line)
+	}
+
+	// Starting for longer than the wait: the owner is asked, in plain words.
+	setApp("starting")
+	call(t, h, mine, "post", map[string]any{"cid": "general", "text": "Third @assistant?"})
+	eventually(t, "the long-wait line", func() bool { return lastFrom(msgs(t, h, mine, "general", ""), "system") != nil })
+	line := lastFrom(msgs(t, h, mine, "general", ""), "system")
+	if text := line["text"].(string); !strings.Contains(text, "has not got the Pantheon Agent ready") ||
+		strings.Contains(text, "Coding Agents") || line["action"] != "retry" {
+		t.Fatalf("%v", line)
+	}
+	if s := statusOf(); s["state"] != "attention" || s["queue"] != float64(1) {
+		t.Fatalf("after the long wait: %v", s)
+	}
+}
