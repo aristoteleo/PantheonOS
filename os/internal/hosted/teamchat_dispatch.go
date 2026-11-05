@@ -466,11 +466,15 @@ func (t *TeamChat) lets(ctx context.Context, fl *tcFleet, c *tcConv, s *tcStoppe
 }
 
 // dropPaused leaves out of a queue what agents sent in conversations where
-// agents are paused; fl.mu is held.
-func (t *TeamChat) dropPaused(ctx context.Context, fl *tcFleet, q []tcWake) []tcWake {
+// agents are paused, and what was asked by people who may no longer use the
+// agent (its access changed, or they left the space); fl.mu is held.
+func (t *TeamChat) dropPaused(ctx context.Context, fl *tcFleet, m *tcMember, q []tcWake) []tcWake {
 	limit := fl.space.Settings.AgentRun
 	var keep []tcWake
 	for _, e := range q {
+		if e.Kind != "reminder" && firstNotUsing(fl, fl.behalfOf([]tcWake{e}), m) != "" {
+			continue
+		}
 		if from := fl.members[e.From]; e.Kind == "post" && from != nil && from.agent() {
 			if cm, err := t.convMsgs(ctx, fl, e.CID); err == nil && fl.agentRun(cm, limit) >= limit {
 				continue
@@ -520,7 +524,7 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 		fl.mu.Unlock()
 		return false
 	}
-	if kept := t.dropPaused(ctx, fl, q); len(kept) != len(q) {
+	if kept := t.dropPaused(ctx, fl, m, q); len(kept) != len(q) {
 		t.saveQueue(ctx, fl, mid, kept)
 		t.emitStatus(fl, mid)
 		if q = kept; len(q) == 0 {

@@ -341,6 +341,17 @@ func notWokenNote(fl *tcFleet, msg *tcMsg) string {
 // (they leave the queue, so the next turn does not get them again).
 func (t *TeamChat) agentInbox(ctx context.Context, fl *tcFleet, m *tcMember, tr *tcTurn) string {
 	q := fl.queues[m.MID]
+	var usable []tcWake
+	for _, e := range q {
+		if e.Kind == "reminder" || firstNotUsing(fl, fl.behalfOf([]tcWake{e}), m) == "" {
+			usable = append(usable, e)
+		}
+	}
+	if len(usable) != len(q) {
+		// Asked by people who may no longer use it: dropped.
+		t.saveQueue(ctx, fl, m.MID, usable)
+		q = usable
+	}
 	var b strings.Builder
 	l := fl.liveOf(m.MID)
 	for i, x := range l.remPosted {

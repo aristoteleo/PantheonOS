@@ -680,3 +680,64 @@ func TestGrantIDsAndPersonIDsAreStable(t *testing.T) {
 		t.Fatal("ids")
 	}
 }
+
+// A person's message queued for an agent they may no longer use (its access
+// changed meanwhile) does not start a turn.
+func TestQueuedAsksOfPeopleWhoLostAccessAreDropped(t *testing.T) {
+	s := newSharedSpace(t)
+	h, b, tc := s.h, s.b, s.tc
+	call(t, h, b, "agent_control", map[string]any{"mid": s.shared, "action": "stop"})
+	callAs(t, h, b, alice, "post", map[string]any{"cid": "general", "text": "@shared please look at this"})
+	fl, _ := tc.lockFleet(context.Background(), fleetID)
+	queued := len(fl.queues[s.shared])
+	fl.mu.Unlock()
+	if queued != 1 {
+		t.Fatalf("queued %d", queued)
+	}
+	call(t, h, b, "agent_update", map[string]any{"mid": s.shared, "access": "only_me"})
+	before := s.nodes.promptCount()
+	call(t, h, b, "agent_control", map[string]any{"mid": s.shared, "action": "start"})
+	eventually(t, "the queue emptied", func() bool {
+		fl, _ := tc.lockFleet(context.Background(), fleetID)
+		defer fl.mu.Unlock()
+		return len(fl.queues[s.shared]) == 0
+	})
+	time.Sleep(150 * time.Millisecond)
+	if s.nodes.promptCount() != before {
+		t.Fatal("a turn started for a person who may no longer use the agent")
+	}
+}
+
+// In review waits for the person who made the task, not for everyone who
+// sees it.
+func TestInReviewIsForWhoeverMadeTheTask(t *testing.T) {
+	s := newSharedSpace(t)
+	h, b := s.h, s.b
+	mine := callAs(t, h, b, alice, "post", map[string]any{"cid": "general", "text": "alice's job", "as_task": true})["task"].(map[string]any)["id"].(string)
+	theirs := call(t, h, b, "post", map[string]any{"cid": "general", "text": "the owner's job", "as_task": true})["task"].(map[string]any)["id"].(string)
+	for _, id := range []string{mine, theirs} {
+		call(t, h, b, "task_update", map[string]any{"id": id, "state": "in_review"})
+	}
+	review := func(m *Member) []string {
+		var out []string
+		var rows []any
+		if m == nil {
+			rows = call(t, h, b, "activity", map[string]any{"filter": "review"})["rows"].([]any)
+		} else {
+			rows = callAs(t, h, b, m, "activity", map[string]any{"filter": "review"})["rows"].([]any)
+		}
+		for _, r := range rows {
+			out = append(out, r.(map[string]any)["task"].(map[string]any)["id"].(string))
+		}
+		return out
+	}
+	if got := review(alice); len(got) != 1 || got[0] != mine {
+		t.Fatalf("alice: %v", got)
+	}
+	if got := review(bob); len(got) != 0 {
+		t.Fatalf("bob: %v", got)
+	}
+	if got := review(nil); len(got) != 1 || got[0] != theirs {
+		t.Fatalf("owner: %v", got)
+	}
+}

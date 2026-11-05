@@ -184,6 +184,11 @@ func (t *TeamChat) activity(ctx context.Context, fl *tcFleet, me, filter string)
 	}
 	if filter == "all" || filter == "review" {
 		for _, tk := range t.taskList(fl, me, "", "", "", "in_review") {
+			// A task waits for the person who made it (an agent's or a
+			// person's no longer in the space: for the owner).
+			if creator := fl.members[tk.CreatedBy]; tk.CreatedBy != me && !(me == tcOwner && (creator == nil || creator.agent() || creator.Removed != "")) {
+				continue
+			}
 			var last *tcMsg
 			if m, err := t.convMsgs(ctx, fl, tk.CID); err == nil {
 				last = m.byID[tk.ID]
