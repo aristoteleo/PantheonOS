@@ -741,6 +741,28 @@ func TestModelSourceChangeStartsANewSession(t *testing.T) {
 	if nodes.sends[1]["conversation_id"] != nil || !strings.Contains(nodes.lastPrompt(), "fresh session") {
 		t.Fatalf("%v", nodes.sends[1])
 	}
+	// The same refusal at the end of a turn (the node took the message).
+	eventually(t, "ready again", func() bool {
+		return call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[coder].(map[string]any)["state"] == "ready"
+	})
+	nodes.mu.Lock()
+	nodes.resume = ""
+	nodes.reply = func(p string) (string, string) {
+		if strings.Contains(p, "fresh session") {
+			return "Done.", ""
+		}
+		return "", "thread/resume failed: This chat uses openai, but your current provider is pantheon."
+	}
+	nodes.mu.Unlock()
+	call(t, h, mine, "post", map[string]any{"cid": "general", "text": "@coder three"})
+	eventually(t, "another new session", func() bool { return nodes.promptCount() == 4 })
+	if nodes.sends[3]["conversation_id"] != nil || !strings.Contains(nodes.lastPrompt(), "@coder three") {
+		t.Fatalf("%v", nodes.sends[3])
+	}
+	eventually(t, "answered", func() bool {
+		s := call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[coder].(map[string]any)
+		return s["state"] == "ready" && s["queue"] == float64(0)
+	})
 }
 
 func TestFailureLinesArePlainWords(t *testing.T) {

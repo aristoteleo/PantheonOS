@@ -889,6 +889,17 @@ func (t *TeamChat) finish(ctx context.Context, fl *tcFleet, mid string, done cod
 			}
 		}
 		t.saveQueue(ctx, fl, mid, append(back, fl.queues[mid]...))
+		if m.Session != "" && modelSourceChanged(done.Error) {
+			// Its session was made on other models than it now uses: the
+			// events go to a new session.
+			next := *m
+			next.Session = ""
+			if err := t.put(ctx, fl, "member."+mid, &next); err == nil {
+				fl.members[mid] = &next
+				t.emit(fl, map[string]any{"type": "member", "member": &next})
+				break
+			}
+		}
 		node := fl.nodes[m.NodeID]
 		reason, fix, _ := explain(m, node, done.Error)
 		t.attention(ctx, fl, m, tr, "could not answer", reason, fix)
