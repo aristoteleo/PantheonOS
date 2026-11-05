@@ -25,18 +25,18 @@ const (
 )
 
 type tcRem struct {
-	ID        string `json:"id"`
-	Agent     string `json:"agent"`
-	Note      string `json:"note"`
-	At        string `json:"at"`              // next time, RFC 3339 UTC
-	Every     string `json:"every,omitempty"` // the repeat as written ("weekday 10:00")
-	TimeZone  string `json:"time_zone,omitempty"`
-	CID       string `json:"cid,omitempty"`
-	Root      string `json:"root,omitempty"`
-	About     string `json:"about,omitempty"` // the message it is tied to
+	ID       string `json:"id"`
+	Agent    string `json:"agent"`
+	Note     string `json:"note"`
+	At       string `json:"at"`              // next time, RFC 3339 UTC
+	Every    string `json:"every,omitempty"` // the repeat as written ("weekday 10:00")
+	TimeZone string `json:"time_zone,omitempty"`
+	CID      string `json:"cid,omitempty"`
+	Root     string `json:"root,omitempty"`
+	About    string `json:"about,omitempty"` // the message it is tied to
 	// For: the person it reminds ("" = the agent itself). A person's
 	// reminder is always posted for them, by the agent or for it.
-	For string `json:"for,omitempty"`
+	For       string `json:"for,omitempty"`
 	Created   string `json:"created"`
 	CreatedBy string `json:"created_by"`
 	Fired     int    `json:"fired,omitempty"`
