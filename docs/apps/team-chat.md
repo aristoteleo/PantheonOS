@@ -2,8 +2,8 @@
 
 Status: design approved by the owner 2026-11-04 (name "Team Chat"; Phase 1 is
 one person per space, several people in Phase 3; people may edit and delete
-their own messages; the store and dispatcher run on the controller). Nothing
-built yet. Each phase ends with acceptance criteria checked on staging
+their own messages; the store and dispatcher run on the controller). Phase 1
+backend built and on staging (see "Phase 1 backend as built"). Each phase ends with acceptance criteria checked on staging
 before the next starts.
 
 ## Goal
@@ -511,6 +511,119 @@ Criteria:
   dialog states plainly what the agent can reach on its computer. (Hard
   folder confinement is not promised: runtimes other than Codex's sandbox
   can read what the node's user can.)
+
+## Phase 1 backend as built (2026-11-04)
+
+Status: service, node side and tests built; deployed to staging (controller,
+Fleet `fleet-v0.5.1-staging.7`, Agent App 0.9.109 with `team-chat` in the
+profile). The UI is separate. Staging checks are listed under "Staging
+verification" below.
+
+**Service.** `os/internal/hosted/teamchat.go` (records, the space in memory,
+messages and their fold), `teamchat_tools.go` (the owner's tools),
+`teamchat_dispatch.go` (wake rules, queues, turns, guards, failures, the
+loop), `teamchat_agents.go` (agents and their brief), `teamchat_agentrpc.go`
+(the agents' requests), `teamchat_files.go`, `teamchat_backup.go`; the
+contract is `os/internal/hosted/manifests/team-chat.json` (1.0.0). The
+controller registers it with `--deployments` and connects it with its own
+credential (`auth.MintTeamChat`, re-minted on every reconnect, inbox
+`_INBOX_team-chat`): the only credential that names `KV_TEAMCHAT`,
+`TEAMCHAT_MSG` and `OBJ_TEAMCHAT_FILES`; it publishes under
+`fleet.*.apps.team-chat.>` and subscribes to `fleet.*.apps.team-chat.rpc`,
+answering with a response permission. The cloud profile
+(`release_profile.team_chat`) adds the App `team-chat` (`{"hosted":
+"team-chat", "scope": "team-chat"}`) to deployments with a Desktop; no App
+binds it. **Rollout order: the controller ships before a release whose
+profile has it** (an older controller reports it `blocked`).
+
+**Storage as built.** Keys `<fid>.space`, `.member.<mid>`, `.conv.<cid>`,
+`.read.<mid>.<cid>` (agents' read marks are what "since you last looked"
+counts from), `.follow.<mid>.<root>` (explicit on/off; writing in a thread or
+being mentioned there follows it implicitly), `.queue.<mid>` (a JSON list of
+wake events `{id, event, cid, root, kind, reason, from, hop, at}`),
+`.turn.<mid>` (`{state: starting|running, conversation_id, node_id, started,
+from_seq, hop, cause, events, posted, runtime, model, stop}`) and
+`.file.<id>`. Writes are checked against the revision last read; the service
+is the only writer, keeps each space in memory and reads it again after a
+conflict. Messages: stream `TEAMCHAT_MSG`, subjects `tc.<fid>.<cid>`,
+retention one year (stream-wide), messages ≤ 64 KB; an event's `woke` lists
+the agents it woke (so an edit or delete reaches them). Files: object
+`<fid>/<file id>` in `TEAMCHAT_FILES`; uploads in progress and files read for
+browsers or agents are kept under `<state-dir>/team-chat/` for an hour. The
+2 GB per space applies to files; message size per space is not counted yet.
+Snapshots: hourly check, `<state-dir>/backups/teamchat-YYYY-MM-DD.json`
+(every key and every message, not files), newest 7 kept;
+`TeamChat.Restore` puts keys back that are absent and messages into an
+empty stream (tested, no operator command yet).
+
+**Dispatcher as built.** A post computes its wakes before it is stored (DM;
+mention, which adds the agent to a public channel; a followed thread; a
+channel with `agent_reply: all` or an agent with `listen: all` that is a
+member). Rules 3 and 4 apply to people's messages only: an agent's message
+wakes other agents only by DM or @mention (on staging, agents following one
+thread acknowledged each other's "nothing to do" notes in a loop until the hop
+guard stopped it). An agent's own message never wakes it; an agent's message with hop
+≥ `hop_limit` wakes no one and the service posts one system line. Wake
+events go to the agent's queue key (once per event id) and a turn starts
+when the agent has none: the service writes `turn` (`starting`), checks the
+node, calls `team_setup` (rewrites `AGENT.md`), saves the turn's files into
+`<folder>/files/<id>-<name>` (`team_file_put`, 48 KB pieces, skipped when the
+file is there), then `agent_send(cwd: folder, prompt, conversation_id:
+session or agent: runtime, model, effort, auto: true, origin: team-chat,
+team: {mid, token, handle, name})`; on success the events leave the queue and
+the turn is `running`. A turn's hop is the lowest hop of its events (a
+person's message resets the chain); what it posts has that hop + 1. Every 2 s
+the service reads the turn's events (`agent_conversation(after)`): tool calls
+make the live line (`typing` event), text after the last tool call is the
+final text, `done` ends the turn. Ending: when the agent posted nothing to
+the conversation that woke it (the last post event of the turn), the final
+text is posted there (in the thread when woken from one) with the runtime
+and model; > 32 KB becomes an attached `.md`. A turn that failed puts its
+events back at the head of the queue, marks the agent `attention` and posts
+one system line with `action: "retry"` and `about: <mid>` (e.g. "Writer
+could not answer: Claude Code is not signed in on Weize's MacBook. Open
+Coding Agents → Sign in, then press Retry."); nothing retries it until
+`agent_control(retry)` (or `start`). A node call that fails in transit is
+retried after 1, 5, 30 s, then each minute; an offline node is retried when
+the 15 s sweep sees it online again. A stopped turn (`stop_turn`) posts
+nothing; a turn over `turn_max_minutes` is stopped with a system line. A
+session the node no longer has starts a new one. Guards count turn starts
+per agent per hour (`member.turns`) and per space per day; a guard posts one
+"Paused: …" line and shows as `attention` until its window passes. The
+token in `team` is an HMAC of the Fleet and member id with the controller's
+`<state-dir>/team-chat.key`; the service takes the Fleet from the request
+subject, so a node can act only as an agent of its own Fleet's space.
+
+**Node side as built** (`apps/coding_agents/team.go`, Fleet
+`fleet-v0.5.1-staging.7`). `team_setup(folder, agent_md, reset, check_only)`
+makes the folder (`~` expanded), writes `AGENT.md` (`{{TEAM}}` becomes the
+tool's quoted path) when it changed, `MEMORY.md` and `notes/` when missing,
+and `.team/` (mode 700: `pantheon-team`, `inbox/`); reports `home` and
+`root`; `reset: "full"` empties the folder first and refuses for the home
+folder and `/`. `team_file_put(folder, name, offset, size, data, final)`
+writes under `files/` only. `agent_send` with `team` prepares `.team/` for the
+turn as linked groups do theirs (private folders opened by handle, requests
+read without following links, a fresh inbox when one cannot be emptied,
+added to Codex's `--add-dir`), adds a setting naming the tool, and while the
+turn runs (and once as it ends) forwards each request to
+`fleet.<fid>.apps.team-chat.rpc` with the agent's `mid` and `token` (90 s),
+uploading `--file` attachments first (≤ 25 MB, 48 KB pieces through
+`file_put`). The script waits up to 120 s; a turn answers at most 200
+requests. Requests: `op`, `arg` lines, `opt: name=value` (`--before`,
+`--after`, `--limit`), `file: <absolute path>`, a blank line, the text.
+
+**Tests.** `os/internal/hosted/teamchat_test.go` against an in-process
+JetStream server and a fake node: the space survives a restart and is per
+Fleet; agent creation (runtimes, default folders, home warning, shared
+refusal); wake rules; queue durability across a restart with `inbox` taking
+events once; the final text in the waking thread with runtime and model;
+edit/delete fold and the agents' next turn; failure line, attention and
+Retry; guards (hourly limit, hop chain, turn time); stop turn and resets;
+offline node; the agents' tool commands and files; snapshot and restore; and,
+on an operator-mode server, that only the team-chat credential opens its
+bucket, stream and files while a node's App credential reaches its request
+subject. `apps/coding_agents/team_test.go`: the folder setup and a turn whose
+agent runs `pantheon-team` reply/post `--file`/inbox through the service.
 
 ## Out of scope
 
