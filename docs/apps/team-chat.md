@@ -817,6 +817,57 @@ Dispatching a turn and "Fixes after the independent check" below).
   had updated an old step); model select in agent Settings; one time
   format; the unexplained badge is gone.
 
+### Fixes after the third check (2026-11-05)
+
+* **Quoted channels.** The turn input says `Reply with: … post '#general' -
+  <<'EOF'`; `AGENT.md`, the turn's note and the `pantheon-team` help quote
+  channels too and say why: in the shell an unquoted `#general` starts a
+  comment, which dropped the channel and the heredoc (the Pantheon Agent then
+  posted its greeting as a file `msg.md`). `general` without `#` works.
+  `post` with no channel answers `Not posted: no channel. Quote the channel…`;
+  a `post`, `reply`, `dm` or `edit` with no text fails (`Not sent: the
+  message has no text…`), also with `--file`: an agent's message is never an
+  empty message with an attachment.
+* **A stopped exchange stays stopped.** After a hop line or a run line
+  (`… They stay stopped until a person asks them to continue.`), an agent's
+  message in that conversation that would wake another agent is not posted
+  (`Not posted: Team Chat stopped the agents' exchange in #x at …`), until a
+  person's message there asks to continue (`continue`, `keep going`, `go on`,
+  `resume`, `once more`, `again`, `继续`…, not negated) or @mentions that
+  agent. In a DM between agents (no person there), a person's @mention of the
+  agent anywhere after the stop counts. Messages to people are still posted.
+  The turn input lists `Closed exchanges` and shows stop lines under "Since
+  you last looked"; the brief says a stopped exchange is over, even when a
+  person later writes about something else. Re-checked on staging (hop
+  limit 4): relay stopped; an unrelated DM got `7` and nothing in the relay;
+  an FYI in the channel with Every message: both agents skipped; `@writer
+  quick one: what is 2+2?` there got `4` only; `@writer please continue the
+  count` resumed it to the next hop line.
+* **Promises.** The brief: another agent's answer wakes you only when it
+  @mentions or DMs you, so never promise to pass an answer on later; ask that
+  agent to answer the person directly.
+* **Model.** Messages an agent posts before its runtime names the model (the
+  Pantheon Agent names it only when the turn ends) get it then: a `model`
+  event folds it into those messages and the interface updates them. Labels
+  drop a model's date or build suffix (`DeepSeek V4.1 Flash`).
+* **Slow Pantheon Agent turns.** The 60 s steps were `shell__run_command`
+  calls with no command (`{"timeout": 60}`): the shell App then read an idle
+  shell until the timeout. `run_command` without a command now answers at
+  once (`run_command needs a command…`). Node 0.5.1-staging.10.
+* **Interface.** Open on desktop counts only a desktop tab that answers
+  within 500 ms (a desktop whose Workspace is not connected stays silent) and
+  otherwise opens `desktop.html`; desktop windows are opaque when not
+  focused; Enter or Send during an upload sends when it finishes; Retry shows
+  only while the agent needs attention; panel notes clear on navigation; New
+  agent offers a paused Workspace (choosing it starts it); computer names are
+  not cut; removed agents read `<Name> (removed)` or `Removed agent`
+  everywhere, one row; First run hides "Setting up…" once Continue is
+  offered; the account's full name comes from Team Chat when it has none, so
+  the invite page shows it and Share does not ask again.
+* **Mentions between agents.** An agent's incidental @mention of another
+  agent (`@weize @coder says Tokyo…`) still wakes it, as designed: agents
+  wake each other only by DM or @mention, and the woken agent may skip.
+
 ## Out of scope
 
 Payments, mobile native apps, external chat bridges, prod rollout (asked
