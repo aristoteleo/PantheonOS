@@ -4,7 +4,8 @@ Status: design approved by the owner 2026-11-04 (name "Team Chat"; Phase 1 is
 one person per space, several people in Phase 3; people may edit and delete
 their own messages; the store and dispatcher run on the controller). Phase 1
 built and verified on staging 2026-11-05 (T1–T16; see "Phase 1 backend as
-built" and its "Staging verification"); not in production. Each phase ends
+built" and its "Staging verification"); Phase 2 built and verified on staging
+2026-11-05 (T20–T27; see "Phase 2 as built"); not in production. Each phase ends
 with acceptance criteria checked on staging before the next starts.
 
 ## Goal
@@ -933,7 +934,8 @@ Re-checked on staging (controller 0f2a489d, frontend a1fc79d9, Agent App
 
 ## Phase 2 as built (2026-11-05)
 
-Status: built; staging verification below. Not in production.
+Status: built and verified on staging 2026-11-05 (T20–T27, see "Staging
+verification" below). Not in production.
 
 ### Decisions where the design left a choice
 
@@ -1098,6 +1100,68 @@ thread); search of 10,000 messages by words, channel, author and dates, and
 by an agent; notification levels; a conversation's files; the Starting
 words. `apps/coding_agents/team_test.go`: new commands and options reach the
 service; a word that is not a command is refused by the script.
+
+### Interface as built
+
+Rail: Activity (count of rows with something new, archived conversations
+left out), Tasks (open tasks), Search. A conversation's header has Chat /
+Tasks / Files tabs and a bell (everything / mentions / mute; a DM offers
+every message or mute). Composer and thread composer have "As task"; a
+message's hover actions add "Make task"; a task message shows a chip (state,
+holder) whose menu moves or assigns it. Tasks: Board (Todo, In progress, In
+review, Done; Closed folded) and List, filters channel, assignee (also
+Nobody) and creator, per conversation and for the space; the board scrolls
+in its own area at phone width. Activity: Mentions / Unread / In review /
+All and Mark all read; a row opens its message (in its thread for a thread
+row), reading back as far as needed. Search: words, conversation, author,
+From/To days; a result opens its message. Agent profile: a Reminders tab
+(note, next time in the viewer's clock, Once or Repeats every …, the message
+it is about, Cancel). Space settings: the time zone and the browser
+notification permission (asked only from a button). The time zone is set
+from the browser once when the space has none.
+
+A conversation counts as read only while it is on screen: not behind
+Activity, Tasks or Search, not under the phone's list, not in a hidden tab
+(found on staging: a DM that arrived while Tasks was open was marked read).
+It is marked read when it comes back into view.
+
+**Phase 1 leftovers fixed.** Watch on an agent whose computer is offline
+says "<computer> is offline. Messages wait and are answered once it is
+back." instead of the node-call error. Watch folds each Team Chat turn input
+behind "Turn started by @weize's message" (or "by a reminder"), with "Show
+what Team Chat sent". Messages of one author are grouped as before, but each
+has its own hover time, a gap and a hairline, and a new header starts after
+two minutes or after a message that got thread replies. Starting shows the
+service's reason: "…getting the Pantheon Agent ready for the first time; this
+takes a few minutes" only when no Pantheon Agent of the space has run yet,
+else "…starting the Pantheon Agent again".
+
+### Staging verification (2026-11-05)
+
+Controller `98a0ce1c`, Fleet `fleet-v0.5.1-staging.11` (test Mac node and
+agents image `sha-98a0ce1`, Agent App 0.9.110), frontend `21b0c581`, on the
+test account in a headless browser (desktop 1400×900 and 390×844 touch).
+Agents: Writer (Claude Code, Haiku) and Coder (Codex) on the test Mac, both
+on PantheonOS models.
+
+| | Result |
+|---|---|
+| T20 | Pass. "As task" `@writer … poem.txt … move this task to In review`: Todo at once; Writer claimed it (line "@writer claimed this task · In progress"), wrote the file, posted its summary in the thread and moved it to In review, all within 60 s; Done from the chip added "@weize moved this task to Done". |
+| T21 | Pass. One task for `@writer @coder`: Writer's claim won; Coder's `task claim` answered "Not claimed: task … is already claimed by @writer. Don't work on it.", Coder ran `skip` and made no file. |
+| T22 | Pass. Board and List per channel and for the space; filters assignee Writer → T20, T21; Nobody → T22. Moving a card from the board posted "@weize moved this task to In progress" in its thread. |
+| T23 | Pass. In a thread: "@writer remind me to check the CI in 2 minutes" → reminder due 11:14:32 UTC tied to that message; the controller was restarted at 11:12:54; it fired at 11:14:33, woke only Writer (Coder's last turn was 11:09), whose reply landed in that thread at 11:14:40. |
+| T24 | Pass. "Every 2 minutes, remind me to stretch" (short interval for the test): the profile listed it ("Repeats every 2m"); Writer posted at 11:19 and 11:21; "please cancel the stretch reminder" → `remind cancel`, the profile showed "No reminders set". |
+| T25 | Pass. Activity listed a #general mention (@1), a reply in a followed thread, a DM and the task In review; Mentions showed only rows with mentions, In review only the task; opening the thread row opened the thread at the new reply and removed the row; the mention row opened #general at that message. |
+| T26 | Pass. 10,000 messages seeded in one channel: the service answered `zanzibar rotated` in 4 ms, the page showed the one result in 0.08 s; author Writer → 0 results; Writer's `pantheon-team search Zanzibar deploy key` found the same message id. |
+| T27 | Pass. Page hidden, `#docs` muted: Writer's DM "ping" made one browser notification; its "@weize pong" in `#docs` made none. |
+| Phase 1 low | Watch on the offline Mac read "Weizes MacBook Pro is offline…"; Watch showed "Turn started by @weize's message" with the input folded. |
+
+Found and fixed during the check: a search result 3,500 messages back did
+not open (the page read only 8 pages back; now pages of 200 until found);
+the Activity count included an archived channel; a conversation behind the
+Tasks view was marked read. Also seen: pulling the new agents image put the
+staging node in DiskPressure for about five minutes (the kubelet removed the
+old image), during which the frontend's Recreate rollout had no pod.
 
 ## Out of scope
 
