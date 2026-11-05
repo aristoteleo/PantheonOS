@@ -54,6 +54,12 @@ func (t *TeamChat) wakesFor(fl *tcFleet, c *tcConv, m *tcConvMsgs, e *tcEvent) (
 		if reason == "" {
 			continue
 		}
+		if fromAgent && (reason == "thread" || reason == "all") {
+			// Agents wake each other only by asking: a DM or an @mention.
+			// Otherwise every "noted" in a thread they all follow would
+			// start another round of turns.
+			continue
+		}
 		if fromAgent && e.Hop >= fl.space.Settings.HopLimit {
 			stopped = true
 			continue

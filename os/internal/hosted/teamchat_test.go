@@ -319,6 +319,21 @@ func TestWakeRules(t *testing.T) {
 	call(t, h, mine, "conv_update", map[string]any{"cid": ch, "agent_reply": "all"})
 	call(t, h, mine, "post", map[string]any{"cid": ch, "text": "status, anyone?"})
 	eventually(t, "coder's turn", func() bool { return nodes.promptCount() == 2 })
+	// An agent's message in a thread or an "all" channel wakes no other
+	// agent (only a DM or a mention does).
+	before := nodes.promptCount()
+	queued := call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[writer].(map[string]any)["queue"]
+	ctok := tc.agentToken(fleetID, coder)
+	if r := tc.AgentRequest(context.Background(), fleetID, agentRequest{MID: coder, Token: ctok, Op: "post", Args: []string{"docs"}, Text: "noted"}); r.Code != 0 {
+		t.Fatalf("%v", r)
+	}
+	if r := tc.AgentRequest(context.Background(), fleetID, agentRequest{MID: coder, Token: ctok, Op: "reply", Args: []string{m["id"].(string)}, Text: "noted too"}); r.Code != 0 {
+		t.Fatalf("%v", r)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if q := call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[writer].(map[string]any)["queue"]; q != queued || nodes.promptCount() != before {
+		t.Fatalf("an agent's note woke another agent: queue %v", q)
+	}
 	// A DM.
 	call(t, h, mine, "conv_update", map[string]any{"cid": ch, "agent_reply": "mention"})
 	dm := call(t, h, mine, "conv_create", map[string]any{"kind": "dm", "members": []string{coder}})["conversation"].(map[string]any)["cid"].(string)
