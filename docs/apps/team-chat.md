@@ -1221,6 +1221,18 @@ cancelled. Search's In list has no duplicate "Removed agent"; its filters
 wrap at 390 px; an archived channel opened from Search or Activity says
 "This channel is archived" and its message box is off.
 
+**Staging verification.** Controller `87cde85f`, frontend `c19c56f1`
+(no node release, no new agents image), on the test account in a headless
+browser, Writer (Claude Code, Haiku, PantheonOS models) on the test Mac:
+
+| | Result |
+|---|---|
+| Exact repro | "@writer remind me to check the CI in 2 minutes" in a channel: Writer answered "…at 04:34 Los Angeles time"; the reminder (`for: owner`) fired 3 s after its time and Writer posted "@weize Reminder: check the CI now." |
+| Other wordings | In a thread, "@writer in a minute, ping me to drink some water" → "@weize Drink some water now." in that thread. "@writer can you nudge me in 2 minutes to look at whether the nightly build passed?" → "(04:40 Los Angeles time)", then "@weize Nudge: look at whether the nightly build passed." |
+| Fallback | Writer stopped after setting "remind me in 2 minutes to stand up": at its time "⏰ Reminder for @weize: Stand up …" was posted at once, no turn. |
+| Time zone | "remind me tomorrow at 9:00 Tokyo time to call Kenji" → due 2026-11-06T00:00Z, confirmed as "16:00 America/Los_Angeles today"; "cancel the Kenji reminder" → "Cancelled the Kenji reminder." (no id). |
+| Low items | The old budget line in #p2v-check is gone (Writer's `last_ok` is later); task lines neutral, a click (or Enter) opens and flashes the task's message; a thread you started shows Following, Unfollow → Follow → Following; Settings reads "Models $3.58 + Workspace compute $17.19 of your $30.00 monthly budget; $9.23 left for models."; the profile lists "For @weize" without an id; Delete says "Its reminder is cancelled."; Search's In list has one "Removed agent"; at 390 px In/From and After/Before sit in two columns without overlap; #p2v-check opened from Search says "This channel is archived" with the message box off. |
+
 ## Out of scope
 
 Payments, mobile native apps, external chat bridges, prod rollout (asked
