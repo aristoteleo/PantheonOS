@@ -481,6 +481,7 @@ type tcLive struct {
 	paused      string // a guard holds its turns
 	pausedNoted bool
 	textBuf     []string // the running turn's text since its last step
+	lastDelta   bool
 	allText     []string
 	lastSeq     int64
 	stopWanted  bool

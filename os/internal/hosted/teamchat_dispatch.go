@@ -604,12 +604,17 @@ func (t *TeamChat) watch(ctx context.Context, fl *tcFleet, mid string) {
 			}
 			switch e.Type {
 			case "text":
-				l.textBuf = append(l.textBuf, e.Text)
-				l.allText = append(l.allText, e.Text)
-			case "tool":
-				if len(l.textBuf) > 0 {
-					l.textBuf = nil
+				// Streamed pieces join their message; messages are paragraphs.
+				if e.Delta && len(l.textBuf) > 0 && l.lastDelta {
+					l.textBuf[len(l.textBuf)-1] += e.Text
+					l.allText[len(l.allText)-1] += e.Text
+				} else {
+					l.textBuf = append(l.textBuf, e.Text)
+					l.allText = append(l.allText, e.Text)
 				}
+				l.lastDelta = e.Delta
+			case "tool":
+				l.textBuf, l.lastDelta = nil, false
 				if line := toolLine(e); line != "" && line != l.line {
 					l.line, changed = line, true
 				}
@@ -680,9 +685,9 @@ func (t *TeamChat) finish(ctx context.Context, fl *tcFleet, mid string, done cod
 	if tr == nil {
 		return
 	}
-	final := strings.TrimSpace(strings.Join(l.textBuf, ""))
+	final := strings.TrimSpace(strings.Join(l.textBuf, "\n\n"))
 	if final == "" {
-		final = strings.TrimSpace(strings.Join(l.allText, ""))
+		final = strings.TrimSpace(strings.Join(l.allText, "\n\n"))
 	}
 	failed := done.Error != "" && !done.Stopped && tr.Stop == ""
 	if err := t.del(ctx, fl, "turn."+mid); err != nil {
