@@ -352,7 +352,7 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 		if agent.Session != "" && (strings.Contains(why, "No conversation") || modelSourceChanged(why)) {
 			// Its session is gone from the node, or was made on other models
 			// than the agent now uses: a new one starts.
-			t.abortStart(ctx, fl, mid, "", "", false)
+			t.abortStart(ctx, fl, mid, "", "", true)
 			t.setSession(ctx, fl, mid, "")
 			return true
 		}
