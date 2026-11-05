@@ -483,10 +483,15 @@ func (t *TeamChat) fireDue(ctx context.Context, fl *tcFleet) {
 		w := tcWake{ID: r.About, Event: "rem-" + r.ID + "-" + strconv.FormatInt(due.Unix(), 10), CID: cid,
 			Root: root, Kind: "reminder", Reason: "reminder", From: r.Agent, At: now.UTC().Format(time.RFC3339Nano), Rem: r.ID, Note: r.Note,
 			For: r.For, Lang: r.Lang, Asked: r.Asked}
-		if w.forPerson(fl) && (t.cannotRun(fl, m) || fl.turns[m.MID] != nil) && t.remindPeople(ctx, fl, m, nil, []tcWake{w}, "")[w.key()] {
+		busy := fl.turns[m.MID] != nil
+		if w.forPerson(fl) && (t.cannotRun(fl, m) || busy) && t.remindPeople(ctx, fl, m, nil, []tcWake{w}, "")[w.key()] {
 			// A person's reminder does not wait for an agent that cannot
 			// run, nor for the end of its running turn: it is posted for
 			// them now (and not queued, so no later turn posts it again).
+			// The busy agent is told, so it does not post it too.
+			if busy {
+				fl.liveOf(m.MID).notePosted(now, "@"+fl.members[w.For].Handle, r.Note)
+			}
 		} else {
 			// (If the turn it queues cannot start, tryStart posts it for
 			// the person: remindNow.)
@@ -519,6 +524,24 @@ func (t *TeamChat) fireDue(ctx context.Context, fl *tcFleet) {
 		fl.rems[r.ID] = &next
 		t.emit(fl, map[string]any{"type": "reminder", "reminder": &next})
 	}
+}
+
+// notePosted keeps a person's reminder that Team Chat posted while the
+// agent was in a turn (the last two hours of them).
+func (l *tcLive) notePosted(at time.Time, who, note string) {
+	var kept []tcRemPosted
+	for _, x := range l.remPosted {
+		if at.Sub(x.at) < 2*time.Hour {
+			kept = append(kept, x)
+		}
+	}
+	l.remPosted = append(kept, tcRemPosted{at: at, who: who, note: note})
+}
+
+// postedLine tells the agent a reminder of theirs was posted for them.
+func postedLine(x tcRemPosted, loc *time.Location) string {
+	return fmt.Sprintf("Team Chat posted your reminder for %s at %s while you were busy (%s). It is done: don't post it again.\n",
+		x.who, x.at.In(loc).Format("15:04"), clipText(firstLineOf(x.note), 120))
 }
 
 // fireReminders looks at every space in memory (the start loads each space
@@ -557,7 +580,8 @@ EOF
   --for: who the reminder is for. A person who asks "remind me" gets it: --for @their-handle
          (the default when a person's message started your turn). --for me when it is your own
          follow-up. When a person's reminder comes due you post it for them; if you post
-         nothing, Team Chat posts your final text, or the note, for them.
+         nothing, Team Chat posts your final text, or the note, for them. One that comes due
+         while you are in a turn is posted by Team Chat at once (inbox says so): don't repeat it.
 remind list | remind cancel <id>
 Reminder ids are for these commands only: never show them to people. Tell a person they can
 say "cancel the reminder" instead.`
@@ -625,10 +649,14 @@ func (t *TeamChat) agentRemind(ctx context.Context, fl *tcFleet, m *tcMember, tr
 			line += ": " + clipText(r.Note, 120)
 			lines = append(lines, line)
 		}
-		if len(lines) == 0 {
-			return "You have no reminders.", nil
+		var done string
+		for _, x := range fl.liveOf(m.MID).remPosted {
+			done += postedLine(x, space)
 		}
-		return strings.Join(lines, "\n") + "\n(The ids are for remind cancel only; don't show them to people.)", nil
+		if len(lines) == 0 {
+			return done + "You have no reminders.", nil
+		}
+		return done + strings.Join(lines, "\n") + "\n(The ids are for remind cancel only; don't show them to people.)", nil
 	case "cancel", "delete", "remove":
 		id := arg(req, 1)
 		r := fl.rems[id]
@@ -707,7 +735,8 @@ func (t *TeamChat) agentRemind(ctx context.Context, fl *tcFleet, m *tcMember, tr
 		}
 	}
 	if x := fl.members[r.For]; x != nil {
-		out += ". It is for @" + x.Handle + ": when it comes due, post it for them (Remind @" + x.Handle + ": " + clipText(r.Note, 120) + ")"
+		out += ". It is for @" + x.Handle + ": when it comes due, it wakes you to post it for them (Remind @" + x.Handle + ": " + clipText(r.Note, 120) + ")" +
+			"; if you are still in a turn then, Team Chat posts it for them on time and your inbox says so: don't post it yourself"
 	} else {
 		out += ". It wakes you with: " + clipText(r.Note, 120)
 	}

@@ -586,6 +586,17 @@ type tcLive struct {
 	allText     []string
 	lastSeq     int64
 	stopWanted  bool
+	// remPosted: people's reminders of this agent that Team Chat posted
+	// itself while the agent was in a turn (inbox and remind list say so,
+	// so the agent does not post them again).
+	remPosted []tcRemPosted
+}
+
+type tcRemPosted struct {
+	at    time.Time
+	who   string // @handle
+	note  string
+	shown bool // in the inbox already
 }
 
 func (fl *tcFleet) liveOf(mid string) *tcLive {

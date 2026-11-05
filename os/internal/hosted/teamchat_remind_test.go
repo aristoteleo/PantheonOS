@@ -342,8 +342,16 @@ func TestAPersonsReminderDoesNotWaitForARunningTurn(t *testing.T) {
 	if s := r.status(); s["state"] != "working" {
 		t.Fatalf("posted only after the turn: %v", s)
 	}
+	// The running turn is told it was posted, not handed it to post.
+	if out := agentSays(r.tc, r.agent, "inbox", nil, nil, ""); !strings.Contains(out.Text, "Team Chat posted your reminder for @owner at 18:01 while you were busy (stretch). It is done: don't post it again.") ||
+		strings.Contains(out.Text, "Remind @owner") {
+		t.Fatalf("inbox: %v", out)
+	}
 	if out := agentSays(r.tc, r.agent, "inbox", nil, nil, ""); strings.Contains(out.Text, "stretch") {
-		t.Fatalf("the running turn got it too: %v", out)
+		t.Fatalf("told twice: %v", out)
+	}
+	if out := agentSays(r.tc, r.agent, "remind", []string{"list"}, nil, ""); !strings.Contains(out.Text, "don't post it again") {
+		t.Fatalf("remind list: %v", out)
 	}
 	r.set(func() { r.nodes.hold = false })
 	r.nodes.release <- struct{}{}

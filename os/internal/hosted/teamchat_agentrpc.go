@@ -320,10 +320,17 @@ func (t *TeamChat) agentDM(ctx context.Context, fl *tcFleet, m *tcMember, tr *tc
 // (they leave the queue, so the next turn does not get them again).
 func (t *TeamChat) agentInbox(ctx context.Context, fl *tcFleet, m *tcMember, tr *tcTurn) string {
 	q := fl.queues[m.MID]
-	if len(q) == 0 {
-		return "Nothing new since your turn started."
-	}
 	var b strings.Builder
+	l := fl.liveOf(m.MID)
+	for i, x := range l.remPosted {
+		if !x.shown {
+			b.WriteString(postedLine(x, spaceLoc(fl)))
+			l.remPosted[i].shown = true
+		}
+	}
+	if len(q) == 0 {
+		return b.String() + "Nothing new since your turn started."
+	}
 	b.WriteString("New since your turn started:\n")
 	for _, e := range q {
 		if e.Kind == "reminder" {
