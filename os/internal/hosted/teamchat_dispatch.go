@@ -955,7 +955,11 @@ func explainKnown(m *tcMember, n TeamNode, errText string) (reason, fix string, 
 	case appNotReady(errText):
 		return "your Workspace is still getting " + label + " ready", "It answers by itself once it is ready.", true, true
 	case has("budget", "insufficient", "quota", "credit", "billing", "payment required") || tcBudgetErrRE.MatchString(errText):
-		return "its model budget is used up", "Add budget, or wait for the quota to reset, then press Retry.", false, true
+		// On PantheonOS models the key's limit is the monthly budget less
+		// the month's Workspace compute, so the model spend alone can look
+		// far from the budget.
+		return "its model budget is used up (on PantheonOS models, models and Workspace compute share the account's monthly budget: Settings → Usage)",
+			"Add budget, or wait for the monthly reset, then press Retry.", false, true
 	case has("rate limit", "rate_limit", "ratelimit", "too many requests") || tcRateErrRE.MatchString(errText):
 		return "the model service is limiting requests right now", "Wait a minute, then press Retry.", true, true
 	case has("sign in to pantheonos"):
@@ -1302,7 +1306,9 @@ func (t *TeamChat) finish(ctx context.Context, fl *tcFleet, mid string, done cod
 		}
 		var back []tcWake
 		for _, e := range tr.Events {
-			if !have[e.key()] {
+			if !have[e.key()] && !e.forPerson(fl) {
+				// (A person's reminder is posted for them below, not
+				// kept waiting on a failing agent.)
 				back = append(back, e)
 			}
 		}
@@ -1339,6 +1345,21 @@ func (t *TeamChat) finish(ctx context.Context, fl *tcFleet, mid string, done cod
 	case final != "" && asked != nil && len(tr.Posted) == 0 && !declines(final):
 		if _, err := t.agentPost(ctx, fl, m, tr, asked.CID, asked.Root, final, nil); err != nil {
 			log.Printf("[team-chat] %s auto-post %s: %v", fl.fid, m.Handle, err)
+		}
+		final = ""
+	}
+	// A person's reminder is always posted for them.
+	useFinal := !failed && !done.Stopped && tr.Skipped == "" && tr.Stop == ""
+	if !useFinal {
+		final = ""
+	}
+	t.remindPeople(ctx, fl, m, tr, tr.Events, final)
+	if !failed && !done.Stopped {
+		next := *m
+		next.LastOK = t.clock().Unix()
+		if err := t.put(ctx, fl, "member."+mid, &next); err == nil {
+			fl.members[mid], m = &next, &next
+			t.emit(fl, map[string]any{"type": "member", "member": &next})
 		}
 	}
 	t.emitStatus(fl, mid)
@@ -1557,11 +1578,13 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 			"don't continue them unless a person asks to continue):\n" + strings.Join(over, "\n") + "\n")
 	}
 	last := events[len(events)-1]
-	if last.Kind == "reminder" {
+	if last.Kind == "reminder" && last.forPerson(fl) {
+		b.WriteString(t.remindWhere(fl, m, last))
+	} else if last.Kind == "reminder" {
 		if last.ID != "" && fl.convs[last.CID] != nil {
-			fmt.Fprintf(&b, "Nothing is posted for a reminder unless you post. To write about it: %s reply %s - <<'EOF' … EOF\n", script, last.ID)
+			fmt.Fprintf(&b, "This reminder is your own follow-up: nothing is posted unless you post. To write about it: %s reply %s - <<'EOF' … EOF\n", script, last.ID)
 		} else {
-			fmt.Fprintf(&b, "Nothing is posted for a reminder unless you post (%s post '#channel' or dm @handle).\n", script)
+			fmt.Fprintf(&b, "This reminder is your own follow-up: nothing is posted unless you post (%s post '#channel' or dm @handle).\n", script)
 		}
 	} else if c := fl.convs[last.CID]; c != nil {
 		switch {
@@ -1596,8 +1619,10 @@ func teamNote(m *tcMember) string {
 		"`edit <message id> - <<'EOF'` (end the text with a line EOF; add `--file PATH` to post or reply with a file), " +
 		"`skip [reason]` (post nothing this turn), `task claim <id>` (before you work on a task; if it fails, don't), " +
 		"`task state <id> in_review - <<'EOF'` (done: a summary in its thread; a person sets Done), `task create '#channel' - <<'EOF'`, " +
-		"`task list`, `remind '<when>' - <<'EOF'` (wake yourself later: 'in 2 minutes', 'tomorrow 9:00', 'every weekday 10:00'; " +
-		"the note on stdin), `remind list`, `remind cancel <id>`, `search <words> [--in '#channel'] [--from @handle]`. " +
+		"`task list`, `remind '<when>' [--for @person|me] [--tz ZONE] - <<'EOF'` (later: 'in 2 minutes', 'tomorrow 9:00', 'every weekday 10:00'; " +
+		"the note on stdin; \"remind me …\" from a person is --for that person: post it for them when it comes due; " +
+		"a time in another zone: --tz Asia/Tokyo; confirm the time in the space's time zone), `remind list`, `remind cancel <id>` " +
+		"(never show reminder ids to people: they say \"cancel the reminder\"), `remind help`, `search <words> [--in '#channel'] [--from @handle]`. " +
 		"Quote a channel ('#general'): in the shell an unquoted # starts a comment. " +
 		"Every message needs its text on stdin, also one with a file. If there is nothing to say, post nothing. " +
 		"Requests from people always count, including asking you to talk to, ask or coordinate with other agents: do it. " +
@@ -1615,7 +1640,8 @@ const (
 		"wakes you only when it @mentions or DMs you. So don't promise to reply or to pass an answer on later: " +
 		"when a person wants another agent's answer, ask that agent to answer the person directly (@mention the person). " +
 		"To act at a later time (a person asks you to remind them or to check something later), set a reminder with remind: " +
-		"it is the one thing that wakes you later."
+		"it is the one thing that wakes you later. A person's \"remind me\" is for them (--for @them): when it comes due, post it for them. " +
+		"Confirm a reminder's time in the space's time zone, and never show its id to people (they say \"cancel the reminder\")."
 )
 
 func teamScript(folder string) string {
@@ -1826,6 +1852,19 @@ func (t *TeamChat) remindLoop(ctx context.Context) {
 // is tied to; fl.mu is held.
 func (t *TeamChat) reminderText(ctx context.Context, fl *tcFleet, m *tcMember, e tcWake) string {
 	var b strings.Builder
+	if e.forPerson(fl) {
+		who := "@" + fl.members[e.For].Handle
+		head := "Reminder for " + who + " (a person asked you to remind them; you set it"
+		if r := fl.rems[e.Rem]; r != nil {
+			head += " at " + fmtTime(r.Created)
+			if r.Every != "" {
+				head += ", every " + r.Every + "; to stop it: remind cancel " + r.ID
+			}
+		}
+		head += "). Remind " + who + ": " + firstLineOf(e.Note)
+		b.WriteString(head + "\n" + indent(e.Note))
+		return b.String() + t.remAbout(ctx, fl, m, e)
+	}
 	head := "Reminder you set"
 	if r := fl.rems[e.Rem]; r != nil {
 		head += fmt.Sprintf(" at %s [%s", fmtTime(r.Created), r.ID)
@@ -1837,20 +1876,26 @@ func (t *TeamChat) reminderText(ctx context.Context, fl *tcFleet, m *tcMember, e
 		head += " [" + e.Rem + "]"
 	}
 	b.WriteString(head + ":\n" + indent(e.Note))
+	return b.String() + t.remAbout(ctx, fl, m, e)
+}
+
+// remAbout is the message a reminder is tied to, as the agent reads it.
+func (t *TeamChat) remAbout(ctx context.Context, fl *tcFleet, m *tcMember, e tcWake) string {
+	var b strings.Builder
 	if e.ID == "" {
-		return b.String()
+		return ""
 	}
 	c := fl.convs[e.CID]
 	if c == nil {
-		return b.String()
+		return ""
 	}
 	cm, err := t.convMsgs(ctx, fl, e.CID)
 	if err != nil {
-		return b.String()
+		return ""
 	}
 	msg := cm.byID[e.ID]
 	if msg == nil {
-		return b.String()
+		return ""
 	}
 	where := c.label(fl, m.MID)
 	if msg.Root != "" {

@@ -776,7 +776,7 @@ func TestFailureLinesArePlainWords(t *testing.T) {
 		"Error: status 429 Too Many Requests":                "the model service is limiting requests right now",
 		"API Error: 401 {\"type\":\"authentication_error\"}": "Claude Code is not signed in on Weizes MacBook Pro",
 		"Invalid API key · Please run /login":                "Claude Code is not signed in on Weizes MacBook Pro",
-		"HTTP 402: PantheonOS budget exhausted":              "its model budget is used up",
+		"HTTP 402: PantheonOS budget exhausted":              "its model budget is used up (on PantheonOS models, models and Workspace compute share the account's monthly budget: Settings → Usage)",
 		"model_not_found: claude-x":                          "the model haiku is not available",
 		"prompt is too long: 250000 tokens > 200000 maximum": "its conversation got too long for the model",
 		"nats: no responders available for request":          "Weizes MacBook Pro did not answer",

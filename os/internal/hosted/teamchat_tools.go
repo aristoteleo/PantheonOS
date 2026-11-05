@@ -426,7 +426,7 @@ func (t *TeamChat) spaceGet(ctx context.Context, fl *tcFleet, me string) (map[st
 		}
 	}
 	reads := map[string]string{}
-	follows := []string{}
+	follows, unfollows := []string{}, []string{}
 	for key, id := range fl.reads {
 		if mid, cid, _ := strings.Cut(key, "."); mid == me {
 			reads[cid] = id
@@ -435,6 +435,8 @@ func (t *TeamChat) spaceGet(ctx context.Context, fl *tcFleet, me string) (map[st
 	for key, on := range fl.follows {
 		if mid, root, _ := strings.Cut(key, "."); mid == me && on {
 			follows = append(follows, root)
+		} else if mid == me {
+			unfollows = append(unfollows, root)
 		}
 	}
 	notify := map[string]string{}
@@ -448,7 +450,7 @@ func (t *TeamChat) spaceGet(ctx context.Context, fl *tcFleet, me string) (map[st
 		tasks = []*tcTask{}
 	}
 	return map[string]any{"space": fl.space, "me": me, "members": members, "conversations": convs, "reads": reads,
-		"follows": follows, "agent_status": status, "unread": unread, "thread_unread": threadUnread, "tasks": tasks,
+		"follows": follows, "unfollows": unfollows, "agent_status": status, "unread": unread, "thread_unread": threadUnread, "tasks": tasks,
 		"notify": notify, "usage": t.usage(fl), "revision": fl.seq, "subject": tcSubject(fl.fid)}, nil
 }
 

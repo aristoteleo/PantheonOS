@@ -34,6 +34,9 @@ type tcRem struct {
 	CID       string `json:"cid,omitempty"`
 	Root      string `json:"root,omitempty"`
 	About     string `json:"about,omitempty"` // the message it is tied to
+	// For: the person it reminds ("" = the agent itself). A person's
+	// reminder is always posted for them, by the agent or for it.
+	For string `json:"for,omitempty"`
 	Created   string `json:"created"`
 	CreatedBy string `json:"created_by"`
 	Fired     int    `json:"fired,omitempty"`
@@ -245,6 +248,9 @@ func parseWhen(when string, now time.Time, loc *time.Location) (time.Time, *tcSc
 		}
 		return now.Add(d), nil, nil
 	}
+	if ts, ok := parseISO(s); ok {
+		return ts, nil, nil
+	}
 	local := now.In(loc)
 	at := func(day time.Time, h, m int) time.Time {
 		return time.Date(day.Year(), day.Month(), day.Day(), h, m, 0, 0, loc)
@@ -304,6 +310,27 @@ func parseWhen(when string, now time.Time, loc *time.Location) (time.Time, *tcSc
 	return time.Time{}, nil, fmt.Errorf("unknown time %q (try: in 2 minutes, 14:30, tomorrow 9:00, monday 10:00, 2026-11-06 09:00, every weekday 10:00)", when)
 }
 
+// parseISO reads a time that names its own offset: "2026-11-06T09:00+09:00",
+// "2026-11-06 09:00:00Z", "2026-11-06T09:00 -0500".
+func parseISO(s string) (time.Time, bool) {
+	u := strings.ToUpper(strings.TrimSpace(s))
+	if len(u) < 16 {
+		return time.Time{}, false
+	}
+	if u[10] == ' ' {
+		u = u[:10] + "T" + u[11:]
+	}
+	u = strings.Replace(u, " +", "+", 1)
+	u = strings.Replace(u, " -", "-", 1)
+	u = strings.Replace(u, " Z", "Z", 1)
+	for _, layout := range []string{time.RFC3339, time.RFC3339Nano, "2006-01-02T15:04Z07:00", "2006-01-02T15:04:05Z0700", "2006-01-02T15:04Z0700"} {
+		if ts, err := time.Parse(layout, u); err == nil {
+			return ts, true
+		}
+	}
+	return time.Time{}, false
+}
+
 // spaceLoc is the space's time zone.
 func spaceLoc(fl *tcFleet) *time.Location {
 	if fl.space != nil && fl.space.TimeZone != "" {
@@ -329,8 +356,10 @@ func locName(loc *time.Location) string {
 // remKey is a reminder's key part.
 func remKey(r *tcRem) string { return "rem." + r.Agent + "." + r.ID }
 
-// setReminder makes a reminder for agent m; fl.mu is held.
-func (t *TeamChat) setReminder(ctx context.Context, fl *tcFleet, m *tcMember, by, when, every, note, cid, root, about string) (*tcRem, error) {
+// setReminder makes a reminder of agent m, for the person forMID ("" = the
+// agent itself), its times read in loc (nil: the space's); fl.mu is held.
+func (t *TeamChat) setReminder(ctx context.Context, fl *tcFleet, m *tcMember, by, when, every, note, cid, root, about, forMID string,
+	loc *time.Location) (*tcRem, error) {
 	note = strings.TrimSpace(note)
 	if note == "" {
 		return nil, &ArgumentError{"Not set: say what to remind you of (the note on stdin: - <<'EOF' … EOF, or after the time)"}
@@ -347,7 +376,10 @@ func (t *TeamChat) setReminder(ctx context.Context, fl *tcFleet, m *tcMember, by
 	if n >= tcMaxRems {
 		return nil, &ArgumentError{fmt.Sprintf("Not set: an agent has at most %d reminders; cancel one first (remind list)", tcMaxRems)}
 	}
-	loc, now := spaceLoc(fl), t.clock()
+	if loc == nil {
+		loc = spaceLoc(fl)
+	}
+	now := t.clock()
 	var first time.Time
 	var sched *tcSchedule
 	var err error
@@ -379,7 +411,7 @@ func (t *TeamChat) setReminder(ctx context.Context, fl *tcFleet, m *tcMember, by
 		return nil, &ArgumentError{"Not set: a reminder is at most a year ahead"}
 	}
 	r := &tcRem{ID: "r" + shortID(), Agent: m.MID, Note: note, At: first.UTC().Format(time.RFC3339), TimeZone: locName(loc),
-		CID: cid, Root: root, About: about, Created: t.stamp(), CreatedBy: by}
+		CID: cid, Root: root, About: about, For: forMID, Created: t.stamp(), CreatedBy: by}
 	if sched != nil {
 		r.Every = every
 	}
@@ -438,8 +470,16 @@ func (t *TeamChat) fireDue(ctx context.Context, fl *tcFleet) {
 		if cid != "" && fl.convs[cid] == nil {
 			cid, root = "", ""
 		}
-		t.enqueue(ctx, fl, r.Agent, tcWake{ID: r.About, Event: "rem-" + r.ID + "-" + strconv.FormatInt(due.Unix(), 10), CID: cid,
-			Root: root, Kind: "reminder", Reason: "reminder", From: r.Agent, At: now.UTC().Format(time.RFC3339Nano), Rem: r.ID, Note: r.Note})
+		w := tcWake{ID: r.About, Event: "rem-" + r.ID + "-" + strconv.FormatInt(due.Unix(), 10), CID: cid,
+			Root: root, Kind: "reminder", Reason: "reminder", From: r.Agent, At: now.UTC().Format(time.RFC3339Nano), Rem: r.ID, Note: r.Note,
+			For: r.For}
+		if w.forPerson(fl) && t.cannotRun(fl, m) {
+			// A person's reminder does not wait for an agent that cannot
+			// run: it is posted for them now.
+			t.remindPeople(ctx, fl, m, nil, []tcWake{w}, "")
+		} else {
+			t.enqueue(ctx, fl, r.Agent, w)
+		}
 		log.Printf("[team-chat] %s %s: reminder %s is due", fl.fid, m.Handle, r.ID)
 		if r.Every == "" {
 			_ = t.cancelReminder(ctx, fl, r)
@@ -493,17 +533,82 @@ func (t *TeamChat) fireReminders(ctx context.Context) {
 	}
 }
 
+// remindHelp is `remind help`, and what a wrong `remind` is answered with.
+const remindHelp = `remind <when> [--for @person|me] [--tz ZONE] [--every SPEC] [--about ID] - <<'EOF'
+<the note>
+EOF
+  <when>: in 2 minutes | 2m | 1h | 14:30 | tomorrow 9:00 | monday 10:00 | 2026-11-06 09:00
+          | 2026-11-06T09:00+09:00 (a time with its own offset) | every weekday 10:00
+  --every: 5 minutes | hour | day 9:00 | weekday 10:00 | mon,wed 10:00
+  --tz: the time zone the time is in (an IANA name: Asia/Tokyo, America/New_York); without it,
+        the space's time zone. A person who names a city or zone ("9am Tokyo time") means that one.
+  --for: who the reminder is for. A person who asks "remind me" gets it: --for @their-handle
+         (the default when a person's message started your turn). --for me when it is your own
+         follow-up. When a person's reminder comes due you post it for them; if you post
+         nothing, Team Chat posts your final text, or the note, for them.
+remind list | remind cancel <id>
+Reminder ids are for these commands only: never show them to people. Tell a person they can
+say "cancel the reminder" instead.`
+
+// remFor reads --for: a person's handle, or me/self (the agent itself).
+func (t *TeamChat) remFor(fl *tcFleet, m *tcMember, tr *tcTurn, about *tcMsg, opt string) (string, error) {
+	switch v := strings.ToLower(strings.TrimSpace(opt)); v {
+	case "me", "self", "myself", "agent", "@" + m.Handle, m.Handle:
+		return "", nil
+	case "":
+		// A person asked in the message it is about, or in the message
+		// that started this turn: it is theirs.
+		if about != nil {
+			if x := fl.members[about.From]; x != nil && !x.agent() {
+				return x.MID, nil
+			}
+		}
+		if tr != nil {
+			if x := fl.members[tr.Cause.From]; x != nil && !x.agent() {
+				return x.MID, nil
+			}
+		}
+		return "", nil
+	default:
+		x := t.memberByHandle(fl, v)
+		if x == nil {
+			return "", fmt.Errorf("Not set: no member %s (see: members)", opt)
+		}
+		if x.agent() {
+			return "", fmt.Errorf("Not set: --for names a person (or me); @%s is an agent: post to it when the reminder wakes you", x.Handle)
+		}
+		return x.MID, nil
+	}
+}
+
 // agentRemind serves `pantheon-team remind …`; fl.mu is held.
 func (t *TeamChat) agentRemind(ctx context.Context, fl *tcFleet, m *tcMember, tr *tcTurn, req agentRequest) (string, error) {
-	loc := spaceLoc(fl)
+	space := spaceLoc(fl)
+	loc := space
+	if tz := strings.TrimSpace(req.Opts["tz"]); tz != "" {
+		l, err := time.LoadLocation(tz)
+		if err != nil || strings.EqualFold(tz, "local") {
+			return "", fmt.Errorf("Not set: unknown time zone %q (use an IANA name such as Asia/Tokyo, Europe/Berlin, America/New_York, UTC)", tz)
+		}
+		loc = l
+	}
 	switch arg(req, 0) {
+	case "help", "--help", "-h":
+		return remindHelp, nil
 	case "list", "":
 		var lines []string
 		for _, r := range remindersOf(fl, m.MID) {
 			at, _ := time.Parse(time.RFC3339, r.At)
-			line := fmt.Sprintf("[%s] %s", r.ID, remWhen(at, loc))
+			line := fmt.Sprintf("[%s] %s", r.ID, remWhen(at, space))
 			if r.Every != "" {
-				line += " (every " + r.Every + ")"
+				line += " (every " + r.Every
+				if r.TimeZone != "" && r.TimeZone != locName(space) {
+					line += ", " + r.TimeZone + " time"
+				}
+				line += ")"
+			}
+			if x := fl.members[r.For]; x != nil {
+				line += " for @" + x.Handle
 			}
 			line += ": " + clipText(r.Note, 120)
 			lines = append(lines, line)
@@ -511,7 +616,7 @@ func (t *TeamChat) agentRemind(ctx context.Context, fl *tcFleet, m *tcMember, tr
 		if len(lines) == 0 {
 			return "You have no reminders.", nil
 		}
-		return strings.Join(lines, "\n"), nil
+		return strings.Join(lines, "\n") + "\n(The ids are for remind cancel only; don't show them to people.)", nil
 	case "cancel", "delete", "remove":
 		id := arg(req, 1)
 		r := fl.rems[id]
@@ -521,7 +626,7 @@ func (t *TeamChat) agentRemind(ctx context.Context, fl *tcFleet, m *tcMember, tr
 		if err := t.cancelReminder(ctx, fl, r); err != nil {
 			return "", err
 		}
-		return "Cancelled reminder " + id + ".", nil
+		return "Cancelled the reminder (" + clipText(r.Note, 80) + "). Tell the person it is cancelled; don't show its id.", nil
 	}
 	// The time is the longest run of first words that reads as one; the
 	// note is stdin, else the words after it.
@@ -541,13 +646,14 @@ func (t *TeamChat) agentRemind(ctx context.Context, fl *tcFleet, m *tcMember, tr
 		if len(words) == 0 {
 			err = fmt.Errorf("say when")
 		}
-		return "", fmt.Errorf("Not set: %v. Use: remind 'in 2 minutes' - <<'EOF' (the note, then a line EOF)", err)
+		return "", fmt.Errorf("Not set: %v.\nUse: %s", err, remindHelp)
 	}
 	if note == "" {
 		note = strings.Join(words[n:], " ")
 	}
 	// Tied to a message: --about, else what woke this turn.
 	cid, root, about := "", "", ""
+	var aboutMsg *tcMsg
 	if id := strings.TrimSpace(req.Opts["about"]); id != "" {
 		msg, err := t.findMsg(ctx, fl, id, "")
 		if err != nil {
@@ -556,23 +662,146 @@ func (t *TeamChat) agentRemind(ctx context.Context, fl *tcFleet, m *tcMember, tr
 		if !fl.visible(fl.convs[msg.CID], m.MID) {
 			return "", fmt.Errorf("Not set: you are not in the conversation of message %s", id)
 		}
-		cid, root, about = msg.CID, msg.Root, msg.ID
+		cid, root, about, aboutMsg = msg.CID, msg.Root, msg.ID, msg
 	} else if tr != nil {
 		c := tr.Cause
 		cid, root, about = c.CID, c.Root, c.ID
+		if c.ID != "" && c.Kind != "reminder" {
+			if msg, err := t.findMsg(ctx, fl, c.ID, c.CID); err == nil {
+				aboutMsg = msg
+			}
+		}
 	}
-	r, err := t.setReminder(ctx, fl, m, m.MID, when, every, note, cid, root, about)
+	forMID, err := t.remFor(fl, m, tr, aboutMsg, req.Opts["for"])
+	if err != nil {
+		return "", err
+	}
+	r, err := t.setReminder(ctx, fl, m, m.MID, when, every, note, cid, root, about, forMID, loc)
 	if err != nil {
 		return "", err
 	}
 	at, _ := time.Parse(time.RFC3339, r.At)
-	out := fmt.Sprintf("Reminder %s set for %s", r.ID, remWhen(at, loc))
+	whenSpace := remWhen(at, space)
+	out := "Reminder set for " + whenSpace
+	if loc.String() != space.String() {
+		out = fmt.Sprintf("Reminder set for %s (%s in the space's time zone)", remWhen(at, loc), whenSpace)
+	}
 	if r.Every != "" {
 		out += ", then every " + r.Every
+		if loc.String() != space.String() {
+			out += " " + locName(loc) + " time"
+		}
 	}
-	out += ". It wakes you with: " + clipText(r.Note, 120)
+	if x := fl.members[r.For]; x != nil {
+		out += ". It is for @" + x.Handle + ": when it comes due, post it for them (Remind @" + x.Handle + ": " + clipText(r.Note, 120) + ")"
+	} else {
+		out += ". It wakes you with: " + clipText(r.Note, 120)
+	}
 	if about != "" {
 		out += " (about message " + about + ")"
 	}
-	return out + ". Cancel it with: remind cancel " + r.ID, nil
+	out += ".\nConfirm it to the person in the space's time zone: " + whenSpace + "."
+	out += " Don't show the reminder id (" + r.ID + ", for remind cancel only); a person cancels by asking you (\"cancel the reminder\")."
+	return out, nil
+}
+
+// forPerson: a reminder's wake for a person still in the space.
+func (w tcWake) forPerson(fl *tcFleet) bool {
+	if w.Kind != "reminder" || w.For == "" {
+		return false
+	}
+	p := fl.members[w.For]
+	return p != nil && !p.agent()
+}
+
+// remindTarget is where a person's reminder is posted: the thread or
+// conversation of the message it is about, else the DM with the person.
+func (t *TeamChat) remindTarget(ctx context.Context, fl *tcFleet, m *tcMember, w tcWake) (string, string) {
+	if c := fl.convs[w.CID]; c != nil && !c.Archived && (c.has(w.For) || fl.visible(c, w.For)) {
+		return w.CID, w.Root
+	}
+	res, err := t.convCreate(ctx, fl, m.MID, "dm", "", false, []string{w.For}, "", "")
+	if err != nil {
+		return "", ""
+	}
+	return res.(map[string]any)["conversation"].(*tcConv).CID, ""
+}
+
+// remindWhere tells the agent how to post a person's reminder.
+func (t *TeamChat) remindWhere(fl *tcFleet, m *tcMember, w tcWake) string {
+	who := "@" + fl.members[w.For].Handle
+	script := teamScript(m.Folder)
+	cmd := fmt.Sprintf("%s dm %s - <<'EOF' … EOF", script, who)
+	where := "in your DM with " + who
+	if c := fl.convs[w.CID]; c != nil && !c.Archived {
+		switch {
+		case w.ID != "":
+			cmd = fmt.Sprintf("%s reply %s - <<'EOF' … EOF", script, w.ID)
+			where = "where it was asked (" + c.label(fl, m.MID)
+			if w.Root != "" {
+				where += ", in the thread"
+			}
+			where += ")"
+		case c.Kind == "channel":
+			cmd = fmt.Sprintf("%s post %s - <<'EOF' … EOF", script, shellQuote("#"+c.Name))
+			where = "in " + c.label(fl, m.MID)
+		}
+	}
+	return fmt.Sprintf("This reminder is for %s, a person: post it for them %s, mentioning %s, with: %s\n"+
+		"Do what the note asks only when it is your work; the reminder itself is for %s. "+
+		"If you post nothing, Team Chat posts your final answer, or the note, for %s there.\n", who, where, who, cmd, who, who)
+}
+
+// remindPeople posts each person's reminder of a turn that the agent did
+// not post where it belongs: its final text (with the person's @handle), or
+// "⏰ Reminder for @x: <note>". fl.mu is held; tr may be nil (the agent
+// could not run).
+func (t *TeamChat) remindPeople(ctx context.Context, fl *tcFleet, m *tcMember, tr *tcTurn, events []tcWake, final string) {
+	var posted []string
+	if tr != nil {
+		posted = append(posted, tr.Posted...)
+	}
+	seen := map[string]bool{}
+	for _, e := range events {
+		if !e.forPerson(fl) || seen[e.key()] {
+			continue
+		}
+		seen[e.key()] = true
+		p := fl.members[e.For]
+		cid, root := t.remindTarget(ctx, fl, m, e)
+		if cid == "" || contains(posted, cid) || contains(posted, dmID(m.MID, p.MID)) {
+			continue
+		}
+		fallback := "⏰ Reminder for @" + p.Handle + ": " + strings.TrimSpace(e.Note)
+		text := fallback
+		if f := strings.TrimSpace(final); f != "" && !declines(f) {
+			text = f
+			if !strings.Contains(strings.ToLower(f), "@"+p.Handle) {
+				text = "@" + p.Handle + " " + f
+			}
+			final = "" // once
+		}
+		msg, err := t.agentPost(ctx, fl, m, tr, cid, root, text, nil)
+		if err != nil && tr != nil {
+			msg, err = t.agentPost(ctx, fl, m, nil, cid, root, text, nil)
+		}
+		if err != nil {
+			log.Printf("[team-chat] %s reminder for %s by %s: %v", fl.fid, p.Handle, m.Handle, err)
+			msg, err = t.system(ctx, fl, cid, root, m.MID, "", fallback)
+		}
+		if err == nil && msg != nil {
+			posted = append(posted, cid)
+			log.Printf("[team-chat] %s %s: reminder %s posted for @%s", fl.fid, m.Handle, e.Rem, p.Handle)
+		}
+	}
+}
+
+// cannotRun: an agent that will not start a turn soon (stopped, needs the
+// person, paused by a guard, or its computer is offline).
+func (t *TeamChat) cannotRun(fl *tcFleet, m *tcMember) bool {
+	if m.State == "stopped" || m.Attention != nil || fl.liveOf(m.MID).paused != "" {
+		return true
+	}
+	node, known := fl.nodes[m.NodeID]
+	return known && !node.Online
 }

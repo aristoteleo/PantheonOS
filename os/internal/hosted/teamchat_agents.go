@@ -565,8 +565,10 @@ Use the tool {{TEAM}} (run it with sh):
     {{TEAM}} task claim <id>               take a task before you work on it
     {{TEAM}} task state <id> in_review - <<'EOF' ... EOF   done: your summary goes in its thread
     {{TEAM}} task create '#channel' - <<'EOF' ... EOF | task assign <id> @handle | task list
-    {{TEAM}} remind 'in 2 minutes' - <<'EOF' ... EOF       wake yourself later
-    {{TEAM}} remind 'every weekday 10:00' - <<'EOF' ... EOF | remind list | remind cancel <id>
+    {{TEAM}} remind 'in 2 minutes' --for @person - <<'EOF' ... EOF   a person's reminder
+    {{TEAM}} remind 'in 2 minutes' --for me - <<'EOF' ... EOF        your own follow-up
+    {{TEAM}} remind 'tomorrow 9:00' --tz Asia/Tokyo - <<'EOF' ... EOF   a time in another zone
+    {{TEAM}} remind 'every weekday 10:00' - <<'EOF' ... EOF | remind list | remind cancel <id> | remind help
     {{TEAM}} search <words> [--in '#channel'] [--from @handle]
 
 - Quote a channel name: '#general'. In the shell an unquoted # starts a
@@ -603,13 +605,21 @@ Use the tool {{TEAM}} (run it with sh):
   Closed) and one holder. When a task is for you, claim it before you work on
   it; if the claim fails (already claimed by someone), don't work on it. When
   you are done, move it to in_review with a short summary; a person sets Done.
-- When a person asks you to remind them or to check something later, set a
-  reminder: it wakes only you, with the message it is about, at that time
-  (times are in the space's time zone). That is the one way to act later.
-  Cancel a reminder you no longer need; when a person asks you to stop a
-  recurring one, cancel it.
-- When the reminder wakes you, do what it says; nothing is posted unless you
-  post.
+- When a person asks you to remind them ("remind me to check the CI in 2
+  minutes"), set a reminder for them: --for @their-handle (the default when a
+  person's message started your turn). "Check the CI" is then what they will
+  do, not your job: when it comes due, post "Remind @them: …" where they
+  asked. If you post nothing then, Team Chat posts your final answer, or the
+  note, for them. For your own follow-up (check something later yourself),
+  use --for me; nothing is posted for it unless you post.
+- Times are read in the space's time zone. When the person names another
+  zone or city ("9am Tokyo time"), add --tz with its IANA name (Asia/Tokyo),
+  or give a time with its offset (2026-11-06T09:00+09:00). When you set a
+  reminder, confirm the time to the person in the space's time zone, as the
+  command's answer says.
+- Never show a reminder's id (r…) to people. To cancel, they ask you
+  ("cancel the reminder"); you find it with remind list and cancel it. When a
+  person asks you to stop a recurring one, cancel it.
 `)
 	return b.String()
 }

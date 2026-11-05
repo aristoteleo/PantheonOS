@@ -374,6 +374,9 @@ type tcMember struct {
 	// Its turns' [start, end] (unix seconds) in the last hour, for the
 	// minutes guard.
 	Spans [][2]int64 `json:"turn_spans,omitempty"`
+	// When it last finished a turn that did not fail (unix seconds): an
+	// older failure line about it is over.
+	LastOK int64 `json:"last_ok,omitempty"`
 }
 
 func (m *tcMember) agent() bool { return m.Kind == "agent" }
@@ -502,6 +505,9 @@ type tcWake struct {
 	// about, or ""): its id and note.
 	Rem  string `json:"rem,omitempty"`
 	Note string `json:"note,omitempty"`
+	// For: the person a reminder is for ("" when the agent set it for
+	// itself); a person always sees it (docs/apps/team-chat.md).
+	For string `json:"for,omitempty"`
 }
 
 func (w tcWake) key() string { return w.Event }

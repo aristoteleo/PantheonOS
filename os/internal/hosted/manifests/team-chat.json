@@ -49,7 +49,7 @@
     "tools": [
       {
         "name": "space_get",
-        "description": "The space (created with #general on first use), members, conversations, the caller's read marks and follows, agent statuses, unread counts, guard use, the change revision and subject.",
+        "description": "The space (created with #general on first use), members, conversations, the caller's read marks, follows and explicit unfollows, agent statuses, unread counts, guard use, the change revision and subject.",
         "params": []
       },
       {

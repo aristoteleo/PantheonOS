@@ -202,11 +202,15 @@ func TestAReminderWakesOnlyItsAgentAndSurvivesARestart(t *testing.T) {
 	// The fake turn ended at once; set the reminder as that turn would have
 	// (the turn is gone, so it is tied with --about).
 	r := agentSays(tc, writer, "remind", []string{"in", "2", "minutes", "check", "the", "CI"}, map[string]string{"about": ask}, "")
-	if r.Code != 0 || !strings.Contains(r.Text, "It wakes you with: check the CI") {
+	// "remind me" from a person: the reminder is theirs; its id is not for
+	// people.
+	if r.Code != 0 || !strings.Contains(r.Text, "It is for @owner") || !strings.Contains(r.Text, "Confirm it to the person in the space's time zone: Thu Nov 5 18:02 UTC") ||
+		!strings.Contains(r.Text, "Don't show the reminder id") {
 		t.Fatalf("%v", r)
 	}
 	list := call(t, h, mine, "reminders", map[string]any{"mid": writer})["reminders"].([]any)
-	if len(list) != 1 || list[0].(map[string]any)["at"] != "2026-11-05T18:02:00Z" || list[0].(map[string]any)["root"] != root {
+	if len(list) != 1 || list[0].(map[string]any)["at"] != "2026-11-05T18:02:00Z" || list[0].(map[string]any)["root"] != root ||
+		list[0].(map[string]any)["for"] != tcOwner {
 		t.Fatalf("%v", list)
 	}
 	before := len(msgs(t, h, mine, "general", root))
@@ -222,8 +226,8 @@ func TestAReminderWakesOnlyItsAgentAndSurvivesARestart(t *testing.T) {
 	go tc2.Run(ctx)
 	eventually(t, "the reminder's turn", func() bool { return nodes.promptCount() == 2 })
 	p := nodes.lastPrompt()
-	if !strings.Contains(p, "Reminder you set") || !strings.Contains(p, "check the CI") || !strings.Contains(p, "thread on "+root) ||
-		!strings.Contains(p, "remind me to check the CI") || !strings.Contains(p, "reply "+ask) {
+	if !strings.Contains(p, "Reminder for @owner") || !strings.Contains(p, "Remind @owner: check the CI") || !strings.Contains(p, "thread on "+root) ||
+		!strings.Contains(p, "remind me to check the CI") || !strings.Contains(p, "reply "+ask) || !strings.Contains(p, "This reminder is for @owner, a person") {
 		t.Fatalf("reminder turn input: %s", p)
 	}
 	nodes.mu.Lock()
@@ -236,8 +240,11 @@ func TestAReminderWakesOnlyItsAgentAndSurvivesARestart(t *testing.T) {
 	if nodes.promptCount() != 2 {
 		t.Fatal("the reminder woke more than once, or another agent")
 	}
-	if n := len(msgs(t, h2, mine2, "general", root)); n != before {
-		t.Fatalf("something was posted for a reminder (%d -> %d)", before, n)
+	// The agent posted nothing: the reminder is posted for the person, in
+	// the thread, once.
+	after := msgs(t, h2, mine2, "general", root)
+	if len(after) != before+1 || after[len(after)-1]["text"] != "⏰ Reminder for @owner: check the CI" || after[len(after)-1]["from"] != writer {
+		t.Fatalf("reminder for a person: %v", after[before:])
 	}
 	if n := len(call(t, h2, mine2, "reminders", map[string]any{})["reminders"].([]any)); n != 0 {
 		t.Fatalf("a one-off reminder stayed (%d)", n)
@@ -516,5 +523,133 @@ func TestNotifyLevelsFilesAndStartingCopy(t *testing.T) {
 	fl.members["a1"].Session = "conv1"
 	if s := appStartingWhy(fl); !strings.Contains(s, "again") || strings.Contains(s, "first time") {
 		t.Fatal(s)
+	}
+}
+
+// A person's "remind me" is theirs: when it comes due the agent posts it,
+// else its final text or the note is posted for the person (also when the
+// turn fails or the agent cannot run); an agent's own reminder posts
+// nothing. --tz and an ISO time with its offset; the agent confirms in the
+// space's time zone; last_ok and unfollows.
+func TestRemindersForPeopleAlwaysReachThem(t *testing.T) {
+	url := jetStream(t)
+	nodes := newFakeAgents()
+	setReply := func(text, errText string) {
+		nodes.mu.Lock()
+		nodes.reply = func(string) (string, string) { return text, errText }
+		nodes.mu.Unlock()
+	}
+	setReply("", "")
+	clock := &fakeClock{now: time.Date(2026, 11, 5, 18, 0, 0, 0, time.UTC)}
+	tc := teamOn(t, url, nodes)
+	tc.now, tc.remTick, tc.tick = clock.Now, 20*time.Millisecond, time.Hour
+	h, mine, _ := teamHost(t, tc)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go tc.Run(ctx)
+	writer := makeAgent(t, h, mine, "Writer", "n_mac", "claude", nil)
+	call(t, h, mine, "space_update", map[string]any{"time_zone": "Europe/Berlin"})
+
+	// Another time zone: --tz, or a time with its offset; confirmed in the
+	// space's zone.
+	r := agentSays(tc, writer, "remind", []string{"9:00"}, map[string]string{"tz": "Asia/Tokyo"}, "tokyo stand-up")
+	if r.Code != 0 || !strings.Contains(r.Text, "Fri Nov 6 09:00 Asia/Tokyo (Fri Nov 6 01:00 Europe/Berlin in the space's time zone)") ||
+		!strings.Contains(r.Text, "Confirm it to the person in the space's time zone: Fri Nov 6 01:00 Europe/Berlin") {
+		t.Fatalf("%v", r)
+	}
+	r = agentSays(tc, writer, "remind", []string{"2026-11-06T09:00+09:00"}, nil, "offset")
+	if r.Code != 0 || !strings.Contains(r.Text, "Fri Nov 6 01:00 Europe/Berlin") {
+		t.Fatalf("%v", r)
+	}
+	if r := agentSays(tc, writer, "remind", []string{"in", "1", "minute"}, map[string]string{"tz": "Mars/Base"}, "x"); r.Code == 0 || !strings.Contains(r.Text, "unknown time zone") {
+		t.Fatalf("%v", r)
+	}
+	if r := agentSays(tc, writer, "remind", []string{"help"}, nil, ""); !strings.Contains(r.Text, "--tz") || !strings.Contains(r.Text, "--for") {
+		t.Fatalf("%v", r)
+	}
+	for _, x := range call(t, h, mine, "reminders", map[string]any{})["reminders"].([]any) {
+		rem := x.(map[string]any)
+		if rem["at"] != "2026-11-06T00:00:00Z" || rem["for"] != nil {
+			t.Fatalf("%v", rem)
+		}
+		call(t, h, mine, "reminder_cancel", map[string]any{"id": rem["id"]})
+	}
+
+	// "remind me": the agent's final text is posted for the person.
+	ask := call(t, h, mine, "post", map[string]any{"cid": "general", "text": "@writer remind me to stretch in a minute"})["message"].(map[string]any)["id"].(string)
+	eventually(t, "writer's turn", func() bool { return nodes.promptCount() == 1 })
+	r = agentSays(tc, writer, "remind", []string{"in", "1", "minute"}, map[string]string{"about": ask}, "stretch")
+	if r.Code != 0 || !strings.Contains(r.Text, "It is for @owner") {
+		t.Fatalf("%v", r)
+	}
+	eventually(t, "turn end", func() bool {
+		s := call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[writer].(map[string]any)
+		return s["state"] == "ready"
+	})
+	setReply("Time to stretch!", "")
+	n0 := len(msgs(t, h, mine, "general", ""))
+	clock.Add(time.Minute)
+	eventually(t, "the reminder's post", func() bool { return len(msgs(t, h, mine, "general", "")) == n0+1 })
+	if last := msgs(t, h, mine, "general", ""); last[n0]["text"] != "@owner Time to stretch!" || last[n0]["from"] != writer {
+		t.Fatalf("%v", last[n0])
+	}
+	var me map[string]any
+	for _, x := range call(t, h, mine, "space_get", map[string]any{})["members"].([]any) {
+		if x.(map[string]any)["mid"] == writer {
+			me = x.(map[string]any)
+		}
+	}
+	if me["last_ok"] == nil {
+		t.Fatalf("no last_ok: %v", me)
+	}
+
+	// Its own follow-up: nothing is posted.
+	setReply("", "")
+	eventually(t, "turn end", func() bool {
+		return call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[writer].(map[string]any)["state"] == "ready"
+	})
+	agentSays(tc, writer, "remind", []string{"in", "1", "minute"}, map[string]string{"about": ask, "for": "me"}, "look at the logs")
+	turns := nodes.promptCount()
+	n1 := len(msgs(t, h, mine, "general", ""))
+	clock.Add(time.Minute)
+	eventually(t, "the own reminder's turn", func() bool { return nodes.promptCount() == turns+1 })
+	if !strings.Contains(nodes.lastPrompt(), "your own follow-up") {
+		t.Fatal(nodes.lastPrompt())
+	}
+	time.Sleep(100 * time.Millisecond)
+	if n := len(msgs(t, h, mine, "general", "")); n != n1 {
+		t.Fatalf("an own reminder posted (%d -> %d)", n1, n)
+	}
+
+	// The turn fails: the note is posted for the person, not kept waiting.
+	setReply("", "something odd at 0x1f")
+	agentSays(tc, writer, "remind", []string{"in", "1", "minute"}, map[string]string{"about": ask}, "drink water")
+	clock.Add(time.Minute)
+	eventually(t, "the fallback", func() bool {
+		l := msgs(t, h, mine, "general", "")
+		return len(l) > 0 && l[len(l)-1]["text"] == "⏰ Reminder for @owner: drink water"
+	})
+	st := call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[writer].(map[string]any)
+	if st["state"] != "attention" || st["queue"] != float64(0) {
+		t.Fatalf("%v", st)
+	}
+
+	// It cannot run (it needs attention): posted at once, no turn.
+	agentSays(tc, writer, "remind", []string{"in", "1", "minute"}, map[string]string{"about": ask}, "call mom")
+	turns = nodes.promptCount()
+	clock.Add(time.Minute)
+	eventually(t, "the posted reminder", func() bool {
+		l := msgs(t, h, mine, "general", "")
+		return l[len(l)-1]["text"] == "⏰ Reminder for @owner: call mom"
+	})
+	time.Sleep(100 * time.Millisecond)
+	if nodes.promptCount() != turns {
+		t.Fatal("an agent that cannot run was woken")
+	}
+
+	// An explicit unfollow is listed.
+	call(t, h, mine, "follow", map[string]any{"root": ask, "cid": "general", "on": false})
+	if u := call(t, h, mine, "space_get", map[string]any{})["unfollows"].([]any); len(u) != 1 || u[0] != ask {
+		t.Fatalf("%v", u)
 	}
 }
