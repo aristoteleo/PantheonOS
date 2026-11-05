@@ -338,7 +338,6 @@ func TestAnOnlyMeAgentIsNotUsableByAMember(t *testing.T) {
 	}
 	s.nodes.hold = false
 	s.nodes.mu.Unlock()
-	s.nodes.release <- struct{}{}
 	// The owner asks Writer in #general: its reply is there for Alice to read.
 	call(t, h, b, "post", map[string]any{"cid": "general", "text": "@writer say hi to everyone"})
 	eventually(t, "writer's reply", func() bool {
@@ -398,9 +397,8 @@ func TestAnAgentCannotWakeAnAgentThePersonItWorksForMayNotUse(t *testing.T) {
 	}
 	// Shared's next turn works for the owner: then Writer is woken.
 	s.nodes.mu.Lock()
-	s.nodes.hold = false
+	s.nodes.hold = false // the held turn ends at the next look
 	s.nodes.mu.Unlock()
-	s.nodes.release <- struct{}{}
 	eventually(t, "shared idle", func() bool {
 		fl, _ := tc.lockFleet(context.Background(), fleetID)
 		defer fl.mu.Unlock()
