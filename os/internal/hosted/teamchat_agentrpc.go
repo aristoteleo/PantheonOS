@@ -112,6 +112,17 @@ func (t *TeamChat) agentOp(ctx context.Context, fl *tcFleet, m *tcMember, req ag
 	switch req.Op {
 	case "inbox":
 		return t.agentInbox(ctx, fl, m, tr), nil
+	case "skip":
+		why := strings.TrimSpace(strings.Join(req.Args, " "))
+		if why == "" {
+			why = "nothing to say"
+		}
+		if tr == nil {
+			return "Nothing to skip: you have no turn running.", nil
+		}
+		tr.Skipped = why
+		_ = t.put(ctx, fl, "turn."+m.MID, tr)
+		return "Noted: nothing is posted for you this turn. End your turn now.", nil
 	case "members":
 		var lines []string
 		for _, mid := range sortedKeys(fl.members) {
@@ -188,13 +199,18 @@ func (t *TeamChat) agentOp(ctx context.Context, fl *tcFleet, m *tcMember, req ag
 		if !fl.visible(c, m.MID) {
 			return "", fmt.Errorf("you are not in the conversation of message %s", target.ID)
 		}
-		root := target.ID
-		if target.Root != "" {
-			root = target.Root
+		// A reply goes where the message is: in a DM or to a top-level
+		// channel message inline, to a message in a thread in that thread.
+		root := target.Root
+		if c.Kind == "dm" {
+			root = ""
 		}
 		msg, err := t.agentPost(ctx, fl, m, tr, c.CID, root, body(req, 1), req.Files)
 		if err != nil {
 			return "", err
+		}
+		if root == "" {
+			return fmt.Sprintf("Replied in %s as message %s.", c.label(fl, m.MID), msg.ID), nil
 		}
 		return fmt.Sprintf("Replied in the thread of %s (%s) as message %s.", root, c.label(fl, m.MID), msg.ID), nil
 	case "dm":
@@ -206,7 +222,7 @@ func (t *TeamChat) agentOp(ctx context.Context, fl *tcFleet, m *tcMember, req ag
 		}
 		return "Edited message " + msg.ID + ".", nil
 	}
-	return "", fmt.Errorf("pantheon-team: unknown command %q (inbox, read, post, reply, dm, members, channels, join, edit)", req.Op)
+	return "", fmt.Errorf("pantheon-team: unknown command %q (inbox, read, post, reply, dm, members, channels, join, edit, skip)", req.Op)
 }
 
 func (t *TeamChat) channelNamed(fl *tcFleet, name string) *tcConv {
@@ -297,6 +313,13 @@ func (t *TeamChat) agentInbox(ctx context.Context, fl *tcFleet, m *tcMember, tr 
 		}
 	}
 	if tr != nil {
+		// What it took raises its turn's hop: its next post is one hop
+		// past the furthest message it saw.
+		for _, e := range q {
+			if e.Kind == "post" && e.Hop > tr.Hop {
+				tr.Hop = e.Hop
+			}
+		}
 		tr.Events = append(tr.Events, q...)
 		_ = t.put(ctx, fl, "turn."+m.MID, tr)
 	}

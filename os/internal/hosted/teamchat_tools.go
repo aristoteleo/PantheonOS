@@ -186,9 +186,14 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 			MID     string `json:"mid"`
 			Action  string `json:"action"`
 			Confirm string `json:"confirm"`
+			// delete: keep the agent's folder (the default) or remove it.
+			KeepFolder *bool `json:"keep_folder"`
 		}
 		if err := c.Decode(&a); err != nil {
 			return nil, err
+		}
+		if a.Action == "delete" && a.KeepFolder != nil && !*a.KeepFolder {
+			a.Action = "delete_folder"
 		}
 		return t.agentControl(ctx, c.Fleet, a.MID, a.Action, a.Confirm)
 	case "agent_live":
@@ -302,8 +307,13 @@ func (t *TeamChat) spaceGet(ctx context.Context, fl *tcFleet, me string) (map[st
 // usage is each guard with its current use.
 func (t *TeamChat) usage(fl *tcFleet) map[string]any {
 	now := t.clock().Unix()
-	agents := map[string]int{}
+	agents, minutes := map[string]int{}, map[string]int{}
 	day := 0
+	for _, at := range fl.space.Retired {
+		if now-at < 86400 {
+			day++
+		}
+	}
 	for mid, m := range fl.members {
 		if !m.agent() {
 			continue
@@ -318,9 +328,10 @@ func (t *TeamChat) usage(fl *tcFleet) map[string]any {
 			}
 		}
 		agents[mid] = hour
+		minutes[mid] = turnMinutes(m, t.clock())
 	}
 	s := fl.space.Settings
-	return map[string]any{"limits": s, "turns_last_hour": agents, "turns_today": day}
+	return map[string]any{"limits": s, "turns_last_hour": agents, "turn_minutes_last_hour": minutes, "turns_today": day}
 }
 
 func (t *TeamChat) spaceUpdate(ctx context.Context, fl *tcFleet, name *string, settings map[string]int) (any, error) {
@@ -334,12 +345,17 @@ func (t *TeamChat) spaceUpdate(ctx context.Context, fl *tcFleet, name *string, s
 	}
 	for key, v := range settings {
 		bounds := map[string][2]int{"turns_per_agent_hour": {1, 600}, "turns_per_space_day": {1, 10000},
-			"hop_limit": {1, 50}, "turn_max_minutes": {1, 720}}[key]
+			"hop_limit": {1, 50}, "turn_max_minutes": {1, 720}, "agent_messages_in_a_row": {2, 100},
+			"posts_per_turn": {1, 200}, "turn_minutes_per_agent_hour": {1, 60}}[key]
+		label := map[string]string{"turns_per_agent_hour": "Turns an hour for each agent", "turns_per_space_day": "Turns a day for the space",
+			"hop_limit": "Hops between agents", "turn_max_minutes": "Minutes for one turn",
+			"agent_messages_in_a_row": "Agent messages in a row", "posts_per_turn": "Messages in one turn",
+			"turn_minutes_per_agent_hour": "Minutes of turns an hour for each agent"}[key]
 		if bounds == [2]int{} {
-			return nil, &ArgumentError{"unknown setting " + key}
+			return nil, &ArgumentError{"this setting is not known"}
 		}
 		if v < bounds[0] || v > bounds[1] {
-			return nil, &ArgumentError{fmt.Sprintf("%s is between %d and %d", key, bounds[0], bounds[1])}
+			return nil, &ArgumentError{fmt.Sprintf("%s is between %d and %d", label, bounds[0], bounds[1])}
 		}
 		switch key {
 		case "turns_per_agent_hour":
@@ -350,6 +366,12 @@ func (t *TeamChat) spaceUpdate(ctx context.Context, fl *tcFleet, name *string, s
 			next.Settings.HopLimit = v
 		case "turn_max_minutes":
 			next.Settings.TurnMaxMinutes = v
+		case "agent_messages_in_a_row":
+			next.Settings.AgentRun = v
+		case "posts_per_turn":
+			next.Settings.PostsPerTurn = v
+		case "turn_minutes_per_agent_hour":
+			next.Settings.MinutesPerAgentHour = v
 		}
 	}
 	if err := t.put(ctx, fl, "space", &next); err != nil {
@@ -723,11 +745,28 @@ func (t *TeamChat) postEvent(ctx context.Context, fl *tcFleet, e *tcEvent, fileI
 	if strings.TrimSpace(e.Text) == "" && len(e.Files) == 0 {
 		return nil, &ArgumentError{"write a message"}
 	}
+	// Agents may post only so many messages in a row in a conversation;
+	// then they wait for a person.
+	runLimit, paused := fl.space.Settings.AgentRun, false
+	if e.Kind == "post" && sender != nil && sender.agent() {
+		run := fl.agentRun(m, runLimit)
+		if run >= runLimit {
+			if !fl.runNoted(m) {
+				_, _ = t.system(ctx, fl, e.CID, "", "", "", runLine(runLimit))
+			}
+			return nil, &ArgumentError{fmt.Sprintf("Not posted: agents are paused in %s after %d messages in a row without a person. "+
+				"End your turn; a person's message there lets agents continue.", c.label(fl, e.From), runLimit)}
+		}
+		paused = run+1 >= runLimit
+	}
 	e.ID, e.At = tcNewID(t.clock()), t.stamp()
 	if e.Kind == "post" {
 		e.Mentions = mentions(fl, e.Text)
 	}
 	wakes, joined, stopped := t.wakesFor(fl, c, m, e)
+	if paused {
+		wakes, stopped = nil, false
+	}
 	for _, w := range wakes {
 		e.Woke = append(e.Woke, w.agent)
 	}
@@ -750,10 +789,13 @@ func (t *TeamChat) postEvent(ctx context.Context, fl *tcFleet, e *tcEvent, fileI
 	for _, w := range wakes {
 		t.enqueue(ctx, fl, w.agent, w.wake)
 	}
+	if paused && !fl.runNoted(m) {
+		_, _ = t.system(ctx, fl, e.CID, "", "", "", runLine(runLimit))
+	}
 	if stopped && e.From != "system" {
 		limit := fl.space.Settings.HopLimit
-		_, _ = t.system(ctx, fl, e.CID, e.Root, "", "", fmt.Sprintf("Stopped a chain of agent messages after %d hops without a person's message. "+
-			"Write here to continue.", limit))
+		_, _ = t.system(ctx, fl, e.CID, e.Root, "", "", fmt.Sprintf("Agents stopped answering each other here after %d hops without a person's message. "+
+			"Write a message to let them continue.", limit))
 	}
 	return msg, nil
 }
@@ -795,7 +837,11 @@ func (t *TeamChat) change(ctx context.Context, fl *tcFleet, mid, kind, id, cid, 
 		return nil, err
 	}
 	t.emit(fl, map[string]any{"type": "message", "message": folded, "change": kind})
-	// Agents the message woke get the change in their next turn.
+	// Agents the message woke get an edit in their next turn; a delete
+	// wakes no one (they see it when they next look).
+	if kind != "edit" {
+		woke = nil
+	}
 	for _, agent := range woke {
 		if agent == mid || fl.members[agent] == nil {
 			continue

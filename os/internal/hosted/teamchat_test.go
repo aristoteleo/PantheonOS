@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/aristoteleo/pantheonos/os/codingagents"
 	"net"
 	"os"
 	"path/filepath"
@@ -493,9 +494,10 @@ func TestEditAndDeleteFold(t *testing.T) {
 			t.Fatalf("%v", x)
 		}
 	}
-	eventually(t, "the delete's turn", func() bool { return nodes.promptCount() == 3 })
-	if p := nodes.lastPrompt(); !strings.Contains(p, "deleted message "+m["id"].(string)) {
-		t.Fatalf("%s", p)
+	// A delete wakes no one.
+	time.Sleep(150 * time.Millisecond)
+	if nodes.promptCount() != 2 {
+		t.Fatal("a delete woke an agent")
 	}
 }
 
@@ -617,7 +619,7 @@ func TestStopTurnAndResets(t *testing.T) {
 	call(t, h, mine, "post", map[string]any{"cid": "general", "text": "@writer go"})
 	eventually(t, "the turn", func() bool {
 		live := call(t, h, mine, "agent_live", map[string]any{"mid": writer})
-		return live["running"] == true && live["line"] == "Running npm test"
+		return live["running"] == true && live["line"] == "Running tests"
 	})
 	live := call(t, h, mine, "agent_live", map[string]any{"mid": writer})
 	if live["stream_subject"] != "fleet."+fleetID+".apps.pantheon.stream.coding_conv1" {
@@ -868,10 +870,14 @@ func TestAgentToolsPostReplyDMReadJoinAndFiles(t *testing.T) {
 	if len(last["files"].([]any)) != 1 || last["runtime"] != "claude" {
 		t.Fatalf("%v", last)
 	}
-	if r := do("reply", []string{last["id"].(string)}, "in thread"); r.Code != 0 {
+	if r := do("reply", []string{last["id"].(string)}, "inline"); r.Code != 0 || strings.Contains(r.Text, "thread") {
 		t.Fatalf("%v", r)
 	}
-	if r := do("read", []string{"dev"}, ""); r.Code != 0 || !strings.Contains(r.Text, "hi dev") || !strings.Contains(r.Text, "1 replies") {
+	q := call(t, h, mine, "post", map[string]any{"cid": pub, "root": last["id"], "text": "a question in its thread"})["message"].(map[string]any)
+	if r := do("reply", []string{q["id"].(string)}, "in thread"); r.Code != 0 {
+		t.Fatalf("%v", r)
+	}
+	if r := do("read", []string{"dev"}, ""); r.Code != 0 || !strings.Contains(r.Text, "hi dev") || !strings.Contains(r.Text, "2 replies") {
 		t.Fatalf("%v", r)
 	}
 	if r := do("read", []string{last["id"].(string)}, ""); !strings.Contains(r.Text, "in thread") {
@@ -1023,5 +1029,171 @@ func TestSnapshotRestoresTeamChatIntoEmptyStores(t *testing.T) {
 	h2, mine2, _ := teamHost(t, empty)
 	if msgs(t, h2, mine2, "general", "")[0]["text"] != "keep me" || len(call(t, h2, mine2, "space_get", map[string]any{})["conversations"].([]any)) != 2 {
 		t.Fatal("restore")
+	}
+}
+
+func TestAgentRunGuardStopsLoopsUntilAPersonWrites(t *testing.T) {
+	url := jetStream(t)
+	nodes := newFakeAgents()
+	tc := teamOn(t, url, nodes)
+	h, mine, _ := teamHost(t, tc)
+	call(t, h, mine, "space_update", map[string]any{"settings": map[string]any{"hop_limit": 50, "agent_messages_in_a_row": 5}})
+	nodes.reply = func(p string) (string, string) {
+		if strings.Contains(p, "You are @ping") {
+			return "@pong over", ""
+		}
+		return "@ping over", ""
+	}
+	makeAgent(t, h, mine, "Ping", "n_mac", "claude", nil)
+	makeAgent(t, h, mine, "Pong", "n_ws", "codex", nil)
+	count := func() (agents, lines int) {
+		for _, m := range msgs(t, h, mine, "general", "") {
+			switch {
+			case m["from"] == "system" && strings.HasPrefix(m["text"].(string), "Agents paused here after 5 messages in a row"):
+				lines++
+			case m["from"] != tcOwner && m["from"] != "system":
+				agents++
+			}
+		}
+		return
+	}
+	call(t, h, mine, "post", map[string]any{"cid": "general", "text": "@ping start"})
+	eventually(t, "the pause line", func() bool { _, l := count(); return l == 1 })
+	time.Sleep(200 * time.Millisecond)
+	if a, l := count(); a != 5 || l != 1 {
+		t.Fatalf("%d agent messages, %d pause lines", a, l)
+	}
+	// A person's message lets them go on (and the guard counts again).
+	call(t, h, mine, "post", map[string]any{"cid": "general", "text": "@ping once more"})
+	eventually(t, "the second pause line", func() bool { _, l := count(); return l == 2 })
+	if a, _ := count(); a != 10 {
+		t.Fatalf("%d agent messages", a)
+	}
+}
+
+func TestInboxRaisesTheHopAndTurnsPostAtMostTheirLimit(t *testing.T) {
+	url := jetStream(t)
+	nodes := newFakeAgents()
+	nodes.hold = true
+	tc := teamOn(t, url, nodes)
+	h, mine, _ := teamHost(t, tc)
+	call(t, h, mine, "space_update", map[string]any{"settings": map[string]any{"posts_per_turn": 2}})
+	writer := makeAgent(t, h, mine, "Writer", "n_mac", "claude", nil)
+	coder := makeAgent(t, h, mine, "Coder", "n_ws", "codex", nil)
+	dm := call(t, h, mine, "conv_create", map[string]any{"kind": "dm", "members": []string{writer}})["conversation"].(map[string]any)["cid"].(string)
+	call(t, h, mine, "post", map[string]any{"cid": dm, "text": "hello"})
+	eventually(t, "the turn", func() bool { return nodes.promptCount() == 1 })
+	as := func(mid, op string, args []string, text string) agentReply {
+		return tc.AgentRequest(context.Background(), fleetID, agentRequest{MID: mid, Token: tc.agentToken(fleetID, mid), Op: op, Args: args, Text: text})
+	}
+	// Coder (no turn) posts at hop 1; Writer takes it via inbox: its next post is hop 2.
+	if r := as(coder, "dm", []string{"@writer"}, "@writer ping"); r.Code != 0 {
+		t.Fatalf("%v", r)
+	}
+	if r := as(writer, "inbox", nil, ""); !strings.Contains(r.Text, "ping") {
+		t.Fatalf("%v", r)
+	}
+	for _, text := range []string{"pong", "pong again"} {
+		if r := as(writer, "dm", []string{"@coder"}, text); r.Code != 0 {
+			t.Fatalf("%v", r)
+		}
+	}
+	var cdm string
+	for _, c := range call(t, h, mine, "space_get", map[string]any{})["conversations"].([]any) {
+		cm := c.(map[string]any)
+		if cm["kind"] == "dm" && cm["cid"] != dm {
+			cdm = cm["cid"].(string)
+		}
+	}
+	if cdm == "" {
+		// The owner may not see agents' DMs; read through the agent instead.
+		r := as(writer, "read", []string{"@coder"}, "")
+		if !strings.Contains(r.Text, "pong") {
+			t.Fatalf("%v", r)
+		}
+	}
+	var hop int
+	tc.mu.Lock()
+	fls := tc.fleets
+	tc.mu.Unlock()
+	for _, fl := range fls {
+		fl.mu.Lock()
+		if tr := fl.turns[writer]; tr != nil {
+			hop = tr.Hop
+		}
+		fl.mu.Unlock()
+	}
+	if hop != 1 {
+		t.Fatalf("turn hop %d, want 1 (posts carry 2)", hop)
+	}
+	// Two posts used; the third is refused and the turn is stopped.
+	if r := as(writer, "dm", []string{"@coder"}, "third"); r.Code == 0 || !strings.Contains(r.Text, "at most 2 messages") {
+		t.Fatalf("%v", r)
+	}
+	eventually(t, "the posts line", func() bool {
+		l := lastFrom(msgs(t, h, mine, dm, ""), "system")
+		return l != nil && strings.Contains(l["text"].(string), "stopped after 2 messages")
+	})
+}
+
+func TestSkipDeleteAndReplyPlacement(t *testing.T) {
+	url := jetStream(t)
+	nodes := newFakeAgents()
+	nodes.hold = true
+	tc := teamOn(t, url, nodes)
+	h, mine, _ := teamHost(t, tc)
+	writer := makeAgent(t, h, mine, "Writer", "n_mac", "claude", nil)
+	dm := call(t, h, mine, "conv_create", map[string]any{"kind": "dm", "members": []string{writer}})["conversation"].(map[string]any)["cid"].(string)
+	first := call(t, h, mine, "post", map[string]any{"cid": dm, "text": "nothing really"})["message"].(map[string]any)["id"].(string)
+	eventually(t, "the turn", func() bool { return nodes.promptCount() == 1 })
+	as := func(op string, args []string, text string) agentReply {
+		return tc.AgentRequest(context.Background(), fleetID, agentRequest{MID: writer, Token: tc.agentToken(fleetID, writer), Op: op, Args: args, Text: text})
+	}
+	if r := as("skip", []string{"nothing", "asked"}, ""); r.Code != 0 {
+		t.Fatalf("%v", r)
+	}
+	nodes.release <- struct{}{}
+	eventually(t, "the turn's end", func() bool {
+		s := call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[writer].(map[string]any)
+		return s["state"] == "ready"
+	})
+	if l := msgs(t, h, mine, dm, ""); len(l) != 1 {
+		t.Fatalf("posted after skip: %v", l)
+	}
+	// A delete wakes no one.
+	call(t, h, mine, "delete", map[string]any{"id": first, "cid": dm})
+	time.Sleep(150 * time.Millisecond)
+	if nodes.promptCount() != 1 {
+		t.Fatal("a delete woke the agent")
+	}
+	// A reply to a top-level channel message is inline; in a thread it stays there.
+	top := call(t, h, mine, "post", map[string]any{"cid": "general", "text": "@writer hi"})["message"].(map[string]any)["id"].(string)
+	eventually(t, "the second turn", func() bool { return nodes.promptCount() == 2 })
+	if p := nodes.lastPrompt(); !strings.Contains(p, "post #general") || strings.Contains(p, "reply "+top) {
+		t.Fatalf("%s", p)
+	}
+	if r := as("reply", []string{top}, "inline"); r.Code != 0 || strings.Contains(r.Text, "thread") {
+		t.Fatalf("%v", r)
+	}
+	inThread := call(t, h, mine, "post", map[string]any{"cid": "general", "root": top, "text": "in thread"})["message"].(map[string]any)["id"].(string)
+	if r := as("reply", []string{inThread}, "threaded"); r.Code != 0 || !strings.Contains(r.Text, "thread of "+top) {
+		t.Fatalf("%v", r)
+	}
+	if r := as("reply", []string{first}, "dm inline"); r.Code != 0 || strings.Contains(r.Text, "thread") {
+		t.Fatalf("%v", r)
+	}
+}
+
+func TestLiveLinesArePlainWords(t *testing.T) {
+	for in, want := range map[string]string{
+		"cat /Users/x/PantheonAgents/writer/AGENT.md; echo ---": "Reading AGENT.md",
+		"cd /tmp && go test ./...":                              "Running tests",
+		"sleep 25; '/a/.team/pantheon-team' inbox":              "Checking new messages",
+		"python3 /tmp/run.py --x":                               "Running run.py",
+		"echo $((1+2)) | tr -d x":                               "Running a command",
+	} {
+		if got := toolLine(codingagents.Event{Kind: codingagents.KindShell, Input: in}); got != want {
+			t.Errorf("%q: %q, want %q", in, got, want)
+		}
 	}
 }

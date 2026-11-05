@@ -47,7 +47,7 @@ func (t *TeamChat) wakesFor(fl *tcFleet, c *tcConv, m *tcConvMsgs, e *tcEvent) (
 				reason = "mention"
 				joined = append(joined, mid)
 			}
-		case e.Root != "" && fl.visible(c, mid) && fl.followsThread(m, mid, e.Root):
+		case e.Root != "" && fl.visible(c, mid) && fl.wakesInThread(m, mid, e.Root):
 			reason = "thread"
 		case c.Kind == "channel" && c.has(mid) && (c.AgentReply == "all" || a.Listen == "all"):
 			reason = "all"
@@ -110,6 +110,11 @@ func (t *TeamChat) statusOf(fl *tcFleet, m *tcMember) map[string]any {
 	node, known := fl.nodes[m.NodeID]
 	node = withMemberNode(node, m)
 	tr := fl.turns[m.MID]
+	out["computer"] = nodeLabel(node, m.NodeID)
+	offline := capFirst(nodeLabel(node, m.NodeID)) + " is offline"
+	if node.Kind == "sandbox" {
+		offline = "Your Workspace is paused"
+	}
 	switch {
 	case m.State == "stopped":
 		out["state"], out["reason"] = "offline", m.Name+" is stopped"
@@ -120,10 +125,10 @@ func (t *TeamChat) statusOf(fl *tcFleet, m *tcMember) map[string]any {
 			out["line"] = "Starting"
 		}
 		if known && !node.Online {
-			out["line"] = capFirst(nodeLabel(node, m.NodeID)) + " is offline; waiting for it"
+			out["line"] = offline + "; waiting for it"
 		}
 	case known && !node.Online:
-		out["state"], out["reason"] = "offline", capFirst(nodeLabel(node, m.NodeID))+" is offline"
+		out["state"], out["reason"] = "offline", offline
 	case m.Attention != nil:
 		out["state"], out["reason"], out["fix"] = "attention", m.Attention.Reason, m.Attention.Fix
 	case l.paused != "":
@@ -162,6 +167,11 @@ func nodeLabel(n TeamNode, id string) string {
 func withMemberNode(n TeamNode, m *tcMember) TeamNode {
 	if n.Name == "" && n.Kind == "" {
 		n.Name, n.Kind = m.NodeName, m.NodeKind
+	}
+	if n.Kind == "" && strings.HasPrefix(m.Folder, "/workspace/") {
+		// Agents made before the kind was kept: only a Workspace has
+		// folders there.
+		n.Kind = "sandbox"
 	}
 	return n
 }
@@ -217,7 +227,23 @@ func (t *TeamChat) guard(fl *tcFleet, m *tcMember) string {
 		next := time.Unix(hour[0]+3600, 0).UTC().Format("15:04 UTC")
 		return fmt.Sprintf("%s reached its limit of %d turns an hour; it continues at %s (space settings)", m.Name, s.TurnsPerAgentHour, next)
 	}
+	if used := turnMinutes(m, now); used >= s.MinutesPerAgentHour {
+		next := now
+		for k := 1; k <= 60; k++ {
+			next = now.Add(time.Duration(k) * time.Minute)
+			if turnMinutes(m, next) < s.MinutesPerAgentHour {
+				break
+			}
+		}
+		return fmt.Sprintf("%s spent its %d minutes of turns for this hour; it continues at %s (space settings)",
+			m.Name, s.MinutesPerAgentHour, next.UTC().Format("15:04 UTC"))
+	}
 	day := 0
+	for _, at := range fl.space.Retired {
+		if now.Unix()-at < 86400 {
+			day++
+		}
+	}
 	for _, a := range fl.members {
 		for _, at := range a.Turns {
 			if now.Unix()-at < 86400 {
@@ -229,6 +255,76 @@ func (t *TeamChat) guard(fl *tcFleet, m *tcMember) string {
 		return fmt.Sprintf("this space reached its limit of %d agent turns a day (space settings)", s.TurnsPerSpaceDay)
 	}
 	return ""
+}
+
+// turnMinutes is the minutes an agent spent in turns in the hour before at.
+func turnMinutes(m *tcMember, at time.Time) int {
+	from, to := at.Unix()-3600, at.Unix()
+	var secs int64
+	for _, sp := range m.Spans {
+		a, b := max(sp[0], from), min(sp[1], to)
+		if b > a {
+			secs += b - a
+		}
+	}
+	return int(secs / 60)
+}
+
+// agentRun counts the agent messages in a row at the end of a conversation,
+// threads included, since a person's last message (up to limit).
+func (fl *tcFleet) agentRun(m *tcConvMsgs, limit int) int {
+	n := 0
+	for i := len(m.all) - 1; i >= 0 && n < limit; i-- {
+		msg := m.byID[m.all[i]]
+		if msg == nil || msg.Kind != "post" {
+			continue
+		}
+		if from := fl.members[msg.From]; from != nil && from.agent() {
+			n++
+			continue
+		}
+		break
+	}
+	return n
+}
+
+// runNoted: the pause line was already posted since a person's last message.
+func (fl *tcFleet) runNoted(m *tcConvMsgs) bool {
+	for i := len(m.all) - 1; i >= 0; i-- {
+		msg := m.byID[m.all[i]]
+		if msg == nil {
+			continue
+		}
+		if msg.Kind == "system" && strings.HasPrefix(msg.Text, tcRunLine) {
+			return true
+		}
+		if from := fl.members[msg.From]; msg.Kind == "post" && from != nil && !from.agent() {
+			return false
+		}
+	}
+	return false
+}
+
+const tcRunLine = "Agents paused here after "
+
+func runLine(n int) string {
+	return fmt.Sprintf("%s%d messages in a row. Write a message to let them continue.", tcRunLine, n)
+}
+
+// dropPaused leaves out of a queue what agents sent in conversations where
+// agents are paused; fl.mu is held.
+func (t *TeamChat) dropPaused(ctx context.Context, fl *tcFleet, q []tcWake) []tcWake {
+	limit := fl.space.Settings.AgentRun
+	var keep []tcWake
+	for _, e := range q {
+		if from := fl.members[e.From]; e.Kind == "post" && from != nil && from.agent() {
+			if cm, err := t.convMsgs(ctx, fl, e.CID); err == nil && fl.agentRun(cm, limit) >= limit {
+				continue
+			}
+		}
+		keep = append(keep, e)
+	}
+	return keep
 }
 
 // tryStart starts one turn for an agent with waiting events; true when it
@@ -248,6 +344,14 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 		t.clock().Before(l.retryAt) {
 		fl.mu.Unlock()
 		return false
+	}
+	if kept := t.dropPaused(ctx, fl, q); len(kept) != len(q) {
+		t.saveQueue(ctx, fl, mid, kept)
+		t.emitStatus(fl, mid)
+		if q = kept; len(q) == 0 {
+			fl.mu.Unlock()
+			return false
+		}
 	}
 	if why := t.guard(fl, m); why != "" {
 		if l.paused != why {
@@ -834,36 +938,83 @@ func (t *TeamChat) watch(ctx context.Context, fl *tcFleet, mid string) {
 	}
 }
 
-// toolLine is a tool call as a short live line.
+// toolLine is a tool call as a short live line in plain words: what it is
+// doing, never the raw command.
 func toolLine(e codingagents.Event) string {
 	input := strings.TrimSpace(e.Input)
-	if i := strings.IndexByte(input, '\n'); i >= 0 {
-		input = input[:i]
-	}
-	if len(input) > 100 {
-		input = input[:100] + "…"
-	}
 	switch e.Kind {
 	case codingagents.KindShell:
-		return "Running " + input
+		return shellLine(input)
 	case codingagents.KindRead:
-		return "Reading " + firstNonBlank(e.Path, input)
+		return "Reading " + baseName(firstNonBlank(e.Path, input))
 	case codingagents.KindWrite:
-		return "Editing " + firstNonBlank(e.Path, input)
+		return "Editing " + baseName(firstNonBlank(e.Path, input))
 	case codingagents.KindSearch:
-		return "Searching " + input
+		return "Searching files"
 	case codingagents.KindFetch:
-		return "Reading the web: " + input
+		return "Reading the web"
 	case codingagents.KindAgent:
 		return "Running a sub-agent"
 	}
 	if e.Name == "" {
 		return ""
 	}
-	if input == "" {
-		return e.Name
+	return "Using " + e.Name
+}
+
+var shellWords = []struct {
+	re   *regexp.Regexp
+	line string
+}{
+	{regexp.MustCompile(`pantheon-team['"]?\s+inbox`), "Checking new messages"},
+	{regexp.MustCompile(`pantheon-team['"]?\s+(post|reply|dm|edit)`), "Writing a message"},
+	{regexp.MustCompile(`pantheon-team['"]?\s+(read|members|channels)`), "Reading the conversation"},
+	{regexp.MustCompile(`pantheon-team['"]?\s+skip`), "Deciding not to reply"},
+	{regexp.MustCompile(`\b(pytest|go test|npm (run )?test|cargo test|jest|vitest|unittest)\b`), "Running tests"},
+	{regexp.MustCompile(`\b(pip3?|npm|yarn|pnpm|uv|brew|apt(-get)?|cargo) (install|add)\b`), "Installing packages"},
+	{regexp.MustCompile(`\b(go build|make|npm run build|cargo build|tsc)\b`), "Building"},
+	{regexp.MustCompile(`^\s*sleep\b`), "Waiting"},
+	{regexp.MustCompile(`^\s*git\b`), "Using git"},
+	{regexp.MustCompile(`^\s*(curl|wget)\b`), "Reading the web"},
+	{regexp.MustCompile(`^\s*(grep|rg|ag)\b`), "Searching files"},
+	{regexp.MustCompile(`^\s*(ls|find|tree|du|pwd)\b`), "Looking at files"},
+	{regexp.MustCompile(`^\s*(mkdir|cp|mv|rm|touch|chmod)\b`), "Organizing files"},
+}
+
+var catRE = regexp.MustCompile(`^\s*(cat|head|tail|less|sed -n \S+|wc(\s+-\w+)?)\s+['"]?([^\s;|&'"]+)`)
+var runRE = regexp.MustCompile(`^\s*(python3?|node|bash|sh|Rscript|ruby)\s+(-\S+\s+)*['"]?([^\s;|&'"]+\.\w+)`)
+
+func shellLine(cmd string) string {
+	if i := strings.IndexByte(cmd, '\n'); i >= 0 {
+		cmd = cmd[:i]
 	}
-	return e.Name + ": " + input
+	cmd = strings.TrimPrefix(strings.TrimSpace(cmd), "cd ")
+	if i := strings.Index(cmd, "&& "); i >= 0 && !strings.Contains(cmd[:i], " ") {
+		cmd = cmd[i+3:] // "cd dir && x" is x
+	}
+	for _, w := range shellWords {
+		if w.re.MatchString(cmd) {
+			return w.line
+		}
+	}
+	if m := catRE.FindStringSubmatch(cmd); m != nil {
+		return "Reading " + baseName(m[3])
+	}
+	if m := runRE.FindStringSubmatch(cmd); m != nil {
+		return "Running " + baseName(m[3])
+	}
+	return "Running a command"
+}
+
+func baseName(p string) string {
+	p = strings.TrimRight(strings.TrimSpace(p), `/\`)
+	if i := strings.LastIndexAny(p, `/\`); i >= 0 {
+		p = p[i+1:]
+	}
+	if p == "" {
+		return "a file"
+	}
+	return clipText(p, 60)
 }
 
 func firstNonBlank(v ...string) string {
@@ -899,6 +1050,30 @@ func (t *TeamChat) finish(ctx context.Context, fl *tcFleet, mid string, done cod
 	if m == nil {
 		return
 	}
+	if started, err := time.Parse(time.RFC3339Nano, tr.Started); err == nil {
+		// Its time in turns, for the minutes guard.
+		now := t.clock().Unix()
+		next := *m
+		next.Spans = nil
+		for _, sp := range m.Spans {
+			if now-sp[1] < 3600 {
+				next.Spans = append(next.Spans, sp)
+			}
+		}
+		next.Spans = append(next.Spans, [2]int64{started.Unix(), now})
+		if err := t.put(ctx, fl, "member."+mid, &next); err == nil {
+			fl.members[mid], m = &next, &next
+		}
+	}
+	// Its answer is posted for it only when a DM or an @mention asked it,
+	// it posted nothing, and the answer is not a note that it has none.
+	var asked *tcWake
+	for i := len(tr.Events) - 1; i >= 0; i-- {
+		if e := tr.Events[i]; e.Kind == "post" && (e.Reason == "dm" || e.Reason == "mention") {
+			asked = &tr.Events[i]
+			break
+		}
+	}
 	switch {
 	case failed:
 		// The events wait for a retry (ahead of newer ones).
@@ -927,13 +1102,18 @@ func (t *TeamChat) finish(ctx context.Context, fl *tcFleet, mid string, done cod
 		node := fl.nodes[m.NodeID]
 		reason, fix, _ := explain(m, node, done.Error)
 		t.attention(ctx, fl, m, tr, "could not answer", reason, fix)
+	case tr.Stop == "posts":
+		_, _ = t.system(ctx, fl, tr.Cause.CID, tr.Cause.Root, mid, "", fmt.Sprintf("%s's turn was stopped after %d messages, the limit for one turn (space settings).",
+			m.Name, fl.space.Settings.PostsPerTurn))
 	case tr.Stop == "timeout":
 		_, _ = t.system(ctx, fl, tr.Cause.CID, tr.Cause.Root, mid, "", fmt.Sprintf("%s's turn was stopped after %d minutes, the limit for one turn (space settings).",
 			m.Name, fl.space.Settings.TurnMaxMinutes))
 	case done.Stopped:
 		// Stopped by the owner: nothing is posted for it.
-	case final != "" && !contains(tr.Posted, tr.Cause.CID):
-		if _, err := t.agentPost(ctx, fl, m, tr, tr.Cause.CID, tr.Cause.Root, final, nil); err != nil {
+	case tr.Skipped != "":
+		log.Printf("[team-chat] %s %s skipped: %s", fl.fid, m.Handle, clipText(tr.Skipped, 200))
+	case final != "" && asked != nil && len(tr.Posted) == 0 && !declines(final):
+		if _, err := t.agentPost(ctx, fl, m, tr, asked.CID, asked.Root, final, nil); err != nil {
 			log.Printf("[team-chat] %s auto-post %s: %v", fl.fid, m.Handle, err)
 		}
 	}
@@ -948,6 +1128,16 @@ func (t *TeamChat) agentPost(ctx context.Context, fl *tcFleet, m *tcMember, tr *
 	hop := 1
 	if tr != nil {
 		hop = tr.Hop + 1
+		if limit := fl.space.Settings.PostsPerTurn; tr.Posts >= limit {
+			if tr.Stop == "" {
+				tr.Stop = "posts"
+				fl.liveOf(m.MID).stopWanted = true
+				if fl.turns[m.MID] == tr {
+					_ = t.put(ctx, fl, "turn."+m.MID, tr)
+				}
+			}
+			return nil, &ArgumentError{fmt.Sprintf("Not posted: one turn posts at most %d messages. End your turn now.", limit)}
+		}
 	}
 	if len(text) > tcMaxText {
 		f, err := t.storeBytes(ctx, fl, m.MID, "reply-"+time.Now().UTC().Format("20060102-150405")+".md", "text/markdown", []byte(text))
@@ -970,13 +1160,23 @@ func (t *TeamChat) agentPost(ctx context.Context, fl *tcFleet, m *tcMember, tr *
 	if err != nil {
 		return nil, err
 	}
-	if tr != nil && !contains(tr.Posted, cid) {
-		tr.Posted = append(tr.Posted, cid)
+	if tr != nil {
+		tr.Posts++
+		if !contains(tr.Posted, cid) {
+			tr.Posted = append(tr.Posted, cid)
+		}
 		if fl.turns[m.MID] == tr {
 			_ = t.put(ctx, fl, "turn."+m.MID, tr)
 		}
 	}
 	return msg, nil
+}
+
+var declineRE = regexp.MustCompile(`(?i)\b(no reply|not reply|won't reply|no response|not respond|nothing (to|further|more|new|else)|no (action|further)|not posting|nothing for me|no need to|(i('m| am)|i'll) (skip|stay quiet|not))`)
+
+// declines: a short final text that only says there is nothing to answer.
+func declines(text string) bool {
+	return len(text) < 400 && declineRE.MatchString(text)
 }
 
 func validTail(s string) bool {
@@ -1095,11 +1295,14 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 		case c.Kind == "dm":
 			fmt.Fprintf(&b, "Reply with: %s dm %s - <<'EOF' … EOF\n", script, readTarget(fl, c, m.MID))
 		default:
-			fmt.Fprintf(&b, "Reply with: %s post %s - <<'EOF' … EOF (or reply %s to answer in its thread)\n", script, c.Name, last.ID)
+			fmt.Fprintf(&b, "Reply with: %s post #%s - <<'EOF' … EOF\n", script, c.Name)
 		}
 	}
-	b.WriteString("If you end the turn without posting there, your final answer is posted for you. Run `" + script +
-		" inbox` between steps to see messages that arrive while you work.\n")
+	b.WriteString("If there is nothing to say, post nothing: end the turn, or run `" + script + " skip [reason]`. " +
+		"When a DM or an @mention woke you and you post nothing, your final answer is posted for you.\n" +
+		"Don't resume games, chains or routines from earlier unless a person asks you to now.\n" +
+		"Finish within this turn: nothing wakes you when a background command ends, so don't promise to reply later.\n" +
+		"Run `" + script + " inbox` between steps to see messages that arrive while you work.\n")
 	return b.String(), files, reads
 }
 

@@ -276,10 +276,30 @@ type tcSettings struct {
 	TurnsPerSpaceDay  int `json:"turns_per_space_day"`
 	HopLimit          int `json:"hop_limit"`
 	TurnMaxMinutes    int `json:"turn_max_minutes"`
+	// Agent messages in a row in one conversation, since a person's last.
+	AgentRun int `json:"agent_messages_in_a_row"`
+	// Messages one turn may post.
+	PostsPerTurn int `json:"posts_per_turn"`
+	// Minutes an agent may spend in turns in an hour.
+	MinutesPerAgentHour int `json:"turn_minutes_per_agent_hour"`
 }
 
 func defaultSettings() tcSettings {
-	return tcSettings{TurnsPerAgentHour: 60, TurnsPerSpaceDay: 400, HopLimit: 8, TurnMaxMinutes: 120}
+	return tcSettings{TurnsPerAgentHour: 60, TurnsPerSpaceDay: 400, HopLimit: 8, TurnMaxMinutes: 30,
+		AgentRun: 12, PostsPerTurn: 20, MinutesPerAgentHour: 30}
+}
+
+// filled gives settings saved before a guard existed that guard's default.
+func (s tcSettings) filled() tcSettings {
+	d := defaultSettings()
+	for _, p := range [][2]*int{{&s.TurnsPerAgentHour, &d.TurnsPerAgentHour}, {&s.TurnsPerSpaceDay, &d.TurnsPerSpaceDay},
+		{&s.HopLimit, &d.HopLimit}, {&s.TurnMaxMinutes, &d.TurnMaxMinutes}, {&s.AgentRun, &d.AgentRun},
+		{&s.PostsPerTurn, &d.PostsPerTurn}, {&s.MinutesPerAgentHour, &d.MinutesPerAgentHour}} {
+		if *p[0] <= 0 {
+			*p[0] = *p[1]
+		}
+	}
+	return s
 }
 
 type tcSpace struct {
@@ -287,6 +307,9 @@ type tcSpace struct {
 	Name     string     `json:"name"`
 	Created  string     `json:"created"`
 	Settings tcSettings `json:"settings"`
+	// Turns of deleted agents in the last day, so deleting one does not
+	// lower the space's use.
+	Retired []int64 `json:"retired_turns,omitempty"`
 }
 
 type tcAttention struct {
@@ -322,6 +345,9 @@ type tcMember struct {
 	Attention  *tcAttention `json:"attention,omitempty"`
 	// Turns started in the last day (unix seconds), for the guards.
 	Turns []int64 `json:"turns,omitempty"`
+	// Its turns' [start, end] (unix seconds) in the last hour, for the
+	// minutes guard.
+	Spans [][2]int64 `json:"turn_spans,omitempty"`
 }
 
 func (m *tcMember) agent() bool { return m.Kind == "agent" }
@@ -446,9 +472,11 @@ type tcTurn struct {
 	Cause          tcWake   `json:"cause"`
 	Events         []tcWake `json:"events"`
 	Posted         []string `json:"posted,omitempty"`
+	Posts          int      `json:"posts,omitempty"`
+	Skipped        string   `json:"skipped,omitempty"`
 	Runtime        string   `json:"runtime,omitempty"`
 	Model          string   `json:"model,omitempty"`
-	Stop           string   `json:"stop,omitempty"` // user | timeout
+	Stop           string   `json:"stop,omitempty"` // user | timeout | posts
 }
 
 // ── per-Fleet state ────────────────────────────────────────────────────────
@@ -633,8 +661,8 @@ func (t *TeamChat) load(ctx context.Context, fl *tcFleet) error {
 			log.Printf("[team-chat] %s is unreadable: %v", key, bad)
 		}
 	}
-	if fl.space != nil && fl.space.Settings == (tcSettings{}) {
-		fl.space.Settings = defaultSettings()
+	if fl.space != nil {
+		fl.space.Settings = fl.space.Settings.filled()
 	}
 	fl.loaded = true
 	return nil
@@ -918,6 +946,29 @@ func mentions(fl *tcFleet, text string) []string {
 
 // follows reports whether mid follows a thread: explicitly, or because it
 // wrote the root or a reply, or was mentioned there.
+// wakesInThread: a person's reply in a thread wakes an agent that follows
+// it on purpose, started it or was asked in its first message, or wrote the
+// thread's last agent reply.
+func (fl *tcFleet) wakesInThread(m *tcConvMsgs, mid, root string) bool {
+	if on, ok := fl.follows[mid+"."+root]; ok {
+		return on
+	}
+	if r := m.byID[root]; r != nil && (r.From == mid || contains(r.Mentions, mid)) {
+		return true
+	}
+	replies := m.replies[root]
+	for i := len(replies) - 1; i >= 0; i-- {
+		msg := m.byID[replies[i]]
+		if msg == nil || msg.Kind != "post" {
+			continue
+		}
+		if from := fl.members[msg.From]; from != nil && from.agent() {
+			return msg.From == mid
+		}
+	}
+	return false
+}
+
 func (fl *tcFleet) followsThread(m *tcConvMsgs, mid, root string) bool {
 	if on, ok := fl.follows[mid+"."+root]; ok {
 		return on
