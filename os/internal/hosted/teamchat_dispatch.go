@@ -621,6 +621,12 @@ func (t *TeamChat) watch(ctx context.Context, fl *tcFleet, mid string) {
 			case "done":
 				done = &e
 			}
+			if (e.Type == "session" || e.Type == "done") && e.Model != "" {
+				// The model the turn runs on, for what it posts.
+				if tr := fl.turns[mid]; tr != nil {
+					tr.Model = e.Model
+				}
+			}
 		}
 		if changed {
 			t.emit(fl, map[string]any{"type": "typing", "mid": mid, "cid": l.lineCID, "root": l.lineRoot, "line": l.line})
@@ -685,10 +691,9 @@ func (t *TeamChat) finish(ctx context.Context, fl *tcFleet, mid string, done cod
 	if tr == nil {
 		return
 	}
+	// The answer is what it said after its last step; words before a step
+	// ("I'll read my notes first") are not one.
 	final := strings.TrimSpace(strings.Join(l.textBuf, "\n\n"))
-	if final == "" {
-		final = strings.TrimSpace(strings.Join(l.allText, "\n\n"))
-	}
 	failed := done.Error != "" && !done.Stopped && tr.Stop == ""
 	if err := t.del(ctx, fl, "turn."+mid); err != nil {
 		log.Printf("[team-chat] %s turn %s: %v", fl.fid, mid, err)
