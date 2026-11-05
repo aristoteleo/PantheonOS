@@ -1169,7 +1169,7 @@ func TestSkipDeleteAndReplyPlacement(t *testing.T) {
 	// A reply to a top-level channel message is inline; in a thread it stays there.
 	top := call(t, h, mine, "post", map[string]any{"cid": "general", "text": "@writer hi"})["message"].(map[string]any)["id"].(string)
 	eventually(t, "the second turn", func() bool { return nodes.promptCount() == 2 })
-	if p := nodes.lastPrompt(); !strings.Contains(p, "post #general") || strings.Contains(p, "reply "+top) {
+	if p := nodes.lastPrompt(); !strings.Contains(p, "post '#general'") || strings.Contains(p, "reply "+top) {
 		t.Fatalf("%s", p)
 	}
 	if r := as("reply", []string{top}, "inline"); r.Code != 0 || strings.Contains(r.Text, "thread") {
@@ -1290,4 +1290,124 @@ func TestTurnHopIsTheFurthestSinceAPersonWrote(t *testing.T) {
 			t.Errorf("%v: %d, want %d", c.events, got, c.want)
 		}
 	}
+}
+
+// An exchange Team Chat stopped stays stopped: an unrelated DM or a person's
+// FYI there does not let agents wake each other again; a person asking to
+// continue does. Commands with no channel or no text fail loudly.
+func TestAStoppedExchangeStaysStopped(t *testing.T) {
+	url := jetStream(t)
+	nodes := newFakeAgents()
+	nodes.hold = true
+	tc := teamOn(t, url, nodes)
+	h, mine, _ := teamHost(t, tc)
+	call(t, h, mine, "space_update", map[string]any{"settings": map[string]any{"hop_limit": 2}})
+	writer := makeAgent(t, h, mine, "Writer", "n_mac", "claude", nil)
+	makeAgent(t, h, mine, "Coder", "n_ws", "codex", nil)
+	ctx := context.Background()
+	as := func(mid, op string, args []string, text string, files ...string) agentReply {
+		return tc.AgentRequest(ctx, fleetID, agentRequest{MID: mid, Token: tc.agentToken(fleetID, mid), Op: op, Args: args, Text: text, Files: files})
+	}
+	// Loud failures: no channel (an unquoted #general is a shell comment), no text.
+	if r := as(writer, "post", nil, ""); r.Code == 0 || !strings.Contains(r.Text, "Quote the channel") {
+		t.Fatalf("%v", r)
+	}
+	if r := as(writer, "post", []string{"general"}, "  \n"); r.Code == 0 || !strings.Contains(r.Text, "no text") {
+		t.Fatalf("%v", r)
+	}
+	if r := as(writer, "post", []string{"general"}, "", "f_missing"); r.Code == 0 || !strings.Contains(r.Text, "no text") {
+		t.Fatalf("a file-only post: %v", r)
+	}
+	if r := as(writer, "post", []string{"general"}, "hello, plain name"); r.Code != 0 {
+		t.Fatalf("channel without #: %v", r)
+	}
+
+	// The person asks for a relay; agents answer each other until the hop line.
+	nodes.reply = func(p string) (string, string) {
+		if strings.Contains(p, "You are @writer") {
+			return "@coder next", ""
+		}
+		return "@writer next", ""
+	}
+	nodes.hold = false
+	call(t, h, mine, "post", map[string]any{"cid": "general", "text": "@writer count with the coder, keep going until Team Chat stops you"})
+	eventually(t, "the hop line", func() bool {
+		l := lastFrom(msgs(t, h, mine, "general", ""), "system")
+		return l != nil && strings.Contains(l["text"].(string), "They stay stopped until a person asks them to continue")
+	})
+	nodes.mu.Lock()
+	nodes.hold = true
+	nodes.mu.Unlock()
+	refused := func(why string) {
+		t.Helper()
+		if r := as(writer, "post", []string{"#general"}, "@coder 3"); r.Code == 0 || !strings.Contains(r.Text, "stays stopped") {
+			t.Fatalf("%s: %v", why, r)
+		}
+	}
+	refused("after the stop")
+	// An unrelated DM does not reopen it.
+	dm := call(t, h, mine, "conv_create", map[string]any{"kind": "dm", "members": []string{writer}})["conversation"].(map[string]any)["cid"].(string)
+	before := nodes.promptCount()
+	call(t, h, mine, "post", map[string]any{"cid": dm, "text": "unrelated: what is 3+4?"})
+	eventually(t, "the DM turn", func() bool { return nodes.promptCount() > before })
+	refused("after an unrelated DM")
+	// Nor does a person's FYI in the channel.
+	call(t, h, mine, "post", map[string]any{"cid": "general", "text": "FYI only: stepping out. Don't continue anything."})
+	refused("after an FYI")
+	// The turn input marks it closed.
+	if p := nodes.lastPrompt(); !strings.Contains(p, "Closed exchanges") || !strings.Contains(p, "#general: stopped at") {
+		t.Fatalf("%s", p)
+	}
+	// Writing to people there is fine.
+	if r := as(writer, "post", []string{"#general"}, "@weize 3+4 = 7"); r.Code != 0 {
+		t.Fatalf("%v", r)
+	}
+	// A person asking to continue reopens it.
+	call(t, h, mine, "post", map[string]any{"cid": "general", "text": "ok, please continue the count"})
+	if r := as(writer, "post", []string{"#general"}, "@coder 3"); r.Code != 0 {
+		t.Fatalf("after continue: %v", r)
+	}
+	if !asksToContinue("@writer keep going") || asksToContinue("nothing needed, don't continue") || asksToContinue("FYI only, nothing is needed") {
+		t.Fatal("asksToContinue")
+	}
+}
+
+// What an agent posts before its runtime names the model gets the model when
+// the turn ends.
+func TestPostsGetTheTurnsModelAtTheEnd(t *testing.T) {
+	url := jetStream(t)
+	nodes := newFakeAgents()
+	nodes.hold = true
+	tc := teamOn(t, url, nodes)
+	h, mine, _ := teamHost(t, tc)
+	writer := makeAgent(t, h, mine, "Writer", "n_mac", "claude", nil)
+	dm := call(t, h, mine, "conv_create", map[string]any{"kind": "dm", "members": []string{writer}})["conversation"].(map[string]any)["cid"].(string)
+	first := call(t, h, mine, "post", map[string]any{"cid": dm, "text": "hi"})["message"].(map[string]any)["id"].(string)
+	eventually(t, "the turn", func() bool { return nodes.promptCount() == 1 })
+	r := tc.AgentRequest(context.Background(), fleetID, agentRequest{MID: writer, Token: tc.agentToken(fleetID, writer), Op: "reply", Args: []string{first}, Text: "hello"})
+	if r.Code != 0 {
+		t.Fatalf("%v", r)
+	}
+	tc.mu.Lock()
+	fl := tc.fleets[fleetID]
+	tc.mu.Unlock()
+	fl.mu.Lock()
+	fl.turns[writer].Model = "openrouter/deepseek/deepseek-v4.1-flash"
+	fl.mu.Unlock()
+	tc.finish(context.Background(), fl, writer, codingagents.Event{Type: "done", Model: "openrouter/deepseek/deepseek-v4.1-flash"})
+	l := msgs(t, h, mine, dm, "")
+	if last := l[len(l)-1]; last["text"] != "hello" || last["model"] != "openrouter/deepseek/deepseek-v4.1-flash" {
+		t.Fatalf("%v", last)
+	}
+}
+
+func waitFor(ok func() bool) bool {
+	deadline := time.Now().Add(5 * time.Second)
+	for !ok() {
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return true
 }

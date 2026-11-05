@@ -318,6 +318,14 @@ func commandEnv(params map[string]any) (string, string, error) {
 // runCommand mirrors ShellToolSet.run_command's Auto Mode.
 func (a *App) runCommand(params map[string]any) (map[string]any, error) {
 	command := strParam(params, "command")
+	if strings.TrimSpace(command) == "" {
+		// Without a command there is nothing to run: answer at once (an
+		// empty command used to wait out the whole timeout reading an idle
+		// shell). Output of a running command is get_shell_output's.
+		return map[string]any{"success": false, "status": "no_command",
+			"error": "run_command needs a command, e.g. run_command(command=\"ls\"); nothing ran. " +
+				"To read a running command's output use get_shell_output."}, nil
+	}
 	exports, unset, err := commandEnv(params)
 	if err != nil {
 		return map[string]any{"success": false, "error": err.Error()}, nil

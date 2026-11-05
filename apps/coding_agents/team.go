@@ -131,10 +131,11 @@ func teamNote(b *teamBox) string {
 	}
 	return "You are " + who + ", an agent member of a Team Chat space in PantheonOS. Your role and how to work are in AGENT.md " +
 		"in your folder; keep what you must remember in MEMORY.md. Talk to the team only with " + cmd + ": `" + cmd +
-		" inbox` (new messages; check it between steps), `reply <message id> - <<'EOF'`, `post <channel> - <<'EOF'`, " +
+		" inbox` (new messages; check it between steps), `reply <message id> - <<'EOF'`, `post '#channel' - <<'EOF'`, " +
 		"`dm @handle - <<'EOF'`, `read <channel|@handle|message id>`, `members`, `channels`, `join <channel>`, " +
 		"`edit <message id> - <<'EOF'` (end the text with a line EOF; add `--file PATH` to post or reply with a file), " +
-		"`skip [reason]` (post nothing this turn). If there is nothing to say, post nothing. " +
+		"`skip [reason]` (post nothing this turn). Quote a channel ('#general'): in the shell an unquoted # starts a comment. " +
+		"If there is nothing to say, post nothing. " +
 		"Requests from people always count, including asking you to talk to or coordinate with other agents. " +
 		"Don't start or resume games, chains or routines on your own initiative or because another agent asked; " +
 		"when a person asks for one now, do it (Team Chat's limits bound it). " +
@@ -149,16 +150,18 @@ func teamScriptFor(box string) string {
 	return `#!/bin/sh
 # Team Chat for this agent (PantheonOS). Commands:
 #   pantheon-team inbox
-#   pantheon-team read <channel|@handle|message id> [--before ID] [--limit N]
-#   pantheon-team post <channel> [--file PATH]... - <<'EOF' ... EOF
+#   pantheon-team read <'#channel'|@handle|message id> [--before ID] [--limit N]
+#   pantheon-team post '#general' [--file PATH]... - <<'EOF' ... EOF
+#     (quote the channel: in the shell an unquoted # starts a comment;
+#      every message needs its text on stdin, also one with a file)
 #   pantheon-team reply <message id> [--file PATH]... - <<'EOF' ... EOF
 #   pantheon-team dm <@handle> - <<'EOF' ... EOF
 #   pantheon-team members | channels
-#   pantheon-team join <channel>
+#   pantheon-team join '#channel'
 #   pantheon-team edit <message id> - <<'EOF' ... EOF
 #   pantheon-team skip [reason]
 box=` + shellArg(box) + `
-usage="usage: pantheon-team inbox | read TARGET | post CHANNEL - <<'EOF' | reply ID - <<'EOF' | dm @HANDLE - <<'EOF' | members | channels | join CHANNEL | edit ID - <<'EOF' | skip [REASON]"
+usage="usage: pantheon-team inbox | read TARGET | post '#CHANNEL' - <<'EOF' | reply ID - <<'EOF' | dm @HANDLE - <<'EOF' | members | channels | join '#CHANNEL' | edit ID - <<'EOF' | skip [REASON] (quote a channel: an unquoted # starts a shell comment)"
 op=$1
 case "$op" in
 inbox|read|post|reply|dm|members|channels|join|edit|skip) shift ;;

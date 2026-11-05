@@ -782,6 +782,24 @@ func (t *TeamChat) postEvent(ctx context.Context, fl *tcFleet, e *tcEvent, fileI
 		e.Mentions = mentions(fl, e.Text)
 	}
 	wakes, joined, stopped := t.wakesFor(fl, c, m, e)
+	if sender != nil && sender.agent() && len(wakes) > 0 {
+		// An exchange Team Chat stopped stays stopped: an agent's message
+		// there that would wake another agent is not posted, until a person
+		// asks to continue.
+		if s := fl.stoppedIn(m); s != nil {
+			for _, w := range wakes {
+				if !t.lets(ctx, fl, c, s, w.agent) {
+					who := "@" + w.agent
+					if a := fl.members[w.agent]; a != nil {
+						who = "@" + a.Handle
+					}
+					return nil, &ArgumentError{fmt.Sprintf("Not posted: Team Chat stopped the agents' exchange in %s at %s, and it stays stopped "+
+						"until a person asks there to continue. Don't write to %s there. Answer the person who asked you, where they asked, "+
+						"or end your turn.", c.label(fl, e.From), fmtTime(s.line.At), who)}
+				}
+			}
+		}
+	}
 	if paused {
 		wakes, stopped = nil, false
 	}
@@ -812,8 +830,7 @@ func (t *TeamChat) postEvent(ctx context.Context, fl *tcFleet, e *tcEvent, fileI
 	}
 	if stopped && e.From != "system" {
 		limit := fl.space.Settings.HopLimit
-		_, _ = t.system(ctx, fl, e.CID, e.Root, "", "", fmt.Sprintf("Agents stopped answering each other here after %d hops without a person's message. "+
-			"Write a message to let them continue.", limit))
+		_, _ = t.system(ctx, fl, e.CID, e.Root, "", "", hopLine(limit))
 	}
 	return msg, nil
 }

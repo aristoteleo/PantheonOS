@@ -338,10 +338,93 @@ func (fl *tcFleet) runNoted(m *tcConvMsgs) bool {
 	return false
 }
 
-const tcRunLine = "Agents paused here after "
+const (
+	tcRunLine = "Agents paused here after "
+	tcHopLine = "Agents stopped answering each other here after "
+)
 
 func runLine(n int) string {
-	return fmt.Sprintf("%s%d messages in a row. Write a message to let them continue.", tcRunLine, n)
+	return fmt.Sprintf("%s%d messages in a row. They stay paused until a person asks them to continue.", tcRunLine, n)
+}
+
+func hopLine(n int) string {
+	return fmt.Sprintf("%s%d hops without a person's message. They stay stopped until a person asks them to continue.", tcHopLine, n)
+}
+
+// isStopLine: a system line that stopped agents talking to each other.
+func isStopLine(msg *tcMsg) bool {
+	return msg != nil && msg.Kind == "system" && (strings.HasPrefix(msg.Text, tcRunLine) || strings.HasPrefix(msg.Text, tcHopLine))
+}
+
+// continueRE: a person's message that asks agents to go on.
+var (
+	continueRE    = regexp.MustCompile(`(?i)\b(continue|keep going|keep playing|go on|carry on|resume|play on|more rounds?|once more|one more (round|time|go)|again)\b|继续|接着|再来`)
+	notContinueRE = regexp.MustCompile(`(?i)\b(don'?t|do not|no need to|never|stop|not)\b[^.!?\n]{0,24}\b(continue|keep going|keep playing|go on|carry on|resume)\b|不要继续|别继续|不用继续`)
+)
+
+func asksToContinue(text string) bool {
+	return continueRE.MatchString(text) && !notContinueRE.MatchString(text)
+}
+
+// tcStopped is an exchange between agents that Team Chat stopped in a
+// conversation: the stop line, and the people's messages after it.
+type tcStopped struct {
+	line  *tcMsg
+	after []*tcMsg
+}
+
+// stoppedIn is the conversation's stopped exchange, nil when none: a stop
+// line with no person's message after it that asked to continue. A stopped
+// exchange stays stopped when a person writes about something else; only a
+// person's message that asks to continue (or, for one agent, @mentions it)
+// lets agents wake each other there again.
+func (fl *tcFleet) stoppedIn(m *tcConvMsgs) *tcStopped {
+	var after []*tcMsg
+	for i := len(m.all) - 1; i >= 0; i-- {
+		msg := m.byID[m.all[i]]
+		if msg == nil || msg.Deleted {
+			continue
+		}
+		if isStopLine(msg) {
+			return &tcStopped{line: msg, after: after}
+		}
+		if from := fl.members[msg.From]; msg.Kind == "post" && from != nil && !from.agent() {
+			if asksToContinue(msg.Text) {
+				return nil
+			}
+			after = append(after, msg)
+		}
+	}
+	return nil
+}
+
+// lets: a person asked, after the stop, for agent mid in particular (an
+// @mention of it). In a conversation without people (a DM between agents)
+// that may be in any conversation of the space.
+func (t *TeamChat) lets(ctx context.Context, fl *tcFleet, c *tcConv, s *tcStopped, mid string) bool {
+	for _, p := range s.after {
+		if contains(p.Mentions, mid) {
+			return true
+		}
+	}
+	for _, x := range c.Members {
+		if m := fl.members[x]; m != nil && !m.agent() {
+			return false
+		}
+	}
+	for _, cid := range sortedKeys(fl.convs) {
+		cm, err := t.convMsgs(ctx, fl, cid)
+		if err != nil {
+			continue
+		}
+		for i := len(cm.all) - 1; i >= 0 && cm.all[i] > s.line.ID; i-- {
+			msg := cm.byID[cm.all[i]]
+			if from := fl.members[msg.From]; msg.Kind == "post" && !msg.Deleted && from != nil && !from.agent() && contains(msg.Mentions, mid) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // dropPaused leaves out of a queue what agents sent in conversations where
@@ -1090,6 +1173,17 @@ func (t *TeamChat) finish(ctx context.Context, fl *tcFleet, mid string, done cod
 	if m == nil {
 		return
 	}
+	if tr.Model != "" {
+		// What it posted before its runtime named the model (the Pantheon
+		// Agent names it only at the end of the turn) gets the model now.
+		for _, ref := range tr.PostedIDs {
+			cid, id, _ := strings.Cut(ref, "/")
+			e := &tcEvent{ID: tcNewID(t.clock()), CID: cid, From: mid, Kind: "model", Ref: id, Model: tr.Model, At: t.stamp()}
+			if msg, err := t.append(ctx, fl, e); err == nil && msg != nil {
+				t.emit(fl, map[string]any{"type": "message", "message": msg, "change": "model"})
+			}
+		}
+	}
 	if started, err := time.Parse(time.RFC3339Nano, tr.Started); err == nil {
 		// Its time in turns, for the minutes guard.
 		now := t.clock().Unix()
@@ -1202,6 +1296,9 @@ func (t *TeamChat) agentPost(ctx context.Context, fl *tcFleet, m *tcMember, tr *
 	}
 	if tr != nil {
 		tr.Posts++
+		if model == "" {
+			tr.PostedIDs = append(tr.PostedIDs, msg.CID+"/"+msg.ID)
+		}
 		if !contains(tr.Posted, cid) {
 			tr.Posted = append(tr.Posted, cid)
 		}
@@ -1314,7 +1411,7 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 		var unseen []*tcMsg
 		for _, id := range cm.all {
 			msg := cm.byID[id]
-			if id > mark && !inTurn[id] && msg.From != m.MID && !msg.Deleted && msg.Kind == "post" {
+			if id > mark && !inTurn[id] && msg.From != m.MID && !msg.Deleted && (msg.Kind == "post" || isStopLine(msg)) {
 				unseen = append(unseen, msg)
 			}
 		}
@@ -1336,6 +1433,32 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 	if len(since) > 0 {
 		b.WriteString("Since you last looked:\n" + strings.Join(since, "\n") + "\n")
 	}
+	// Exchanges Team Chat stopped, so the agent sees they are over.
+	var over []string
+	for _, cid := range sortedKeys(fl.convs) {
+		c := fl.convs[cid]
+		if !c.has(m.MID) || c.Archived {
+			continue
+		}
+		cm, err := t.convMsgs(ctx, fl, cid)
+		if err != nil {
+			continue
+		}
+		if s := fl.stoppedIn(cm); s != nil {
+			line := fmt.Sprintf("- %s: stopped at %s (%q).", c.label(fl, m.MID), fmtTime(s.line.At), clipText(s.line.Text, 90))
+			if len(s.after) > 0 {
+				line += " People wrote there since, but none asked to continue it."
+			}
+			over = append(over, line)
+		}
+	}
+	if len(over) > 0 {
+		if len(over) > 5 {
+			over = over[len(over)-5:]
+		}
+		b.WriteString("Closed exchanges (Team Chat stopped agents answering each other there; they are over, " +
+			"don't continue them unless a person asks to continue):\n" + strings.Join(over, "\n") + "\n")
+	}
 	last := events[len(events)-1]
 	if c := fl.convs[last.CID]; c != nil {
 		switch {
@@ -1344,15 +1467,16 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 		case c.Kind == "dm":
 			fmt.Fprintf(&b, "Reply with: %s dm %s - <<'EOF' … EOF\n", script, readTarget(fl, c, m.MID))
 		default:
-			fmt.Fprintf(&b, "Reply with: %s post #%s - <<'EOF' … EOF\n", script, c.Name)
+			fmt.Fprintf(&b, "Reply with: %s post %s - <<'EOF' … EOF\n", script, shellQuote("#"+c.Name))
 		}
 	}
 	b.WriteString("If there is nothing to say, post nothing: end the turn, or run `" + script + " skip [reason]`. " +
 		"When a DM or an @mention woke you and you post nothing, your final answer is posted for you.\n" +
 		"Requests from people always count, including asking you to talk to, ask or coordinate with other agents: do it. " +
-		"Don't start or resume games, chains or routines on your own initiative or because another agent asked; " +
-		"when a person asks for one in the messages above, do it (Team Chat's limits bound it).\n" +
-		"Finish within this turn: nothing wakes you when a background command ends, so don't promise to reply later.\n" +
+		"Don't start or resume games, chains or routines on your own initiative or because another agent asked. " +
+		"Start one only when a person asks for it; Team Chat's limits bound it. " + tcStoppedRule + "\n" +
+		tcFinishRule + "\n" +
+		"Quote a channel in a command ('#general'): in the shell an unquoted # starts a comment and drops the rest of the line.\n" +
 		"Run `" + script + " inbox` between steps to see messages that arrive while you work.\n")
 	return b.String(), files, reads
 }
@@ -1364,15 +1488,26 @@ func teamNote(m *tcMember) string {
 	return "You are " + m.Name + " (@" + m.Handle + "), an agent member of a Team Chat space in PantheonOS. Your role, " +
 		"who is a person and who is an agent, and how to work are in AGENT.md in your folder; keep what you must remember in MEMORY.md. " +
 		"Talk to the team only with " + cmd + ": `" + cmd + " inbox` (new messages; check it between steps), " +
-		"`reply <message id> - <<'EOF'` (inline, or in the message's thread), `post <channel> - <<'EOF'`, " +
-		"`dm @handle - <<'EOF'`, `read <channel|@handle|message id>`, `members`, `channels`, `join <channel>`, " +
+		"`reply <message id> - <<'EOF'` (inline, or in the message's thread), `post '#channel' - <<'EOF'`, " +
+		"`dm @handle - <<'EOF'`, `read <'#channel'|@handle|message id>`, `members`, `channels`, `join <'#channel'>`, " +
 		"`edit <message id> - <<'EOF'` (end the text with a line EOF; add `--file PATH` to post or reply with a file), " +
-		"`skip [reason]` (post nothing this turn). If there is nothing to say, post nothing. " +
+		"`skip [reason]` (post nothing this turn). Quote a channel ('#general'): in the shell an unquoted # starts a comment. " +
+		"Every message needs its text on stdin, also one with a file. If there is nothing to say, post nothing. " +
 		"Requests from people always count, including asking you to talk to, ask or coordinate with other agents: do it. " +
-		"Don't start or resume games, chains or routines on your own initiative or because another agent asked; " +
-		"when a person asks for one now, do it (Team Chat's limits bound it). " +
-		"Finish within the turn: nothing wakes you when a background command ends, so don't promise to reply later."
+		"Don't start or resume games, chains or routines on your own initiative or because another agent asked. " +
+		"Start one only when a person asks for it; Team Chat's limits bound it. " + tcStoppedRule + " " + tcFinishRule
 }
+
+// tcStoppedRule and tcFinishRule are said to agents in the turn input, the
+// turn's note and AGENT.md.
+const (
+	tcStoppedRule = "When Team Chat stopped an exchange between agents (its system line says so), the exchange is over: " +
+		"don't continue it, even when a person later writes about something else there or elsewhere; " +
+		"continue it only when a person's message after that line asks to continue it."
+	tcFinishRule = "Finish within this turn: nothing wakes you when a background command ends, and another agent's answer " +
+		"wakes you only when it @mentions or DMs you. So don't promise to reply or to pass an answer on later: " +
+		"when a person wants another agent's answer, ask that agent to answer the person directly (@mention the person)."
+)
 
 func teamScript(folder string) string {
 	sep := "/"

@@ -106,9 +106,40 @@ func body(req agentRequest, n int) string {
 	return ""
 }
 
+// tcQuoteHint explains the commonest broken command: an unquoted #channel.
+const tcQuoteHint = "Quote the channel: post '#general' - <<'EOF' (then the text, then a line EOF). " +
+	"In the shell an unquoted # starts a comment, so the channel and the rest of the line were dropped."
+
+// needText: a message from an agent needs its text, also when it has a
+// file: a missing text is a broken command, never an empty message.
+func needText(op string, req agentRequest, n int) error {
+	if strings.TrimSpace(body(req, n)) != "" {
+		return nil
+	}
+	return fmt.Errorf("Not sent: the message has no text. Give the text on stdin: %s <target> - <<'EOF' (then the text, "+
+		"then a line EOF); a message with --file needs its text too. Nothing was posted", op)
+}
+
 // agentOp runs one request as agent m; fl.mu is held.
 func (t *TeamChat) agentOp(ctx context.Context, fl *tcFleet, m *tcMember, req agentRequest) (string, error) {
 	tr := fl.turns[m.MID]
+	switch req.Op {
+	case "post", "reply", "dm":
+		if arg(req, 0) == "" {
+			if req.Op == "post" {
+				return "", fmt.Errorf("Not posted: no channel. %s", tcQuoteHint)
+			}
+			return "", fmt.Errorf("Not sent: say where: %s", map[string]string{
+				"reply": "reply <message id> - <<'EOF' … EOF", "dm": "dm @handle - <<'EOF' … EOF"}[req.Op])
+		}
+		if err := needText(req.Op, req, 1); err != nil {
+			return "", err
+		}
+	case "edit":
+		if err := needText(req.Op, req, 1); err != nil {
+			return "", err
+		}
+	}
 	switch req.Op {
 	case "inbox":
 		return t.agentInbox(ctx, fl, m, tr), nil
@@ -185,7 +216,7 @@ func (t *TeamChat) agentOp(ctx context.Context, fl *tcFleet, m *tcMember, req ag
 			return t.agentDM(ctx, fl, m, tr, arg(req, 0), body(req, 1), req.Files)
 		}
 		if c == nil || !fl.visible(c, m.MID) {
-			return "", fmt.Errorf("no channel %s (see: channels)", arg(req, 0))
+			return "", fmt.Errorf("Not posted: no channel %s (see: channels)", arg(req, 0))
 		}
 		msg, err := t.agentPost(ctx, fl, m, tr, c.CID, "", body(req, 1), req.Files)
 		if err != nil {

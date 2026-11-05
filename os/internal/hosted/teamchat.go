@@ -422,12 +422,12 @@ type tcEvent struct {
 	CID      string      `json:"cid"`
 	Root     string      `json:"root,omitempty"`
 	From     string      `json:"from"`
-	Kind     string      `json:"kind"` // post | edit | delete | system
+	Kind     string      `json:"kind"` // post | edit | delete | system | model
 	Text     string      `json:"text,omitempty"`
 	Mentions []string    `json:"mentions,omitempty"`
 	Files    []tcFileRef `json:"files,omitempty"`
 	At       string      `json:"at"`
-	Ref      string      `json:"ref,omitempty"` // edit, delete: the message
+	Ref      string      `json:"ref,omitempty"` // edit, delete, model: the message
 	Hop      int         `json:"hop,omitempty"`
 	Runtime  string      `json:"runtime,omitempty"`
 	Model    string      `json:"model,omitempty"`
@@ -486,6 +486,7 @@ type tcTurn struct {
 	Cause          tcWake   `json:"cause"`
 	Events         []tcWake `json:"events"`
 	Posted         []string `json:"posted,omitempty"`
+	PostedIDs      []string `json:"posted_ids,omitempty"` // its messages, for the model known at the end
 	Posts          int      `json:"posts,omitempty"`
 	Skipped        string   `json:"skipped,omitempty"`
 	Runtime        string   `json:"runtime,omitempty"`
@@ -854,6 +855,12 @@ func (m *tcConvMsgs) fold(e *tcEvent) *tcMsg {
 	case "delete":
 		if msg := m.byID[e.Ref]; msg != nil {
 			msg.Deleted, msg.Text, msg.Files, msg.EditedAt = true, "", nil, e.At
+			return msg
+		}
+	case "model":
+		// The model a message's turn ran on, known only when the turn ended.
+		if msg := m.byID[e.Ref]; msg != nil && msg.Model == "" {
+			msg.Model = e.Model
 			return msg
 		}
 	}
