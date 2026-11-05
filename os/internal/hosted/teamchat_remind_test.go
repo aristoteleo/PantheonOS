@@ -2,6 +2,7 @@ package hosted
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -167,7 +168,7 @@ func TestAPersonsReminderIsPostedWhenTheTurnCannotRun(t *testing.T) {
 			r.delivered("deploy window opens")
 			r.noTurnSince(n)
 			// The person's message still waits, with the pause line.
-			if s := r.status(); s["queue"] != float64(1) || s["state"] != "attention" {
+			if s := r.status(); s["queue"] != float64(1) || s["state"] != "attention" || s["paused"] != "limit" {
 				t.Fatalf("%v", s)
 			}
 			if lines := systemLines(msgs(t, r.h, r.mine, "general", "")); len(lines) == 0 || !strings.HasPrefix(lines[len(lines)-1], "Paused: ") {
@@ -325,5 +326,86 @@ func TestTheAgentKnowsTheTimeAndQuotesRemindsAnswer(t *testing.T) {
 	}
 	if !strings.Contains(tcFinishRule, "only after remind answers") || !strings.Contains(tcFinishRule, "person's language") {
 		t.Fatal(tcFinishRule)
+	}
+}
+
+// A person's reminder that comes due while its agent is in a turn is posted
+// on time (not after the turn), and no later turn posts it again.
+func TestAPersonsReminderDoesNotWaitForARunningTurn(t *testing.T) {
+	r := newRemindRig(t, "claude", nil)
+	r.remind("stretch")
+	r.set(func() { r.nodes.hold = true })
+	call(t, r.h, r.mine, "post", map[string]any{"cid": "general", "text": "@writer run the long job"})
+	eventually(t, "the long turn", func() bool { return r.nodes.promptCount() == 2 && r.status()["state"] == "working" })
+	r.clock.Add(time.Minute)
+	r.delivered("stretch")
+	if s := r.status(); s["state"] != "working" {
+		t.Fatalf("posted only after the turn: %v", s)
+	}
+	if out := agentSays(r.tc, r.agent, "inbox", nil, nil, ""); strings.Contains(out.Text, "stretch") {
+		t.Fatalf("the running turn got it too: %v", out)
+	}
+	r.set(func() { r.nodes.hold = false })
+	r.nodes.release <- struct{}{}
+	eventually(t, "turn end", func() bool { return r.status()["state"] == "ready" })
+	r.noTurnSince(2)
+	n := 0
+	for _, m := range msgs(t, r.h, r.mine, "general", "") {
+		if strings.Contains(fmt.Sprint(m["text"]), "stretch") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("posted %d times", n)
+	}
+}
+
+// A reminder keeps the language the person asked in, and its turn is told
+// to write in it.
+func TestAPersonsReminderIsWrittenInTheirLanguage(t *testing.T) {
+	r := newRemindRig(t, "claude", nil)
+	zh := call(t, r.h, r.mine, "post", map[string]any{"cid": "general", "text": "@writer 2分钟后提醒我喝水"})["message"].(map[string]any)["id"].(string)
+	eventually(t, "the asked turn", func() bool { return r.nodes.promptCount() == 2 && r.status()["state"] == "ready" })
+	for _, c := range []struct{ about, note, lang string }{{r.ask, "close the window", "English"}, {zh, "喝水", "Chinese"}} {
+		out := agentSays(r.tc, r.agent, "remind", []string{"in", "1", "minute"}, map[string]string{"about": c.about}, c.note)
+		if out.Code != 0 {
+			t.Fatalf("%v", out)
+		}
+		found := false
+		for _, x := range call(t, r.h, r.mine, "reminders", map[string]any{})["reminders"].([]any) {
+			if x := x.(map[string]any); x["note"] == c.note {
+				found = x["lang"] == c.lang && x["asked"] != ""
+			}
+		}
+		if !found {
+			t.Fatalf("%s: lang not kept", c.note)
+		}
+	}
+	n := r.nodes.promptCount()
+	r.clock.Add(time.Minute)
+	eventually(t, "the reminder turn", func() bool { return r.nodes.promptCount() > n })
+	eventually(t, "turn end", func() bool { return r.status()["state"] == "ready" && r.status()["queue"] == float64(0) })
+	var all string
+	r.set(func() { all = strings.Join(r.nodes.prompts[n:], "\n") })
+	for _, want := range []string{`Write the reminder in English, the language @owner asked in (they wrote: "@writer remind me later")`,
+		`Write the reminder in Chinese, the language @owner asked in (they wrote: "@writer 2分钟后提醒我喝水")`} {
+		if !strings.Contains(all, want) {
+			t.Fatalf("missing %q in:\n%s", want, all)
+		}
+	}
+}
+
+func TestLangOf(t *testing.T) {
+	for text, want := range map[string]string{
+		"@writer remind me in 2 minutes to close the window": "English",
+		"@writer 2分钟后提醒我喝水":                                  "Chinese",
+		"@writer 2分後にリマインドして":                                "Japanese",
+		"@writer 2분 후에 알려줘":                                  "Korean",
+		"@writer напомни мне через 2 минуты":                 "Russian",
+		"@writer 12:30": "",
+	} {
+		if got := langOf(text); got != want {
+			t.Errorf("%q: %q, want %q", text, got, want)
+		}
 	}
 }

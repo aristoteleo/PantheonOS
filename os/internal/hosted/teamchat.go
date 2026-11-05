@@ -508,6 +508,9 @@ type tcWake struct {
 	// For: the person a reminder is for ("" when the agent set it for
 	// itself); a person always sees it (docs/apps/team-chat.md).
 	For string `json:"for,omitempty"`
+	// Lang and Asked: a person's reminder's request language and text.
+	Lang  string `json:"lang,omitempty"`
+	Asked string `json:"asked,omitempty"`
 }
 
 func (w tcWake) key() string { return w.Event }

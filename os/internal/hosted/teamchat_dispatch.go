@@ -134,7 +134,9 @@ func (t *TeamChat) statusOf(fl *tcFleet, m *tcMember) map[string]any {
 	case m.Attention != nil:
 		out["state"], out["reason"], out["fix"] = "attention", m.Attention.Reason, m.Attention.Fix
 	case l.paused != "":
-		out["state"], out["reason"] = "attention", l.paused
+		// A limit paused it: it continues by itself (the UI reads "Paused
+		// (limit)", not "Needs attention").
+		out["state"], out["reason"], out["paused"] = "attention", l.paused, "limit"
 	case !l.appWait.IsZero() || t.appStarting(fl, m):
 		// Its Agent App is still starting: messages wait for it (no failure).
 		out["state"], out["line"], out["reason"] = "starting", "Starting", appStartingWhy(fl)
@@ -1923,7 +1925,7 @@ func (t *TeamChat) reminderText(ctx context.Context, fl *tcFleet, m *tcMember, e
 			}
 		}
 		head += "). Remind " + who + ": " + firstLineOf(e.Note)
-		b.WriteString(head + "\n" + indent(e.Note))
+		b.WriteString(head + "\n" + indent(e.Note) + remLang(e, who))
 		return b.String() + t.remAbout(ctx, fl, m, e)
 	}
 	head := "Reminder you set"

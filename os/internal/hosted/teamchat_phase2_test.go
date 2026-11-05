@@ -214,6 +214,11 @@ func TestAReminderWakesOnlyItsAgentAndSurvivesARestart(t *testing.T) {
 		t.Fatalf("%v", list)
 	}
 	before := len(msgs(t, h, mine, "general", root))
+	// (Writer's turn has ended: a reminder due during a turn is posted
+	// without one.)
+	eventually(t, "turn end", func() bool {
+		return call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[writer].(map[string]any)["state"] == "ready"
+	})
 
 	// The controller stops; the time passes; a new one starts.
 	tc.Close()

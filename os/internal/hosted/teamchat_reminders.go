@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 	_ "time/tzdata" // time zones without the host's database
+	"unicode"
 )
 
 const (
@@ -36,7 +37,12 @@ type tcRem struct {
 	About    string `json:"about,omitempty"` // the message it is tied to
 	// For: the person it reminds ("" = the agent itself). A person's
 	// reminder is always posted for them, by the agent or for it.
-	For       string `json:"for,omitempty"`
+	For string `json:"for,omitempty"`
+	// Lang and Asked: the language a person asked in ("English",
+	// "Chinese", … or "") and their request, so the reminder is written
+	// in the same language.
+	Lang      string `json:"lang,omitempty"`
+	Asked     string `json:"asked,omitempty"`
 	Created   string `json:"created"`
 	CreatedBy string `json:"created_by"`
 	Fired     int    `json:"fired,omitempty"`
@@ -358,7 +364,7 @@ func remKey(r *tcRem) string { return "rem." + r.Agent + "." + r.ID }
 
 // setReminder makes a reminder of agent m, for the person forMID ("" = the
 // agent itself), its times read in loc (nil: the space's); fl.mu is held.
-func (t *TeamChat) setReminder(ctx context.Context, fl *tcFleet, m *tcMember, by, when, every, note, cid, root, about, forMID string,
+func (t *TeamChat) setReminder(ctx context.Context, fl *tcFleet, m *tcMember, by, when, every, note, cid, root, about, forMID, asked string,
 	loc *time.Location) (*tcRem, error) {
 	note = strings.TrimSpace(note)
 	if note == "" {
@@ -412,6 +418,10 @@ func (t *TeamChat) setReminder(ctx context.Context, fl *tcFleet, m *tcMember, by
 	}
 	r := &tcRem{ID: "r" + shortID(), Agent: m.MID, Note: note, At: first.UTC().Format(time.RFC3339), TimeZone: locName(loc),
 		CID: cid, Root: root, About: about, For: forMID, Created: t.stamp(), CreatedBy: by}
+	if forMID != "" {
+		r.Asked = clipText(strings.TrimSpace(asked), 300)
+		r.Lang = langOf(asked)
+	}
 	if sched != nil {
 		r.Every = every
 	}
@@ -472,10 +482,11 @@ func (t *TeamChat) fireDue(ctx context.Context, fl *tcFleet) {
 		}
 		w := tcWake{ID: r.About, Event: "rem-" + r.ID + "-" + strconv.FormatInt(due.Unix(), 10), CID: cid,
 			Root: root, Kind: "reminder", Reason: "reminder", From: r.Agent, At: now.UTC().Format(time.RFC3339Nano), Rem: r.ID, Note: r.Note,
-			For: r.For}
-		if w.forPerson(fl) && t.cannotRun(fl, m) && t.remindPeople(ctx, fl, m, nil, []tcWake{w}, "")[w.key()] {
+			For: r.For, Lang: r.Lang, Asked: r.Asked}
+		if w.forPerson(fl) && (t.cannotRun(fl, m) || fl.turns[m.MID] != nil) && t.remindPeople(ctx, fl, m, nil, []tcWake{w}, "")[w.key()] {
 			// A person's reminder does not wait for an agent that cannot
-			// run: it is posted for them now.
+			// run, nor for the end of its running turn: it is posted for
+			// them now (and not queued, so no later turn posts it again).
 		} else {
 			// (If the turn it queues cannot start, tryStart posts it for
 			// the person: remindNow.)
@@ -677,7 +688,8 @@ func (t *TeamChat) agentRemind(ctx context.Context, fl *tcFleet, m *tcMember, tr
 	if err != nil {
 		return "", err
 	}
-	r, err := t.setReminder(ctx, fl, m, m.MID, when, every, note, cid, root, about, forMID, loc)
+	asked := t.remAsked(ctx, fl, tr, aboutMsg, forMID)
+	r, err := t.setReminder(ctx, fl, m, m.MID, when, every, note, cid, root, about, forMID, asked, loc)
 	if err != nil {
 		return "", err
 	}
@@ -707,6 +719,90 @@ func (t *TeamChat) agentRemind(ctx context.Context, fl *tcFleet, m *tcMember, tr
 		"\"today\" and the weekday too); keep the clock time and the time zone name as they are. Don't work the time out yourself, and don't say only \"in 2 minutes\"."
 	out += " Don't show the reminder id (" + r.ID + ", for remind cancel only); a person cancels by asking you (\"cancel the reminder\")."
 	return out, nil
+}
+
+// remAsked is the person's request a reminder for them was set from: the
+// message it is about, else the newest message of theirs that this turn
+// was woken by ("" when neither is theirs).
+func (t *TeamChat) remAsked(ctx context.Context, fl *tcFleet, tr *tcTurn, about *tcMsg, forMID string) string {
+	if forMID == "" {
+		return ""
+	}
+	if about != nil && about.From == forMID && !about.Deleted {
+		return about.Text
+	}
+	if tr == nil {
+		return ""
+	}
+	events := append([]tcWake{tr.Cause}, tr.Events...)
+	for i := len(events) - 1; i >= 0; i-- {
+		e := events[i]
+		if e.From != forMID || e.ID == "" || e.Kind == "reminder" {
+			continue
+		}
+		if msg, err := t.findMsg(ctx, fl, e.ID, e.CID); err == nil && msg.From == forMID && !msg.Deleted {
+			return msg.Text
+		}
+	}
+	return ""
+}
+
+// langOf names the language a request is written in, by its letters:
+// Chinese, Japanese, Korean, Russian, … or English for plain Latin text
+// ("" when it can't tell). Mentions, links and code are left out.
+func langOf(text string) string {
+	var han, kana, hangul, cyr, arabic, latin int
+	for _, w := range strings.Fields(text) {
+		if strings.HasPrefix(w, "@") || strings.HasPrefix(w, "#") || strings.Contains(w, "://") || strings.HasPrefix(w, "`") {
+			continue
+		}
+		for _, c := range w {
+			switch {
+			case unicode.Is(unicode.Hiragana, c) || unicode.Is(unicode.Katakana, c):
+				kana++
+			case unicode.Is(unicode.Han, c):
+				han++
+			case unicode.Is(unicode.Hangul, c):
+				hangul++
+			case unicode.Is(unicode.Cyrillic, c):
+				cyr++
+			case unicode.Is(unicode.Arabic, c):
+				arabic++
+			case c < 128 && unicode.IsLetter(c):
+				latin++
+			}
+		}
+	}
+	switch {
+	case kana > 0:
+		return "Japanese"
+	case han > 0:
+		return "Chinese"
+	case hangul > 0:
+		return "Korean"
+	case cyr > 0:
+		return "Russian"
+	case arabic > 0:
+		return "Arabic"
+	case latin > 0:
+		// Latin letters: English unless it reads as another language,
+		// which the agent sees from the request itself.
+		return "English"
+	}
+	return ""
+}
+
+// remLang tells the agent which language to write a person's reminder in:
+// the one they asked in, not the one its session drifted to.
+func remLang(w tcWake, who string) string {
+	if strings.TrimSpace(w.Asked) == "" {
+		return ""
+	}
+	lang := "the language " + who + " asked in"
+	if w.Lang != "" {
+		lang = w.Lang + ", the language " + who + " asked in"
+	}
+	return fmt.Sprintf("Write the reminder in %s (they wrote: %q), even if you used another language before.\n", lang, clipText(w.Asked, 200))
 }
 
 // remPhrase is a reminder's time as an agent quotes it to people, in loc:
