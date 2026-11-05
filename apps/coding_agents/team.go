@@ -127,8 +127,10 @@ func teamNote(b *teamBox) string {
 		"in your folder; keep what you must remember in MEMORY.md. Talk to the team only with " + cmd + ": `" + cmd +
 		" inbox` (new messages; check it between steps), `reply <message id> - <<'EOF'`, `post <channel> - <<'EOF'`, " +
 		"`dm @handle - <<'EOF'`, `read <channel|@handle|message id>`, `members`, `channels`, `join <channel>`, " +
-		"`edit <message id> - <<'EOF'` (end the text with a line EOF; add `--file PATH` to post or reply with a file). " +
-		"If you end the turn without posting where you were asked, your final answer is posted there for you."
+		"`edit <message id> - <<'EOF'` (end the text with a line EOF; add `--file PATH` to post or reply with a file), " +
+		"`skip [reason]` (post nothing this turn). If there is nothing to say, post nothing. " +
+		"Don't resume games, chains or routines from earlier unless a person asks you to now. " +
+		"Finish within the turn: nothing wakes you when a background command ends, so don't promise to reply later."
 }
 
 // teamScriptFor is the pantheon-team script for one inbox. A request is a
@@ -146,11 +148,12 @@ func teamScriptFor(box string) string {
 #   pantheon-team members | channels
 #   pantheon-team join <channel>
 #   pantheon-team edit <message id> - <<'EOF' ... EOF
+#   pantheon-team skip [reason]
 box=` + shellArg(box) + `
-usage="usage: pantheon-team inbox | read TARGET | post CHANNEL - <<'EOF' | reply ID - <<'EOF' | dm @HANDLE - <<'EOF' | members | channels | join CHANNEL | edit ID - <<'EOF'"
+usage="usage: pantheon-team inbox | read TARGET | post CHANNEL - <<'EOF' | reply ID - <<'EOF' | dm @HANDLE - <<'EOF' | members | channels | join CHANNEL | edit ID - <<'EOF' | skip [REASON]"
 op=$1
 case "$op" in
-inbox|read|post|reply|dm|members|channels|join|edit) shift ;;
+inbox|read|post|reply|dm|members|channels|join|edit|skip) shift ;;
 *) echo "$usage" >&2; exit 2 ;;
 esac
 id="$(date +%s)-$$"
@@ -382,7 +385,8 @@ func num(v any) float64 {
 
 // teamSetup makes (or checks) an agent's folder: AGENT.md (agentMD, with
 // {{TEAM}} as the path of its tool), MEMORY.md and notes/ when missing, and
-// .team/. reset "full" empties the folder first. It reports whether the
+// .team/. reset "full" empties the folder first; "remove" removes it (when
+// its agent is deleted) and stops there. It reports whether the
 // folder is the user's home or the root.
 func teamSetup(folder, agentMD, reset string, checkOnly bool) map[string]any {
 	folder = strings.TrimSpace(expandHome(folder))
@@ -401,6 +405,16 @@ func teamSetup(folder, agentMD, reset string, checkOnly bool) map[string]any {
 		out["exists"] = true
 	}
 	if checkOnly {
+		return out
+	}
+	if reset == "remove" {
+		if isHome || isRoot {
+			return failure("%s is not removed", folder)
+		}
+		if err := os.RemoveAll(folder); err != nil {
+			return failure("Could not remove %s: %v", folder, err)
+		}
+		out["removed"] = true
 		return out
 	}
 	if reset == "full" {
