@@ -309,8 +309,10 @@ Per agent, one turn at a time:
    is the live line, e.g. "Running npm test"), Needs attention (a turn failed
    for a reason the agent cannot fix: runtime missing, not signed in, budget
    exhausted; the reason in plain words and the fix), Offline (node offline or
-   agent stopped). Offline agents keep their queue; when the node is back the
-   queue starts a turn.
+   agent stopped), Starting (a Pantheon Agent whose Agent App is not ready
+   yet, e.g. a new account's first minutes). Offline agents keep their queue;
+   when the node is back the queue starts a turn. A Starting agent's messages
+   wait too and start a turn once the App is ready.
 6. **Failures:** a node call that times out is retried with backoff (1, 5,
    30 s, then on the node's next heartbeat); a turn that fails posts one
    system line in the conversation ("Writer could not start: Claude Code is
@@ -871,6 +873,62 @@ Dispatching a turn and "Fixes after the independent check" below).
 * **Mentions between agents.** An agent's incidental @mention of another
   agent (`@weize @coder says Tokyo…`) still wakes it, as designed: agents
   wake each other only by DM or @mention, and the woken agent may skip.
+
+### Fixes after the fourth check (2026-11-05)
+
+* **The first hello on a new account waits for the Agent App.** The
+  controller tells Team Chat the state of the owner's Agent App (the `agent`
+  App of the `general-team` deployment, cached 2 s). While it is not ready, a
+  Pantheon Agent's status is `starting` (also before its first turn, so
+  First run says "Assistant is starting. You can say hello now…"), its
+  messages stay queued and no turn starts; the service looks again every 3 s
+  and starts the turn once the App is ready. A turn that still fails with
+  `App "agent" is not ready (…)` (the App restarted) waits the same way
+  instead of writing a failure line. Only after 10 minutes is the owner asked
+  ("…has not got the Pantheon Agent ready after 10 minutes. Your message is
+  kept. Press Retry to wait again…"). The sweep tells browsers when the App's
+  state changes. The interface shows "Assistant is starting · Your Workspace
+  is still getting the Pantheon Agent ready (the first time takes a few
+  minutes). Messages wait and are answered as soon as it is ready."
+* **Failure lines** no longer send people to Coding Agents for details: an
+  unexplained failure says "Press Retry. If it fails again, wait a few
+  minutes or reset its session from the agent's menu."
+* **Empty `run_command`.** The Workspace runs the Shell App packaged in the
+  Agent App release, so the shell fix of staging.10 had not reached it (Agent
+  App 0.9.109 was built before it: `{}` still drained 5 s, `{"timeout": 30}`
+  30 s). The cause on the model side: `run_command`'s schema left `command`
+  optional (`required: []`, `str | None`), a leftover of the old "no command
+  reads the shell" mode. `command` is now a required string, described as
+  "Required. … a call without a command runs nothing and fails"; any call
+  without a non-empty command returns `no_command` at once (unit-tested for
+  `{}`, a timeout, a blank command, extra arguments). Agent App 0.9.110
+  carries the rebuilt Shell.
+* **Watch** shows a step that a runtime never reported finished (Codex's
+  commands) as finished once a later turn end is in the view, so an earlier
+  turn's `sleep 25` no longer spins under the live step.
+* **Removed agents.** System lines about an agent deleted before its name was
+  kept read "Removed agent could not start…", like its messages.
+* **Not changed:** an agent's own words about where it answered ("I answered
+  @writer's DM directly" for a reply in the thread) are the model's; the
+  brief already tells it where replies go, and more wording did not seem
+  worth the prompt length.
+
+Re-checked on staging (controller 0f2a489d, frontend a1fc79d9, Agent App
+0.9.110, agents image sha-c479726) on two fresh accounts through invites:
+
+* invite-test-25: Continue 19 s after Use my Workspace; Create agent → Say
+  hello at once. The agent showed Starting at once (First run and under the
+  message), the controller logged one wait, the turn started 15 s later when
+  the App was ready and the greeting was in `#general` 28 s after Say hello
+  (turn 16 s; reads, one `post '#general'`); no failure line, no Retry.
+* invite-test-24 (first account after the release pin, so Continue waited
+  196 s while the Workspace fetched the new release): greeting in 18 s
+  (turn 19 s).
+* Neither turn made a `run_command` without a command; the Workspace's Shell
+  is 0.9.110's (revision 27a9ce5c).
+* Watch on acct3's Codex agent: of 190 steps none spins, although its
+  session still records `sleep 25` and `sleep 90` as running. Its old
+  "Tester could not start…" line reads "Removed agent could not start…".
 
 ## Out of scope
 

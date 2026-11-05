@@ -333,12 +333,15 @@ func TestParallelCommandsOfOneConversationAllRun(t *testing.T) {
 func TestRunCommandWithoutCommandAnswersAtOnce(t *testing.T) {
 	app := NewApp(t.TempDir())
 	defer app.Close()
-	start := time.Now()
-	res, err := app.runCommand(map[string]any{"timeout": 60})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ok, _ := res["success"].(bool); ok || res["status"] != "no_command" || time.Since(start) > 2*time.Second {
-		t.Fatalf("%v after %s", res, time.Since(start))
+	for _, params := range []map[string]any{{"timeout": 60}, {"timeout": 30}, {}, {"command": "  "},
+		{"timeout": 30, "max_output": 100, "shell_id": ""}, {"command": nil, "timeout": 30}} {
+		start := time.Now()
+		res, err := app.runCommand(params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ok, _ := res["success"].(bool); ok || res["status"] != "no_command" || time.Since(start) > time.Second {
+			t.Fatalf("%v: %v after %s", params, res, time.Since(start))
+		}
 	}
 }
