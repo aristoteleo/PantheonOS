@@ -136,7 +136,7 @@ func (t *TeamChat) statusOf(fl *tcFleet, m *tcMember) map[string]any {
 		out["state"], out["reason"] = "attention", l.paused
 	case !l.appWait.IsZero() || t.appStarting(fl, m):
 		// Its Agent App is still starting: messages wait for it (no failure).
-		out["state"], out["line"], out["reason"] = "starting", "Starting", appStartingWhy
+		out["state"], out["line"], out["reason"] = "starting", "Starting", appStartingWhy(fl)
 		if q := fl.queues[m.MID]; len(q) > 0 {
 			cause := q[len(q)-1]
 			out["cid"], out["root"], out["since"] = cause.CID, cause.Root, cause.At
@@ -851,9 +851,18 @@ func (t *TeamChat) attention(ctx context.Context, fl *tcFleet, m *tcMember, tr *
 	t.emitStatus(fl, m.MID)
 }
 
-// appStartingWhy says why a Pantheon Agent's messages wait, for people.
-const appStartingWhy = "Your Workspace is still getting the Pantheon Agent ready (the first time takes a few minutes). " +
-	"Messages wait and are answered as soon as it is ready."
+// appStartingWhy says why a Pantheon Agent's messages wait, for people: the
+// first time a space's Pantheon Agent starts takes minutes; after that the
+// App is starting again (a Workspace resumed or restarted).
+func appStartingWhy(fl *tcFleet) string {
+	for _, m := range fl.members {
+		if m.agent() && m.Runtime == codingagents.PantheonAgent && (m.Session != "" || len(m.Turns) > 0) {
+			return "Your Workspace is starting the Pantheon Agent again. Messages wait and are answered as soon as it is ready."
+		}
+	}
+	return "Your Workspace is getting the Pantheon Agent ready for the first time; this takes a few minutes. " +
+		"Messages wait and are answered as soon as it is ready."
+}
 
 // appStarting: the agent runs as the Pantheon Agent and the owner's Agent
 // App is known not to be ready yet.
@@ -1433,6 +1442,10 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 	seen := map[string]bool{}
 	reads := map[string]string{}
 	for _, e := range events {
+		if e.Kind == "reminder" {
+			b.WriteString(t.reminderText(ctx, fl, m, e))
+			continue
+		}
 		c := fl.convs[e.CID]
 		cm, err := t.convMsgs(ctx, fl, e.CID)
 		if c == nil || err != nil {
@@ -1463,6 +1476,9 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 			continue
 		}
 		b.WriteString(indent(shownText(fl, msg)))
+		if tk := taskFor(fl, msg); tk != nil {
+			b.WriteString(indent(taskNote(fl, tk, m.MID, script)))
+		}
 		for _, f := range msg.Files {
 			if !seen[f.ID] {
 				seen[f.ID] = true
@@ -1541,7 +1557,13 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 			"don't continue them unless a person asks to continue):\n" + strings.Join(over, "\n") + "\n")
 	}
 	last := events[len(events)-1]
-	if c := fl.convs[last.CID]; c != nil {
+	if last.Kind == "reminder" {
+		if last.ID != "" && fl.convs[last.CID] != nil {
+			fmt.Fprintf(&b, "Nothing is posted for a reminder unless you post. To write about it: %s reply %s - <<'EOF' … EOF\n", script, last.ID)
+		} else {
+			fmt.Fprintf(&b, "Nothing is posted for a reminder unless you post (%s post '#channel' or dm @handle).\n", script)
+		}
+	} else if c := fl.convs[last.CID]; c != nil {
 		switch {
 		case last.Root != "":
 			fmt.Fprintf(&b, "Reply with (in the thread): %s reply %s - <<'EOF' … EOF\n", script, last.ID)
@@ -1572,7 +1594,11 @@ func teamNote(m *tcMember) string {
 		"`reply <message id> - <<'EOF'` (inline, or in the message's thread), `post '#channel' - <<'EOF'`, " +
 		"`dm @handle - <<'EOF'`, `read <'#channel'|@handle|message id>`, `members`, `channels`, `join <'#channel'>`, " +
 		"`edit <message id> - <<'EOF'` (end the text with a line EOF; add `--file PATH` to post or reply with a file), " +
-		"`skip [reason]` (post nothing this turn). Quote a channel ('#general'): in the shell an unquoted # starts a comment. " +
+		"`skip [reason]` (post nothing this turn), `task claim <id>` (before you work on a task; if it fails, don't), " +
+		"`task state <id> in_review - <<'EOF'` (done: a summary in its thread; a person sets Done), `task create '#channel' - <<'EOF'`, " +
+		"`task list`, `remind '<when>' - <<'EOF'` (wake yourself later: 'in 2 minutes', 'tomorrow 9:00', 'every weekday 10:00'; " +
+		"the note on stdin), `remind list`, `remind cancel <id>`, `search <words> [--in '#channel'] [--from @handle]`. " +
+		"Quote a channel ('#general'): in the shell an unquoted # starts a comment. " +
 		"Every message needs its text on stdin, also one with a file. If there is nothing to say, post nothing. " +
 		"Requests from people always count, including asking you to talk to, ask or coordinate with other agents: do it. " +
 		"Don't start or resume games, chains or routines on your own initiative or because another agent asked. " +
@@ -1587,7 +1613,9 @@ const (
 		"continue it only when a person's message after that line asks to continue it."
 	tcFinishRule = "Finish within this turn: nothing wakes you when a background command ends, and another agent's answer " +
 		"wakes you only when it @mentions or DMs you. So don't promise to reply or to pass an answer on later: " +
-		"when a person wants another agent's answer, ask that agent to answer the person directly (@mention the person)."
+		"when a person wants another agent's answer, ask that agent to answer the person directly (@mention the person). " +
+		"To act at a later time (a person asks you to remind them or to check something later), set a reminder with remind: " +
+		"it is the one thing that wakes you later."
 )
 
 func teamScript(folder string) string {
@@ -1711,6 +1739,7 @@ func (t *TeamChat) Run(ctx context.Context) {
 	resumed := false
 	ticker := time.NewTicker(every)
 	defer ticker.Stop()
+	go t.remindLoop(ctx)
 	for {
 		if !resumed {
 			if err := t.resume(ctx); err != nil {
@@ -1738,7 +1767,7 @@ func (t *TeamChat) resume(ctx context.Context) error {
 	if _, err := t.open(ctx); err != nil {
 		return err
 	}
-	lister, err := t.kv.ListKeysFiltered(ctx, "*.queue.*", "*.turn.*")
+	lister, err := t.kv.ListKeysFiltered(ctx, "*.queue.*", "*.turn.*", "*.rem.>")
 	if err != nil {
 		return err
 	}
@@ -1769,6 +1798,74 @@ func (t *TeamChat) resume(ctx context.Context) error {
 		fl.mu.Unlock()
 	}
 	return nil
+}
+
+// remindLoop fires due reminders every few seconds (a reminder is due within
+// its time + remTick), until ctx ends.
+func (t *TeamChat) remindLoop(ctx context.Context) {
+	every := t.remTick
+	if every <= 0 {
+		every = 5 * time.Second
+	}
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		if t.isClosed() {
+			return
+		}
+		t.fireReminders(ctx)
+	}
+}
+
+// reminderText is a due reminder as the agent reads it, with the message it
+// is tied to; fl.mu is held.
+func (t *TeamChat) reminderText(ctx context.Context, fl *tcFleet, m *tcMember, e tcWake) string {
+	var b strings.Builder
+	head := "Reminder you set"
+	if r := fl.rems[e.Rem]; r != nil {
+		head += fmt.Sprintf(" at %s [%s", fmtTime(r.Created), r.ID)
+		if r.Every != "" {
+			head += ", every " + r.Every + "; to stop it: remind cancel " + r.ID
+		}
+		head += "]"
+	} else if e.Rem != "" {
+		head += " [" + e.Rem + "]"
+	}
+	b.WriteString(head + ":\n" + indent(e.Note))
+	if e.ID == "" {
+		return b.String()
+	}
+	c := fl.convs[e.CID]
+	if c == nil {
+		return b.String()
+	}
+	cm, err := t.convMsgs(ctx, fl, e.CID)
+	if err != nil {
+		return b.String()
+	}
+	msg := cm.byID[e.ID]
+	if msg == nil {
+		return b.String()
+	}
+	where := c.label(fl, m.MID)
+	if msg.Root != "" {
+		where += " (thread on " + msg.Root + ")"
+	}
+	fmt.Fprintf(&b, "  It is about %s, %s at %s [%s]:\n", where, authorOf(fl, msg.From, m.MID), fmtTime(msg.At), msg.ID)
+	text := "(deleted)"
+	if !msg.Deleted {
+		text = clipText(shownText(fl, msg), 600)
+	}
+	b.WriteString(indent(indent(text)))
+	if tk := taskFor(fl, msg); tk != nil {
+		b.WriteString(indent(taskNote(fl, tk, m.MID, teamScript(m.Folder))))
+	}
+	return b.String()
 }
 
 // sweep refreshes the state of the nodes agents wait for and starts what

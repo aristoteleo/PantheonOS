@@ -260,8 +260,17 @@ func (t *TeamChat) agentOp(ctx context.Context, fl *tcFleet, m *tcMember, req ag
 			return "", err
 		}
 		return "Edited message " + msg.ID + ".", nil
+	case "task", "tasks":
+		return t.agentTask(ctx, fl, m, tr, req)
+	case "remind", "reminders", "reminder":
+		if req.Op != "remind" && len(req.Args) == 0 {
+			req.Args = []string{"list"}
+		}
+		return t.agentRemind(ctx, fl, m, tr, req)
+	case "search":
+		return t.agentSearch(ctx, fl, m, req)
 	}
-	return "", fmt.Errorf("pantheon-team: unknown command %q (inbox, read, post, reply, dm, members, channels, join, edit, skip)", req.Op)
+	return "", fmt.Errorf("pantheon-team: unknown command %q (inbox, read, post, reply, dm, members, channels, join, edit, skip, task, remind, search)", req.Op)
 }
 
 func (t *TeamChat) channelNamed(fl *tcFleet, name string) *tcConv {
@@ -317,6 +326,10 @@ func (t *TeamChat) agentInbox(ctx context.Context, fl *tcFleet, m *tcMember, tr 
 	var b strings.Builder
 	b.WriteString("New since your turn started:\n")
 	for _, e := range q {
+		if e.Kind == "reminder" {
+			b.WriteString(t.reminderText(ctx, fl, m, e))
+			continue
+		}
 		c := fl.convs[e.CID]
 		cm, err := t.convMsgs(ctx, fl, e.CID)
 		if c == nil || err != nil {
@@ -343,6 +356,9 @@ func (t *TeamChat) agentInbox(ctx context.Context, fl *tcFleet, m *tcMember, tr 
 			b.WriteString("  (deleted)\n")
 		} else {
 			b.WriteString(indent(shownText(fl, msg)))
+			if tk := taskFor(fl, msg); tk != nil {
+				b.WriteString(indent(taskNote(fl, tk, m.MID, teamScript(m.Folder))))
+			}
 		}
 		for _, f := range msg.Files {
 			fmt.Fprintf(&b, "  (file %s, %d bytes: it reaches your folder in your next turn)\n", f.Name, f.Size)
@@ -426,6 +442,13 @@ func (t *TeamChat) agentRead(ctx context.Context, fl *tcFleet, m *tcMember, targ
 		}
 		if msg.ReplyCount > 0 && root == "" {
 			suffix += fmt.Sprintf(" (%d replies: read %s)", msg.ReplyCount, msg.ID)
+		}
+		if tk := fl.tasks[msg.ID]; tk != nil {
+			who := "nobody holds it"
+			if tk.Assignee != "" {
+				who = "claimed by " + handleOf(fl, tk.Assignee)
+			}
+			suffix += fmt.Sprintf(" (task: %s, %s)", taskStateLabel(tk.State), who)
 		}
 		fmt.Fprintf(&b, "%s %s [%s]%s:\n%s", fmtTime(msg.At), authorOf(fl, msg.From, m.MID), msg.ID, suffix, indent(text))
 		for _, f := range msg.Files {

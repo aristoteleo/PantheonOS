@@ -2,7 +2,7 @@
   "apiVersion": 2,
   "id": "team-chat",
   "name": "Team Chat",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "kind": "service",
   "surface": "headless",
   "description": "People and agents in channels, DMs and threads, with agents woken on their computers, kept by the Fleet controller (docs/apps/team-chat.md).",
@@ -32,7 +32,17 @@
           "agent_control",
           "agent_live",
           "file_put",
-          "file_get"
+          "file_get",
+          "task_create",
+          "task_update",
+          "tasks",
+          "reminders",
+          "reminder_cancel",
+          "activity",
+          "read_all",
+          "search",
+          "notify_set",
+          "files"
         ]
       }
     ],
@@ -44,7 +54,7 @@
       },
       {
         "name": "space_update",
-        "description": "Rename the space or change its guards (settings: turns_per_agent_hour, turns_per_space_day, hop_limit, turn_max_minutes).",
+        "description": "Rename the space, change its guards (settings) or its time zone (time_zone, IANA).",
         "params": [
           {
             "name": "name",
@@ -55,6 +65,12 @@
           {
             "name": "settings",
             "type": "dict",
+            "required": false,
+            "default": null
+          },
+          {
+            "name": "time_zone",
+            "type": "str",
             "required": false,
             "default": null
           }
@@ -254,7 +270,7 @@
       },
       {
         "name": "post",
-        "description": "Post a message (in root's thread when given; files: ids from file_put); @handles are parsed and wake agents.",
+        "description": "Post a message (in root's thread when given; files: ids from file_put); @handles are parsed and wake agents; as_task makes it a task in Todo.",
         "params": [
           {
             "name": "cid",
@@ -328,7 +344,7 @@
       },
       {
         "name": "read",
-        "description": "Set the caller's read mark in a conversation.",
+        "description": "Set the caller's read mark in a conversation, or in one of its threads (root).",
         "params": [
           {
             "name": "cid",
@@ -339,6 +355,12 @@
             "name": "id",
             "type": "str",
             "required": true
+          },
+          {
+            "name": "root",
+            "type": "str",
+            "required": false,
+            "default": ""
           }
         ]
       },
@@ -482,6 +504,185 @@
             "type": "int",
             "required": false,
             "default": 0
+          }
+        ]
+      },
+      {
+        "name": "task_create",
+        "description": "Make a message a task in Todo.",
+        "params": [
+          {
+            "name": "id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "cid",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "task_update",
+        "description": "Change a task's state (todo, in_progress, in_review, done, closed) or assignee (a member id, \"\" for nobody); each change is a system line in its thread.",
+        "params": [
+          {
+            "name": "id",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "state",
+            "type": "str",
+            "required": false,
+            "default": null
+          },
+          {
+            "name": "assignee",
+            "type": "str",
+            "required": false,
+            "default": null
+          }
+        ]
+      },
+      {
+        "name": "tasks",
+        "description": "The space's tasks, newest first, filtered by channel, assignee, creator or state.",
+        "params": [
+          {
+            "name": "cid",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "assignee",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "created_by",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "state",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "reminders",
+        "description": "Agents' reminders (one agent's with mid), soonest first.",
+        "params": [
+          {
+            "name": "mid",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "reminder_cancel",
+        "description": "Cancel a reminder.",
+        "params": [
+          {
+            "name": "id",
+            "type": "str",
+            "required": true
+          }
+        ]
+      },
+      {
+        "name": "activity",
+        "description": "What is new for the person: rows per conversation, followed thread and task In review (filter all, mentions, unread, review).",
+        "params": [
+          {
+            "name": "filter",
+            "type": "str",
+            "required": false,
+            "default": "all"
+          }
+        ]
+      },
+      {
+        "name": "read_all",
+        "description": "Mark every conversation and followed thread read.",
+        "params": []
+      },
+      {
+        "name": "search",
+        "description": "Messages with every word, newest first, filtered by conversation, author (mid or @handle) and time (before/after: a date, RFC 3339 time or message id).",
+        "params": [
+          {
+            "name": "q",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "cid",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "from",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "before",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "after",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "limit",
+            "type": "int",
+            "required": false,
+            "default": 50
+          }
+        ]
+      },
+      {
+        "name": "notify_set",
+        "description": "The person's browser notifications for a conversation: all, mentions or mute.",
+        "params": [
+          {
+            "name": "cid",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "level",
+            "type": "str",
+            "required": true
+          }
+        ]
+      },
+      {
+        "name": "files",
+        "description": "The files of a conversation's messages, newest first.",
+        "params": [
+          {
+            "name": "cid",
+            "type": "str",
+            "required": true
           }
         ]
       }

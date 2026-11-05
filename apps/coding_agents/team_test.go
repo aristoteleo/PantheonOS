@@ -89,6 +89,10 @@ printf 'report' > report.md
 "$team" post general --file report.md "here it is" > "$(dirname "$0")/post.txt" 2>&1
 "$team" inbox > "$(dirname "$0")/inbox.txt" 2>&1
 echo "exit $?" >> "$(dirname "$0")/inbox.txt"
+"$team" remind in 2 minutes --about 01ABC --every '1 hour' check CI > /dev/null 2>&1
+"$team" task claim 01ABC > /dev/null 2>&1
+"$team" 'rm -rf' > "$(dirname "$0")/bad.txt" 2>&1
+echo "exit $?" >> "$(dirname "$0")/bad.txt"
 ` + claudeDone,
 	})
 	a := NewApp(nil, "", t.TempDir())
@@ -132,8 +136,21 @@ echo "exit $?" >> "$(dirname "$0")/inbox.txt"
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(reqs) != 4 {
+	if len(reqs) != 6 {
 		t.Fatalf("%v", reqs)
+	}
+	// Any command word reaches Team Chat with its options; a word that is
+	// not one is refused by the script.
+	remind, claim := reqs[4], reqs[5]
+	if remind["op"] != "remind" || strings.Join(remind["args"].([]string), " ") != "in 2 minutes check CI" ||
+		remind["opts"].(map[string]string)["about"] != "01ABC" || remind["opts"].(map[string]string)["every"] != "1 hour" {
+		t.Fatalf("%v", remind)
+	}
+	if claim["op"] != "task" || strings.Join(claim["args"].([]string), " ") != "claim 01ABC" {
+		t.Fatalf("%v", claim)
+	}
+	if bad, _ := os.ReadFile(filepath.Join(dir, "bad.txt")); !strings.Contains(string(bad), "usage:") || !strings.HasSuffix(string(bad), "exit 2\n") {
+		t.Fatalf("%q", bad)
 	}
 	reply, post := reqs[0], reqs[2]
 	if reply["mid"] != "a1" || reply["token"] != "tok" || reply["op"] != "reply" || reply["text"] != "the answer\n" ||

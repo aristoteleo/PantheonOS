@@ -22,11 +22,12 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		var a struct {
 			Name     *string        `json:"name"`
 			Settings map[string]int `json:"settings"`
+			TimeZone *string        `json:"time_zone"`
 		}
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) { return t.spaceUpdate(ctx, fl, a.Name, a.Settings) })
+		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) { return t.spaceUpdate(ctx, fl, a.Name, a.Settings, a.TimeZone) })
 	case "me_update":
 		var a struct {
 			Name   *string `json:"name"`
@@ -119,15 +120,23 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		if a.AsTask {
-			return nil, &ArgumentError{"tasks come in Phase 2"}
-		}
 		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) {
+			if a.AsTask && len(fl.tasks) >= tcMaxTasks {
+				return nil, &ArgumentError{fmt.Sprintf("a space holds at most %d tasks", tcMaxTasks)}
+			}
 			msg, err := t.post(ctx, fl, tcOwner, a.CID, a.Text, a.Root, a.Files)
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"message": msg}, nil
+			out := map[string]any{"message": msg}
+			if a.AsTask {
+				tk, err := t.makeTask(ctx, fl, tcOwner, msg)
+				if err != nil {
+					return nil, err
+				}
+				out["task"] = tk
+			}
+			return out, nil
 		})
 	case "edit", "delete":
 		var a struct {
@@ -147,13 +156,151 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		})
 	case "read":
 		var a struct {
-			CID string `json:"cid"`
-			ID  string `json:"id"`
+			CID  string `json:"cid"`
+			ID   string `json:"id"`
+			Root string `json:"root"`
 		}
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) { return t.markRead(ctx, fl, tcOwner, a.CID, a.ID) })
+		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) { return t.markRead(ctx, fl, tcOwner, a.CID, a.ID, a.Root) })
+	case "read_all":
+		if err := c.Decode(&struct{}{}); err != nil {
+			return nil, err
+		}
+		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) { return t.readAll(ctx, fl, tcOwner) })
+	case "activity":
+		var a struct {
+			Filter string `json:"filter"`
+		}
+		if err := c.Decode(&a); err != nil {
+			return nil, err
+		}
+		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) { return t.activity(ctx, fl, tcOwner, a.Filter) })
+	case "search":
+		var a struct {
+			Q      string `json:"q"`
+			CID    string `json:"cid"`
+			From   string `json:"from"`
+			Before string `json:"before"`
+			After  string `json:"after"`
+			Limit  int    `json:"limit"`
+		}
+		if err := c.Decode(&a); err != nil {
+			return nil, err
+		}
+		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) {
+			if a.CID != "" {
+				if _, err := t.conv(fl, a.CID); err != nil {
+					return nil, err
+				}
+			}
+			return t.search(ctx, fl, tcOwner, a.Q, a.CID, a.From, a.Before, a.After, a.Limit)
+		})
+	case "notify_set":
+		var a struct {
+			CID   string `json:"cid"`
+			Level string `json:"level"`
+		}
+		if err := c.Decode(&a); err != nil {
+			return nil, err
+		}
+		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) { return t.notifySet(ctx, fl, tcOwner, a.CID, a.Level) })
+	case "files":
+		var a struct {
+			CID string `json:"cid"`
+		}
+		if err := c.Decode(&a); err != nil {
+			return nil, err
+		}
+		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) { return t.convFiles(ctx, fl, tcOwner, a.CID) })
+	case "task_create":
+		var a struct {
+			ID  string `json:"id"`
+			CID string `json:"cid"`
+		}
+		if err := c.Decode(&a); err != nil {
+			return nil, err
+		}
+		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) {
+			msg, err := t.findMsg(ctx, fl, a.ID, a.CID)
+			if err != nil {
+				return nil, err
+			}
+			tk, err := t.makeTask(ctx, fl, tcOwner, msg)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"task": tk}, nil
+		})
+	case "task_update":
+		var a struct {
+			ID       string  `json:"id"`
+			State    *string `json:"state"`
+			Assignee *string `json:"assignee"`
+		}
+		if err := c.Decode(&a); err != nil {
+			return nil, err
+		}
+		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) {
+			tk, err := t.taskOf(fl, a.ID)
+			if err != nil {
+				return nil, err
+			}
+			next, err := t.taskChange(ctx, fl, tcOwner, tk, a.State, a.Assignee, false)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"task": next}, nil
+		})
+	case "tasks":
+		var a struct {
+			CID       string `json:"cid"`
+			Assignee  string `json:"assignee"`
+			CreatedBy string `json:"created_by"`
+			State     string `json:"state"`
+		}
+		if err := c.Decode(&a); err != nil {
+			return nil, err
+		}
+		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) {
+			list := t.taskList(fl, tcOwner, a.CID, a.Assignee, a.CreatedBy, a.State)
+			if list == nil {
+				list = []*tcTask{}
+			}
+			return map[string]any{"tasks": list}, nil
+		})
+	case "reminders":
+		var a struct {
+			MID string `json:"mid"`
+		}
+		if err := c.Decode(&a); err != nil {
+			return nil, err
+		}
+		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) {
+			list := remindersOf(fl, a.MID)
+			if list == nil {
+				list = []*tcRem{}
+			}
+			return map[string]any{"reminders": list, "time_zone": locName(spaceLoc(fl))}, nil
+		})
+	case "reminder_cancel":
+		var a struct {
+			ID string `json:"id"`
+		}
+		if err := c.Decode(&a); err != nil {
+			return nil, err
+		}
+		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) {
+			r := fl.rems[a.ID]
+			if r == nil {
+				return nil, &ArgumentError{"no reminder " + a.ID}
+			}
+			if err := t.cancelReminder(ctx, fl, r); err != nil {
+				return nil, err
+			}
+			return map[string]any{"deleted": a.ID}, nil
+		})
 	case "follow":
 		var a struct {
 			Root string `json:"root"`
@@ -261,6 +408,7 @@ func (t *TeamChat) spaceGet(ctx context.Context, fl *tcFleet, me string) (map[st
 	}
 	convs := []any{}
 	unread := map[string]any{}
+	threadUnread := map[string]*tcUnread{}
 	for _, cid := range sortedKeys(fl.convs) {
 		c := fl.convs[cid]
 		if !fl.visible(c, me) {
@@ -271,21 +419,11 @@ func (t *TeamChat) spaceGet(ctx context.Context, fl *tcFleet, me string) (map[st
 		if err != nil {
 			return nil, err
 		}
-		mark := fl.reads[me+"."+cid]
-		count, mentioned := 0, 0
-		var last string
-		for _, id := range m.all {
-			msg := m.byID[id]
-			last = id
-			if id <= mark || msg.From == me || msg.Deleted {
-				continue
-			}
-			count++
-			if contains(msg.Mentions, me) {
-				mentioned++
-			}
+		u, threads := fl.unreadIn(m, me, cid)
+		unread[cid] = map[string]any{"count": u.Count, "mentions": u.Mentions, "last": u.Last, "first": u.First}
+		for root, tu := range threads {
+			threadUnread[root] = tu
 		}
-		unread[cid] = map[string]any{"count": count, "mentions": mentioned, "last": last}
 	}
 	reads := map[string]string{}
 	follows := []string{}
@@ -299,9 +437,19 @@ func (t *TeamChat) spaceGet(ctx context.Context, fl *tcFleet, me string) (map[st
 			follows = append(follows, root)
 		}
 	}
+	notify := map[string]string{}
+	for key, level := range fl.notify {
+		if mid, cid, _ := strings.Cut(key, "."); mid == me {
+			notify[cid] = level
+		}
+	}
+	tasks := t.taskList(fl, me, "", "", "", "")
+	if tasks == nil {
+		tasks = []*tcTask{}
+	}
 	return map[string]any{"space": fl.space, "me": me, "members": members, "conversations": convs, "reads": reads,
-		"follows": follows, "agent_status": status, "unread": unread, "usage": t.usage(fl), "revision": fl.seq,
-		"subject": tcSubject(fl.fid)}, nil
+		"follows": follows, "agent_status": status, "unread": unread, "thread_unread": threadUnread, "tasks": tasks,
+		"notify": notify, "usage": t.usage(fl), "revision": fl.seq, "subject": tcSubject(fl.fid)}, nil
 }
 
 // usage is each guard with its current use.
@@ -334,8 +482,17 @@ func (t *TeamChat) usage(fl *tcFleet) map[string]any {
 	return map[string]any{"limits": s, "turns_last_hour": agents, "turn_minutes_last_hour": minutes, "turns_today": day}
 }
 
-func (t *TeamChat) spaceUpdate(ctx context.Context, fl *tcFleet, name *string, settings map[string]int) (any, error) {
+func (t *TeamChat) spaceUpdate(ctx context.Context, fl *tcFleet, name *string, settings map[string]int, tz *string) (any, error) {
 	next := *fl.space
+	if tz != nil {
+		z := strings.TrimSpace(*tz)
+		if z != "" && z != "UTC" {
+			if _, err := time.LoadLocation(z); err != nil || strings.HasPrefix(z, "/") || strings.Contains(z, "..") {
+				return nil, &ArgumentError{"unknown time zone " + z}
+			}
+		}
+		next.TimeZone = z
+	}
 	if name != nil {
 		n := strings.TrimSpace(*name)
 		if n == "" || utf8.RuneCountInString(n) > 80 {
@@ -820,7 +977,11 @@ func (t *TeamChat) postEvent(ctx context.Context, fl *tcFleet, e *tcEvent, fileI
 	t.emit(fl, map[string]any{"type": "message", "message": msg})
 	if sender != nil {
 		// Writing is reading.
-		_ = t.setRead(ctx, fl, e.From, e.CID, e.ID)
+		if e.Root != "" {
+			_ = t.setThreadRead(ctx, fl, e.From, e.CID, e.Root, e.ID)
+		} else {
+			_ = t.setRead(ctx, fl, e.From, e.CID, e.ID)
+		}
 	}
 	for _, w := range wakes {
 		t.enqueue(ctx, fl, w.agent, w.wake)
@@ -902,7 +1063,7 @@ func (t *TeamChat) setRead(ctx context.Context, fl *tcFleet, mid, cid, id string
 	return nil
 }
 
-func (t *TeamChat) markRead(ctx context.Context, fl *tcFleet, me, cid, id string) (any, error) {
+func (t *TeamChat) markRead(ctx context.Context, fl *tcFleet, me, cid, id, root string) (any, error) {
 	c, err := t.conv(fl, cid)
 	if err != nil {
 		return nil, err
@@ -912,6 +1073,21 @@ func (t *TeamChat) markRead(ctx context.Context, fl *tcFleet, me, cid, id string
 	}
 	if !tcIDRE.MatchString(id) {
 		return nil, &ArgumentError{"no message " + id}
+	}
+	if root != "" {
+		m, err := t.convMsgs(ctx, fl, cid)
+		if err != nil {
+			return nil, err
+		}
+		if r := m.byID[root]; r == nil {
+			return nil, &ArgumentError{"no message " + root + " in this conversation"}
+		} else if r.Root != "" {
+			root = r.Root
+		}
+		if err := t.setThreadRead(ctx, fl, me, cid, root, id); err != nil {
+			return nil, err
+		}
+		return map[string]any{"cid": cid, "id": fl.treads[me+"."+root], "root": root}, nil
 	}
 	if err := t.setRead(ctx, fl, me, cid, id); err != nil {
 		return nil, err

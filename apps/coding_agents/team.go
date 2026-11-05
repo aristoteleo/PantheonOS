@@ -160,12 +160,19 @@ func teamScriptFor(box string) string {
 #   pantheon-team join '#channel'
 #   pantheon-team edit <message id> - <<'EOF' ... EOF
 #   pantheon-team skip [reason]
+#   pantheon-team task create '#channel' - <<'EOF' ... EOF | task claim ID |
+#     task state ID todo|in_progress|in_review [- <<'EOF' summary EOF] |
+#     task assign ID @handle | task list [--state S] [--assignee @h] [--in '#channel']
+#   pantheon-team remind <when> [--every SPEC] [--about ID] - <<'EOF' note EOF |
+#     remind list | remind cancel ID
+#   pantheon-team search <words> [--in '#channel'] [--from @h] [--limit N]
+# Team Chat checks each command; an unknown one is answered with the list.
 box=` + shellArg(box) + `
-usage="usage: pantheon-team inbox | read TARGET | post '#CHANNEL' - <<'EOF' | reply ID - <<'EOF' | dm @HANDLE - <<'EOF' | members | channels | join '#CHANNEL' | edit ID - <<'EOF' | skip [REASON] (quote a channel: an unquoted # starts a shell comment)"
+usage="usage: pantheon-team inbox | read TARGET | post '#CHANNEL' - <<'EOF' | reply ID - <<'EOF' | dm @HANDLE - <<'EOF' | members | channels | join '#CHANNEL' | edit ID - <<'EOF' | skip [REASON] | task ... | remind ... | search WORDS (quote a channel: an unquoted # starts a shell comment)"
 op=$1
 case "$op" in
-inbox|read|post|reply|dm|members|channels|join|edit|skip) shift ;;
-*) echo "$usage" >&2; exit 2 ;;
+''|-*|*[!a-z_]*) echo "$usage" >&2; exit 2 ;;
+*) shift ;;
 esac
 id="$(date +%s)-$$"
 stdin=0
@@ -177,7 +184,7 @@ if ! {
 			[ "$#" -ge 2 ] || { echo "$usage" >&2; exit 2; }
 			f=$2; case "$f" in /*) ;; *) f="$PWD/$f" ;; esac
 			printf 'file: %s\n' "$f"; shift ;;
-		--before|--after|--limit)
+		--?*)
 			[ "$#" -ge 2 ] || { echo "$usage" >&2; exit 2; }
 			printf 'opt: %s=%s\n' "${1#--}" "$2"; shift ;;
 		-) stdin=1 ;;

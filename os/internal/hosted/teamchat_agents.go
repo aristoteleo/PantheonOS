@@ -474,6 +474,10 @@ func (t *TeamChat) agentControl(ctx context.Context, fid, mid, action, confirm s
 				_ = t.saveConv(ctx, fl, &next)
 			}
 		}
+		// Its reminders end with it.
+		for _, r := range remindersOf(fl, mid) {
+			_ = t.cancelReminder(ctx, fl, r)
+		}
 		_ = t.del(ctx, fl, "queue."+mid)
 		_ = t.del(ctx, fl, "turn."+mid)
 		delete(fl.queues, mid)
@@ -505,6 +509,8 @@ func (t *TeamChat) agentLive(fl *tcFleet, mid string) (any, error) {
 	if tr := fl.turns[mid]; tr != nil {
 		out["running"], out["started"], out["from_seq"] = tr.State == "running", tr.Started, tr.FromSeq
 		out["cid"], out["root"], out["line"] = tr.Cause.CID, tr.Cause.Root, fl.liveOf(mid).line
+		// What started it, for Watch's summary of the turn's input.
+		out["cause"] = map[string]any{"id": tr.Cause.ID, "from": tr.Cause.From, "reason": tr.Cause.Reason}
 		if tr.ConversationID != "" {
 			out["conversation_id"] = tr.ConversationID
 			out["stream_id"] = "coding_" + tr.ConversationID
@@ -556,6 +562,12 @@ Use the tool {{TEAM}} (run it with sh):
     {{TEAM}} join '#channel'
     {{TEAM}} edit <message id> - <<'EOF' ... EOF       (your own messages only)
     {{TEAM}} skip [reason]                 post nothing this turn
+    {{TEAM}} task claim <id>               take a task before you work on it
+    {{TEAM}} task state <id> in_review - <<'EOF' ... EOF   done: your summary goes in its thread
+    {{TEAM}} task create '#channel' - <<'EOF' ... EOF | task assign <id> @handle | task list
+    {{TEAM}} remind 'in 2 minutes' - <<'EOF' ... EOF       wake yourself later
+    {{TEAM}} remind 'every weekday 10:00' - <<'EOF' ... EOF | remind list | remind cancel <id>
+    {{TEAM}} search <words> [--in '#channel'] [--from @handle]
 
 - Quote a channel name: '#general'. In the shell an unquoted # starts a
   comment, so the rest of the line (the channel and the text) is dropped.
@@ -584,6 +596,20 @@ Use the tool {{TEAM}} (run it with sh):
 - Check inbox between steps of long work: messages that arrive while you work
   are there.
 - Files people send you are saved under files/ in this folder.
+
+## Tasks and reminders
+
+- A task is a message with a state (Todo, In progress, In review, Done,
+  Closed) and one holder. When a task is for you, claim it before you work on
+  it; if the claim fails (already claimed by someone), don't work on it. When
+  you are done, move it to in_review with a short summary; a person sets Done.
+- When a person asks you to remind them or to check something later, set a
+  reminder: it wakes only you, with the message it is about, at that time
+  (times are in the space's time zone). That is the one way to act later.
+  Cancel a reminder you no longer need; when a person asks you to stop a
+  recurring one, cancel it.
+- When the reminder wakes you, do what it says; nothing is posted unless you
+  post.
 `)
 	return b.String()
 }

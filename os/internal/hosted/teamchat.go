@@ -134,7 +134,9 @@ type TeamChat struct {
 	// appWait is how long a turn waits for the Agent App before the owner
 	// is asked; appRecheck how often it looks meanwhile.
 	appWait, appRecheck time.Duration
-	uploads             sync.Map // upload id -> *tcUpload
+	// remTick is how often due reminders are looked for.
+	remTick time.Duration
+	uploads sync.Map // upload id -> *tcUpload
 }
 
 func (t *TeamChat) clock() time.Time {
@@ -320,6 +322,8 @@ type tcSpace struct {
 	Retired []int64 `json:"retired_turns,omitempty"`
 	// Agents deleted from the space, so their messages keep a name.
 	Formers map[string]tcFormer `json:"formers,omitempty"`
+	// TimeZone (IANA) reminders' times are read in; "" is UTC.
+	TimeZone string `json:"time_zone,omitempty"`
 }
 
 // tcFormer is what a deleted agent's messages still show of it.
@@ -442,6 +446,8 @@ type tcEvent struct {
 	About    string      `json:"about,omitempty"` // system: the agent it is about
 	Action   string      `json:"action,omitempty"`
 	Woke     []string    `json:"woke,omitempty"` // agents this message woke
+	Task     string      `json:"task,omitempty"` // system: the task it is about
+	By       string      `json:"by,omitempty"`   // system: whose action it reports
 }
 
 // tcMsg is a message as readers see it: its edits and delete folded in.
@@ -465,7 +471,20 @@ type tcMsg struct {
 	ReplyCount  int         `json:"reply_count,omitempty"`
 	LastReplyAt string      `json:"last_reply_at,omitempty"`
 	Repliers    []string    `json:"repliers,omitempty"`
+	Task        string      `json:"task,omitempty"`
+	By          string      `json:"by,omitempty"`
 	woke        []string
+	lower       string // its words and file names in lower case, for search
+}
+
+// index keeps a message's words for search.
+func (m *tcMsg) index() {
+	var b strings.Builder
+	b.WriteString(strings.ToLower(m.Text))
+	for _, f := range m.Files {
+		b.WriteString("\n" + strings.ToLower(f.Name))
+	}
+	m.lower = b.String()
 }
 
 // tcWake is one event waiting for an agent.
@@ -475,10 +494,14 @@ type tcWake struct {
 	CID    string `json:"cid"`   //
 	Root   string `json:"root,omitempty"`
 	Kind   string `json:"kind"`   // post | edit | delete
-	Reason string `json:"reason"` // dm | mention | thread | all | edit | retry
+	Reason string `json:"reason"` // dm | mention | thread | all | edit | retry | reminder
 	From   string `json:"from"`
 	Hop    int    `json:"hop,omitempty"`
 	At     string `json:"at"`
+	// A reminder's wake (kind and reason "reminder"; ID is the message it is
+	// about, or ""): its id and note.
+	Rem  string `json:"rem,omitempty"`
+	Note string `json:"note,omitempty"`
 }
 
 func (w tcWake) key() string { return w.Event }
@@ -520,7 +543,11 @@ type tcFleet struct {
 	queues  map[string][]tcWake
 	turns   map[string]*tcTurn
 	files   map[string]*tcFile
-	revs    map[string]uint64 // key -> revision
+	tasks   map[string]*tcTask // message id -> task
+	rems    map[string]*tcRem  // reminder id -> reminder
+	treads  map[string]string  // <mid>.<root> -> last read reply of a thread
+	notify  map[string]string  // <mid>.<cid> -> all | mentions | mute
+	revs    map[string]uint64  // key -> revision
 	msgs    map[string]*tcConvMsgs
 	seq     uint64 // the change revision events carry
 	live    map[string]*tcLive
@@ -619,6 +646,7 @@ func (t *TeamChat) lockFleet(ctx context.Context, fid string) (*tcFleet, error) 
 func (t *TeamChat) load(ctx context.Context, fl *tcFleet) error {
 	fl.members, fl.convs, fl.reads, fl.follows = map[string]*tcMember{}, map[string]*tcConv{}, map[string]string{}, map[string]bool{}
 	fl.queues, fl.turns, fl.files, fl.revs = map[string][]tcWake{}, map[string]*tcTurn{}, map[string]*tcFile{}, map[string]uint64{}
+	fl.tasks, fl.rems, fl.treads, fl.notify = map[string]*tcTask{}, map[string]*tcRem{}, map[string]string{}, map[string]string{}
 	fl.msgs, fl.space = map[string]*tcConvMsgs{}, nil
 	if fl.live == nil {
 		fl.live = map[string]*tcLive{}
@@ -682,6 +710,25 @@ func (t *TeamChat) load(ctx context.Context, fl *tcFleet) error {
 			var f tcFile
 			bad = json.Unmarshal(raw, &f)
 			fl.files[rest] = &f
+		case "task":
+			var tk tcTask
+			bad = json.Unmarshal(raw, &tk)
+			fl.tasks[rest] = &tk
+		case "rem":
+			// rem.<agent>.<id>
+			var r tcRem
+			bad = json.Unmarshal(raw, &r)
+			if _, id, ok := strings.Cut(rest, "."); ok {
+				fl.rems[id] = &r
+			}
+		case "tread":
+			var id string
+			bad = json.Unmarshal(raw, &id)
+			fl.treads[rest] = id
+		case "notify":
+			var level string
+			bad = json.Unmarshal(raw, &level)
+			fl.notify[rest] = level
 		}
 		if bad != nil {
 			log.Printf("[team-chat] %s is unreadable: %v", key, bad)
@@ -841,7 +888,9 @@ func (m *tcConvMsgs) fold(e *tcEvent) *tcMsg {
 			return m.byID[e.ID]
 		}
 		msg := &tcMsg{ID: e.ID, CID: e.CID, Root: e.Root, From: e.From, Kind: e.Kind, Text: e.Text, Mentions: e.Mentions,
-			Files: e.Files, At: e.At, Hop: e.Hop, Runtime: e.Runtime, Model: e.Model, About: e.About, Action: e.Action, woke: e.Woke}
+			Files: e.Files, At: e.At, Hop: e.Hop, Runtime: e.Runtime, Model: e.Model, About: e.About, Action: e.Action, woke: e.Woke,
+			Task: e.Task, By: e.By}
+		msg.index()
 		m.byID[e.ID] = msg
 		m.all = append(m.all, e.ID)
 		if e.Root == "" {
@@ -861,11 +910,13 @@ func (m *tcConvMsgs) fold(e *tcEvent) *tcMsg {
 		if msg := m.byID[e.Ref]; msg != nil && !msg.Deleted {
 			msg.Text, msg.EditedAt = e.Text, e.At
 			msg.Mentions = e.Mentions
+			msg.index()
 			return msg
 		}
 	case "delete":
 		if msg := m.byID[e.Ref]; msg != nil {
 			msg.Deleted, msg.Text, msg.Files, msg.EditedAt = true, "", nil, e.At
+			msg.lower = ""
 			return msg
 		}
 	case "model":
