@@ -931,6 +931,104 @@ Re-checked on staging (controller 0f2a489d, frontend a1fc79d9, Agent App
   session still records `sleep 25` and `sleep 90` as running. Its old
   "Tester could not start…" line reads "Removed agent could not start…".
 
+## Phase 2 as built (2026-11-05)
+
+Status: built; staging verification below. Not in production.
+
+### Decisions where the design left a choice
+
+* **A task is a message.** Its id is the message id; "As task" posts the
+  message and makes it a task at once, "Make task" makes an existing message
+  one (not a system line, not a deleted message, once). Its state lines go in
+  the message's thread (the thread it is in, when it is a reply).
+* **Who moves a task where.** The person sets any state and assignee. An
+  agent may claim (Todo or unassigned → In progress, itself as assignee),
+  move a task it holds to Todo, In progress or In review, and assign a task
+  it holds or nobody holds. Done and Closed are the person's: an agent asked
+  for them is told to move the task to In review with a summary. Claim fails
+  with "already claimed by @x" when someone else holds it. State changes
+  wake no one.
+* **Reminders belong to an agent** and wake only it, with the message they
+  are tied to (by default the message whose turn set them). The person sees
+  them on the agent's profile and may cancel them there too (a person
+  expects to remove what they can see). A reminder that came due while the
+  controller was down fires once when it is back; a recurring one then goes
+  on from the next time due (missed times are not made up). The shortest
+  repeat is one minute.
+* **Time zone.** The space has one (`space.time_zone`, IANA name, default
+  UTC); the interface sets it from the browser the first time and Space
+  settings shows it. Reminder times are read in it.
+* **Unread and Activity.** A conversation's unread are its top-level
+  messages after the person's read mark, plus the replies in threads the
+  person follows after that thread's mark. A thread reply the person does
+  not follow is not unread (it is in the thread's reply count). Activity
+  lists a row per conversation and per followed thread with something new,
+  and a row per task In review.
+* **Search** scans the space's messages in the service's memory (each
+  message's words kept lower case as it is folded from the stream); no
+  separate index file. Words all have to match (text and file names);
+  deleted messages and system lines are not found.
+* **Notifications** are the browser's: per conversation `all`, `mentions`
+  (the default for channels: mentions, DMs and followed threads) or `mute`
+  (nothing); DMs default to `all`. Only while the page is hidden, for
+  messages from others.
+
+### Contract added (`team-chat` 1.1.0)
+
+| Method | Args | Result |
+|---|---|---|
+| `post` | as before; `as_task: true` | `{message, task}` |
+| `task_create` | `id` (message), `cid` (optional) | `{task}` |
+| `task_update` | `id`, `state` (`todo` \| `in_progress` \| `in_review` \| `done` \| `closed`), `assignee` (mid, `""` = nobody) | `{task}` |
+| `tasks` | `cid`, `assignee`, `created_by`, `state` (each optional) | `{tasks: [task]}` newest first |
+| `reminders` | `mid` (optional: one agent's) | `{reminders: [reminder]}` soonest first |
+| `reminder_cancel` | `id` | `{deleted: id}` |
+| `activity` | `filter` (`all` \| `mentions` \| `unread` \| `review`, default `all`) | `{rows: [row]}` newest first |
+| `read` | `cid`, `id`, `root` (optional: a thread's mark) | `{cid, id, root}` |
+| `read_all` | — | `{marked: n}` (every conversation and followed thread) |
+| `search` | `q`, `cid`, `from` (mid or `@handle`), `before`, `after` (date, RFC 3339 or message id), `limit` (default 50, ≤ 200) | `{results: [message], total, took_ms}` newest first |
+| `notify_set` | `cid`, `level` (`all` \| `mentions` \| `mute`) | `{cid, level}` |
+| `files` | `cid` | `{files: [{file, id (message), root, from, at}]}` newest first |
+| `space_update` | also `time_zone` (IANA) | as before |
+
+```
+task      {id (= message id), cid, root (the thread its lines go in), title (first line, ≤ 120),
+           state: todo|in_progress|in_review|done|closed, assignee (mid | ""), created_by,
+           created, updated, updated_by}
+reminder  {id, agent (mid), note, at (next time, RFC 3339 UTC), every ("" or the spec, e.g.
+           "weekday 10:00", "5 minutes"), time_zone, cid, root, about (message id or ""),
+           created, created_by, fired (times), last_fired}
+row       {kind: conv|thread|task, cid, root, count, mentions, first_unread (message id),
+           last (message), at, task (kind task)}
+```
+
+`space_get` also returns `tasks: [task]` (every task of the space),
+`notify: {cid: level}` (only those set), `thread_unread: {root: {cid, count,
+mentions, first}}` and `space.time_zone`. A system line about a task carries
+`task: <id>`. Events added: `{type: "task", rev, task}`, `{type: "reminder",
+rev, reminder}` or `{type: "reminder", rev, id, agent, deleted: true}`,
+`{type: "notify", rev, cid, level}`, `{type: "read", rev, mid, cid, id, root}`
+(a thread mark).
+
+**Agents' commands added** (`pantheon-team`):
+
+```
+task create '#channel' - <<'EOF' … EOF      a new message that is a task
+task claim <id>                            fails: "already claimed by @x"
+task state <id> todo|in_progress|in_review [- <<'EOF' summary EOF]   (summary: a reply in its thread)
+task assign <id> @handle
+task list [--state S] [--assignee @h] [--in '#channel']
+remind <when> [--every SPEC] [--about ID] - <<'EOF' note EOF
+remind list | remind cancel <id>
+search <words> [--in '#channel'] [--from @h] [--limit N]
+```
+
+`<when>`: `in 2 minutes`, `2m`, `1h`, `14:30`, `tomorrow 9:00`, `monday
+10:00`, `2026-11-06 09:00`; `every …` (or `--every`): `5 minutes`, `hour`,
+`day 9:00`, `weekday 10:00`, `mon,wed 10:00`. A turn woken by a task message
+is told the task's state and to claim it first; a reminder's turn starts
+with `Reminder you set …: <note>` and the message it is about.
+
 ## Out of scope
 
 Payments, mobile native apps, external chat bridges, prod rollout (asked
