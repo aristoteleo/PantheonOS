@@ -26,12 +26,14 @@ type tcRecipient struct {
 // wakesFor decides which agents a new message wakes, and which agents a
 // mention in a public channel adds to it. stopped: a wake was held back
 // because the agent chain reached its hop limit.
-func (t *TeamChat) wakesFor(fl *tcFleet, c *tcConv, m *tcConvMsgs, e *tcEvent) (out []tcRecipient, joined []string, stopped bool) {
+func (t *TeamChat) wakesFor(fl *tcFleet, c *tcConv, m *tcConvMsgs, e *tcEvent) (out []tcRecipient, joined []string, stopped bool, notWoken []tcNotWoken) {
 	if e.Kind != "post" {
-		return nil, nil, false
+		return nil, nil, false, nil
 	}
 	sender := fl.members[e.From]
 	fromAgent := sender != nil && sender.agent()
+	// Whose access counts: the writer, or the people an agent's turn works for.
+	actors := fl.actorsOf(e)
 	for _, mid := range sortedKeys(fl.members) {
 		a := fl.members[mid]
 		if !a.agent() || mid == e.From {
@@ -62,14 +64,40 @@ func (t *TeamChat) wakesFor(fl *tcFleet, c *tcConv, m *tcConvMsgs, e *tcEvent) (
 			// start another round of turns.
 			continue
 		}
+		if who := firstNotUsing(fl, actors, a); who != "" {
+			// Only agents the writer (or the people behind an agent's turn) may
+			// use are woken; an explicit ask says why not.
+			if reason == "mention" && !c.has(mid) {
+				joined = joined[:len(joined)-1]
+			}
+			if reason == "dm" || reason == "mention" {
+				why := fl.notUsable(a)
+				if fromAgent {
+					why = fmt.Sprintf("%s (%s asked you, and may not use %s.)", why, handleOf(fl, who), a.Name)
+				}
+				notWoken = append(notWoken, tcNotWoken{MID: mid, Reason: why})
+			}
+			continue
+		}
 		if fromAgent && e.Hop >= fl.space.Settings.HopLimit {
 			stopped = true
 			continue
 		}
 		out = append(out, tcRecipient{mid, tcWake{ID: e.ID, Event: e.ID, CID: e.CID, Root: e.Root, Kind: "post",
-			Reason: reason, From: e.From, Hop: e.Hop, At: e.At}})
+			Reason: reason, From: e.From, Hop: e.Hop, At: e.At, Behalf: e.Behalf}})
 	}
-	return out, joined, stopped
+	return out, joined, stopped, notWoken
+}
+
+// firstNotUsing is the first of the people who may not use an agent ("" when
+// all may).
+func firstNotUsing(fl *tcFleet, people []string, a *tcMember) string {
+	for _, p := range people {
+		if !fl.canUse(p, a) {
+			return p
+		}
+	}
+	return ""
 }
 
 // enqueue adds a wake event to an agent's queue (once) and starts a turn
@@ -1460,8 +1488,12 @@ func (t *TeamChat) agentPost(ctx context.Context, fl *tcFleet, m *tcMember, tr *
 	if tr != nil && tr.Model != "" {
 		model = tr.Model
 	}
+	var behalf []string
+	if tr != nil {
+		behalf = fl.behalfOf(append([]tcWake{tr.Cause}, tr.Events...))
+	}
 	msg, err := t.postEvent(ctx, fl, &tcEvent{From: m.MID, CID: cid, Root: root, Kind: "post", Text: text, Hop: hop,
-		Runtime: m.Runtime, Model: model}, files)
+		Runtime: m.Runtime, Model: model, Behalf: behalf}, files)
 	if err != nil {
 		return nil, err
 	}
@@ -1735,6 +1767,10 @@ func authorOf(fl *tcFleet, mid, reader string) string {
 		return "@" + m.Handle + " (agent: " + runtimeLabel(m.Runtime) + ")"
 	case mid == tcOwner:
 		return "@" + m.Handle + " (person, space owner)"
+	case m.Removed != "":
+		return "@" + m.Handle + " (person, left the space)"
+	case m.Role == "admin":
+		return "@" + m.Handle + " (person, admin)"
 	default:
 		return "@" + m.Handle + " (person)"
 	}

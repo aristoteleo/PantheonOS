@@ -114,6 +114,17 @@ type Call struct {
 	// Owner is set for the owner's own browser (an App connection), unset for
 	// an App calling through a dependency grant (e.g. the Agent's tools).
 	Owner bool
+	// Member is another person in the owner's Team Chat space, connected by
+	// a space grant (docs/apps/team-chat.md, "Phase 3 as built"); only
+	// team-chat takes such calls.
+	Member *Member
+}
+
+// Member is a person's identity from a space grant: their account, their own
+// Fleet, their role in the space (admin | member) and when they joined.
+type Member struct {
+	UserID, Username, Name, Fleet, Role string
+	Joined                              int64
 }
 
 // ArgumentError is a malformed call: unknown method or arguments.
@@ -189,10 +200,17 @@ func (h *Host) Verify(b apptransport.Binding) error {
 // Invoke serves one App RPC body for a hosted binding, returning the status
 // and body the Python App host would have.
 func (h *Host) Invoke(ctx context.Context, b apptransport.Binding, payload json.RawMessage) (int, json.RawMessage) {
-	return h.invoke(ctx, b, payload, false)
+	return h.invoke(ctx, b, payload, false, nil)
 }
 
-func (h *Host) invoke(ctx context.Context, b apptransport.Binding, payload json.RawMessage, owner bool) (int, json.RawMessage) {
+// MemberOK reports whether a binding is an owner's running hosted team-chat
+// App, the only App a space grant may reach.
+func (h *Host) MemberOK(b apptransport.Binding) bool {
+	d, name, err := h.Resolve(b)
+	return err == nil && d.Spec.Apps[name].Hosted == "team-chat"
+}
+
+func (h *Host) invoke(ctx context.Context, b apptransport.Binding, payload json.RawMessage, owner bool, member *Member) (int, json.RawMessage) {
 	var q struct {
 		Method  string          `json:"method"`
 		Args    json.RawMessage `json:"args"`
@@ -206,6 +224,9 @@ func (h *Host) invoke(ctx context.Context, b apptransport.Binding, payload json.
 		return fail(http.StatusNotFound, err.Error())
 	}
 	app := d.Spec.Apps[name]
+	if member != nil && app.Hosted != "team-chat" {
+		return fail(http.StatusForbidden, "not available in a shared space")
+	}
 	timeout := time.Duration(q.Timeout * float64(time.Second))
 	// Engine starts may take most of an hour; the caller's timeout_s bounds it.
 	if timeout <= 0 || timeout > MaxCall {
@@ -213,7 +234,8 @@ func (h *Host) invoke(ctx context.Context, b apptransport.Binding, payload json.
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	call := &Call{Fleet: b.Fleet, Deployment: d.Name, App: name, Spec: app, Method: q.Method, Args: q.Args, Owner: owner}
+	call := &Call{Fleet: b.Fleet, Deployment: d.Name, App: name, Spec: app, Method: q.Method, Args: q.Args,
+		Owner: owner && member == nil, Member: member}
 	result, err := h.services[app.Hosted].Call(ctx, call)
 	if err != nil {
 		var arg *ArgumentError
@@ -233,8 +255,9 @@ func (h *Host) invoke(ctx context.Context, b apptransport.Binding, payload json.
 	return http.StatusOK, body
 }
 
-// ServeRPC answers the owner's browser App RPC through the gateway.
-func (h *Host) ServeRPC(w http.ResponseWriter, r *http.Request, b apptransport.Binding) {
+// ServeRPC answers the owner's browser App RPC through the gateway; with a
+// member, a person's call in the owner's Team Chat space.
+func (h *Host) ServeRPC(w http.ResponseWriter, r *http.Request, b apptransport.Binding, member *Member) {
 	if r.Method != http.MethodPost || r.URL.Path != "/rpc" {
 		http.Error(w, "this App answers App RPC only", http.StatusNotFound)
 		return
@@ -244,7 +267,7 @@ func (h *Host) ServeRPC(w http.ResponseWriter, r *http.Request, b apptransport.B
 		http.Error(w, "invalid RPC body", http.StatusBadRequest)
 		return
 	}
-	status, body := h.invoke(r.Context(), b, raw, true)
+	status, body := h.invoke(r.Context(), b, raw, true, member)
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)

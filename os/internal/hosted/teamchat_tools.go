@@ -9,15 +9,48 @@ import (
 	"unicode/utf8"
 )
 
-// Call serves the owner's browser (and any App of the owner's deployment):
-// the caller is the space's person.
+// Call serves the owner's browser (and any App of the owner's deployment),
+// and the people of the owner's space through their space grants
+// (Call.Member): each call acts as its person, with their role and access.
 func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
+	var who tcCaller
+	// with runs fn with the space locked and the caller known.
+	with := func(fn func(fl *tcFleet) (any, error)) (any, error) {
+		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) {
+			var err error
+			if who, err = t.callerOf(ctx, fl, c.Member); err != nil {
+				return nil, err
+			}
+			return fn(fl)
+		})
+	}
+	// resolve finds the caller for calls that lock the space themselves.
+	resolve := func() error {
+		_, err := with(func(*tcFleet) (any, error) { return nil, nil })
+		return err
+	}
+	ownerOnly := func(what string) error {
+		if !who.owner() {
+			return &ArgumentError{"Only the space owner can " + what + "."}
+		}
+		return nil
+	}
+	sees := func(fl *tcFleet, cid string) (*tcConv, error) {
+		conv, err := t.conv(fl, cid)
+		if err != nil {
+			return nil, err
+		}
+		if !fl.visible(conv, who.mid) {
+			return nil, &ArgumentError{"You are not in this conversation."}
+		}
+		return conv, nil
+	}
 	switch c.Method {
 	case "space_get":
 		if err := c.Decode(&struct{}{}); err != nil {
 			return nil, err
 		}
-		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) { return t.spaceGet(ctx, fl, tcOwner) })
+		return with(func(fl *tcFleet) (any, error) { return t.spaceGet(ctx, fl, who) })
 	case "space_update":
 		var a struct {
 			Name     *string        `json:"name"`
@@ -27,7 +60,12 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) { return t.spaceUpdate(ctx, fl, a.Name, a.Settings, a.TimeZone) })
+		return with(func(fl *tcFleet) (any, error) {
+			if err := ownerOnly("change the space's name, limits or time zone"); err != nil {
+				return nil, err
+			}
+			return t.spaceUpdate(ctx, fl, a.Name, a.Settings, a.TimeZone)
+		})
 	case "me_update":
 		var a struct {
 			Name   *string `json:"name"`
@@ -37,8 +75,11 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) {
-			return t.memberUpdate(ctx, fl, tcOwner, map[string]any{"name": a.Name, "handle": a.Handle, "avatar": a.Avatar})
+		return with(func(fl *tcFleet) (any, error) {
+			if _, err := t.memberUpdate(ctx, fl, who.mid, map[string]any{"name": a.Name, "handle": a.Handle, "avatar": a.Avatar}); err != nil {
+				return nil, err
+			}
+			return map[string]any{"member": fl.memberView(fl.members[who.mid], who.mid)}, nil
 		})
 	case "conv_create":
 		var a struct {
@@ -52,8 +93,11 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) {
-			return t.convCreate(ctx, fl, tcOwner, a.Kind, a.Name, a.Private, a.Members, a.Topic, a.AgentReply)
+		return with(func(fl *tcFleet) (any, error) {
+			if err := t.mayAdd(fl, who, a.Members); err != nil {
+				return nil, err
+			}
+			return t.convCreate(ctx, fl, who.mid, a.Kind, a.Name, a.Private, a.Members, a.Topic, a.AgentReply)
 		})
 	case "conv_update":
 		var a struct {
@@ -67,7 +111,25 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) {
+		return with(func(fl *tcFleet) (any, error) {
+			conv, err := sees(fl, a.CID)
+			if err != nil {
+				return nil, err
+			}
+			if !who.admin() && conv.CreatedBy != who.mid {
+				return nil, &ArgumentError{"Only the space owner, admins and the person who made " + conv.label(fl, who.mid) + " can change it."}
+			}
+			if a.Members != nil {
+				var added []string
+				for _, mid := range *a.Members {
+					if !conv.has(mid) {
+						added = append(added, mid)
+					}
+				}
+				if err := t.mayAdd(fl, who, added); err != nil {
+					return nil, err
+				}
+			}
 			return t.convUpdate(ctx, fl, a.CID, a.Name, a.Topic, a.Private, a.AgentReply, a.Members)
 		})
 	case "conv_join", "conv_leave":
@@ -78,12 +140,29 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		mid := a.MID
-		if mid == "" {
-			mid = tcOwner
-		}
-		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) {
-			return t.convMembership(ctx, fl, tcOwner, a.CID, mid, c.Method == "conv_join")
+		return with(func(fl *tcFleet) (any, error) {
+			mid := a.MID
+			if mid == "" {
+				mid = who.mid
+			}
+			conv, err := sees(fl, a.CID)
+			if err != nil {
+				return nil, err
+			}
+			if mid != who.mid {
+				switch {
+				case c.Method == "conv_join" && !conv.has(who.mid) && !who.admin():
+					return nil, &ArgumentError{"Join " + conv.label(fl, who.mid) + " first, then add others."}
+				case c.Method == "conv_leave" && !who.admin() && conv.CreatedBy != who.mid:
+					return nil, &ArgumentError{"Only the space owner, admins and the person who made " + conv.label(fl, who.mid) + " can take others out of it."}
+				}
+				if c.Method == "conv_join" {
+					if err := t.mayAdd(fl, who, []string{mid}); err != nil {
+						return nil, err
+					}
+				}
+			}
+			return t.convMembership(ctx, fl, who.mid, a.CID, mid, c.Method == "conv_join")
 		})
 	case "conv_archive":
 		var a struct {
@@ -94,7 +173,16 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 			return nil, err
 		}
 		archived := a.Archived == nil || *a.Archived
-		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) { return t.convArchive(ctx, fl, a.CID, archived) })
+		return with(func(fl *tcFleet) (any, error) {
+			conv, err := sees(fl, a.CID)
+			if err != nil {
+				return nil, err
+			}
+			if !who.admin() && conv.CreatedBy != who.mid {
+				return nil, &ArgumentError{"Only the space owner, admins and the person who made " + conv.label(fl, who.mid) + " can archive it."}
+			}
+			return t.convArchive(ctx, fl, a.CID, archived)
+		})
 	case "messages":
 		var a struct {
 			CID    string `json:"cid"`
@@ -106,8 +194,8 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) {
-			return t.messages(ctx, fl, tcOwner, a.CID, a.Before, a.After, a.Root, a.Limit)
+		return with(func(fl *tcFleet) (any, error) {
+			return t.messages(ctx, fl, who.mid, a.CID, a.Before, a.After, a.Root, a.Limit)
 		})
 	case "post":
 		var a struct {
@@ -120,17 +208,34 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) {
+		return with(func(fl *tcFleet) (any, error) {
 			if a.AsTask && len(fl.tasks) >= tcMaxTasks {
 				return nil, &ArgumentError{fmt.Sprintf("a space holds at most %d tasks", tcMaxTasks)}
 			}
-			msg, err := t.post(ctx, fl, tcOwner, a.CID, a.Text, a.Root, a.Files)
+			conv, err := sees(fl, a.CID)
+			if err != nil {
+				return nil, err
+			}
+			if !conv.has(who.mid) && conv.Kind == "channel" && !conv.Archived {
+				// Writing in a public channel joins it.
+				if _, err := t.convMembership(ctx, fl, who.mid, a.CID, who.mid, true); err != nil {
+					return nil, err
+				}
+			}
+			if err := t.ownFiles(fl, who.mid, a.Files); err != nil {
+				return nil, err
+			}
+			msg, err := t.post(ctx, fl, who.mid, a.CID, a.Text, a.Root, a.Files)
 			if err != nil {
 				return nil, err
 			}
 			out := map[string]any{"message": msg}
+			if len(msg.notWoken) > 0 {
+				out["not_woken"] = msg.notWoken
+				msg.notWoken = nil
+			}
 			if a.AsTask {
-				tk, err := t.makeTask(ctx, fl, tcOwner, msg)
+				tk, err := t.makeTask(ctx, fl, who.mid, msg)
 				if err != nil {
 					return nil, err
 				}
@@ -147,8 +252,20 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) {
-			msg, err := t.change(ctx, fl, tcOwner, c.Method, a.ID, a.CID, a.Text)
+		return with(func(fl *tcFleet) (any, error) {
+			if a.CID != "" {
+				if _, err := sees(fl, a.CID); err != nil {
+					return nil, err
+				}
+			}
+			found, err := t.findMsg(ctx, fl, a.ID, a.CID)
+			if err != nil {
+				return nil, err
+			}
+			if _, err := sees(fl, found.CID); err != nil {
+				return nil, err
+			}
+			msg, err := t.change(ctx, fl, who.mid, c.Method, a.ID, found.CID, a.Text)
 			if err != nil {
 				return nil, err
 			}
@@ -163,12 +280,12 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) { return t.markRead(ctx, fl, tcOwner, a.CID, a.ID, a.Root) })
+		return with(func(fl *tcFleet) (any, error) { return t.markRead(ctx, fl, who.mid, a.CID, a.ID, a.Root) })
 	case "read_all":
 		if err := c.Decode(&struct{}{}); err != nil {
 			return nil, err
 		}
-		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) { return t.readAll(ctx, fl, tcOwner) })
+		return with(func(fl *tcFleet) (any, error) { return t.readAll(ctx, fl, who.mid) })
 	case "activity":
 		var a struct {
 			Filter string `json:"filter"`
@@ -176,7 +293,7 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) { return t.activity(ctx, fl, tcOwner, a.Filter) })
+		return with(func(fl *tcFleet) (any, error) { return t.activity(ctx, fl, who.mid, a.Filter) })
 	case "search":
 		var a struct {
 			Q      string `json:"q"`
@@ -189,13 +306,13 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) {
+		return with(func(fl *tcFleet) (any, error) {
 			if a.CID != "" {
-				if _, err := t.conv(fl, a.CID); err != nil {
+				if _, err := sees(fl, a.CID); err != nil {
 					return nil, err
 				}
 			}
-			return t.search(ctx, fl, tcOwner, a.Q, a.CID, a.From, a.Before, a.After, a.Limit)
+			return t.search(ctx, fl, who.mid, a.Q, a.CID, a.From, a.Before, a.After, a.Limit)
 		})
 	case "notify_set":
 		var a struct {
@@ -205,7 +322,12 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) { return t.notifySet(ctx, fl, tcOwner, a.CID, a.Level) })
+		return with(func(fl *tcFleet) (any, error) {
+			if _, err := sees(fl, a.CID); err != nil {
+				return nil, err
+			}
+			return t.notifySet(ctx, fl, who.mid, a.CID, a.Level)
+		})
 	case "files":
 		var a struct {
 			CID string `json:"cid"`
@@ -213,7 +335,7 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) { return t.convFiles(ctx, fl, tcOwner, a.CID) })
+		return with(func(fl *tcFleet) (any, error) { return t.convFiles(ctx, fl, who.mid, a.CID) })
 	case "task_create":
 		var a struct {
 			ID  string `json:"id"`
@@ -222,12 +344,20 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) {
+		return with(func(fl *tcFleet) (any, error) {
+			if a.CID != "" {
+				if _, err := sees(fl, a.CID); err != nil {
+					return nil, err
+				}
+			}
 			msg, err := t.findMsg(ctx, fl, a.ID, a.CID)
 			if err != nil {
 				return nil, err
 			}
-			tk, err := t.makeTask(ctx, fl, tcOwner, msg)
+			if _, err := sees(fl, msg.CID); err != nil {
+				return nil, err
+			}
+			tk, err := t.makeTask(ctx, fl, who.mid, msg)
 			if err != nil {
 				return nil, err
 			}
@@ -242,12 +372,26 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) {
+		return with(func(fl *tcFleet) (any, error) {
 			tk, err := t.taskOf(fl, a.ID)
 			if err != nil {
 				return nil, err
 			}
-			next, err := t.taskChange(ctx, fl, tcOwner, tk, a.State, a.Assignee, false)
+			if _, err := sees(fl, tk.CID); err != nil {
+				return nil, err
+			}
+			if a.Assignee != nil {
+				target := strings.TrimSpace(*a.Assignee)
+				if strings.HasPrefix(target, "@") {
+					if m := t.memberByHandle(fl, target); m != nil {
+						target = m.MID
+					}
+				}
+				if err := t.mayAdd(fl, who, []string{target}); err != nil {
+					return nil, err
+				}
+			}
+			next, err := t.taskChange(ctx, fl, who.mid, tk, a.State, a.Assignee, false)
 			if err != nil {
 				return nil, err
 			}
@@ -263,8 +407,8 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) {
-			list := t.taskList(fl, tcOwner, a.CID, a.Assignee, a.CreatedBy, a.State)
+		return with(func(fl *tcFleet) (any, error) {
+			list := t.taskList(fl, who.mid, a.CID, a.Assignee, a.CreatedBy, a.State)
 			if list == nil {
 				list = []*tcTask{}
 			}
@@ -277,10 +421,12 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) {
-			list := remindersOf(fl, a.MID)
-			if list == nil {
-				list = []*tcRem{}
+		return with(func(fl *tcFleet) (any, error) {
+			list := []*tcRem{}
+			for _, r := range remindersOf(fl, a.MID) {
+				if who.owner() || r.For == who.mid {
+					list = append(list, r)
+				}
 			}
 			return map[string]any{"reminders": list, "time_zone": locName(spaceLoc(fl))}, nil
 		})
@@ -291,9 +437,9 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) {
+		return with(func(fl *tcFleet) (any, error) {
 			r := fl.rems[a.ID]
-			if r == nil {
+			if r == nil || !who.owner() && r.For != who.mid {
 				return nil, &ArgumentError{"no reminder " + a.ID}
 			}
 			if err := t.cancelReminder(ctx, fl, r); err != nil {
@@ -311,12 +457,32 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 			return nil, err
 		}
 		on := a.On == nil || *a.On
-		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) { return t.follow(ctx, fl, tcOwner, a.Root, a.CID, on) })
+		return with(func(fl *tcFleet) (any, error) {
+			if a.CID != "" {
+				if _, err := sees(fl, a.CID); err != nil {
+					return nil, err
+				}
+			}
+			msg, err := t.findMsg(ctx, fl, a.Root, a.CID)
+			if err != nil {
+				return nil, err
+			}
+			if _, err := sees(fl, msg.CID); err != nil {
+				return nil, err
+			}
+			return t.follow(ctx, fl, who.mid, a.Root, msg.CID, on)
+		})
 	case "agent_create":
 		var a struct {
 			Spec agentSpec `json:"spec"`
 		}
 		if err := c.Decode(&a); err != nil {
+			return nil, err
+		}
+		if err := resolve(); err != nil {
+			return nil, err
+		}
+		if err := ownerOnly("create agents (they run on the owner's computers)"); err != nil {
 			return nil, err
 		}
 		return t.agentCreate(ctx, c.Fleet, a.Spec)
@@ -325,8 +491,17 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
+		if err := resolve(); err != nil {
+			return nil, err
+		}
+		if err := ownerOnly("change an agent"); err != nil {
+			return nil, err
+		}
 		mid, _ := a["mid"].(string)
 		delete(a, "mid")
+		if err := t.sharedFolderCheck(ctx, c.Fleet, mid, a); err != nil {
+			return nil, err
+		}
 		return t.agentUpdate(ctx, c.Fleet, mid, a)
 	case "agent_control":
 		var a struct {
@@ -337,6 +512,29 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 			KeepFolder *bool `json:"keep_folder"`
 		}
 		if err := c.Decode(&a); err != nil {
+			return nil, err
+		}
+		if _, err := with(func(fl *tcFleet) (any, error) {
+			if who.owner() {
+				return nil, nil
+			}
+			switch a.Action {
+			case "start", "stop", "stop_turn", "retry", "reset_session":
+			default:
+				return nil, &ArgumentError{"Only the space owner can " + strings.ReplaceAll(a.Action, "_", " ") + " an agent."}
+			}
+			agent := fl.members[a.MID]
+			if !who.admin() {
+				return nil, &ArgumentError{"Only the space owner and admins can start or stop agents."}
+			}
+			if agent == nil || !agent.agent() || !fl.canUse(who.mid, agent) {
+				if agent != nil && agent.agent() {
+					return nil, &ArgumentError{fl.notUsable(agent)}
+				}
+				return nil, &ArgumentError{"no agent " + a.MID}
+			}
+			return nil, nil
+		}); err != nil {
 			return nil, err
 		}
 		if a.Action == "delete" && a.KeepFolder != nil && !*a.KeepFolder {
@@ -350,13 +548,21 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		return t.withFleet(ctx, c.Fleet, func(fl *tcFleet) (any, error) { return t.agentLive(fl, a.MID) })
+		return with(func(fl *tcFleet) (any, error) {
+			if err := ownerOnly("watch an agent's turn (it reads the owner's computers)"); err != nil {
+				return nil, err
+			}
+			return t.agentLive(fl, a.MID)
+		})
 	case "file_put":
 		var a filePutArgs
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		return t.filePut(ctx, c.Fleet, tcOwner, a)
+		if err := resolve(); err != nil {
+			return nil, err
+		}
+		return t.filePut(ctx, c.Fleet, who.mid, a)
 	case "file_get":
 		var a struct {
 			ID     string `json:"id"`
@@ -366,9 +572,80 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
+		if _, err := with(func(fl *tcFleet) (any, error) {
+			if !t.fileSeen(ctx, fl, who.mid, a.ID) {
+				return nil, &ArgumentError{"no file " + a.ID}
+			}
+			return nil, nil
+		}); err != nil {
+			return nil, err
+		}
 		return t.fileGet(ctx, c.Fleet, a.ID, a.Offset, a.Length)
 	}
 	return nil, &ArgumentError{fmt.Sprintf("unknown method %s", c.Method)}
+}
+
+// mayAdd: a person may put members into a conversation (or assign a task):
+// people still in the space, and agents they may use.
+func (t *TeamChat) mayAdd(fl *tcFleet, who tcCaller, mids []string) error {
+	for _, mid := range mids {
+		m := fl.members[mid]
+		if m == nil || mid == "" {
+			continue // refused later as "no member"
+		}
+		if m.agent() && !fl.canUse(who.mid, m) {
+			return &ArgumentError{fl.notUsable(m)}
+		}
+		if !m.agent() && m.Removed != "" {
+			return &ArgumentError{"@" + m.Handle + " is no longer in this space."}
+		}
+	}
+	return nil
+}
+
+// ownFiles: a person posts files they uploaded (or the owner any of the
+// space's).
+func (t *TeamChat) ownFiles(fl *tcFleet, me string, ids []string) error {
+	for _, id := range ids {
+		if f := fl.files[id]; f != nil && f.From != me && me != tcOwner {
+			return &ArgumentError{"no file " + id}
+		}
+	}
+	return nil
+}
+
+// fileSeen: a person reads a file they uploaded, or one attached to a
+// message in a conversation they see (fl.mu is held).
+func (t *TeamChat) fileSeen(ctx context.Context, fl *tcFleet, me, id string) bool {
+	f := fl.files[id]
+	if f == nil {
+		return false
+	}
+	if f.From == me {
+		return true
+	}
+	for _, cid := range sortedKeys(fl.convs) {
+		c := fl.convs[cid]
+		if !fl.visible(c, me) {
+			continue
+		}
+		m, err := t.convMsgs(ctx, fl, cid)
+		if err != nil {
+			continue
+		}
+		for _, msgID := range m.all {
+			msg := m.byID[msgID]
+			if msg.Deleted {
+				continue
+			}
+			for _, ref := range msg.Files {
+				if ref.ID == id {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // withFleet runs fn with the caller's space locked.
@@ -396,14 +673,15 @@ func frozen(v any) (json.RawMessage, error) {
 
 // ── space ──────────────────────────────────────────────────────────────────
 
-func (t *TeamChat) spaceGet(ctx context.Context, fl *tcFleet, me string) (map[string]any, error) {
+func (t *TeamChat) spaceGet(ctx context.Context, fl *tcFleet, who tcCaller) (map[string]any, error) {
+	me := who.mid
 	members := []any{}
 	status := map[string]any{}
 	for _, mid := range sortedKeys(fl.members) {
 		m := fl.members[mid]
-		members = append(members, m)
+		members = append(members, fl.memberView(m, me))
 		if m.agent() {
-			status[mid] = t.statusOf(fl, m)
+			status[mid] = fl.statusView(t.statusOf(fl, m), me)
 		}
 	}
 	convs := []any{}
@@ -418,6 +696,15 @@ func (t *TeamChat) spaceGet(ctx context.Context, fl *tcFleet, me string) (map[st
 		m, err := t.convMsgs(ctx, fl, cid)
 		if err != nil {
 			return nil, err
+		}
+		if !fl.inConv(c, me) {
+			// A public channel they have not joined: listed, nothing new.
+			last := ""
+			if n := len(m.all); n > 0 {
+				last = m.all[n-1]
+			}
+			unread[cid] = map[string]any{"count": 0, "mentions": 0, "last": last, "first": ""}
+			continue
 		}
 		u, threads := fl.unreadIn(m, me, cid)
 		unread[cid] = map[string]any{"count": u.Count, "mentions": u.Mentions, "last": u.Last, "first": u.First}
@@ -449,9 +736,10 @@ func (t *TeamChat) spaceGet(ctx context.Context, fl *tcFleet, me string) (map[st
 	if tasks == nil {
 		tasks = []*tcTask{}
 	}
-	return map[string]any{"space": fl.space, "me": me, "members": members, "conversations": convs, "reads": reads,
+	return map[string]any{"space": fl.space, "me": me, "role": who.role, "owner": tcOwner, "members": members,
+		"conversations": convs, "reads": reads, "reads_by": fl.readsBy(me), "can_use": fl.usable(me),
 		"follows": follows, "unfollows": unfollows, "agent_status": status, "unread": unread, "thread_unread": threadUnread, "tasks": tasks,
-		"notify": notify, "usage": t.usage(fl), "revision": fl.seq, "subject": tcSubject(fl.fid)}, nil
+		"notify": notify, "usage": t.usage(fl), "revision": fl.revOf(me), "subject": fl.subjectOf(me)}, nil
 }
 
 // usage is each guard with its current use.
@@ -713,11 +1001,16 @@ func (t *TeamChat) conv(fl *tcFleet, cid string) (*tcConv, error) {
 }
 
 func (t *TeamChat) saveConv(ctx context.Context, fl *tcFleet, next *tcConv) error {
+	var before []string
+	if old := fl.convs[next.CID]; old != nil {
+		before = fl.seers(old)
+	}
 	if err := t.put(ctx, fl, "conv."+next.CID, next); err != nil {
 		return err
 	}
 	fl.convs[next.CID] = next
 	t.emit(fl, map[string]any{"type": "conv", "conversation": next})
+	t.convGone(fl, before, next)
 	return nil
 }
 
@@ -800,11 +1093,11 @@ func (t *TeamChat) convMembership(ctx context.Context, fl *tcFleet, by, cid, mid
 	if c.Kind == "dm" {
 		return nil, &ArgumentError{"a DM's members do not change"}
 	}
-	if by != tcOwner && mid != by {
-		return nil, &ArgumentError{"you can only join or leave yourself"}
-	}
-	if join && c.Private && by != tcOwner && !c.has(by) {
+	if join && c.Private && !c.has(by) {
 		return nil, &ArgumentError{"#" + c.Name + " is private"}
+	}
+	if join && !fl.members[mid].agent() && fl.members[mid].Removed != "" {
+		return nil, &ArgumentError{"@" + fl.members[mid].Handle + " is no longer in this space"}
 	}
 	if !join && c.CID == "general" {
 		return nil, &ArgumentError{"#general holds every member and cannot be left"}
@@ -888,7 +1181,7 @@ func (t *TeamChat) postEvent(ctx context.Context, fl *tcFleet, e *tcEvent, fileI
 		if sender == nil {
 			return nil, &ArgumentError{"no member " + e.From}
 		}
-		if e.From != tcOwner && !c.has(e.From) {
+		if !c.has(e.From) {
 			return nil, &ArgumentError{"you are not a member of " + c.label(fl, e.From) + " (join it first)"}
 		}
 	}
@@ -940,7 +1233,7 @@ func (t *TeamChat) postEvent(ctx context.Context, fl *tcFleet, e *tcEvent, fileI
 	if e.Kind == "post" {
 		e.Mentions = mentions(fl, e.Text)
 	}
-	wakes, joined, stopped := t.wakesFor(fl, c, m, e)
+	wakes, joined, stopped, notWoken := t.wakesFor(fl, c, m, e)
 	if sender != nil && sender.agent() && len(wakes) > 0 {
 		// An exchange Team Chat stopped stays stopped: an agent's message
 		// there that would wake another agent is not posted, until a person
@@ -969,6 +1262,7 @@ func (t *TeamChat) postEvent(ctx context.Context, fl *tcFleet, e *tcEvent, fileI
 	if err != nil {
 		return nil, err
 	}
+	msg.notWoken = notWoken
 	if len(joined) > 0 {
 		next := *c
 		next.Members = append(append([]string(nil), c.Members...), joined...)
@@ -1044,6 +1338,9 @@ func (t *TeamChat) change(ctx context.Context, fl *tcFleet, mid, kind, id, cid, 
 		if agent == mid || fl.members[agent] == nil {
 			continue
 		}
+		if editor := fl.members[mid]; editor != nil && !editor.agent() && !fl.canUse(mid, fl.members[agent]) {
+			continue
+		}
 		t.enqueue(ctx, fl, agent, tcWake{ID: msg.ID, Event: e.ID, CID: msg.CID, Root: msg.Root, Kind: kind,
 			Reason: kind, From: mid, At: e.At})
 	}
@@ -1059,7 +1356,7 @@ func (t *TeamChat) setRead(ctx context.Context, fl *tcFleet, mid, cid, id string
 		return err
 	}
 	fl.reads[key] = id
-	if mid == tcOwner {
+	if fl.person(mid) {
 		t.emit(fl, map[string]any{"type": "read", "mid": mid, "cid": cid, "id": id})
 	}
 	return nil

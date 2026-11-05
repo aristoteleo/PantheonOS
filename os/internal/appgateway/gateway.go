@@ -41,6 +41,9 @@ type AttachRequest struct {
 	// Visitor: a hosted App's visitor (docs/apps/app-hosting.md). Credential is
 	// then the visitor's, and only the App's declared share passes.
 	Visitor *VisitorGrant `json:"visitor,omitempty"`
+	// Member: a person's grant to another account's Team Chat space
+	// (docs/apps/team-chat.md); only RPC passes, with their identity.
+	Member *MemberGrant `json:"member,omitempty"`
 }
 type Dispatch func(context.Context, Binding, string, string) error
 type Verify func(context.Context, Binding) error
@@ -77,14 +80,16 @@ type Gateway struct {
 	rpcToken              RPCTokenDispatch
 	rpcTokens             map[Binding]string
 	hostedNode            string
-	hosted                func(http.ResponseWriter, *http.Request, Binding)
+	hosted                func(http.ResponseWriter, *http.Request, Binding, *MemberGrant)
 	shareResolver         ShareResolver
+	memberCheck           MemberCheck
 	shareTarget           ShareTargetResolver
 }
 
 // SetHosted serves Apps the controller hosts itself (bindings on node) in
 // process rather than through a node tunnel. Called once, before serving.
-func (g *Gateway) SetHosted(node string, serve func(http.ResponseWriter, *http.Request, Binding)) {
+// A member grant's identity is passed with each request (nil otherwise).
+func (g *Gateway) SetHosted(node string, serve func(http.ResponseWriter, *http.Request, Binding, *MemberGrant)) {
 	g.hostedNode, g.hosted = node, serve
 }
 
@@ -239,6 +244,10 @@ func (g *Gateway) attach(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "App is not ready on the requested node/version", 409)
 		return
 	}
+	if q.Member != nil && !g.validMember(&q) {
+		http.Error(w, "this App does not take space members", 403)
+		return
+	}
 	if q.Visitor != nil {
 		if err := g.prepareVisitor(ctx, &q); err != nil {
 			status := 400
@@ -364,6 +373,9 @@ func (g *Gateway) serveApp(w http.ResponseWriter, r *http.Request) {
 	if access.Visitor != nil && !allowVisitor(w, r, access.Visitor) {
 		return
 	}
+	if access.Member != nil && !allowMember(w, r) {
+		return
+	}
 	if r.URL.Path == "/__fleet/status" && r.Method == "GET" {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
@@ -430,7 +442,11 @@ func (g *Gateway) urlAuthGrant(r *http.Request) (AttachRequest, bool) {
 
 func (g *Gateway) proxyApp(w http.ResponseWriter, r *http.Request, access AttachRequest) {
 	if g.hosted != nil && access.Node == g.hostedNode {
-		g.hosted(w, r, access.Binding)
+		g.hosted(w, r, access.Binding, access.Member)
+		return
+	}
+	if access.Member != nil {
+		http.Error(w, "not available in a shared space", 403)
 		return
 	}
 	rpcToken := ""

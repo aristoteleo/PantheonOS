@@ -154,13 +154,14 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
-// RevokeShare drops every live visitor grant of a share.
+// RevokeShare drops every live visitor grant of a share, and every member
+// grant with that grant id (a person removed from a Team Chat space).
 func (g *Gateway) RevokeShare(shareID string) int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	n := 0
 	for key, v := range g.grants {
-		if v.Visitor != nil && v.Visitor.ShareID == shareID {
+		if v.Visitor != nil && v.Visitor.ShareID == shareID || v.Member != nil && v.Member.GrantID == shareID {
 			delete(g.grants, key)
 			n++
 		}

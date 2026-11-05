@@ -166,8 +166,12 @@ func (t *TeamChat) agentOp(ctx context.Context, fl *tcFleet, m *tcMember, req ag
 					line += "; " + clipText(x.Description, 80)
 				}
 				line += ")"
+			} else if x.Removed != "" {
+				continue
 			} else if mid == tcOwner {
 				line += "  (person, space owner)"
+			} else if x.Role == "admin" {
+				line += "  (person, admin)"
 			} else {
 				line += "  (person)"
 			}
@@ -222,7 +226,7 @@ func (t *TeamChat) agentOp(ctx context.Context, fl *tcFleet, m *tcMember, req ag
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Posted to #%s as message %s.", c.Name, msg.ID), nil
+		return fmt.Sprintf("Posted to #%s as message %s.", c.Name, msg.ID) + notWokenNote(fl, msg), nil
 	case "reply":
 		target, err := t.findMsg(ctx, fl, arg(req, 0), "")
 		if err != nil {
@@ -249,9 +253,9 @@ func (t *TeamChat) agentOp(ctx context.Context, fl *tcFleet, m *tcMember, req ag
 			return "", err
 		}
 		if root == "" {
-			return fmt.Sprintf("Replied in %s as message %s.", c.label(fl, m.MID), msg.ID), nil
+			return fmt.Sprintf("Replied in %s as message %s.", c.label(fl, m.MID), msg.ID) + notWokenNote(fl, msg), nil
 		}
-		return fmt.Sprintf("Replied in the thread of %s (%s) as message %s.", root, c.label(fl, m.MID), msg.ID), nil
+		return fmt.Sprintf("Replied in the thread of %s (%s) as message %s.", root, c.label(fl, m.MID), msg.ID) + notWokenNote(fl, msg), nil
 	case "dm":
 		return t.agentDM(ctx, fl, m, tr, arg(req, 0), body(req, 1), req.Files)
 	case "edit":
@@ -304,6 +308,9 @@ func (t *TeamChat) agentDM(ctx context.Context, fl *tcFleet, m *tcMember, tr *tc
 	if other.MID == m.MID {
 		return "", fmt.Errorf("that is you")
 	}
+	if !other.agent() && other.Removed != "" {
+		return "", fmt.Errorf("@%s is no longer in this space", other.Handle)
+	}
 	res, err := t.convCreate(ctx, fl, m.MID, "dm", "", false, []string{other.MID}, "", "")
 	if err != nil {
 		return "", err
@@ -313,7 +320,21 @@ func (t *TeamChat) agentDM(ctx context.Context, fl *tcFleet, m *tcMember, tr *tc
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Sent to @%s as message %s.", other.Handle, msg.ID), nil
+	return fmt.Sprintf("Sent to @%s as message %s.", other.Handle, msg.ID) + notWokenNote(fl, msg), nil
+}
+
+// notWokenNote tells an agent which agents its message did not wake, and
+// why (the people its turn works for may not use them).
+func notWokenNote(fl *tcFleet, msg *tcMsg) string {
+	if len(msg.notWoken) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, n := range msg.notWoken {
+		fmt.Fprintf(&b, "\nNot woken: %s: %s", handleOf(fl, n.MID), n.Reason)
+	}
+	msg.notWoken = nil
+	return b.String() + "\nDon't ask that agent again for this person; tell them who can."
 }
 
 // agentInbox hands the running turn the events that arrived since it started

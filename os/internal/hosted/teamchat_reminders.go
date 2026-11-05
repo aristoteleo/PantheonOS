@@ -45,8 +45,11 @@ type tcRem struct {
 	Asked     string `json:"asked,omitempty"`
 	Created   string `json:"created"`
 	CreatedBy string `json:"created_by"`
-	Fired     int    `json:"fired,omitempty"`
-	LastFired string `json:"last_fired,omitempty"`
+	// Behalf: the people the turn that set it worked for; its wake works
+	// for them too (the agents it may wake).
+	Behalf    []string `json:"behalf,omitempty"`
+	Fired     int      `json:"fired,omitempty"`
+	LastFired string   `json:"last_fired,omitempty"`
 }
 
 // tcSchedule is a repeat: every interval, or on some weekdays at a time.
@@ -418,6 +421,9 @@ func (t *TeamChat) setReminder(ctx context.Context, fl *tcFleet, m *tcMember, by
 	}
 	r := &tcRem{ID: "r" + shortID(), Agent: m.MID, Note: note, At: first.UTC().Format(time.RFC3339), TimeZone: locName(loc),
 		CID: cid, Root: root, About: about, For: forMID, Created: t.stamp(), CreatedBy: by}
+	if tr := fl.turns[m.MID]; tr != nil {
+		r.Behalf = fl.behalfOf(append([]tcWake{tr.Cause}, tr.Events...))
+	}
 	if forMID != "" {
 		r.Asked = clipText(strings.TrimSpace(asked), 300)
 		r.Lang = langOf(asked)
@@ -439,7 +445,7 @@ func (t *TeamChat) cancelReminder(ctx context.Context, fl *tcFleet, r *tcRem) er
 		return err
 	}
 	delete(fl.rems, r.ID)
-	t.emit(fl, map[string]any{"type": "reminder", "id": r.ID, "agent": r.Agent, "deleted": true})
+	t.emit(fl, map[string]any{"type": "reminder", "id": r.ID, "agent": r.Agent, "deleted": true, "for": r.For})
 	return nil
 }
 
@@ -482,7 +488,7 @@ func (t *TeamChat) fireDue(ctx context.Context, fl *tcFleet) {
 		}
 		w := tcWake{ID: r.About, Event: "rem-" + r.ID + "-" + strconv.FormatInt(due.Unix(), 10), CID: cid,
 			Root: root, Kind: "reminder", Reason: "reminder", From: r.Agent, At: now.UTC().Format(time.RFC3339Nano), Rem: r.ID, Note: r.Note,
-			For: r.For, Lang: r.Lang, Asked: r.Asked}
+			For: r.For, Lang: r.Lang, Asked: r.Asked, Behalf: r.Behalf}
 		busy := fl.turns[m.MID] != nil
 		if w.forPerson(fl) && (t.cannotRun(fl, m) || busy) && t.remindPeople(ctx, fl, m, nil, []tcWake{w}, "")[w.key()] {
 			// A person's reminder does not wait for an agent that cannot

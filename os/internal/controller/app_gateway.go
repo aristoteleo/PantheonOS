@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -397,7 +398,15 @@ func makeGateway(domain, token string, origins []string, authority *auth.Authori
 		return out.Answer, nil
 	})
 	if host != nil {
-		gateway.SetHosted(hosted.Node, host.ServeRPC)
+		gateway.SetHosted(hosted.Node, func(w http.ResponseWriter, r *http.Request, b appgateway.Binding, m *appgateway.MemberGrant) {
+			var member *hosted.Member
+			if m != nil {
+				member = &hosted.Member{UserID: m.UserID, Username: m.Username, Name: m.Name, Fleet: m.FleetID, Role: m.Role, Joined: m.Joined}
+			}
+			host.ServeRPC(w, r, b, member)
+		})
+		// Space grants (docs/apps/team-chat.md): an owner's hosted team-chat only.
+		gateway.SetMemberCheck(host.MemberOK)
 	}
 	return gateway, nil
 }

@@ -377,6 +377,13 @@ type tcMember struct {
 	// When it last finished a turn that did not fail (unix seconds): an
 	// older failure line about it is over.
 	LastOK int64 `json:"last_ok,omitempty"`
+	// People (Phase 3): their role (admin | member; the owner's record has
+	// none), their own Fleet (where their events go; never sent to browsers),
+	// when they joined (unix seconds) and when they were removed.
+	Role    string `json:"role,omitempty"`
+	Fleet   string `json:"fleet,omitempty"`
+	Joined  int64  `json:"joined,omitempty"`
+	Removed string `json:"removed_at,omitempty"`
 }
 
 func (m *tcMember) agent() bool { return m.Kind == "agent" }
@@ -451,6 +458,9 @@ type tcEvent struct {
 	Woke     []string    `json:"woke,omitempty"` // agents this message woke
 	Task     string      `json:"task,omitempty"` // system: the task it is about
 	By       string      `json:"by,omitempty"`   // system: whose action it reports
+	// Behalf: an agent's post, the people its turn works for (whose access
+	// the agents it wakes are checked against).
+	Behalf []string `json:"behalf,omitempty"`
 }
 
 // tcMsg is a message as readers see it: its edits and delete folded in.
@@ -478,6 +488,14 @@ type tcMsg struct {
 	By          string      `json:"by,omitempty"`
 	woke        []string
 	lower       string // its words and file names in lower case, for search
+	// notWoken: agents its writer named but may not use (the post's answer
+	// says so; never stored).
+	notWoken []tcNotWoken
+}
+
+type tcNotWoken struct {
+	MID    string `json:"mid"`
+	Reason string `json:"reason"`
 }
 
 // index keeps a message's words for search.
@@ -511,6 +529,8 @@ type tcWake struct {
 	// Lang and Asked: a person's reminder's request language and text.
 	Lang  string `json:"lang,omitempty"`
 	Asked string `json:"asked,omitempty"`
+	// Behalf: the people an agent's message (or a reminder) works for.
+	Behalf []string `json:"behalf,omitempty"`
 }
 
 func (w tcWake) key() string { return w.Event }
@@ -558,7 +578,8 @@ type tcFleet struct {
 	notify  map[string]string  // <mid>.<cid> -> all | mentions | mute
 	revs    map[string]uint64  // key -> revision
 	msgs    map[string]*tcConvMsgs
-	seq     uint64 // the change revision events carry
+	seq     uint64            // changes made
+	vseq    map[string]uint64 // each person's event revision
 	live    map[string]*tcLive
 	nodes   map[string]TeamNode
 	// unreachable: nodes a call found unreachable, with their last heartbeat
@@ -832,20 +853,6 @@ func (t *TeamChat) del(ctx context.Context, fl *tcFleet, part string) error {
 
 func tcSubject(fid string) string { return fmt.Sprintf("fleet.%s.apps.team-chat.events", fid) }
 
-// emit announces a change; fl.mu is held, so revisions are in order. A
-// browser that sees a gap reads the space again.
-func (t *TeamChat) emit(fl *tcFleet, event map[string]any) {
-	fl.seq++
-	event["rev"] = fl.seq
-	raw, err := json.Marshal(event)
-	if err != nil || t.nc == nil {
-		return
-	}
-	if err := t.nc.Publish(tcSubject(fl.fid), raw); err != nil {
-		log.Printf("[team-chat] %s notify: %v", fl.fid, err)
-	}
-}
-
 // ── messages ───────────────────────────────────────────────────────────────
 
 func msgSubject(fid, cid string) string { return "tc." + fid + "." + cid }
@@ -1036,11 +1043,15 @@ func mentions(fl *tcFleet, text string) []string {
 	byHandle := map[string]string{}
 	for _, m := range fl.members {
 		for _, h := range m.PrevHandles {
-			byHandle[h] = m.MID
+			if m.Removed == "" {
+				byHandle[h] = m.MID
+			}
 		}
 	}
 	for _, m := range fl.members {
-		byHandle[m.Handle] = m.MID
+		if m.Removed == "" {
+			byHandle[m.Handle] = m.MID
+		}
 	}
 	var out []string
 	for _, match := range tcMentionRE.FindAllStringSubmatch(text, -1) {
@@ -1089,13 +1100,4 @@ func (fl *tcFleet) followsThread(m *tcConvMsgs, mid, root string) bool {
 		}
 	}
 	return false
-}
-
-// visible: whether mid may read a conversation (Phase 1: the person reads
-// everything; an agent its conversations and public channels).
-func (fl *tcFleet) visible(c *tcConv, mid string) bool {
-	if mid == tcOwner {
-		return true
-	}
-	return c.has(mid) || c.Kind == "channel" && !c.Private
 }

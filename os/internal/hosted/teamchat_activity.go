@@ -98,7 +98,7 @@ func (t *TeamChat) setThreadRead(ctx context.Context, fl *tcFleet, mid, cid, roo
 		return err
 	}
 	fl.treads[key] = id
-	if mid == tcOwner {
+	if fl.person(mid) {
 		t.emit(fl, map[string]any{"type": "read", "mid": mid, "cid": cid, "root": root, "id": id})
 	}
 	return nil
@@ -109,7 +109,7 @@ func (t *TeamChat) readAll(ctx context.Context, fl *tcFleet, me string) (any, er
 	marked := 0
 	for _, cid := range sortedKeys(fl.convs) {
 		c := fl.convs[cid]
-		if !fl.visible(c, me) {
+		if !fl.visible(c, me) || !fl.inConv(c, me) {
 			continue
 		}
 		m, err := t.convMsgs(ctx, fl, cid)
@@ -149,7 +149,7 @@ func (t *TeamChat) activity(ctx context.Context, fl *tcFleet, me, filter string)
 	if filter != "review" {
 		for _, cid := range sortedKeys(fl.convs) {
 			c := fl.convs[cid]
-			if !fl.visible(c, me) || c.Archived {
+			if !fl.visible(c, me) || !fl.inConv(c, me) || c.Archived {
 				continue
 			}
 			m, err := t.convMsgs(ctx, fl, cid)
@@ -365,7 +365,7 @@ func (t *TeamChat) notifySet(ctx context.Context, fl *tcFleet, me, cid, level st
 			return nil, err
 		}
 		fl.notify[key] = level
-		t.emit(fl, map[string]any{"type": "notify", "cid": cid, "level": level})
+		t.emit(fl, map[string]any{"type": "notify", "cid": cid, "level": level, "mid": me})
 	}
 	return map[string]any{"cid": cid, "level": level}, nil
 }

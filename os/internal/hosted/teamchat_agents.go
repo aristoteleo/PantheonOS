@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -645,8 +646,13 @@ func rosterOf(fl *tcFleet, self *tcMember) string {
 			agents = append(agents, line)
 			continue
 		}
+		if x.Removed != "" {
+			continue
+		}
 		if x.MID == tcOwner {
 			line += ", the space owner"
+		} else if x.Role == "admin" {
+			line += ", admin"
 		}
 		people = append(people, line+")")
 	}
@@ -675,4 +681,69 @@ func (t *TeamChat) plainError(nodeID string, n TeamNode, m *tcMember, errText st
 	reason, fix, _ := explain(&agent, n, errText)
 	log.Printf("[team-chat] node %s: %s", nodeID, firstLineOf(errText))
 	return &ArgumentError{capFirst(strings.TrimSpace(reason + ". " + fix))}
+}
+
+var homeFolderRE = regexp.MustCompile(`^(~|/Users/[^/]+|/home/[^/]+|/root|[A-Za-z]:\\Users\\[^\\]+|/)/?$`)
+
+// sharedFolderCheck: an agent that is (or becomes) shared may not work in a
+// home folder or / (docs/apps/team-chat.md, T35). A change of its access,
+// computer or folder is checked on its computer, which says whether the
+// folder is a home folder or the root; an unreachable computer cannot vouch
+// for it.
+func (t *TeamChat) sharedFolderCheck(ctx context.Context, fid, mid string, fields map[string]any) error {
+	_, access := fields["access"]
+	_, folder := fields["folder"]
+	_, node := fields["node_id"]
+	if !access && !folder && !node {
+		return nil
+	}
+	fl, err := t.lockFleet(ctx, fid)
+	if err != nil {
+		return err
+	}
+	m := fl.members[mid]
+	if m == nil || !m.agent() {
+		fl.mu.Unlock()
+		return &ArgumentError{"no agent " + mid}
+	}
+	next := *m
+	fl.mu.Unlock()
+	if !folder && !node && m.Access != "only_me" && m.Access != "" {
+		return nil // shared already, in a folder that was checked then
+	}
+	if s, ok := fields["access"].(string); ok {
+		next.Access = s
+	}
+	if s, ok := fields["folder"].(string); ok {
+		next.Folder = s
+	}
+	if s, ok := fields["node_id"].(string); ok {
+		next.NodeID = s
+	}
+	if next.Access == "only_me" || next.Access == "" {
+		return nil
+	}
+	refuse := func(what string) error {
+		return &ArgumentError{"A shared agent cannot work in " + what + ": people you share it with could have it read or change " +
+			"everything there. Give it a folder of its own first (your Workspace or a computer of its own is safer for a shared agent)."}
+	}
+	if homeFolderRE.MatchString(strings.TrimSpace(next.Folder)) {
+		if strings.TrimSpace(next.Folder) == "/" {
+			return refuse("the whole computer (/)")
+		}
+		return refuse("a home folder")
+	}
+	n, _ := t.Nodes.Node(ctx, fid, next.NodeID)
+	res, err := t.Nodes.Call(ctx, fid, next.NodeID, "team_setup", map[string]any{"folder": next.Folder, "check_only": true}, 30*time.Second)
+	if err != nil || res["success"] != true {
+		return &ArgumentError{fmt.Sprintf("Team Chat could not check %s's folder on %s (%s), so it is not shared yet. Try again when %s is online.",
+			next.Name, nodeLabel(n, next.NodeID), firstNonBlank(str(res["error"]), "not reachable"), nodeLabel(n, next.NodeID))}
+	}
+	if res["root"] == true {
+		return refuse("the whole computer (/)")
+	}
+	if res["home"] == true {
+		return refuse("a home folder")
+	}
+	return nil
 }
