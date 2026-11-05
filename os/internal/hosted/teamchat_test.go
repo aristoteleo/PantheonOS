@@ -782,7 +782,8 @@ func TestFailureLinesArePlainWords(t *testing.T) {
 		"session is gone":                                    "its session on Weizes MacBook Pro ended unexpectedly",
 		"exec: claude: executable file not found in $PATH":   "Claude Code is not installed on Weizes MacBook Pro",
 		"something odd at 0x1f":                              "its turn failed on Weizes MacBook Pro",
-		`thread/resume failed: This chat uses openai, but your current provider is pantheon. (code -32600)`: "its session was made with other models than it now uses",
+		"Could not start Claude Code on PantheonOS models: Sign in to PantheonOS on this computer to use PantheonOS models": "Claude Code cannot use PantheonOS models on Weizes MacBook Pro yet",
+		`thread/resume failed: This chat uses openai, but your current provider is pantheon. (code -32600)`:                 "its session was made with other models than it now uses",
 	} {
 		reason, fix, _ := explain(m, mac, raw)
 		if reason != want || fix == "" || strings.Contains(reason+fix, "n_") || strings.Contains(reason+fix, ".local") {

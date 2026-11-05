@@ -488,6 +488,7 @@ type tcLive struct {
 	watching    bool
 	retries     int
 	retryAt     time.Time
+	retryWhy    string // why it waits to retry, in plain words ("" when not known)
 	paused      string // a guard holds its turns
 	pausedNoted bool
 	textBuf     []string // the running turn's text since its last step

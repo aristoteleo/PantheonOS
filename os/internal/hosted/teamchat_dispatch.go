@@ -132,6 +132,9 @@ func (t *TeamChat) statusOf(fl *tcFleet, m *tcMember) map[string]any {
 		out["state"] = "ready"
 		if !l.retryAt.IsZero() && len(fl.queues[m.MID]) > 0 {
 			out["line"] = "Retrying soon"
+			if l.retryWhy != "" {
+				out["line"] = "Retrying soon: " + l.retryWhy
+			}
 		}
 	}
 	return out
@@ -288,13 +291,28 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 	t.emitStatus(fl, mid)
 	fl.mu.Unlock()
 
+	// fail: reason in plain words (a transient one shows while it waits).
 	fail := func(reason, fix string, transient bool) bool {
+		fl.mu.Lock()
+		fl.liveOf(mid).retryWhy = ""
+		if transient {
+			fl.liveOf(mid).retryWhy = reason
+		}
+		fl.mu.Unlock()
 		t.abortStart(ctx, fl, mid, reason, fix, transient)
+		return false
+	}
+	// failRaw: an error with no plain words, retried (it goes to the log).
+	failRaw := func(err error) bool {
+		fl.mu.Lock()
+		fl.liveOf(mid).retryWhy = ""
+		fl.mu.Unlock()
+		t.abortStart(ctx, fl, mid, err.Error(), "", true)
 		return false
 	}
 	node, err := t.Nodes.Node(ctx, fl.fid, agent.NodeID)
 	if err != nil {
-		return fail(err.Error(), "", true)
+		return failRaw(err)
 	}
 	node = t.noteNode(fl, node)
 	if !node.Online {
@@ -310,7 +328,7 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 		log.Printf("[team-chat] %s %s: %v", fl.fid, agent.Handle, err)
 		reason, fix, transient, known := explainKnown(&agent, node, err.Error())
 		if !known {
-			return fail(err.Error(), "", true)
+			return failRaw(err)
 		}
 		return fail(reason, fix, transient)
 	}
@@ -402,7 +420,7 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 	for cid, id := range reads {
 		_ = t.setRead(ctx, fl, mid, cid, id)
 	}
-	l.retries, l.retryAt = 0, time.Time{}
+	l.retries, l.retryAt, l.retryWhy = 0, time.Time{}, ""
 	l.line, l.lineCID, l.lineRoot, l.textBuf, l.allText, l.lastSeq = "Starting", tr.Cause.CID, tr.Cause.Root, nil, nil, fromSeq
 	l.stopWanted = false
 	t.emitStatus(fl, mid)
@@ -518,7 +536,8 @@ func (t *TeamChat) markUnreachable(ctx context.Context, fl *tcFleet, nodeID stri
 // provider than it now uses (its model source changed), so it cannot go on.
 func modelSourceChanged(errText string) bool {
 	low := strings.ToLower(errText)
-	return strings.Contains(low, "modelprovidermismatch") || strings.Contains(low, "but your current provider is")
+	return strings.Contains(low, "modelprovidermismatch") || strings.Contains(low, "but your current provider is") ||
+		strings.Contains(low, "start a new one to use")
 }
 
 // unreachable: a node call's error that means nothing answers for the node.
@@ -633,6 +652,11 @@ func explainKnown(m *tcMember, n TeamNode, errText string) (reason, fix string, 
 		return "its model budget is used up", "Add budget, or wait for the quota to reset, then press Retry.", false, true
 	case has("rate limit", "rate_limit", "ratelimit", "too many requests") || tcRateErrRE.MatchString(errText):
 		return "the model service is limiting requests right now", "Wait a minute, then press Retry.", true, true
+	case has("sign in to pantheonos"):
+		return label + " cannot use PantheonOS models on " + where + " yet",
+			"Open Coding Agents on " + where + ", sign in to PantheonOS and choose PantheonOS models, then press Retry.", false, true
+	case has("has no conversation mode"):
+		return label + " cannot take messages from Team Chat", "Pick another runtime for this agent.", false, true
 	case has("not signed in", "sign in", "log in", "login", "unauthorized", "authentication", "invalid api key",
 		"invalid x-api-key", "api key") || tcAuthErrRE.MatchString(errText):
 		return label + " is not signed in on " + where, "Open Coding Agents → Sign in, then press Retry.", false, true
