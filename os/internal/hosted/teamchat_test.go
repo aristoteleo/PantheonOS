@@ -31,6 +31,7 @@ type fakeAgents struct {
 	deaf    map[string]bool      // online by its record, but nothing answers calls
 	seen    map[string]time.Time // last heartbeat
 	resume  string               // agent_send refuses to resume a session with this error
+	sendErr string               // agent_send refuses every turn with this error
 	prompts []string
 	sends   []map[string]any
 	reply   func(prompt string) (text, errText string)
@@ -85,6 +86,9 @@ func (f *fakeAgents) Call(_ context.Context, _ string, node, method string, args
 		f.files[str(args["name"])] += int64(len(str(args["data"])))
 		return map[string]any{"success": true}, nil
 	case "agent_send":
+		if f.sendErr != "" {
+			return map[string]any{"success": false, "error": f.sendErr}, nil
+		}
 		if f.resume != "" && str(args["conversation_id"]) != "" {
 			return map[string]any{"success": false, "error": f.resume}, nil
 		}

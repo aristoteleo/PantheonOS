@@ -473,11 +473,12 @@ func (t *TeamChat) fireDue(ctx context.Context, fl *tcFleet) {
 		w := tcWake{ID: r.About, Event: "rem-" + r.ID + "-" + strconv.FormatInt(due.Unix(), 10), CID: cid,
 			Root: root, Kind: "reminder", Reason: "reminder", From: r.Agent, At: now.UTC().Format(time.RFC3339Nano), Rem: r.ID, Note: r.Note,
 			For: r.For}
-		if w.forPerson(fl) && t.cannotRun(fl, m) {
+		if w.forPerson(fl) && t.cannotRun(fl, m) && t.remindPeople(ctx, fl, m, nil, []tcWake{w}, "")[w.key()] {
 			// A person's reminder does not wait for an agent that cannot
 			// run: it is posted for them now.
-			t.remindPeople(ctx, fl, m, nil, []tcWake{w}, "")
 		} else {
+			// (If the turn it queues cannot start, tryStart posts it for
+			// the person: remindNow.)
 			t.enqueue(ctx, fl, r.Agent, w)
 		}
 		log.Printf("[team-chat] %s %s: reminder %s is due", fl.fid, m.Handle, r.ID)
@@ -682,6 +683,7 @@ func (t *TeamChat) agentRemind(ctx context.Context, fl *tcFleet, m *tcMember, tr
 	}
 	at, _ := time.Parse(time.RFC3339, r.At)
 	whenSpace := remWhen(at, space)
+	phrase := remPhrase(at, t.clock(), space)
 	out := "Reminder set for " + whenSpace
 	if loc.String() != space.String() {
 		out = fmt.Sprintf("Reminder set for %s (%s in the space's time zone)", remWhen(at, loc), whenSpace)
@@ -700,10 +702,40 @@ func (t *TeamChat) agentRemind(ctx context.Context, fl *tcFleet, m *tcMember, tr
 	if about != "" {
 		out += " (about message " + about + ")"
 	}
-	out += ".\nConfirm it to the person in the space's time zone: " + whenSpace + ". Say the clock time, not only \"in 2 minutes\" " +
-		"(e.g. \"I'll remind you at " + at.In(space).Format("15:04") + " " + locName(space) + "\")."
+	out += ".\nNow confirm it to the person, quoting this time exactly (it is in the space's time zone): \"" + phrase + "\"" +
+		" (e.g. \"I'll remind you " + phrase + ".\"). Write the confirmation in the language the person wrote in; keep the clock time " +
+		"and the time zone as they are. Don't work the time out yourself, and don't say only \"in 2 minutes\"."
 	out += " Don't show the reminder id (" + r.ID + ", for remind cancel only); a person cancels by asking you (\"cancel the reminder\")."
 	return out, nil
+}
+
+// remPhrase is a reminder's time as an agent quotes it to people, in loc:
+// "at 10:02 today (Thu Nov 5, America/Los_Angeles)", "at 09:00 tomorrow
+// (…)", "at 09:00 on Mon Nov 9 (America/Los_Angeles)".
+func remPhrase(at, now time.Time, loc *time.Location) string {
+	a, n := at.In(loc), now.In(loc)
+	same := func(x, y time.Time) bool { return x.Year() == y.Year() && x.YearDay() == y.YearDay() }
+	day := ""
+	switch {
+	case same(a, n):
+		day = "today"
+	case same(a, n.AddDate(0, 0, 1)):
+		day = "tomorrow"
+	}
+	if day != "" {
+		return fmt.Sprintf("at %s %s (%s, %s)", a.Format("15:04"), day, a.Format("Mon Jan 2"), locName(loc))
+	}
+	return fmt.Sprintf("at %s on %s (%s)", a.Format("15:04"), a.Format("Mon Jan 2"), locName(loc))
+}
+
+// nowLine is the time now as the turn input says it: "Now: Thu Nov 5 10:13
+// America/Los_Angeles (18:13 UTC)."
+func nowLine(now time.Time, loc *time.Location) string {
+	line := "Now: " + now.In(loc).Format("Mon Jan 2 15:04") + " " + locName(loc)
+	if loc != time.UTC {
+		line += " (" + now.UTC().Format("15:04") + " UTC)"
+	}
+	return line + ", the space's time zone. Say times to people in it; message times below are in UTC.\n"
 }
 
 // forPerson: a reminder's wake for a person still in the space.
@@ -756,12 +788,15 @@ func (t *TeamChat) remindWhere(fl *tcFleet, m *tcMember, w tcWake) string {
 // remindPeople posts each person's reminder of a turn that the agent did
 // not post where it belongs: its final text (with the person's @handle), or
 // "⏰ Reminder for @x: <note>". fl.mu is held; tr may be nil (the agent
-// could not run).
-func (t *TeamChat) remindPeople(ctx context.Context, fl *tcFleet, m *tcMember, tr *tcTurn, events []tcWake, final string) {
+// could not run: each reminder is then posted, even several in one
+// conversation). It returns the keys of the reminders that reached their
+// person (posted now, or posted there by the agent in its turn).
+func (t *TeamChat) remindPeople(ctx context.Context, fl *tcFleet, m *tcMember, tr *tcTurn, events []tcWake, final string) map[string]bool {
 	var posted []string
 	if tr != nil {
 		posted = append(posted, tr.Posted...)
 	}
+	done := map[string]bool{}
 	seen := map[string]bool{}
 	for _, e := range events {
 		if !e.forPerson(fl) || seen[e.key()] {
@@ -770,7 +805,11 @@ func (t *TeamChat) remindPeople(ctx context.Context, fl *tcFleet, m *tcMember, t
 		seen[e.key()] = true
 		p := fl.members[e.For]
 		cid, root := t.remindTarget(ctx, fl, m, e)
-		if cid == "" || contains(posted, cid) || contains(posted, dmID(m.MID, p.MID)) {
+		if cid == "" {
+			continue
+		}
+		if tr != nil && (contains(posted, cid) || contains(posted, dmID(m.MID, p.MID))) {
+			done[e.key()] = true
 			continue
 		}
 		fallback := "⏰ Reminder for @" + p.Handle + ": " + strings.TrimSpace(e.Note)
@@ -792,15 +831,60 @@ func (t *TeamChat) remindPeople(ctx context.Context, fl *tcFleet, m *tcMember, t
 		}
 		if err == nil && msg != nil {
 			posted = append(posted, cid)
+			done[e.key()] = true
 			log.Printf("[team-chat] %s %s: reminder %s posted for @%s", fl.fid, m.Handle, e.Rem, p.Handle)
 		}
 	}
+	return done
+}
+
+// remindNow posts, for an agent whose queued turn cannot start now (a limit
+// paused it, its computer is offline, its Workspace or Agent App is not
+// ready, it needs its owner, or it is stopped), each person's reminder
+// waiting in its queue, so a reminder reaches its person on time whether or
+// not the agent gets a turn. The posted ones leave the queue; one that
+// could not be posted stays (it is posted on the next try). fl.mu is held;
+// why goes to the log. It returns what is left in the queue.
+func (t *TeamChat) remindNow(ctx context.Context, fl *tcFleet, m *tcMember, why string) []tcWake {
+	q := fl.queues[m.MID]
+	var due []tcWake
+	for _, e := range q {
+		if e.forPerson(fl) {
+			due = append(due, e)
+		}
+	}
+	if len(due) == 0 {
+		return q
+	}
+	posted := map[string]bool{}
+	for _, e := range due {
+		// One at a time: two reminders for one conversation are both posted.
+		for k := range t.remindPeople(ctx, fl, m, nil, []tcWake{e}, "") {
+			posted[k] = true
+		}
+	}
+	if len(posted) == 0 {
+		return q
+	}
+	var rest []tcWake
+	for _, e := range fl.queues[m.MID] {
+		if !posted[e.key()] {
+			rest = append(rest, e)
+		}
+	}
+	log.Printf("[team-chat] %s %s: %d reminder(s) posted for people without a turn (%s)", fl.fid, m.Handle, len(posted), why)
+	t.saveQueue(ctx, fl, m.MID, rest)
+	t.emitStatus(fl, m.MID)
+	return rest
 }
 
 // cannotRun: an agent that will not start a turn soon (stopped, needs the
-// person, paused by a guard, or its computer is offline).
+// person, paused by a limit, its Agent App is starting, or its computer is
+// offline).
 func (t *TeamChat) cannotRun(fl *tcFleet, m *tcMember) bool {
-	if m.State == "stopped" || m.Attention != nil || fl.liveOf(m.MID).paused != "" {
+	// (The limits are looked at now, not a pause noted earlier: a pause
+	// that has run out does not count.)
+	if m.State == "stopped" || m.Attention != nil || t.guard(fl, m) != "" || t.appStarting(fl, m) {
 		return true
 	}
 	node, known := fl.nodes[m.NodeID]

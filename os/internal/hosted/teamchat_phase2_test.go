@@ -204,7 +204,7 @@ func TestAReminderWakesOnlyItsAgentAndSurvivesARestart(t *testing.T) {
 	r := agentSays(tc, writer, "remind", []string{"in", "2", "minutes", "check", "the", "CI"}, map[string]string{"about": ask}, "")
 	// "remind me" from a person: the reminder is theirs; its id is not for
 	// people.
-	if r.Code != 0 || !strings.Contains(r.Text, "It is for @owner") || !strings.Contains(r.Text, "Confirm it to the person in the space's time zone: Thu Nov 5 18:02 UTC") ||
+	if r.Code != 0 || !strings.Contains(r.Text, "It is for @owner") || !strings.Contains(r.Text, `quoting this time exactly (it is in the space's time zone): "at 18:02 today (Thu Nov 5, UTC)"`) ||
 		!strings.Contains(r.Text, "Don't show the reminder id") {
 		t.Fatalf("%v", r)
 	}
@@ -554,7 +554,7 @@ func TestRemindersForPeopleAlwaysReachThem(t *testing.T) {
 	// space's zone.
 	r := agentSays(tc, writer, "remind", []string{"9:00"}, map[string]string{"tz": "Asia/Tokyo"}, "tokyo stand-up")
 	if r.Code != 0 || !strings.Contains(r.Text, "Fri Nov 6 09:00 Asia/Tokyo (Fri Nov 6 01:00 Europe/Berlin in the space's time zone)") ||
-		!strings.Contains(r.Text, "Confirm it to the person in the space's time zone: Fri Nov 6 01:00 Europe/Berlin") {
+		!strings.Contains(r.Text, `"at 01:00 tomorrow (Fri Nov 6, Europe/Berlin)"`) {
 		t.Fatalf("%v", r)
 	}
 	r = agentSays(tc, writer, "remind", []string{"2026-11-06T09:00+09:00"}, nil, "offset")

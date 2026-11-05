@@ -104,7 +104,8 @@ func (t *TeamChat) emitStatus(fl *tcFleet, mid string) {
 	}
 }
 
-// statusOf is an agent's status: ready, working, attention or offline.
+// statusOf is an agent's status: ready, working, starting, attention, offline
+// or stopped.
 func (t *TeamChat) statusOf(fl *tcFleet, m *tcMember) map[string]any {
 	l := fl.liveOf(m.MID)
 	out := map[string]any{"queue": len(fl.queues[m.MID])}
@@ -118,7 +119,7 @@ func (t *TeamChat) statusOf(fl *tcFleet, m *tcMember) map[string]any {
 	}
 	switch {
 	case m.State == "stopped":
-		out["state"], out["reason"] = "offline", m.Name+" is stopped"
+		out["state"], out["reason"] = "stopped", m.Name+" is stopped"
 	case tr != nil:
 		out["state"], out["since"], out["cid"], out["root"] = "working", tr.Started, tr.Cause.CID, tr.Cause.Root
 		out["line"] = l.line
@@ -450,6 +451,10 @@ func (t *TeamChat) dropPaused(ctx context.Context, fl *tcFleet, q []tcWake) []tc
 	return keep
 }
 
+// tcRemindGrace: a retry sooner than this keeps a person's reminder in the
+// queue for the agent's own turn; a later one posts it for them now.
+const tcRemindGrace = 10 * time.Second
+
 // tryStart starts one turn for an agent with waiting events; true when it
 // should look again (a retry after a stale session).
 func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
@@ -463,8 +468,25 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 	m := fl.members[mid]
 	l := fl.liveOf(mid)
 	q := fl.queues[mid]
-	if m == nil || !m.agent() || fl.turns[mid] != nil || len(q) == 0 || m.State == "stopped" || m.Attention != nil ||
-		t.clock().Before(l.retryAt) {
+	if m == nil || !m.agent() || fl.turns[mid] != nil || len(q) == 0 {
+		fl.mu.Unlock()
+		return false
+	}
+	// A person's reminder does not wait for a turn that cannot start now:
+	// it is posted for them (remindNow), the rest of the queue waits.
+	switch {
+	case m.State == "stopped":
+		t.remindNow(ctx, fl, m, "stopped")
+		fl.mu.Unlock()
+		return false
+	case m.Attention != nil:
+		t.remindNow(ctx, fl, m, "needs its owner")
+		fl.mu.Unlock()
+		return false
+	case t.clock().Before(l.retryAt):
+		if l.retryAt.Sub(t.clock()) > tcRemindGrace || t.appStarting(fl, m) {
+			t.remindNow(ctx, fl, m, "waiting to retry")
+		}
 		fl.mu.Unlock()
 		return false
 	}
@@ -477,6 +499,11 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 		}
 	}
 	if why := t.guard(fl, m); why != "" {
+		if q = t.remindNow(ctx, fl, m, "paused: "+why); len(q) == 0 {
+			// Only people's reminders were waiting, and they are posted.
+			fl.mu.Unlock()
+			return false
+		}
 		if l.paused != why {
 			l.paused = why
 			if !l.pausedNoted {
@@ -495,6 +522,7 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 	if n, known := fl.nodes[m.NodeID]; t.appStarting(fl, m) && (!known || n.Online) {
 		// The Pantheon Agent cannot take a turn before its App is ready; the
 		// messages wait for it (an offline node waits as before).
+		t.remindNow(ctx, fl, m, "its Agent App is starting")
 		t.waitForApp(ctx, fl, m, nil)
 		fl.mu.Unlock()
 		return false
@@ -802,8 +830,13 @@ func (t *TeamChat) abortStart(ctx context.Context, fl *tcFleet, mid, reason, fix
 		// It got past waiting for its Agent App; this is another problem.
 		l.appWait = time.Time{}
 	}
+	// The turn did not start (its computer is offline or did not answer,
+	// its Workspace is not ready, its budget is used up, …): a person's
+	// reminder in it is posted for them now, unless a retry comes within
+	// seconds; the rest waits.
 	if transient && reason == "" {
 		// The node is offline: the sweep starts the turn once it is back.
+		t.remindNow(ctx, fl, m, "its computer is offline")
 		l.retryAt = time.Time{}
 		t.emitStatus(fl, mid)
 		return
@@ -816,6 +849,9 @@ func (t *TeamChat) abortStart(ctx context.Context, fl *tcFleet, mid, reason, fix
 		d := delays[min(l.retries, len(delays)-1)]
 		l.retries++
 		l.retryAt = t.clock().Add(d)
+		if d > tcRemindGrace {
+			t.remindNow(ctx, fl, m, "retry in "+d.String()+": "+reason)
+		}
 		if reason != "" {
 			log.Printf("[team-chat] %s %s: retry in %v: %s", fl.fid, m.Handle, d, reason)
 		}
@@ -826,6 +862,7 @@ func (t *TeamChat) abortStart(ctx context.Context, fl *tcFleet, mid, reason, fix
 		}()
 		return
 	}
+	t.remindNow(ctx, fl, m, reason)
 	t.attention(ctx, fl, m, tr, "could not start", reason, fix)
 }
 
@@ -1353,7 +1390,28 @@ func (t *TeamChat) finish(ctx context.Context, fl *tcFleet, mid string, done cod
 	if !useFinal {
 		final = ""
 	}
-	t.remindPeople(ctx, fl, m, tr, tr.Events, final)
+	posted := t.remindPeople(ctx, fl, m, tr, tr.Events, final)
+	var missed []tcWake
+	for _, e := range tr.Events {
+		if e.forPerson(fl) && !posted[e.key()] {
+			missed = append(missed, e)
+		}
+	}
+	if len(missed) > 0 {
+		// Not posted (a store error): it stays queued and is posted on the
+		// next try, by the agent or for it, never dropped.
+		have := map[string]bool{}
+		for _, e := range fl.queues[mid] {
+			have[e.key()] = true
+		}
+		var back []tcWake
+		for _, e := range missed {
+			if !have[e.key()] {
+				back = append(back, e)
+			}
+		}
+		t.saveQueue(ctx, fl, mid, append(back, fl.queues[mid]...))
+	}
 	if !failed && !done.Stopped {
 		next := *m
 		next.LastOK = t.clock().Unix()
@@ -1446,6 +1504,7 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 		who += ": " + firstLineOf(m.Description)
 	}
 	fmt.Fprintf(&b, "[Team Chat] You are %s).\n", who+"")
+	b.WriteString(nowLine(t.clock(), spaceLoc(fl)))
 	if m.Session == "" {
 		b.WriteString("This is a fresh session: first read AGENT.md and MEMORY.md in your folder.\n")
 	}
@@ -1621,7 +1680,7 @@ func teamNote(m *tcMember) string {
 		"`task state <id> in_review - <<'EOF'` (done: a summary in its thread; a person sets Done), `task create '#channel' - <<'EOF'`, " +
 		"`task list`, `remind '<when>' [--for @person|me] [--tz ZONE] - <<'EOF'` (later: 'in 2 minutes', 'tomorrow 9:00', 'every weekday 10:00'; " +
 		"the note on stdin; \"remind me …\" from a person is --for that person: post it for them when it comes due; " +
-		"a time in another zone: --tz Asia/Tokyo; confirm the time in the space's time zone), `remind list`, `remind cancel <id>` " +
+		"a time in another zone: --tz Asia/Tokyo; confirm only after remind answers, quoting its time, in the person's language), `remind list`, `remind cancel <id>` " +
 		"(never show reminder ids to people: they say \"cancel the reminder\"), `remind help`, `search <words> [--in '#channel'] [--from @handle]`. " +
 		"Quote a channel ('#general'): in the shell an unquoted # starts a comment. " +
 		"Every message needs its text on stdin, also one with a file. If there is nothing to say, post nothing. " +
@@ -1641,7 +1700,9 @@ const (
 		"when a person wants another agent's answer, ask that agent to answer the person directly (@mention the person). " +
 		"To act at a later time (a person asks you to remind them or to check something later), set a reminder with remind: " +
 		"it is the one thing that wakes you later. A person's \"remind me\" is for them (--for @them): when it comes due, post it for them. " +
-		"Confirm a reminder's time in the space's time zone, and never show its id to people (they say \"cancel the reminder\")."
+		"Run remind by itself and confirm a reminder to the person only after remind answers, quoting the time its answer gives " +
+		"(in the space's time zone; never work it out or guess it, and never chain the confirmation in the same command). " +
+		"Reply in the person's language, the language of their message. Never show a reminder's id to people (they say \"cancel the reminder\")."
 )
 
 func teamScript(folder string) string {
