@@ -3,8 +3,9 @@
 Status: design approved by the owner 2026-11-04 (name "Team Chat"; Phase 1 is
 one person per space, several people in Phase 3; people may edit and delete
 their own messages; the store and dispatcher run on the controller). Phase 1
-backend built and on staging (see "Phase 1 backend as built"). Each phase ends with acceptance criteria checked on staging
-before the next starts.
+built and verified on staging 2026-11-05 (T1–T16; see "Phase 1 backend as
+built" and its "Staging verification"); not in production. Each phase ends
+with acceptance criteria checked on staging before the next starts.
 
 ## Goal
 
@@ -149,7 +150,8 @@ member id `owner`; agents have `a<hex>`; `system` writes the service's lines.
 space    {id, name, created, settings: {turns_per_agent_hour: 60, turns_per_space_day: 400,
                                         hop_limit: 8, turn_max_minutes: 120}}
 member   {mid, kind: person|agent, handle, name, avatar, description, created,
-          agents: runtime, model, effort, node_id, folder, session_conversation_id,
+          agents: runtime, model, effort, node_id, node_name, node_kind (the computer as
+                  last seen, to name it while offline), folder, session_conversation_id,
                   access: only_me|everyone|listed, access_list, listen: mention|all,
                   created_by, state: running|stopped,
                   attention: {reason, fix, at} | absent, turns: [unix seconds, last day]}
@@ -163,7 +165,10 @@ message  {id (ULID), cid, root ("" or absent: top level), from (mid | "system"),
           reply_count, last_reply_at, repliers: [mid] (a thread root)}
 file     {id, name, mime, size}
 status   {state: ready|working|attention|offline, queue: n, reason, fix,
-          line (working: the live line), since, cid, root (working: where it was woken)}
+          line (working: the live line; ready with a queue: "Retrying soon[: why]"),
+          since, cid, root (working: where it was woken)}
+          reason and fix are plain words: computers by name ("Weizes MacBook Pro",
+          "your Workspace"), never a node id, host suffix or status code
 ```
 
 | Method | Args | Result |
@@ -514,10 +519,10 @@ Criteria:
 
 ## Phase 1 backend as built (2026-11-04)
 
-Status: service, node side and tests built; deployed to staging (controller,
-Fleet `fleet-v0.5.1-staging.7`, Agent App 0.9.109 with `team-chat` in the
-profile). The UI is separate. Staging checks are listed under "Staging
-verification" below.
+Status: service, node side and tests built; deployed to staging and verified
+2026-11-05 (controller at `7a1155bd`, Fleet `fleet-v0.5.1-staging.7`, Agent
+App 0.9.109 with `team-chat` in the profile); the UI is built separately.
+Not in production.
 
 **Service.** `os/internal/hosted/teamchat.go` (records, the space in memory,
 messages and their fold), `teamchat_tools.go` (the owner's tools),
@@ -581,13 +586,39 @@ text is posted there (in the thread when woken from one) with the runtime
 and model; > 32 KB becomes an attached `.md`. A turn that failed puts its
 events back at the head of the queue, marks the agent `attention` and posts
 one system line with `action: "retry"` and `about: <mid>` (e.g. "Writer
-could not answer: Claude Code is not signed in on Weize's MacBook. Open
+could not answer: Claude Code is not signed in on Weizes MacBook Pro. Open
 Coding Agents → Sign in, then press Retry."); nothing retries it until
-`agent_control(retry)` (or `start`). A node call that fails in transit is
-retried after 1, 5, 30 s, then each minute; an offline node is retried when
-the 15 s sweep sees it online again. A stopped turn (`stop_turn`) posts
-nothing; a turn over `turn_max_minutes` is stopped with a system line. A
-session the node no longer has starts a new one. Guards count turn starts
+`agent_control(retry)` (or `start`). The line is written from the node's
+error by `explain` (`teamchat_dispatch.go`): not signed in, not installed,
+PantheonOS models not set up on that computer, model budget used up, rate
+limited, model not available, conversation too long, the model service's
+temporary errors (5xx, overloaded), no network to the model service, the
+agent's folder unusable, PantheonOS too old, the session gone, the runtime
+stopped unexpectedly, and otherwise "its turn failed on <computer>" with
+where to look. Each says what to do; the raw error goes to the controller
+log. Errors returned to the owner's calls (`agent_create`, `stop_turn`,
+`reset_full`) are written the same way. The computer is named as people know
+it: `your Workspace` for the Workspace, a Mac's network name without
+`.local` and with spaces ("Weizes MacBook Pro"), else its name, never its id.
+
+**Offline.** A node is offline for the service as soon as either signal
+says so: its registry record is gone (a node deletes it when it stops and the
+record lapses 30 s after its last heartbeat), or a call to it finds nothing
+answering (`no responders`, the node service offline). In the second case it
+stays offline until the node sends a heartbeat newer than the one its record
+had at the failure, so a record that is still fresh cannot bring it back and
+make it flap; a slow call (timeout) on a node with a fresh heartbeat is not
+taken for offline. An offline agent keeps its queue and shows `offline` with
+"<computer> is offline" (or, mid-turn, the live line "<computer> is offline;
+waiting for it"); when the 15 s sweep sees the node back, its waiting agents
+start at once (their backoff is cleared). A node call that fails in transit
+for another reason is retried after 1, 5, 30 s, then each minute, with the
+status line "Retrying soon" and the reason when it is known. A stopped turn
+(`stop_turn`) posts nothing; a turn over `turn_max_minutes` is stopped with
+a system line. A session the node no longer has, or one made with another
+model provider than the agent now uses (its model source changed between
+subscription and PantheonOS models), starts a new one by itself, at the
+start or the end of the turn, without asking the owner. Guards count turn starts
 per agent per hour (`member.turns`) and per space per day; a guard posts one
 "Paused: …" line and shows as `attention` until its window passes. The
 token in `team` is an HMAC of the Fleet and member id with the controller's
@@ -619,11 +650,53 @@ refusal); wake rules; queue durability across a restart with `inbox` taking
 events once; the final text in the waking thread with runtime and model;
 edit/delete fold and the agents' next turn; failure line, attention and
 Retry; guards (hourly limit, hop chain, turn time); stop turn and resets;
-offline node; the agents' tool commands and files; snapshot and restore; and,
+offline node, and a node whose record is gone or that nothing answers
+(Offline at once, by its name, answered when back; not back on a stale
+heartbeat); a new session when the model source changed; the plain failure
+lines; the agents' tool commands and files; snapshot and restore; and,
 on an operator-mode server, that only the team-chat credential opens its
 bucket, stream and files while a node's App credential reaches its request
 subject. `apps/coding_agents/team_test.go`: the folder setup and a turn whose
 agent runs `pantheon-team` reply/post `--file`/inbox through the service.
+
+**Deviations from the contract above, as built.** Added: `space_update`,
+`me_update`, `file_put` / `file_get`, `agent_control` `retry` and `delete`,
+`agent_create` `dry_run`, the member's `node_name` / `node_kind`. Changed:
+an agent's message wakes other agents only by DM or @mention (not as a thread
+or channel reply).
+
+### Staging verification (2026-11-04/05)
+
+On staging with a test account (its own space, a Mac test node and its
+Workspace), through the App gateway as the browser calls it; agents on the
+Mac ran Claude Code and Codex, on the Workspace the Pantheon Agent.
+
+| | Result |
+|---|---|
+| T1 | Pass. The first `space_get` made the space with `#general`; a public and a private channel and a DM were created; all there after a controller restart. |
+| T2 | Pass. Claude Code on the Workspace (not installed) refused; a home folder warned, a shared agent in a home folder refused; the folder had `AGENT.md` and `.team/` (700). |
+| T3 | Pass. A DM to the Workspace agent was answered 16 s after it was posted, on the platform's model through the account's key; the message carries the runtime (the model when the runtime reports it). |
+| T4 | Pass. An unaddressed channel message woke none; `@writer` only Writer; `agent_reply: all` every member agent. |
+| T5 | Pass. Writer replied in its thread, posted in `#general` and DMed `@coder`. |
+| T6 | Pass. Three messages sent during a running turn reached it through `inbox` (one reply, no extra turn); sent between turns, the next turn took them. |
+| T7 | Pass. An edited message reached the next turn as edited; a delete showed as deleted. |
+| T8 | Pass. An instruction saved in `MEMORY.md` held after Reset session; Full reset (confirmed with the folder) forgot it. |
+| T9 | Pass. With the Workspace paused (no sandbox), the account's Agent idle and no browser, a DM posted through the service woke Writer on the Mac test node: the reply came 4 s later and the Workspace stayed paused. |
+| T10 | Pass. The node stopped: Writer showed "Weizes MacBook Pro is offline" at the first look (under 8 s); the node's process killed (record still fresh): Offline within 9 s. Each queued DM was answered 10–14 s after the node was back. Before the fix the status read "ready / Retrying soon" for as long as the node was away. |
+| T11 | Pass. The live line ("Running time python3 …") and stream subject; Stop turn returned the agent to Ready, posted nothing and ended the process. |
+| T12 | Pass. Claude Code and Codex agents counted by @mention in `#docs`; the chain stopped after 8 hops with a system line. |
+| T13 | Pass. An agent on a computer whose runtime was not signed in posted "Pan could not start: Pantheon Agent is not signed in on …. Open Coding Agents → Sign in, then press Retry."; the message stayed queued; fixed and Retry answered it. |
+| T14 | Pass. An image in a DM was saved to the agent's `files/` and described; an attachment the agent made was read back with `file_get`. |
+| T15 | Checked in the UI pass (`/app/team-chat` at phone width). |
+| T16 | Pass. One turn an hour: "Paused: … limit of 1 turns an hour …" with the agent in attention and the use shown; raised, it went on. |
+
+Also seen: after the test node's Claude Code and Codex were switched to
+PantheonOS models (`model_source: pantheon`), Codex refused to resume its
+earlier session ("This chat uses openai, but your current provider is
+pantheon"); the service now starts a new session for it. A person's message
+to an agent that remembers an agent game can restart that game in its
+channel; the hop guard ends it after 8 hops each time (reset the agents'
+sessions to end it for good).
 
 ## Out of scope
 
