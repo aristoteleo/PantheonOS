@@ -1233,6 +1233,98 @@ browser, Writer (Claude Code, Haiku, PantheonOS models) on the test Mac:
 | Time zone | "remind me tomorrow at 9:00 Tokyo time to call Kenji" → due 2026-11-06T00:00Z, confirmed as "16:00 America/Los_Angeles today"; "cancel the Kenji reminder" → "Cancelled the Kenji reminder." (no id). |
 | Low items | The old budget line in #p2v-check is gone (Writer's `last_ok` is later); task lines neutral, a click (or Enter) opens and flashes the task's message; a thread you started shows Following, Unfollow → Follow → Following; Settings reads "Models $3.58 + Workspace compute $17.19 of your $30.00 monthly budget; $9.23 left for models."; the profile lists "For @weize" without an id; Delete says "Its reminder is cancelled."; Search's In list has one "Removed agent"; at 390 px In/From and After/Before sit in two columns without overlap; #p2v-check opened from Search says "This channel is archived" with the message box off. |
 
+### Fixes after the second Phase 2 check (2026-11-05)
+
+**A person's reminder never waits for the agent's turn.** Found: when the
+turn a person's reminder queued was the one that tripped a limit (turns an
+hour or a day, turn minutes), only "Paused: …" was posted; the reminder had
+already left the store, and it reached the person only when the limit
+lifted (14 minutes to hours later). The fallback looked only at a pause
+noted earlier. Now delivery does not depend on the agent getting a turn:
+
+* At its time, a person's reminder is posted for them at once ("⏰ Reminder
+  for @weize: <note>", as the agent, where it belongs) when the agent
+  cannot run: stopped, needs its owner, over a limit (computed then, not a
+  pause noted earlier), its Agent App starting, or its computer known
+  offline.
+* Whenever a queued turn that holds person reminders is refused, deferred
+  or cannot start, they are posted for their people and leave the queue
+  (`remindNow`); the rest of the queue waits as before. That covers each
+  limit, an offline or silent computer (no responders), a paused Workspace,
+  the Agent App starting, a used-up budget or any other failure that needs
+  the owner, a stopped agent, and a retry more than 10 s away (a 1 s or 5 s
+  retry keeps it for the agent's own turn). When only reminders were
+  waiting, no "Paused" line is posted.
+* A reminder that could not be posted (a store error) stays queued and is
+  posted on the next try; one is never dropped. Several reminders for one
+  conversation are each posted.
+* The 12-in-a-row guard does not stop a reminder's turn; if the agent's post
+  is refused there, the fallback is posted as a Team Chat line.
+* Go tests: `teamchat_remind_test.go` (each limit at due time and tripping
+  the queued turn, 12 in a row, offline at due, gone after queueing, no
+  responders, Agent App starting, Workspace paused, budget, long retry,
+  stopped after queueing, two in one conversation).
+
+**The confirmation states the right time.** Found: Haiku chained `remind …;
+post "Reminder set … (at HH:MM)"` in one command and guessed the time
+(2 of 6 wrong). Now:
+
+* The turn input starts with `Now: Thu Nov 5 10:13 America/Los_Angeles
+  (18:13 UTC), the space's time zone.`
+* `remind` answers with a phrase to quote: `"at 10:15 today (Thu Nov 5,
+  America/Los_Angeles)"`, `"at 09:00 tomorrow (…)"`, `"at 09:00 on Mon Nov
+  9 (…)"`, and asks for the confirmation in the person's language,
+  translating the day words and keeping the clock time and zone.
+* The brief (turn input, the turn's note, AGENT.md): run `remind` by itself
+  and confirm only after it answers, quoting its time; never chain the
+  confirmation; reply in the person's language.
+
+**Status.** A stopped agent's status is `stopped` (was `offline`); the UI
+reads "Stopped" (sidebar title "Writer: Stopped", profile).
+
+**Interface.** System lines are attributed to "Team Chat" in Activity,
+Search and notifications (was "Removed agent: Stopped a chain…"). A thread
+you follow with unread replies shows "N new replies" on its root in the
+channel (an older root not loaded: a line "N new replies in a thread you
+follow"); opening it marks it read and clears the channel badge. The URL
+keeps `conv`, `thread` and `agent` in step with what is on screen for every
+way of navigating (sidebar, Search, Activity, Back), so a copied link opens
+that conversation and thread. The profile's Cancel confirm reads '@weize
+won't be reminded about "<note>".' for a person's reminder, never with a
+double period.
+
+**Why acct3's pod came back (ops).** Not Team Chat: an API read through
+the hub touches no pod (checked: no assign, prewarm or wake in the hub log;
+the Workspace stayed paused through 25 minutes of reads, page loads of
+`/app/team-chat` and turns). Two other things start pods:
+
+* The account's k8s brain pod (`chatroom-<uid>` in `pantheon-users`) is
+  resident (`idle_release=False`): when it is deleted from outside
+  (`kubectl delete`), the hub's health checker starts it again within a
+  minute (then every 5 minutes). That is the 18:08 / 18:53 / 18:58 restores
+  after the checks' cleanups. Release it with the hub, not kubectl.
+* The desktop (`desktop.html`) and sign-in prewarm call `GET /api/chatroom`
+  and `/api/auth/prewarm`, which start the Workspace (Modal) by design. The
+  standalone Team Chat page (`/app/team-chat`, `controllerHosted`) does
+  neither.
+
+A Workspace-hosted agent's turn waits for its Workspace and does not start
+it (status "Your Workspace is paused").
+
+**Staging verification.** Controller `95a7f665` (sha e493cb95), frontend
+`7180ccea` (no node release, no new agents image), test account, headless
+browser on `/app/team-chat`, Writer (Claude Code, Haiku, PantheonOS models)
+on the test Mac:
+
+| | Result |
+|---|---|
+| Wording 1 | "@writer remind me to check the CI in 2 minutes" → one confirmation "…at 11:10 today (Thu Nov 5, America/Los_Angeles)"; posted "@weize Check the CI now." 7 s after its time. |
+| Wording 2 (Chinese, thread) | "@writer 3分钟后提醒我喝水" → "@weize 好的，我会在 11:11 today (…) 提醒你喝水。" (before the day-word change); "@weize 提醒：该喝水了。" in the thread 7 s after. After the change, "@writer 2分钟后提醒我站起来活动一下" → "…我会在今天 11:22（Thu Nov 5, America/Los_Angeles）…". |
+| Wording 3 | "@writer could you give me a heads-up at 11:15 that the deploy window opens?" → "…at 11:15 today (…)"; posted at 11:15:08. |
+| Hourly limit | Reminder set, then turns an hour 5 (Writer had 24): "@writer are you there?" → "Paused: Writer reached its limit of 5 turns an hour…"; at the reminder's time "⏰ Reminder for @weize: Check the oven …" at 11:19:08 (due 11:19:06). |
+| Computer offline | Test node stopped after the confirmation: "⏰ Reminder for @weize: 站起来活动一下 …" at 11:22:29 (due 11:22:26), status "Weizes MacBook Pro is offline". |
+| Low items | Stopped Writer: sidebar "Writer: Stopped", profile "Stopped". Activity: "Team Chat: Stopped a chain…". A followed thread's reply shows "1 new reply" on its root and the channel badge 1; opening it clears both and the URL gains `&thread=`. Opening a DM from Activity sets `?conv=dm-…`; that URL in a new tab opens the same DM. Cancel dialog: '@weize won't be reminded about "Heads-up: …".' |
+
 ## Out of scope
 
 Payments, mobile native apps, external chat bridges, prod rollout (asked
