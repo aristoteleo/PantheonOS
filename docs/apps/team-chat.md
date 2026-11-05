@@ -1402,6 +1402,155 @@ models:
 | Views | Tasks, Activity, Search set `?view=…`; each address opens that view in a fresh context (`?view=search&q=zanzibar` fills the search). |
 | Copy | Stopped Coder's DM: "…reminders it set for you still arrive."; Cancel confirm '@weize won't be reminded about "给 Sam 打电话".' (the punctuation case itself is a unit test: the agent stored the note without "。"). |
 
+## Phase 3 as built (2026-11-05)
+
+Status: being built on staging (contract below; the interface is built
+against it). Not in production.
+
+### Decisions where the design left a choice
+
+* **A space is its owner's.** One space per owner Fleet, as before; its id is
+  the owner's Fleet id (`space.id`). The Hub keeps who else is in it
+  (`space_members`); the service keeps their person records (for names,
+  handles, read marks) and takes each caller's identity from the grant.
+* **People.** The owner's member id stays `owner`; another person's is `p` +
+  12 hex of a hash of their account id. Their handle comes from the
+  account's username (a digit is added when it is taken), their name from the
+  account's display name; both are theirs to change (`me_update`). A person
+  who joins is added to `#general`, and Team Chat posts "@alice joined the
+  space." there.
+* **Roles.** Owner: everything (as Phase 2). Admin: what a member does, plus
+  rename, archive and change the members of any channel they can see, start,
+  stop, stop the turn of and reset the session of agents they may use, invite
+  people and remove members (not admins or the owner). Member: post, edit and
+  delete their own messages, create channels (public or private), change the
+  channels they created, join public channels, add people and agents they may
+  use to channels they are in, tasks in the conversations they see, use the
+  agents they may use. Only the owner creates, deletes or changes agents
+  (their computer, folder, runtime and access), changes the space's name,
+  limits and time zone, makes admins, and watches a turn (Watch reads the
+  owner's computers). Phase 3 agents all belong to the owner.
+* **Who sees what.** A person sees: public channels, the conversations they
+  are in, and the DMs of the agents they own (an agent DM is also the
+  agent's owner's). So a private channel is invisible to everyone not in it,
+  the owner too, and a DM between two people is theirs only. Unread counts,
+  Activity, notifications and Mark all read cover the conversations a person
+  is in (and their agents' DMs); a public channel they have not joined is
+  listed with nothing unread until they join it. Search, Files, Tasks and
+  every message read cover what the person sees. An agent sees what it did
+  (its conversations and public channels).
+* **Who may use an agent.** *Only me*: its owner only. *Everyone in this
+  space*: every person. *Listed people*: its owner and the people in
+  `access_list` (person ids). Without it a person cannot DM the agent, add it
+  to a conversation, assign it a task, or wake it: a mention, a reply in a
+  thread it follows or a channel set to wake every agent wakes only the
+  agents the writer may use. A mention of an agent they may not use is posted
+  (people see it) and the post's answer names it (`not_woken`), so the page
+  says "Writer was not asked: only @weize can use Writer." An agent's
+  messages stay visible to everyone in the conversation, whoever may use it.
+* **No relay around access.** A turn works for the person whose message
+  started it (`behalf`: the newest person's message among its events; a
+  reminder's person; an agent's message carries its turn's). An agent's
+  message wakes another agent only when that person may use it; otherwise the
+  agent's post answer says who was not woken and why.
+* **Billing.** Turns run on the owner's computers with the owner's keys
+  (Phase 3 agents are the owner's), so a member's question bills the owner's
+  budget; nothing of the member's is used.
+* **Invite.** Share… on Team Chat makes a link that joins the space being
+  viewed (owner or admin; a member is told only owners and admins invite).
+  The link's page has two steps: Account, then "Join <owner>'s space"; the
+  end is `/app/team-chat?space=<space id>`. No trial credit (the owner's
+  agents answer on the owner's budget), no Workspace, no computer. An
+  account that exists signs in and joins; a link with no sign-ups left still
+  lets an account join. A link is per space; revoking it stops new joins, not
+  the people who joined.
+* **Removing.** Owner (or an admin, for a member) removes a person in Space
+  settings → People; a person may leave a space themselves. The Hub deletes
+  the membership, the controller drops that person's live grants at once and
+  marks the person removed in the service (out of every channel, their
+  reminders cancelled, "@alice was removed from the space." in `#general`,
+  a `removed` event to their page). Their next call fails ("You are no
+  longer in this space"); their messages stay with their name. They keep
+  only what they downloaded.
+* **Read state of others.** Each person sees, under the newest message
+  another person read, "Seen by Alice" (in conversations with two or more
+  people), live.
+
+### Contract added (`team-chat` 1.2.0)
+
+**Callers.** The owner's browser (`Call.Owner`), an App of the owner's
+deployment (as the owner), and now a **space grant**: the Hub asks the
+controller's App gateway to connect a person's browser to the owner's
+`team-chat` App with `member: {grant_id, space, user_id, username, name,
+fleet_id, role, joined}` (`fleet_id`: the person's own Fleet; `role`:
+`admin` | `member`; `joined`: unix seconds). The gateway accepts a member
+grant only for the hosted `team-chat` binding of the Fleet named by `space`,
+and lets through only `POST /rpc` and `GET /__fleet/status`; the hosted host
+passes the identity to the service as `Call.Member`, and no other hosted App
+accepts one.
+
+**`space_get`** adds `role` (`owner` | `admin` | `member`), `owner`
+(`"owner"`), `can_use` ([agent mid] the caller may use) and `reads_by`
+(`{cid: {mid: id}}`: other people's read marks in the conversations the
+caller sees). `me`, `subject` and `revision` are the caller's. Person
+records carry `role` and, once removed, `removed_at`; for anyone but the
+owner an agent record leaves out `folder`, `node_id`,
+`session_conversation_id`, `turns` and `turn_spans`, and a status leaves out
+`cid`, `root` and `line` when it is about a conversation the caller does not
+see. `conversations` are those the caller sees (public channels they have
+not joined included, `unread` zero there).
+
+**`post`** answers `{message, task?, not_woken?: [{mid, reason}]}`.
+`conv_create` (a DM, or members), `conv_update` (members), `conv_join`
+(another member) and `task_update` (assignee) refuse an agent the caller may
+not use ("Only @weize can use Writer.").
+
+**Refusals** in plain words: "Only the space owner can …", "Only the space
+owner and admins can …", "You are not in this conversation", "You are no
+longer in this space". `agent_live` is the owner's. `reminders` lists, for
+anyone but the owner, the reminders for them; `reminder_cancel` likewise.
+`file_get` serves a file attached to a message the caller sees, or one the
+caller uploaded.
+
+**Events.** Each person has their own subject and revisions: the owner's is
+`fleet.<owner fleet>.apps.team-chat.events` as before; another person's is
+`fleet.<their fleet>.apps.team-chat.spaces.<owner fleet>` (in their own App
+namespace, so their browser follows it with its own App bus credential;
+nobody else's credential reaches it). A person gets only what they see: a
+message, task, `typing` or `read` event of a conversation they see; `member`
+and `agent_status` events (redacted as `space_get`); `space`; their own
+`notify`; `reminder` events of reminders for them (the owner: all). New:
+`{type: "conv", rev, cid, gone: true}` when a conversation is no longer
+theirs to see (e.g. removed from a private channel), and `{type: "removed",
+rev}` when they were removed from the space.
+
+**Turn input.** People are marked `@alice (person)`, `@sam (person, admin)`,
+`@weize (person, space owner)`; `AGENT.md` lists every person.
+
+### Hub (`space_members`)
+
+Table `space_members` (`id`, `space_id` = the owner's Fleet id,
+`owner_user_id`, `user_id`, `role` owner | admin | member, `joined_at`,
+`invited_by`, `invite_id`; unique `(space_id, user_id)`), and
+`app_invites.space_id` (migration `migrations/add_space_members.sql`, run on
+staging only). API (signed in):
+
+| Route | Does |
+|---|---|
+| `GET /api/team-chat/spaces` | `{spaces: [{space_id, owner_name, owner_username, role, joined_at}]}`: the spaces the caller joined (not their own) |
+| `POST /api/team-chat/spaces/{space}/connect` `{ui_origin}` | A space grant to the owner's `team-chat` App: `{origin, ticket, expires}` (as `/api/fleet/apps/connect`); 403 "You are not in this space."; 409 when the owner's Team Chat is not running |
+| `GET /api/team-chat/spaces/{space}/members` | Owner and admins: `{members: [{user_id, username, name, role, joined_at, mid}], role}` |
+| `PATCH /api/team-chat/spaces/{space}/members/{user}` `{role}` | Owner: `admin` or `member`; the person's grants are dropped, so their next call carries the new role |
+| `DELETE /api/team-chat/spaces/{space}/members/{user}` | Owner (anyone but themselves), an admin (a member), or the person (leaving); drops their grants and marks them removed in the service at once |
+| `POST /api/app-links` / `POST /api/app-invites` with `app: "team-chat"`, `space` | A space invite (owner or admin of that space); no trial credit |
+| `GET /api/app-invites/{id}`, `GET /api/app-links/{id}` | Add `space: {id, owner}` for a space invite |
+| `POST /api/app-invites/{id}/join` | Signed in: joins the invite's space as a member (once); `{space_id, role, joined}`; 410 for a revoked or expired link (a full one still lets an account join); 409 for the owner |
+
+The controller has `POST /team-chat/members` (Hub service token: `{fleet_id,
+user_id, action: remove | role, role}`) for the last two: it drops the
+person's live grants on the App gateway and updates the service, in one
+request.
+
 ## Out of scope
 
 Payments, mobile native apps, external chat bridges, prod rollout (asked
