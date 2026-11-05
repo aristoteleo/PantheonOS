@@ -854,6 +854,10 @@ Dispatching a turn and "Fixes after the independent check" below).
   calls with no command (`{"timeout": 60}`): the shell App then read an idle
   shell until the timeout. `run_command` without a command now answers at
   once (`run_command needs a command…`). Node 0.5.1-staging.10.
+  Re-checked on a fresh account through an invite (agents image
+  sha-c479726): Use my Workspace → Create agent → Say hello got a text
+  greeting in #general in 15 s (`post '#general'`, labelled `Pantheon Agent ·
+  DeepSeek V4.1 Flash`); two DMs answered in 15 s each; no empty shell call.
 * **Interface.** Open on desktop counts only a desktop tab that answers
   within 500 ms (a desktop whose Workspace is not connected stays silent) and
   otherwise opens `desktop.html`; desktop windows are opaque when not
