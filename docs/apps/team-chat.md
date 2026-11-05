@@ -1063,8 +1063,9 @@ agent's queue (event id `rem-<id>-<due unix>`, so a restart between queueing
 and moving it on queues it once) and then moves on (repeat) or is removed
 (once). The queue is the agent's like any message's: a stopped agent, a
 paused guard or an offline computer keeps it waiting; deleting the agent
-removes its reminders. A reminder's turn posts nothing unless the agent
-posts (the final text is posted only for a DM or a mention). Times are kept
+removes its reminders. An agent's own reminder posts nothing unless the
+agent posts; a person's reminder always reaches them (see "Fixes after the
+first Phase 2 check"). Times are kept
 in UTC with the space's time zone at the time they were set; the controller
 carries its own time zone database (`time/tzdata`). The brief tells agents a
 reminder is the one way to act later.
@@ -1162,6 +1163,63 @@ the Activity count included an archived channel; a conversation behind the
 Tasks view was marked read. Also seen: pulling the new agents image put the
 staging node in DiskPressure for about five minutes (the kubelet removed the
 old image), during which the frontend's Recreate rollout had no pod.
+
+### Fixes after the first Phase 2 check (2026-11-05)
+
+**A person's reminder always reaches them.** Found: "@writer remind me to
+check the CI in 2 minutes" fired, but Writer took "check the CI" as its own
+job and posted nothing (a final text is posted only for a DM or a mention).
+Now:
+
+* A reminder records who it is for: `for` (a person's mid; empty = the
+  agent itself). `remind --for @handle` or `--for me`; without it, a person
+  whose message the reminder is about, or whose message started the turn,
+  is the one it is for.
+* A person's reminder turn says `Reminder for @weize … Remind @weize:
+  <note>` and where to post it (`reply <id>` where it was asked, in its
+  thread; else the channel; else the DM), mentioning the person.
+* When that turn ends without a post there (or in the DM with the person),
+  Team Chat posts the agent's final text (with `@weize` put in front when it
+  is missing), else `⏰ Reminder for @weize: <note>`, as the agent, where it
+  belongs. Also when the turn fails (the reminder is then not kept waiting),
+  is stopped or skipped. When it comes due while the agent cannot run
+  (stopped, needs attention, paused by a guard, its computer offline), it is
+  posted at once and no turn starts.
+* An agent's own reminder (`--for me`) works as before: nothing is posted
+  unless it posts.
+
+**Time zones.** `remind` takes `--tz ZONE` (IANA) and times with their own
+offset (`2026-11-06T09:00+09:00`, also with a space or without seconds).
+Its answer gives the time in the space's time zone and asks the agent to
+confirm that clock time to the person ("I'll remind you at 16:00
+America/Los_Angeles"). `remind help` lists the whole syntax; a wrong
+`remind` is answered with it. The brief (AGENT.md, the turn's note) says
+this, and the node's script needs no change (it passes any `--name value`).
+
+**Reminder ids stay with the agent.** `remind`'s answers say the id is for
+`remind cancel` only; the brief tells agents never to show it and that
+people cancel by saying "cancel the reminder".
+
+**Budget.** The failure line for a used-up budget now reads "its model
+budget is used up (on PantheonOS models, models and Workspace compute share
+the account's monthly budget: Settings → Usage)". Cause of "3.09 of 20
+used" while the agent was out of budget: Settings' LLM Proxy card showed the
+model key's spend against the configured budget ($20), but the key's real
+limit is the budget less the month's Workspace compute ($20 − $16.95). The
+card now says models + compute of the monthly budget and what is left for
+models. A failure line about an agent is hidden once that agent finished a
+turn after it (`member.last_ok`, unix seconds) and no longer needs
+attention.
+
+**Interface.** Task lines ("claimed this task", "moved … to Done") have a
+neutral style (no warning tint) and open their task when clicked. A thread
+shows Following (with Unfollow) whenever Activity counts it as followed:
+an explicit choice wins (`space_get.unfollows` lists explicit unfollows),
+else writing in it or being mentioned there. The profile's Reminders say
+who each is for and show no ids; Delete agent says its reminders will be
+cancelled. Search's In list has no duplicate "Removed agent"; its filters
+wrap at 390 px; an archived channel opened from Search or Activity says
+"This channel is archived" and its message box is off.
 
 ## Out of scope
 
