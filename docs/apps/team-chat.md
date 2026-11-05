@@ -1029,6 +1029,76 @@ search <words> [--in '#channel'] [--from @h] [--limit N]
 is told the task's state and to claim it first; a reminder's turn starts
 with `Reminder you set …: <note>` and the message it is about.
 
+### Service as built
+
+**Files.** `teamchat_tasks.go` (tasks, their lines, `task …`),
+`teamchat_reminders.go` (times, repeats, the scheduler, `remind …`),
+`teamchat_activity.go` (unread, Activity, Mark all read, search,
+notification levels, a conversation's files); the contract is
+`manifests/team-chat.json` 1.1.0.
+
+**Storage.** New keys in `KV TEAMCHAT`: `<fid>.task.<message id>`,
+`<fid>.rem.<agent>.<id>`, `<fid>.tread.<mid>.<root>` (a thread's read mark)
+and `<fid>.notify.<mid>.<cid>`; snapshots and `Restore` take them as every
+other key. A controller without Phase 2 ignores them.
+
+**Tasks.** A change is refused or made under the space's lock, so of two
+claims at once exactly one wins. A task's line is a system message in its
+thread with `task` (the id) and `by` (who acted); a line that reports the
+person's own action is not unread for them. The turn input, `inbox` and
+`read` mark a task message (`(task: In progress, claimed by @writer)`) and
+tell the agent what to do with it (claim it, it is not yours, move it to In
+review with a summary). The agent's brief (`AGENT.md`, the turn's note) lists
+the task commands and says to claim before working and that a person sets
+Done.
+
+**Reminders.** The scheduler runs beside the 15 s sweep and looks every 5 s;
+on start the service loads every space that has a reminder (the keys
+`*.rem.>` with queues and turns), so one that came due while the controller
+was down fires at once. A due reminder becomes a wake event
+`{kind: reminder, rem, note, id: the message it is about, cid, root}` in its
+agent's queue (event id `rem-<id>-<due unix>`, so a restart between queueing
+and moving it on queues it once) and then moves on (repeat) or is removed
+(once). The queue is the agent's like any message's: a stopped agent, a
+paused guard or an offline computer keeps it waiting; deleting the agent
+removes its reminders. A reminder's turn posts nothing unless the agent
+posts (the final text is posted only for a DM or a mention). Times are kept
+in UTC with the space's time zone at the time they were set; the controller
+carries its own time zone database (`time/tzdata`). The brief tells agents a
+reminder is the one way to act later.
+
+**Unread.** `space_get().unread[cid]` counts top-level messages after the
+conversation's mark plus new replies of followed threads after the thread's
+mark (the conversation's when the thread has none); writing in a thread
+moves its mark. `thread_unread` lists followed threads with something new.
+
+**Search.** Each folded message keeps its text and file names lower case;
+`search` scans the conversations the caller may read, newest first. On
+staging a space of 10,000 messages answers in a few milliseconds (see
+below); the first search after a controller start reads the conversations
+from the stream like any first look.
+
+**Node.** `pantheon-team` passes any lower-case command word and any
+`--name value` option to the service (staging.11), which checks them; new
+commands no longer need a node release.
+
+**Tests.** `teamchat_phase2_test.go`: a task's claim, the second claim
+refused, In review with the summary in the thread, Done by the person,
+every line in the thread, filters, an agent's `task list` and `task create`,
+tasks after a restart; reminder times and repeats in a time zone (once,
+clock times, weekdays, a weekday repeat over a weekend, missed times not
+made up); a reminder set, the controller stopped, the time passed, a new
+controller started: it fires once, wakes only its agent with the message
+and its thread, posts nothing and is removed; a recurring reminder listed,
+firing twice, cancelled by the agent; a stopped agent's reminder waiting
+for Start; deleting an agent cancels its reminders; unread and Activity
+across a channel, a DM and threads (a thread's own mark, an unfollowed
+thread, the person's own task line, In review, Mark all read, writing in a
+thread); search of 10,000 messages by words, channel, author and dates, and
+by an agent; notification levels; a conversation's files; the Starting
+words. `apps/coding_agents/team_test.go`: new commands and options reach the
+service; a word that is not a command is refused by the script.
+
 ## Out of scope
 
 Payments, mobile native apps, external chat bridges, prod rollout (asked
