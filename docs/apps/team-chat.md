@@ -559,9 +559,10 @@ Criteria:
 ## Phase 1 backend as built (2026-11-04)
 
 Status: service, node side and tests built; deployed to staging and verified
-2026-11-05 (controller at `7a1155bd`, Fleet `fleet-v0.5.1-staging.7`, Agent
-App 0.9.109 with `team-chat` in the profile); the UI is built separately.
-Not in production.
+2026-11-05 (first at controller `7a1155bd`, Fleet `fleet-v0.5.1-staging.7`,
+Agent App 0.9.109 with `team-chat` in the profile; now controller `0f2a489d`,
+Fleet `fleet-v0.5.1-staging.10`, Agent App 0.9.110, see the fixes below);
+the UI is built separately. Not in production.
 
 **Service.** `os/internal/hosted/teamchat.go` (records, the space in memory,
 messages and their fold), `teamchat_tools.go` (the owner's tools),
