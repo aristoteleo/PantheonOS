@@ -327,3 +327,18 @@ func TestParallelCommandsOfOneConversationAllRun(t *testing.T) {
 		t.Fatalf("side shells outlived their commands: %d shells, side %v", len(app.shells), app.side)
 	}
 }
+
+// run_command without a command answers at once instead of reading an idle
+// shell until its timeout.
+func TestRunCommandWithoutCommandAnswersAtOnce(t *testing.T) {
+	app := NewApp(t.TempDir())
+	defer app.Close()
+	start := time.Now()
+	res, err := app.runCommand(map[string]any{"timeout": 60})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := res["success"].(bool); ok || res["status"] != "no_command" || time.Since(start) > 2*time.Second {
+		t.Fatalf("%v after %s", res, time.Since(start))
+	}
+}
