@@ -768,6 +768,48 @@ Dispatching a turn and "Fixes after the independent check" below).
   times, "Send as a file" for long messages, upload percentage, plain
   errors, Team Chat's Share copy says it is personal in this phase.
 
+### Fixes after the second check (2026-11-05)
+
+* **People and agents.** Every author in a turn's input, `inbox` and `read`
+  is marked: `@weize (person, space owner)`, `@coder (agent: Codex)`,
+  `@writer (you)`, `@trio (agent, removed)`; the turn input starts with the
+  people in the space. `AGENT.md` has a "Who is here" list (people, then
+  agents with runtime and role). `pantheon-team members` shows the kind
+  (`person, space owner` / `agent: Codex, ready`).
+* **The brief** says requests from people always count, including asking
+  the agent to talk to, ask or coordinate with other agents; the anti-loop
+  line only forbids starting or resuming games, chains or routines on the
+  agent's own initiative or because another agent asked, and says to do a
+  back-and-forth a person asks for now (the guards bound it). The service
+  now sends the turn's Team Chat note to the node (`team.note`, node
+  0.5.1-staging.9), so its wording changes without a node release.
+* **Handles.** A member keeps `prev_handles`; an old `@handle` still
+  mentions it, and agents read old mentions as the current handle. The
+  interface defaults the person's handle from the account's full name, else
+  the username without a random suffix, and Space settings changes it.
+* **Thread replies.** `pantheon-team reply` to a message in a thread, or to
+  a thread's first message, posts in that thread; other channel messages
+  and DMs get inline replies. A turn woken in a thread is told
+  `reply <the waking message>`.
+* **Deleted agents.** `space.formers` keeps a deleted agent's handle, name,
+  avatar and runtime, so its messages keep them (marked removed) and they
+  still count as agent messages for the run guard.
+* **Model.** `agent_send` returns the model the node runs the turn on (the
+  one asked, else the runtime's default there); the turn's messages carry
+  it until the runtime names its own.
+* **Live state.** The hourly minutes include the running turn; Stop turn
+  emits an empty live line at once (`stopping: true`), and so does every
+  turn end. Runtime warnings (`⚠ …`) are not part of the final text.
+* **Uploads.** The browser sends 320 KB pieces (the hosted App RPC body is
+  at most 512 KB); the service handles a piece in about 15 ms, so the time is
+  the round trips.
+* **Interface.** Drafts and attachments per conversation and thread; a DM
+  with a removed agent says so and cannot be written in; offline shows the
+  reason and that messages wait; offline computers stay listed; one
+  computer name everywhere; Watch folds runtime warnings and says when
+  Codex reports no steps live; model select in agent Settings; one time
+  format; the unexplained badge is gone.
+
 ## Out of scope
 
 Payments, mobile native apps, external chat bridges, prod rollout (asked
