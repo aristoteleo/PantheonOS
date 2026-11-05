@@ -56,10 +56,12 @@ var (
 	tcMentionRE = regexp.MustCompile(`(^|[^A-Za-z0-9_@])@([A-Za-z0-9][A-Za-z0-9_-]{0,31})`)
 )
 
-// TeamNode is what the service needs to know of a node.
+// TeamNode is what the service needs to know of a node. Seen is its last
+// heartbeat (in the node's own clock; zero when not known).
 type TeamNode struct {
 	ID, Name, Kind, OS string
 	Online             bool
+	Seen               time.Time
 }
 
 // TeamNodes reaches the owner's nodes: their state, and their Coding Agents
@@ -81,9 +83,12 @@ func (n fleetNodes) Node(ctx context.Context, fleet, nodeID string) (TeamNode, e
 	}
 	rec := node(inv, nodeID)
 	if rec == nil {
-		return TeamNode{}, fmt.Errorf("no computer %s in this Fleet", nodeID)
+		// A node's record lives as long as its heartbeat (registry TTL) and is
+		// removed when it stops: a missing record is an offline node.
+		return TeamNode{ID: nodeID}, nil
 	}
-	return TeamNode{ID: nodeID, Name: str(rec["name"]), Kind: str(rec["kind"]), OS: str(rec["os"]), Online: online(rec)}, nil
+	seen, _ := time.Parse(time.RFC3339Nano, str(rec["last_seen"]))
+	return TeamNode{ID: nodeID, Name: str(rec["name"]), Kind: str(rec["kind"]), OS: str(rec["os"]), Online: online(rec), Seen: seen}, nil
 }
 
 func (n fleetNodes) Call(ctx context.Context, fleet, nodeID, method string, args map[string]any, timeout time.Duration) (map[string]any, error) {
@@ -414,9 +419,9 @@ type tcMsg struct {
 
 // tcWake is one event waiting for an agent.
 type tcWake struct {
-	ID     string `json:"id"`     // the message
-	Event  string `json:"event"`  // its event id (an edit's or delete's own)
-	CID    string `json:"cid"`    //
+	ID     string `json:"id"`    // the message
+	Event  string `json:"event"` // its event id (an edit's or delete's own)
+	CID    string `json:"cid"`   //
 	Root   string `json:"root,omitempty"`
 	Kind   string `json:"kind"`   // post | edit | delete
 	Reason string `json:"reason"` // dm | mention | thread | all | edit | retry
@@ -466,7 +471,9 @@ type tcFleet struct {
 	seq     uint64 // the change revision events carry
 	live    map[string]*tcLive
 	nodes   map[string]TeamNode
-	nodesAt time.Time
+	// unreachable: nodes a call found unreachable, with their last heartbeat
+	// then; such a node counts as offline until it sends a newer one.
+	unreachable map[string]time.Time
 }
 
 // tcLive is what the service knows of an agent beyond its record.
@@ -806,7 +813,6 @@ func (m *tcConvMsgs) fold(e *tcEvent) *tcMsg {
 	}
 	return nil
 }
-
 
 // append publishes an event to its conversation and folds it.
 func (t *TeamChat) append(ctx context.Context, fl *tcFleet, e *tcEvent) (*tcMsg, error) {

@@ -26,6 +26,9 @@ import (
 type fakeAgents struct {
 	mu      sync.Mutex
 	online  map[string]bool
+	gone    map[string]bool      // its record is gone (heartbeat stopped)
+	deaf    map[string]bool      // online by its record, but nothing answers calls
+	seen    map[string]time.Time // last heartbeat
 	prompts []string
 	sends   []map[string]any
 	reply   func(prompt string) (text, errText string)
@@ -50,18 +53,24 @@ func newFakeAgents() *fakeAgents {
 func (f *fakeAgents) Node(_ context.Context, _ string, id string) (TeamNode, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.gone[id] {
+		return TeamNode{ID: id}, nil
+	}
 	kind := "machine"
 	if id == "n_ws" {
 		kind = "sandbox"
 	}
-	return TeamNode{ID: id, Name: "Node " + id, Kind: kind, OS: "linux", Online: f.online[id]}, nil
+	return TeamNode{ID: id, Name: "Node-" + id + ".local", Kind: kind, OS: "linux", Online: f.online[id], Seen: f.seen[id]}, nil
 }
 
 func (f *fakeAgents) Call(_ context.Context, _ string, node, method string, args map[string]any, _ time.Duration) (map[string]any, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if !f.online[node] {
+	if !f.online[node] || f.gone[node] {
 		return nil, fmt.Errorf("The node is offline; reconnect it before accessing its services")
+	}
+	if f.deaf[node] {
+		return nil, fmt.Errorf("nats: no responders available for request")
 	}
 	switch method {
 	case "agents_detect":
@@ -160,7 +169,6 @@ func teamHost(t *testing.T, tc *TeamChat) (*Host, apptransport.Binding, apptrans
 	theirs, _ := Binding(otherFleet, "general-team", "team-chat", "team-chat")
 	return h, mine, theirs
 }
-
 
 func eventually(t *testing.T, what string, ok func() bool) {
 	t.Helper()
@@ -662,6 +670,83 @@ func TestOfflineAgentsWaitAndAnswerWhenTheirNodeIsBack(t *testing.T) {
 	eventually(t, "the answer", func() bool { return lastFrom(msgs(t, h, mine, "general", ""), writer) != nil })
 }
 
+// A node that stopped (its record gone) or that nothing answers for shows
+// Offline at once, by its name, and its queue is answered when it is back.
+func TestUnreachableOrGoneNodesShowOfflineAndAnswerWhenBack(t *testing.T) {
+	url := jetStream(t)
+	nodes := newFakeAgents()
+	nodes.gone, nodes.deaf = map[string]bool{}, map[string]bool{}
+	nodes.seen = map[string]time.Time{"n_mac": time.Unix(1000, 0)}
+	tc := teamOn(t, url, nodes)
+	tc.tick = 30 * time.Millisecond
+	h, mine, _ := teamHost(t, tc)
+	writer := makeAgent(t, h, mine, "Writer", "n_mac", "claude", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go tc.Run(ctx)
+	status := func() map[string]any {
+		return call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[writer].(map[string]any)
+	}
+	set := func(f func()) { nodes.mu.Lock(); f(); nodes.mu.Unlock() }
+
+	// Gone: offline by the name it had.
+	set(func() { nodes.gone["n_mac"] = true })
+	call(t, h, mine, "post", map[string]any{"cid": "general", "text": "@writer one"})
+	eventually(t, "offline (gone)", func() bool {
+		s := status()
+		return s["state"] == "offline" && s["reason"] == "Node n_mac is offline"
+	})
+	set(func() { nodes.gone["n_mac"] = false; nodes.seen["n_mac"] = time.Unix(1010, 0) })
+	eventually(t, "the first answer", func() bool {
+		return lastFrom(msgs(t, h, mine, "general", ""), writer) != nil && status()["state"] == "ready"
+	})
+
+	// Deaf: online by its record, nothing answers: offline until a newer heartbeat.
+	set(func() { nodes.deaf["n_mac"] = true })
+	call(t, h, mine, "post", map[string]any{"cid": "general", "text": "@writer two"})
+	eventually(t, "offline (deaf)", func() bool { return status()["state"] == "offline" })
+	set(func() { nodes.deaf["n_mac"] = false })
+	time.Sleep(200 * time.Millisecond) // sweeps with the same heartbeat: still offline
+	if s := status(); s["state"] != "offline" || s["queue"] != float64(1) {
+		t.Fatalf("%v", s)
+	}
+	set(func() { nodes.seen["n_mac"] = time.Unix(1020, 0) })
+	eventually(t, "the second answer", func() bool {
+		return len(msgs(t, h, mine, "general", "")) >= 4 && status()["queue"] == float64(0) && status()["state"] == "ready"
+	})
+}
+
+func TestFailureLinesArePlainWords(t *testing.T) {
+	m := &tcMember{Handle: "writer", Runtime: "claude", NodeID: "n_1316bc635ce442f489c5", Folder: "/Users/me/agents/writer", Model: "haiku"}
+	mac := TeamNode{ID: m.NodeID, Name: "Weizes-MacBook-Pro.local", Kind: "machine"}
+	for raw, want := range map[string]string{
+		"API Error: 502 Bad Gateway":                         "the model service had a temporary problem",
+		"HTTP 503 Service Unavailable":                       "the model service had a temporary problem",
+		"Error: status 429 Too Many Requests":                "the model service is limiting requests right now",
+		"API Error: 401 {\"type\":\"authentication_error\"}": "Claude Code is not signed in on Weizes MacBook Pro",
+		"Invalid API key · Please run /login":                "Claude Code is not signed in on Weizes MacBook Pro",
+		"HTTP 402: PantheonOS budget exhausted":              "its model budget is used up",
+		"model_not_found: claude-x":                          "the model haiku is not available",
+		"prompt is too long: 250000 tokens > 200000 maximum": "its conversation got too long for the model",
+		"nats: no responders available for request":          "Weizes MacBook Pro did not answer",
+		"connect ECONNREFUSED 127.0.0.1:443":                 "Weizes MacBook Pro could not reach the model service",
+		"session is gone":                                    "its session on Weizes MacBook Pro ended unexpectedly",
+		"exec: claude: executable file not found in $PATH":   "Claude Code is not installed on Weizes MacBook Pro",
+		"something odd at 0x1f":                              "its turn failed on Weizes MacBook Pro",
+	} {
+		reason, fix, _ := explain(m, mac, raw)
+		if reason != want || fix == "" || strings.Contains(reason+fix, "n_") || strings.Contains(reason+fix, ".local") {
+			t.Errorf("%q: %q %q", raw, reason, fix)
+		}
+	}
+	if got := nodeLabel(TeamNode{ID: "n_x", Kind: "sandbox", Name: "workspace-abc"}, "n_x"); got != "your Workspace" {
+		t.Error(got)
+	}
+	if got := nodeLabel(TeamNode{ID: "n_x"}, "n_x"); got != "its computer" {
+		t.Error(got)
+	}
+}
+
 func TestAgentToolsPostReplyDMReadJoinAndFiles(t *testing.T) {
 	url := jetStream(t)
 	nodes := newFakeAgents()
@@ -834,9 +919,9 @@ func TestOnlyTheTeamChatCredentialReachesItsStores(t *testing.T) {
 		t.Fatalf("%s %d %d %v", path, keys, n, err)
 	}
 	for name, mint := range map[string]func() ([]byte, error){
-		"fleet user":   func() ([]byte, error) { return authority.MintFleetUser(fleetID) },
-		"node":         func() ([]byte, error) { return authority.MintFleetNode(fleetID, "n_1") },
-		"desktop":      func() ([]byte, error) { return authority.MintDesktopState(time.Hour) },
+		"fleet user":    func() ([]byte, error) { return authority.MintFleetUser(fleetID) },
+		"node":          func() ([]byte, error) { return authority.MintFleetNode(fleetID, "n_1") },
+		"desktop":       func() ([]byte, error) { return authority.MintDesktopState(time.Hour) },
 		"App (owner's)": func() ([]byte, error) { return nil, nil },
 	} {
 		raw, err := mint()

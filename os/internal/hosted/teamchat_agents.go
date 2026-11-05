@@ -7,6 +7,7 @@ package hosted
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -103,17 +104,17 @@ func (t *TeamChat) agentCreate(ctx context.Context, fid string, spec agentSpec) 
 	if err != nil {
 		return nil, err
 	}
-	t.noteNode(fl, node)
+	node = t.noteNode(fl, node)
 	if !node.Online {
-		return nil, &ArgumentError{nodeLabel(node, spec.NodeID) + " is offline; pick an online computer"}
+		return nil, &ArgumentError{capFirst(nodeLabel(node, spec.NodeID)) + " is offline; pick an online computer"}
 	}
 	// Only runtimes installed (and not known to be signed out) on that computer.
 	detect, err := t.Nodes.Call(ctx, fid, spec.NodeID, "agents_detect", map[string]any{}, 60*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("%s did not answer: %v", nodeLabel(node, spec.NodeID), err)
+		return nil, t.plainError(spec.NodeID, node, &tcMember{Runtime: spec.Runtime, NodeID: spec.NodeID}, err.Error())
 	}
 	if detect["success"] != true {
-		return nil, fmt.Errorf("%s", str(detect["error"]))
+		return nil, t.plainError(spec.NodeID, node, &tcMember{Runtime: spec.Runtime, NodeID: spec.NodeID}, str(detect["error"]))
 	}
 	label := spec.Runtime
 	if a, ok := codingagents.Lookup(spec.Runtime); ok {
@@ -144,7 +145,7 @@ func (t *TeamChat) agentCreate(ctx context.Context, fid string, spec agentSpec) 
 	setup, err := t.Nodes.Call(ctx, fid, spec.NodeID, "team_setup", map[string]any{"folder": folder,
 		"agent_md": agentBrief(member), "check_only": spec.DryRun}, 30*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("%s did not answer: %v", nodeLabel(node, spec.NodeID), err)
+		return nil, t.plainError(spec.NodeID, node, member, err.Error())
 	}
 	if setup["success"] != true {
 		reason, fix, _ := explain(member, node, str(setup["error"]))
@@ -362,11 +363,12 @@ func (t *TeamChat) agentControl(ctx context.Context, fid, mid, action, confirm s
 		_ = t.put(ctx, fl, "turn."+mid, tr)
 		fl.mu.Unlock()
 		res, err := t.Nodes.Call(ctx, fid, node, "agent_stop", map[string]any{"conversation_id": conv}, 30*time.Second)
-		if err != nil {
-			return nil, fmt.Errorf("could not reach %s to stop the turn: %v", node, err)
+		if err == nil && res["success"] != true {
+			err = fmt.Errorf("%s", str(res["error"]))
 		}
-		if res["success"] != true {
-			return nil, fmt.Errorf("%s", str(res["error"]))
+		if err != nil {
+			n, _ := t.Nodes.Node(ctx, fid, node)
+			return nil, t.plainError(node, n, m, err.Error())
 		}
 		return map[string]any{"stopped": true}, nil
 	case "reset_session", "reset_full":
@@ -383,11 +385,12 @@ func (t *TeamChat) agentControl(ctx context.Context, fid, mid, action, confirm s
 		if action == "reset_full" {
 			res, err := t.Nodes.Call(ctx, fid, agent.NodeID, "team_setup", map[string]any{"folder": agent.Folder,
 				"agent_md": agentBrief(&agent), "reset": "full"}, 60*time.Second)
-			if err != nil {
-				return nil, fmt.Errorf("could not reach its computer: %v", err)
+			if err == nil && res["success"] != true {
+				err = fmt.Errorf("%s", str(res["error"]))
 			}
-			if res["success"] != true {
-				return nil, fmt.Errorf("%s", str(res["error"]))
+			if err != nil {
+				n, _ := t.Nodes.Node(ctx, fid, agent.NodeID)
+				return nil, t.plainError(agent.NodeID, n, &agent, err.Error())
 			}
 		}
 		fl, err = t.lockFleet(ctx, fid)
@@ -503,4 +506,17 @@ Use the tool {{TEAM}} (run it with sh):
 - Files people send you are saved under files/ in this folder.
 `)
 	return b.String()
+}
+
+// plainError is a node's failure as the owner reads it: what went wrong and
+// what to do, in plain words (the raw error goes to the log).
+func (t *TeamChat) plainError(nodeID string, n TeamNode, m *tcMember, errText string) error {
+	if n.ID == "" {
+		n.ID = nodeID
+	}
+	agent := *m
+	agent.NodeID = nodeID
+	reason, fix, _ := explain(&agent, n, errText)
+	log.Printf("[team-chat] node %s: %s", nodeID, firstLineOf(errText))
+	return &ArgumentError{capFirst(strings.TrimSpace(reason + ". " + fix))}
 }

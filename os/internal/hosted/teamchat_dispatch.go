@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"time"
 
@@ -118,10 +119,10 @@ func (t *TeamChat) statusOf(fl *tcFleet, m *tcMember) map[string]any {
 			out["line"] = "Starting"
 		}
 		if known && !node.Online {
-			out["line"] = nodeLabel(node, m.NodeID) + " is offline; waiting for it"
+			out["line"] = capFirst(nodeLabel(node, m.NodeID)) + " is offline; waiting for it"
 		}
 	case known && !node.Online:
-		out["state"], out["reason"] = "offline", nodeLabel(node, m.NodeID)+" is offline"
+		out["state"], out["reason"] = "offline", capFirst(nodeLabel(node, m.NodeID))+" is offline"
 	case m.Attention != nil:
 		out["state"], out["reason"], out["fix"] = "attention", m.Attention.Reason, m.Attention.Fix
 	case l.paused != "":
@@ -135,11 +136,28 @@ func (t *TeamChat) statusOf(fl *tcFleet, m *tcMember) map[string]any {
 	return out
 }
 
+// nodeLabel names a node for people: "your Workspace", the computer's own
+// name ("Weizes-MacBook-Pro.local" reads "Weizes MacBook Pro"), never its id.
 func nodeLabel(n TeamNode, id string) string {
-	if n.Name != "" {
-		return n.Name
+	if n.Kind == "sandbox" {
+		return "your Workspace"
 	}
-	return id
+	name := strings.TrimSpace(n.Name)
+	if name == "" || name == id || strings.HasPrefix(name, "n_") {
+		return "its computer"
+	}
+	if base, ok := strings.CutSuffix(name, ".local"); ok && base != "" {
+		// A Mac's network name is made from its computer name.
+		name = strings.ReplaceAll(base, "-", " ")
+	}
+	return name
+}
+
+func capFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 // kick starts a turn for an agent when it can (in the background).
@@ -268,14 +286,28 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 	if err != nil {
 		return fail(err.Error(), "", true)
 	}
-	t.noteNode(fl, node)
+	node = t.noteNode(fl, node)
 	if !node.Online {
 		return fail("", "", true) // waits for the node; the queue is kept
+	}
+	callFailed := func(err error) bool {
+		if unreachable(err.Error()) {
+			// Nothing answers for the node: it is offline until it sends a
+			// newer heartbeat; the queue waits for it.
+			t.markUnreachable(ctx, fl, agent.NodeID)
+			return fail("", "", true)
+		}
+		log.Printf("[team-chat] %s %s: %v", fl.fid, agent.Handle, err)
+		reason, fix, transient, known := explainKnown(&agent, node, err.Error())
+		if !known {
+			return fail(err.Error(), "", true)
+		}
+		return fail(reason, fix, transient)
 	}
 	setup, err := t.Nodes.Call(ctx, fl.fid, agent.NodeID, "team_setup", map[string]any{"folder": agent.Folder,
 		"agent_md": agentBrief(&agent)}, 30*time.Second)
 	if err != nil {
-		return fail(err.Error(), "", true)
+		return callFailed(err)
 	}
 	if setup["success"] != true {
 		reason, fix, transient := explain(&agent, node, str(setup["error"]))
@@ -303,7 +335,7 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 	}
 	reply, err := t.Nodes.Call(ctx, fl.fid, agent.NodeID, "agent_send", args, 60*time.Second)
 	if err != nil {
-		return fail(err.Error(), "", true)
+		return callFailed(err)
 	}
 	if reply["success"] != true {
 		why := str(reply["error"])
@@ -401,21 +433,69 @@ func (t *TeamChat) setSession(ctx context.Context, fl *tcFleet, mid, session str
 	}
 }
 
-func (t *TeamChat) noteNode(fl *tcFleet, n TeamNode) {
+// noteNode records a node's state and returns it as the service sees it (a
+// node found unreachable stays offline until its next heartbeat).
+func (t *TeamChat) noteNode(fl *tcFleet, n TeamNode) TeamNode {
 	fl.mu.Lock()
 	defer fl.mu.Unlock()
 	if fl.nodes == nil {
 		fl.nodes = map[string]TeamNode{}
 	}
 	old, known := fl.nodes[n.ID]
+	if n.Name == "" && n.Kind == "" {
+		// Its record is gone (offline): keep the name people know it by.
+		n.Name, n.Kind, n.OS = old.Name, old.Kind, old.OS
+	}
+	if at, ok := fl.unreachable[n.ID]; ok && n.Online {
+		if n.Seen.IsZero() || n.Seen.After(at) {
+			delete(fl.unreachable, n.ID)
+		} else {
+			n.Online = false
+		}
+	}
 	fl.nodes[n.ID] = n
 	if !known || old.Online != n.Online {
 		for mid, m := range fl.members {
 			if m.agent() && m.NodeID == n.ID {
+				if known && n.Online {
+					// Back: its waiting agents start now, not after a backoff.
+					l := fl.liveOf(mid)
+					l.retries, l.retryAt = 0, time.Time{}
+					if len(fl.queues[mid]) > 0 && fl.turns[mid] == nil {
+						t.kick(fl.fid, mid)
+					}
+				}
 				t.emitStatus(fl, mid)
 			}
 		}
 	}
+	return n
+}
+
+// markUnreachable records that nothing answered a call to a node: it counts
+// as offline until its next heartbeat (a heartbeat already sent does not
+// bring it back, so a stale record cannot make it flap).
+func (t *TeamChat) markUnreachable(ctx context.Context, fl *tcFleet, nodeID string) {
+	n, err := t.Nodes.Node(ctx, fl.fid, nodeID)
+	if err != nil {
+		return
+	}
+	if n.Online && !n.Seen.IsZero() {
+		fl.mu.Lock()
+		if fl.unreachable == nil {
+			fl.unreachable = map[string]time.Time{}
+		}
+		fl.unreachable[nodeID] = n.Seen
+		fl.mu.Unlock()
+	}
+	t.noteNode(fl, n)
+}
+
+// unreachable: a node call's error that means nothing answers for the node.
+func unreachable(errText string) bool {
+	low := strings.ToLower(errText)
+	return strings.Contains(low, "no responders") || strings.Contains(low, "node is offline") ||
+		strings.Contains(low, "not a member of this user")
 }
 
 // abortStart undoes a turn that did not start: the events stay queued; a
@@ -483,35 +563,88 @@ func (t *TeamChat) attention(ctx context.Context, fl *tcFleet, m *tcMember, tr *
 	t.emitStatus(fl, m.MID)
 }
 
-// explain turns a node's error into plain words and a fix; transient: worth
-// retrying by itself.
+// explain turns a node's or an agent's error into plain words and a fix
+// (no host names, ids or status codes; the raw error goes to the log);
+// transient: worth retrying by itself.
 func explain(m *tcMember, n TeamNode, errText string) (reason, fix string, transient bool) {
+	reason, fix, transient, known := explainKnown(m, n, errText)
+	if !known {
+		log.Printf("[team-chat] %s: unexplained error: %s", m.Handle, firstLineOf(errText))
+	}
+	return reason, fix, transient
+}
+
+var (
+	tcServerErrRE = regexp.MustCompile(`(?i)\b(http|status|error|code|api)\b[^0-9\n]{0,16}\b5\d\d\b|\b5\d\d (bad gateway|service unavailable|internal server error|gateway time-?out)`)
+	tcAuthErrRE   = regexp.MustCompile(`(?i)\b(http|status|error|code|api)\b[^0-9\n]{0,16}\b40[13]\b`)
+	tcRateErrRE   = regexp.MustCompile(`(?i)\b(http|status|error|code|api)\b[^0-9\n]{0,16}\b429\b`)
+	tcBudgetErrRE = regexp.MustCompile(`(?i)\b(http|status|error|code|api)\b[^0-9\n]{0,16}\b402\b`)
+)
+
+// explainKnown is explain for the errors it knows (known false: a generic
+// line).
+func explainKnown(m *tcMember, n TeamNode, errText string) (reason, fix string, transient, known bool) {
 	label := codingagents.PantheonAgent
 	if a, ok := codingagents.Lookup(m.Runtime); ok {
 		label = a.Label
 	}
 	where := nodeLabel(n, m.NodeID)
 	low := strings.ToLower(errText)
-	switch {
-	case strings.Contains(low, "not signed in") || strings.Contains(low, "sign in") || strings.Contains(low, "log in") ||
-		strings.Contains(low, "login") || strings.Contains(low, "unauthorized") || strings.Contains(low, "authentication"):
-		return label + " is not signed in on " + where, "Open Coding Agents → Sign in, then press Retry.", false
-	case strings.Contains(low, "unknown coding agent") || strings.Contains(low, "executable file not found") ||
-		strings.Contains(low, "not installed") || strings.Contains(low, "no such file or directory") && strings.Contains(low, "exec"):
-		return label + " is not installed on " + where, "Open Coding Agents → Install, then press Retry.", false
-	case strings.Contains(low, "budget") || strings.Contains(low, "insufficient") || strings.Contains(low, "quota") ||
-		strings.Contains(low, "credit") || strings.Contains(low, "402"):
-		return "the model budget is used up (" + firstLineOf(errText) + ")", "Add budget or wait for the quota to reset, then press Retry.", false
-	case strings.Contains(low, "unknown method") || strings.Contains(low, "not found on service") ||
-		strings.Contains(low, "update fleet") || strings.Contains(low, "update pantheonos"):
-		return "PantheonOS on " + where + " is too old for Team Chat", "Update PantheonOS on " + where + ", then press Retry.", false
-	case strings.Contains(low, "is not a folder") || strings.Contains(low, "permission denied"):
-		return firstLineOf(errText), "Check the agent's folder on " + where + ", then press Retry.", false
-	case strings.Contains(low, "offline") || strings.Contains(low, "timeout") || strings.Contains(low, "timed out") ||
-		strings.Contains(low, "no responders") || strings.Contains(low, "deadline"):
-		return where + " did not answer", "", true
+	has := func(words ...string) bool {
+		for _, w := range words {
+			if strings.Contains(low, w) {
+				return true
+			}
+		}
+		return false
 	}
-	return firstLineOf(errText), "Press Retry when it is fixed.", false
+	switch {
+	case has("budget", "insufficient", "quota", "credit", "billing", "payment required") || tcBudgetErrRE.MatchString(errText):
+		return "its model budget is used up", "Add budget, or wait for the quota to reset, then press Retry.", false, true
+	case has("rate limit", "rate_limit", "ratelimit", "too many requests") || tcRateErrRE.MatchString(errText):
+		return "the model service is limiting requests right now", "Wait a minute, then press Retry.", true, true
+	case has("not signed in", "sign in", "log in", "login", "unauthorized", "authentication", "invalid api key",
+		"invalid x-api-key", "api key") || tcAuthErrRE.MatchString(errText):
+		return label + " is not signed in on " + where, "Open Coding Agents → Sign in, then press Retry.", false, true
+	case has("unknown coding agent", "executable file not found", "not installed", "command not found") ||
+		has("no such file or directory") && has("exec"):
+		return label + " is not installed on " + where, "Open Coding Agents → Install, then press Retry.", false, true
+	case has("unknown method", "not found on service", "update fleet", "update pantheonos"):
+		return "PantheonOS on " + where + " is too old for Team Chat", "Update PantheonOS on " + where + ", then press Retry.", false, true
+	case has("proc capability", "process execution"):
+		return where + " does not let PantheonOS run programs", "Allow running programs in PantheonOS on " + where + ", then press Retry.", false, true
+	case has("is not a folder", "permission denied", "not a directory", "read-only file system"):
+		folder := "its folder"
+		if m.Folder != "" {
+			folder += " " + m.Folder
+		}
+		return folder + " cannot be used on " + where,
+			"Check that the folder exists and can be written to, or pick another folder, then press Retry.", false, true
+	case has("context length", "context window", "context_length", "prompt is too long", "maximum context", "too many tokens"):
+		return "its conversation got too long for the model", "Reset its session from the agent's menu, then press Retry.", false, true
+	case has("model_not_found", "model not found", "unknown model", "invalid model", "unsupported model", "not a valid model") ||
+		has("model") && has("does not exist", "not available"):
+		model := "its model"
+		if m.Model != "" {
+			model = "the model " + m.Model
+		}
+		return model + " is not available", "Pick another model in the agent's settings, then press Retry.", false, true
+	case has("overloaded", "bad gateway", "service unavailable", "internal server error", "gateway timeout", "server error",
+		"upstream", "api_error") || tcServerErrRE.MatchString(errText):
+		return "the model service had a temporary problem", "Press Retry in a minute.", true, true
+	case has("connection refused", "no such host", "could not resolve", "econnrefused", "enotfound", "econnreset",
+		"connection reset", "network is unreachable", "network error", "fetch failed", "tls handshake"):
+		return where + " could not reach the model service", "Check " + where + "'s internet connection, then press Retry.", true, true
+	case has("no conversation", "session is gone", "session not found"):
+		return "its session on " + where + " ended unexpectedly", "Press Retry to start a new session.", false, true
+	case has("offline", "timeout", "timed out", "no responders", "deadline", "not a member of this user"):
+		return where + " did not answer", "Check that " + where + " is on and connected, then press Retry.", true, true
+	case has("signal: killed", "signal: terminated", "exit status", "exited with", "crashed"):
+		return label + " stopped unexpectedly on " + where,
+			"Press Retry; if it happens again, open its conversation in Coding Agents on " + where + " to see why.", false, true
+	}
+	return "its turn failed on " + where,
+		"Press Retry; if it fails again, open its conversation in Coding Agents on " + where + " for the details.", false, false
 }
 
 func firstLineOf(s string) string {
@@ -591,7 +724,8 @@ func (t *TeamChat) watch(ctx context.Context, fl *tcFleet, mid string) {
 		}
 		misses = 0
 		if reply["success"] != true {
-			t.finish(ctx, fl, mid, codingagents.Event{Type: "done", Error: "its session is gone from " + node + " (" + str(reply["error"]) + ")"})
+			log.Printf("[team-chat] %s %s: conversation gone: %s", fl.fid, m.Handle, str(reply["error"]))
+			t.finish(ctx, fl, mid, codingagents.Event{Type: "done", Error: "session is gone"})
 			continue
 		}
 		raw, _ := json.Marshal(reply["events"])
