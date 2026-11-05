@@ -18,9 +18,9 @@ import (
 type App struct {
 	workdir string
 
-	mu           sync.Mutex
-	shells       map[string]*session
-	chatToShell  map[string]string
+	mu          sync.Mutex
+	shells      map[string]*session
+	chatToShell map[string]string
 	// side holds, per owner, the shells its commands ran in while its own
 	// shell was busy (sideShell).
 	side         map[string][]string
