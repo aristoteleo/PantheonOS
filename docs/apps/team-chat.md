@@ -797,6 +797,11 @@ Dispatching a turn and "Fixes after the independent check" below).
 * **Model.** `agent_send` returns the model the node runs the turn on (the
   one asked, else the runtime's default there); the turn's messages carry
   it until the runtime names its own.
+* **Hops.** A turn's hop is the furthest hop among its events since the
+  newest person's message among them (it was the lowest), so an event a turn
+  left in the queue (read with `read`, not `inbox`) no longer pulls a chain
+  back. Re-checked on staging: two Claude agents counting stopped at hop 8
+  with the system line; a person's next request started a new chain.
 * **Live state.** The hourly minutes include the running turn; Stop turn
   emits an empty live line at once (`stopping: true`), and so does every
   turn end. Runtime warnings (`⚠ …`) are not part of the final text.
@@ -807,7 +812,9 @@ Dispatching a turn and "Fixes after the independent check" below).
   with a removed agent says so and cannot be written in; offline shows the
   reason and that messages wait; offline computers stay listed; one
   computer name everywhere; Watch folds runtime warnings and says when
-  Codex reports no steps live; model select in agent Settings; one time
+  Codex reports no steps live (a tool event now updates the step of its own
+  turn: Codex numbers its items again each turn, so its running command
+  had updated an old step); model select in agent Settings; one time
   format; the unexplained badge is gone.
 
 ## Out of scope
