@@ -606,8 +606,13 @@ func (a *App) send(p SendArgs) map[string]any {
 	if team != nil {
 		go a.watchTeam(c.ID, tr)
 	}
-	return map[string]any{"success": true, "conversation_id": c.ID, "stream_id": streamID(c.ID),
+	out := map[string]any{"success": true, "conversation_id": c.ID, "stream_id": streamID(c.ID),
 		"from_seq": userSeq, "conversation": a.snapshot(c.ID)}
+	if shown := firstNonEmpty(model, agent.Headless.CanvasNow().DefaultModel); shown != "" {
+		// The model the turn runs on, as far as this node knows it.
+		out["model"] = shown
+	}
+	return out
 }
 
 func (a *App) pump(id string, tr *turn, agent codingagents.Agent, found codingagents.Found, stdout io.Reader, stderr *tailBuffer) {

@@ -38,6 +38,9 @@ type TeamTurn struct {
 	Token  string `json:"token"`
 	Handle string `json:"handle"`
 	Name   string `json:"name"`
+	// Note, when the service sends one, is the turn's setting about Team
+	// Chat in place of the built-in one ({{TEAM}} becomes the tool).
+	Note string `json:"note,omitempty"`
 }
 
 // teamBox is an agent folder's .team/ for one turn.
@@ -119,6 +122,9 @@ func (a *App) teamBoxFor(folder string, tt TeamTurn) (*teamBox, string) {
 // teamNote is the turn's setting that tells the agent about its tool.
 func teamNote(b *teamBox) string {
 	cmd := shellArg(b.script)
+	if note := strings.TrimSpace(b.team.Note); note != "" {
+		return strings.ReplaceAll(note, "{{TEAM}}", cmd)
+	}
 	who := "@" + b.team.Handle
 	if b.team.Name != "" {
 		who = b.team.Name + " (" + who + ")"
@@ -129,7 +135,9 @@ func teamNote(b *teamBox) string {
 		"`dm @handle - <<'EOF'`, `read <channel|@handle|message id>`, `members`, `channels`, `join <channel>`, " +
 		"`edit <message id> - <<'EOF'` (end the text with a line EOF; add `--file PATH` to post or reply with a file), " +
 		"`skip [reason]` (post nothing this turn). If there is nothing to say, post nothing. " +
-		"Don't resume games, chains or routines from earlier unless a person asks you to now. " +
+		"Requests from people always count, including asking you to talk to or coordinate with other agents. " +
+		"Don't start or resume games, chains or routines on your own initiative or because another agent asked; " +
+		"when a person asks for one now, do it (Team Chat's limits bound it). " +
 		"Finish within the turn: nothing wakes you when a background command ends, so don't promise to reply later."
 }
 
