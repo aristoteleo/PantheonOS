@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -257,6 +258,27 @@ func (t *TeamChat) guard(fl *tcFleet, m *tcMember) string {
 	return ""
 }
 
+// turnHop is a turn's place in an agent chain: the furthest hop among its
+// events since the newest person's message among them (which starts the
+// chain again). An event left in the queue by an earlier turn does not pull
+// the chain back.
+func turnHop(fl *tcFleet, events []tcWake) int {
+	sorted := append([]tcWake(nil), events...)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
+	hop := 0
+	for _, e := range sorted {
+		if e.Kind != "post" {
+			continue
+		}
+		if from := fl.members[e.From]; from != nil && !from.agent() {
+			hop = 0
+			continue
+		}
+		hop = max(hop, e.Hop)
+	}
+	return hop
+}
+
 // turnMinutes is the minutes an agent spent in turns in the hour before at,
 // with the running turn's (tr, when it has one) so far.
 func turnMinutes(m *tcMember, at time.Time, tr *tcTurn) int {
@@ -389,12 +411,7 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 			break
 		}
 	}
-	hop := events[0].Hop
-	for _, e := range events {
-		if e.Hop < hop {
-			hop = e.Hop
-		}
-	}
+	hop := turnHop(fl, events)
 	tr := &tcTurn{State: "starting", NodeID: m.NodeID, Started: t.stamp(), Hop: hop, Cause: cause, Events: events,
 		Runtime: m.Runtime, Model: m.Model}
 	if err := t.put(ctx, fl, "turn."+mid, tr); err != nil {

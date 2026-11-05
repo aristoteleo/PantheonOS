@@ -1273,3 +1273,21 @@ func TestLiveLinesArePlainWords(t *testing.T) {
 		}
 	}
 }
+
+func TestTurnHopIsTheFurthestSinceAPersonWrote(t *testing.T) {
+	fl := &tcFleet{members: map[string]*tcMember{"owner": {MID: "owner", Kind: "person"}, "a1": {MID: "a1", Kind: "agent"}}}
+	ev := func(id, from string, hop int) tcWake { return tcWake{ID: id, Kind: "post", From: from, Hop: hop} }
+	for _, c := range []struct {
+		events []tcWake
+		want   int
+	}{
+		{[]tcWake{ev("01B", "a1", 3), ev("01A", "a1", 1)}, 3},                        // a stale low hop does not pull it back
+		{[]tcWake{ev("01A", "owner", 0), ev("01B", "a1", 1)}, 1},                     // after the person's message
+		{[]tcWake{ev("01A", "a1", 5), ev("01B", "owner", 0)}, 0},                     // the person wrote last
+		{[]tcWake{ev("01A", "a1", 5), ev("01B", "owner", 0), ev("01C", "a1", 2)}, 2}, // a new chain
+	} {
+		if got := turnHop(fl, c.events); got != c.want {
+			t.Errorf("%v: %d, want %d", c.events, got, c.want)
+		}
+	}
+}
