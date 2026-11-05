@@ -5,7 +5,8 @@ one person per space, several people in Phase 3; people may edit and delete
 their own messages; the store and dispatcher run on the controller). Phase 1
 built and verified on staging 2026-11-05 (T1–T16; see "Phase 1 backend as
 built" and its "Staging verification"); Phase 2 built and verified on staging
-2026-11-05 (T20–T27; see "Phase 2 as built"); not in production. Each phase ends
+2026-11-05 (T20–T27; see "Phase 2 as built"); Phase 3 built and verified on
+staging 2026-11-05 (T30–T35; see "Phase 3 as built"); not in production. Each phase ends
 with acceptance criteria checked on staging before the next starts.
 
 ## Goal
@@ -1404,8 +1405,10 @@ models:
 
 ## Phase 3 as built (2026-11-05)
 
-Status: being built on staging (contract below; the interface is built
-against it). Not in production.
+Status: built and verified on staging 2026-11-05 (T30–T35, see "Staging
+verification" below): controller `2a8975fa`, hub `ea2eda2`
+(`space_members`, migrated on staging only), frontend `f570c28a`. No node
+release and no new agents image. Not in production.
 
 ### Decisions where the design left a choice
 
@@ -1598,7 +1601,10 @@ Table `space_members` (`id`, `space_id` = the owner's Fleet id,
 `owner_user_id`, `user_id`, `role` owner | admin | member, `joined_at`,
 `invited_by`, `invite_id`; unique `(space_id, user_id)`), and
 `app_invites.space_id` (migration `migrations/add_space_members.sql`, run on
-staging only). API (signed in):
+staging only; re-runnable). A removed person's row stays with role `removed`
+(`joined_at` is then when), so the link they came by does not let them back
+in; a link made after the removal does. A person who leaves is deleted and may
+come back through a link. API (signed in):
 
 | Route | Does |
 |---|---|
@@ -1609,12 +1615,133 @@ staging only). API (signed in):
 | `DELETE /api/team-chat/spaces/{space}/members/{user}` | Owner (anyone but themselves), an admin (a member), or the person (leaving); drops their grants and marks them removed in the service at once |
 | `POST /api/app-links` / `POST /api/app-invites` with `app: "team-chat"`, `space` | A space invite (owner or admin of that space); no trial credit |
 | `GET /api/app-invites/{id}`, `GET /api/app-links/{id}` | Add `space: {id, owner}` for a space invite |
-| `POST /api/app-invites/{id}/join` | Signed in: joins the invite's space as a member (once); `{space_id, role, joined}`; 410 for a revoked or expired link (a full one still lets an account join); 409 for the owner |
+| `POST /api/app-invites/{id}/join` | Signed in: joins the invite's space as a member (once); `{space_id, role, joined}`; 410 for a revoked or expired link (a full one still lets an account join); 409 for the owner; 403 "You were removed from this space. Ask its owner for a new invite." for a removed person on a link made before the removal |
 
 The controller has `POST /team-chat/members` (Hub service token: `{fleet_id,
-user_id, action: remove | role, role}`) for the last two: it drops the
+user_id, action: remove | leave | role, role}`) for the last two: it drops the
 person's live grants on the App gateway and updates the service, in one
 request.
+
+### Service as built (Phase 3)
+
+**Files.** `teamchat_people.go` (identities, `callerOf`, `MemberChange`,
+`visible` / `inConv` / `canUse`, the turn's `behalf`, per-person views and
+events), the rest in place: `Call` in `teamchat_tools.go` resolves the caller
+first and checks role and access per method; `wakesFor` checks the writer's
+(or the turn's people's) access; `appgateway/member.go` (the member grant);
+`hosted.Host.ServeRPC` passes `Call.Member`; the controller's
+`POST /team-chat/members`. The manifest is unchanged (no new method or
+argument), so the hosted binding's revision did not move.
+
+**Found and decided during the build and the check.**
+
+* A turn's `behalf` is computed from its events (people's messages, a
+  reminder's person, `behalf` carried on agents' messages and on reminders
+  set during a turn); with nobody behind it (an agent's own reminder) it is
+  the agent's owner.
+* An ask queued for an agent whose access then changed (or whose person
+  left) is dropped when the turn would start, and by `inbox`; a person's
+  reminder is never dropped this way.
+* "In review" in Activity is for the person who made the task (the owner for
+  tasks made by agents or by people who left), not for everyone who sees it.
+* Watch is the owner's (it reads the owner's computers); admins see the
+  working line and may stop a turn.
+* A failure line's Retry is shown to the owner, and to an admin for an agent
+  they may use.
+* Admin invites say the agents, computers and budget are the owner's.
+
+### Tests (Phase 3)
+
+`os/internal/hosted/teamchat_people_test.go`, against the in-process
+JetStream server and the fake node, a space with three agents (Only me,
+Everyone, Listed: Alice), the owner's private channel, the owner's DM with
+an agent and three people (Alice, Bob, admin Carol):
+
+* `TestAMemberCannotReadListOrSearchWhatIsNotTheirs`: for the private
+  channel and the owner's DM, `messages`, `read`, `files`, `notify_set`,
+  `post`, `conv_join`, `conv_leave`, `conv_update`, `conv_archive`, `search`
+  (with `cid`), and for a message there `follow`, `task_create`,
+  `task_update`, `edit`, `delete` are refused; `file_get` of its file and
+  posting it are refused; `space_get` lists neither, nor their unread or
+  tasks; agents' folders, nodes and sessions and people's Fleets never reach
+  her; search finds nothing of them, `tasks` none, Activity (all four
+  filters) no row; `read_all` marks nothing there; `space_update`,
+  `agent_create`, `agent_update`, `agent_live`, `agent_control` (reset,
+  stop) are refused; `reminders` lists only hers and `reminder_cancel`
+  refuses another's.
+* `TestPeoplesDMsAreTheirsAndAgentDMsAlsoTheOwners`: a DM between two people
+  is not listed, read or searched by the owner or an admin; a person's DM
+  with an agent is the agent owner's too, not a third person's.
+* `TestAnOnlyMeAgentIsNotUsableByAMember`: `can_use`; DM, channel members,
+  `conv_join`, `conv_update` members and task assignee refuse an Only me (and
+  a Listed, for someone not listed) agent with "Only @owner can use Writer.";
+  a mention is posted with `not_woken`; a channel set to wake every agent
+  wakes only the ones she may use; a thread reply and an edit do not wake it;
+  its replies stay readable.
+* `TestAnAgentCannotWakeAnAgentThePersonItWorksForMayNotUse`: an agent
+  working for Alice gets "Not woken: @writer …" for a post and a DM, and
+  nothing is queued; working for the owner, the same post wakes it.
+* `TestEachPersonGetsOnlyTheirEvents`: on the three subjects, the private
+  channel's message reaches only the owner, two people's DM only them;
+  revisions are each person's, without gaps; another's read mark is seen
+  (`read` event, `reads_by`); a person taken out of a private channel gets
+  `gone`; a status about a conversation they do not see has no `cid` or line.
+* `TestRemovingAPersonEndsTheirAccessAtOnce`: `removed` event; every method
+  then answers "You are no longer in this space."; nothing more on their
+  subject; out of every channel; a grant made after the removal lets them in
+  again; a role change follows the Hub.
+* `TestRoles`, `TestOnlyTeamChatTakesAMembersCall` (desktop-state refuses a
+  member call with 403), `TestMakingAnAgentSharedChecksItsFolder` (home,
+  `/`, an offline computer), `TestQueuedAsksOfPeopleWhoLostAccessAreDropped`,
+  `TestInReviewIsForWhoeverMadeTheTask`, `TestGrantIDsAndPersonIDsAreStable`.
+* `os/internal/appgateway/member_test.go`: a member grant is refused for
+  another App, another space, an owner role, a workload, a node's App; it
+  reaches only `POST /rpc` and `GET /__fleet/status` (the App's page, files,
+  model media and other methods are 403 and never reach the App), with the
+  person's identity; `RevokeShare(grant id)` ends it (next call 401).
+* Hub `tests/test_team_chat_spaces.py`: only the owner or an admin invites
+  into a space and only for Team Chat, no credit; sign up, join, join again,
+  the owner's own space (409); the grant's binding and identity; not a
+  member (403), not running (409); roles, members list, removing (an admin
+  a member, not an admin; a member nobody), leaving; a removed person and the
+  old link (403), a newer link; a full link still lets an account join.
+
+All of `os` (`go test ./...`, `-race` on `internal/hosted`), the hub's
+invite, link, share, fleet and space tests, and the UI's Team Chat and
+invite tests pass.
+
+### Staging verification (2026-11-05)
+
+Controller `b8b90ef4` then `2a8975fa`, hub `c413e60` then `ea2eda2`,
+frontend `c7108a74` then `d1f7cd7e`, `f570c28a`; one headless Chromium with
+two browser contexts: the owner (the test account, its space "Team") and a
+stranger with no account. Agents on the test Mac node. Staging's model proxy
+had changed meanwhile: its model list no longer had the OpenRouter routes,
+and the direct vendor routes had no credit, so Claude Code agents failed
+("Credit balance is too low") whatever their model. Coder (Codex) was set to
+`openrouter/deepseek/deepseek-v4-flash-0731` and shared for the check;
+Writer stayed Only me (and needs no turn for T32).
+
+| | Result |
+|---|---|
+| T30 | Pass. Share… on Team Chat: "They join Team: …", a link (1 day, 2 sign-ups). In a fresh context the link's page said "Weize invited you to their Team Chat space", steps Your account, Join Weize's space, Open Team Chat; Create an account → signed in and joined (8 s, "You're in Weize's space"); Open → `/app/team-chat?space=<owner's Fleet>&conv=general`, `#general` with "@tc-p3 joined the space." The browser loaded `/`, `/invite/s/…` and `/app/team-chat`, never `desktop.html`; no pod or Workspace of the new account. |
+| T31 | Pass. "@coder … What is 6+7?" from the member: "13" from Coder (Codex · DeepSeek V4 Flash) 8 s later. The owner's model key spend rose $4.5964 → $4.6248; the member's stayed $0.00. The member's rail had `#general`, More channels (`#docs`), no DMs; the owner's private channels (`#private-ops`, `#ui-check`, `#v4-private`) and DMs were not listed, and their addresses opened `#general`; search for a word posted in `#private-ops` found 1 result for the owner, 0 for the member, whose In list had only `#docs` and `#general`. |
+| T32 | Pass. New direct message greyed Pan, Assistant, Writer and Scribe ("Only @weize can use Writer"), Coder usable. "@writer can you summarize the docs for me?" was posted, with "Writer was not asked: Only @weize can use Writer." under the composer, and Writer's queue did not grow. Writer's earlier replies in `#general` were in the member's view. An ask the member had queued for Writer while it was shared was dropped when the owner pressed Retry after making it Only me (queue 1 → 0, no turn). |
+| T33 | Pass. Both on `#general`: the owner's message appeared on the member's page 0.27 s after Enter and the member's on the owner's in 0.26 s, no reload; the owner's edit reached the member in 0.25 s with "(edited)"; "Seen by Weize" under the member's message and "Seen by tc-p3" under it on the owner's page. Notifications (page hidden): the member got "Weize mentioned you in #general", the owner none for their own message, and the reverse; with `#general` muted by the owner, the member's mention made none for the owner while the member still got the owner's. Activity: the member's had the owner's mention (@1), the owner's did not have it. |
+| T34 | Pass. Space settings → People → Remove → "tc-p3-9abd04 loses access to this space at once. Their messages stay." → the member's open page showed "You're no longer in Team. Messages you downloaded stay with you." 0.25 s later; a call with the old connection got 401 from the App gateway; a reload showed the same page; `#general` no longer listed the member; their messages kept their name. Made admin again later (People showed Invite and Leave for the admin, who made a link), removed again: the link they came by then answered "You were removed from this space. Ask its owner for a new invite." |
+| T35 | Pass. Writer's Settings → Who can use it → Everyone showed "People you share Writer with can ask it to read, change or run anything the computer's user can reach on Weizes MacBook Pro, not only its folder. Only Codex keeps to its folder. It also reads the channels it is in and can repeat what it read there. Your Workspace or a computer of its own is safer for a shared agent." and saved (folder checked on the computer). New agent with folder `/Users/weizexu` and Everyone: "A shared agent can't work in a whole home folder or the whole disk: pick a folder of its own.", Create off. Through the service: Writer shared and moved to `/Users/weizexu` → "A shared agent cannot work in a home folder: …"; a shared agent at `/` refused. |
+
+**Found and fixed during the check:** In review rows for tasks people did
+not make; Retry shown to a member; an ask queued while the agent was shared;
+a removed person rejoining through the same still-live link (it now refuses,
+hub `ea2eda2`); an admin's invite text naming "your" agents and budget.
+
+**Left:** a failure line ("…its model budget is used up … press Retry") is
+written for the owner and every person in the conversation reads it; the
+space switcher offers "Your space" to an account that has no Team Chat of its
+own yet (choosing it says Team Chat is not running); the Shared links list
+names a space invite "Their own". The staging model proxy's lost OpenRouter
+model list (above) is not Team Chat's and was not changed.
 
 ## Out of scope
 
