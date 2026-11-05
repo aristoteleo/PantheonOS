@@ -703,8 +703,8 @@ func (t *TeamChat) agentRemind(ctx context.Context, fl *tcFleet, m *tcMember, tr
 		out += " (about message " + about + ")"
 	}
 	out += ".\nNow confirm it to the person, quoting this time exactly (it is in the space's time zone): \"" + phrase + "\"" +
-		" (e.g. \"I'll remind you " + phrase + ".\"). Write the confirmation in the language the person wrote in; keep the clock time " +
-		"and the time zone as they are. Don't work the time out yourself, and don't say only \"in 2 minutes\"."
+		" (e.g. \"I'll remind you " + phrase + ".\"). Write the confirmation in the language the person wrote in (translate words such as " +
+		"\"today\" and the weekday too); keep the clock time and the time zone name as they are. Don't work the time out yourself, and don't say only \"in 2 minutes\"."
 	out += " Don't show the reminder id (" + r.ID + ", for remind cancel only); a person cancels by asking you (\"cancel the reminder\")."
 	return out, nil
 }
