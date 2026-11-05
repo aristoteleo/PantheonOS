@@ -700,7 +700,8 @@ func (t *TeamChat) agentRemind(ctx context.Context, fl *tcFleet, m *tcMember, tr
 	if about != "" {
 		out += " (about message " + about + ")"
 	}
-	out += ".\nConfirm it to the person in the space's time zone: " + whenSpace + "."
+	out += ".\nConfirm it to the person in the space's time zone: " + whenSpace + ". Say the clock time, not only \"in 2 minutes\" " +
+		"(e.g. \"I'll remind you at " + at.In(space).Format("15:04") + " " + locName(space) + "\")."
 	out += " Don't show the reminder id (" + r.ID + ", for remind cancel only); a person cancels by asking you (\"cancel the reminder\")."
 	return out, nil
 }
