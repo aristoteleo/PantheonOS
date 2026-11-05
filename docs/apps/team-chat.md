@@ -1527,6 +1527,71 @@ rev}` when they were removed from the space.
 **Turn input.** People are marked `@alice (person)`, `@sam (person, admin)`,
 `@weize (person, space owner)`; `AGENT.md` lists every person.
 
+### Interface as built (Phase 3)
+
+* **Which space.** `TeamChat.vue` wraps the App: no `space` arg (or the
+  person's own space id) talks to their own `team-chat` App as before;
+  `?space=<id>` (a window arg or the page address) talks to that space through
+  `spaceTransport` (`client.ts`): the App service's connect step is the Hub's
+  `POST /api/team-chat/spaces/<id>/connect` (`createAppService` takes a
+  custom `connect`), calls are `POST /rpc` there with the same retries, and
+  events come on the subject `space_get` names, followed on the person's own
+  App bus. The rail header is a space picker ("Your space" and each joined
+  space, "<owner>'s space" until its name is read); a switch writes `?space=`
+  and remounts on that space; the last space is remembered. A person without
+  a Team Chat of their own (no Agent deployment) but with joined spaces opens
+  the first of them. The own space id is computed in the browser as the Hub
+  does (`f_` + 16 hex of the SHA-256 of the account id).
+* **Removed.** A refused grant (403), an answer "You are no longer in this
+  space" or a `removed` event shows "You're no longer in <space>. Messages you
+  downloaded stay with you." with buttons to the person's other spaces; the
+  space's state is dropped. A `conv` event with `gone` drops that
+  conversation (if open: a note, then #general).
+* **Roles.** Members and admins see no New agent, Computers, agent Folder or
+  Settings, Full reset or Delete, space name, time zone or limits, Watch, and
+  no first run. Admins keep Controls (Start/Stop, Stop turn, Reset session)
+  and Stop/Retry on the working line for agents they may use; channel
+  settings are the owner's, admins' and the channel maker's (others can leave
+  and add people and usable agents).
+* **Access.** An agent the person may not use is greyed in the rail, the
+  mention picker, New conversation and channel member pickers, with "Only
+  @weize can use Writer" or "Writer is shared with listed people only"; its
+  DM cannot be written in and its profile's Message is off. A post's
+  `not_woken` shows under the composer ("Writer was not asked: only @weize
+  can use Writer."), cleared on the next send or another conversation.
+* **Channels.** Public channels the person is not in are under "More
+  channels" with Join; opened, they show "You're not in #x. Join it to write
+  here…" instead of the composer. Unread counts and browser notifications
+  cover only conversations the person is in (and their agents' DMs).
+* **Seen by.** Under the newest top-level message each other person read
+  (`reads_by` and live `read` events), "Seen by Alice, Sam", in
+  conversations with two or more people.
+* **People.** Space settings has Settings and People tabs. Owner and admins
+  read the Hub's list (role select for the owner, Remove with "<Name> loses
+  access to this space at once. Their messages stay.", Invite people…, which
+  opens Share…); members see the people and Leave space.
+* **Share and invite.** Share… on Team Chat invites into the space last shown
+  (`teamChatSpace`, set by the App): the dialog says "They join <space>: they
+  see #general and the public channels, and can talk to the agents you share
+  with them. Their questions to your agents run on your computers and use
+  your model budget.", has no trial credit, and sends `space`; a member reads
+  "Only the space's owner and admins can invite people." The invite page of a
+  space invite has Account, "Join <owner>'s space" (done at once when the
+  person is in it already; 409 means their own space, which then opens) and
+  Open `/app/team-chat?space=<id>`; it starts no Workspace.
+* **Shared agents (T35).** New agent and the agent's Settings offer Only me /
+  Everyone in this space / Listed people (people of the space). For a shared
+  choice they say: "People you share Writer with can ask it to read, change
+  or run anything the computer's user can reach on <computer>, not only its
+  folder. Only Codex keeps to its folder. It also reads the channels it is in
+  and can repeat what it read there. Your Workspace or a computer of its own
+  is safer for a shared agent."; New agent refuses a shared agent in a home
+  folder or `/` before asking the service. Status reasons that say "your
+  Workspace" read "<owner>'s Workspace" for anyone but the owner.
+* **Tests.** `phase3.test.ts` (access and its words, unread only where one
+  is, conv gone, removed, Seen by, not-woken note, member's channels, the
+  space transport and its 403, which space opens, the invite's steps).
+
 ### Hub (`space_members`)
 
 Table `space_members` (`id`, `space_id` = the owner's Fleet id,
