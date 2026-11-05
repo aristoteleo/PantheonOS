@@ -380,7 +380,6 @@ func num(v any) float64 {
 	return f
 }
 
-
 // ---- the agent's folder ------------------------------------------------------
 
 // teamSetup makes (or checks) an agent's folder: AGENT.md (agentMD, with
