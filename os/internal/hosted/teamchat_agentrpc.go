@@ -130,11 +130,13 @@ func (t *TeamChat) agentOp(ctx context.Context, fl *tcFleet, m *tcMember, req ag
 			line := fmt.Sprintf("@%s  %s", x.Handle, x.Name)
 			if x.agent() {
 				st := t.statusOf(fl, x)
-				line += fmt.Sprintf("  (agent, %s", st["state"])
+				line += fmt.Sprintf("  (agent: %s, %s", runtimeLabel(x.Runtime), st["state"])
 				if x.Description != "" {
-					line += ": " + clipText(x.Description, 80)
+					line += "; " + clipText(x.Description, 80)
 				}
 				line += ")"
+			} else if mid == tcOwner {
+				line += "  (person, space owner)"
 			} else {
 				line += "  (person)"
 			}
@@ -200,8 +202,14 @@ func (t *TeamChat) agentOp(ctx context.Context, fl *tcFleet, m *tcMember, req ag
 			return "", fmt.Errorf("you are not in the conversation of message %s", target.ID)
 		}
 		// A reply goes where the message is: in a DM or to a top-level
-		// channel message inline, to a message in a thread in that thread.
+		// channel message inline; to a message in a thread, or to a
+		// thread's first message, in that thread.
 		root := target.Root
+		if root == "" && c.Kind != "dm" {
+			if cm, err := t.convMsgs(ctx, fl, c.CID); err == nil && len(cm.replies[target.ID]) > 0 {
+				root = target.ID
+			}
+		}
 		if c.Kind == "dm" {
 			root = ""
 		}
@@ -293,17 +301,17 @@ func (t *TeamChat) agentInbox(ctx context.Context, fl *tcFleet, m *tcMember, tr 
 		}
 		switch e.Kind {
 		case "delete":
-			fmt.Fprintf(&b, "%s: %s deleted message %s.\n", where, handleOf(fl, e.From), msg.ID)
+			fmt.Fprintf(&b, "%s: %s deleted message %s.\n", where, authorOf(fl, e.From, m.MID), msg.ID)
 			continue
 		case "edit":
-			fmt.Fprintf(&b, "%s: %s edited message %s:\n", where, handleOf(fl, e.From), msg.ID)
+			fmt.Fprintf(&b, "%s: %s edited message %s:\n", where, authorOf(fl, e.From, m.MID), msg.ID)
 		default:
-			fmt.Fprintf(&b, "%s, %s at %s [%s]:\n", where, handleOf(fl, msg.From), fmtTime(msg.At), msg.ID)
+			fmt.Fprintf(&b, "%s, %s at %s [%s]:\n", where, authorOf(fl, msg.From, m.MID), fmtTime(msg.At), msg.ID)
 		}
 		if msg.Deleted {
 			b.WriteString("  (deleted)\n")
 		} else {
-			b.WriteString(indent(msg.Text))
+			b.WriteString(indent(shownText(fl, msg)))
 		}
 		for _, f := range msg.Files {
 			fmt.Fprintf(&b, "  (file %s, %d bytes: it reaches your folder in your next turn)\n", f.Name, f.Size)
@@ -377,7 +385,7 @@ func (t *TeamChat) agentRead(ctx context.Context, fl *tcFleet, m *tcMember, targ
 	}
 	b.WriteString(head + ":\n")
 	for _, msg := range page {
-		text := msg.Text
+		text := shownText(fl, msg)
 		if msg.Deleted {
 			text = "(deleted)"
 		}
@@ -388,7 +396,7 @@ func (t *TeamChat) agentRead(ctx context.Context, fl *tcFleet, m *tcMember, targ
 		if msg.ReplyCount > 0 && root == "" {
 			suffix += fmt.Sprintf(" (%d replies: read %s)", msg.ReplyCount, msg.ID)
 		}
-		fmt.Fprintf(&b, "%s %s [%s]%s:\n%s", fmtTime(msg.At), handleOf(fl, msg.From), msg.ID, suffix, indent(text))
+		fmt.Fprintf(&b, "%s %s [%s]%s:\n%s", fmtTime(msg.At), authorOf(fl, msg.From, m.MID), msg.ID, suffix, indent(text))
 		for _, f := range msg.Files {
 			fmt.Fprintf(&b, "  (file %s, %d bytes)\n", f.Name, f.Size)
 		}

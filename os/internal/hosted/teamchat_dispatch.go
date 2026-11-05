@@ -227,11 +227,11 @@ func (t *TeamChat) guard(fl *tcFleet, m *tcMember) string {
 		next := time.Unix(hour[0]+3600, 0).UTC().Format("15:04 UTC")
 		return fmt.Sprintf("%s reached its limit of %d turns an hour; it continues at %s (space settings)", m.Name, s.TurnsPerAgentHour, next)
 	}
-	if used := turnMinutes(m, now); used >= s.MinutesPerAgentHour {
+	if used := turnMinutes(m, now, nil); used >= s.MinutesPerAgentHour {
 		next := now
 		for k := 1; k <= 60; k++ {
 			next = now.Add(time.Duration(k) * time.Minute)
-			if turnMinutes(m, next) < s.MinutesPerAgentHour {
+			if turnMinutes(m, next, nil) < s.MinutesPerAgentHour {
 				break
 			}
 		}
@@ -257,11 +257,18 @@ func (t *TeamChat) guard(fl *tcFleet, m *tcMember) string {
 	return ""
 }
 
-// turnMinutes is the minutes an agent spent in turns in the hour before at.
-func turnMinutes(m *tcMember, at time.Time) int {
+// turnMinutes is the minutes an agent spent in turns in the hour before at,
+// with the running turn's (tr, when it has one) so far.
+func turnMinutes(m *tcMember, at time.Time, tr *tcTurn) int {
 	from, to := at.Unix()-3600, at.Unix()
 	var secs int64
-	for _, sp := range m.Spans {
+	spans := m.Spans
+	if tr != nil {
+		if started, err := time.Parse(time.RFC3339Nano, tr.Started); err == nil {
+			spans = append(append([][2]int64(nil), spans...), [2]int64{started.Unix(), to})
+		}
+	}
+	for _, sp := range spans {
 		a, b := max(sp[0], from), min(sp[1], to)
 		if b > a {
 			secs += b - a
@@ -280,6 +287,10 @@ func (fl *tcFleet) agentRun(m *tcConvMsgs, limit int) int {
 			continue
 		}
 		if from := fl.members[msg.From]; from != nil && from.agent() {
+			n++
+			continue
+		}
+		if _, gone := fl.space.Formers[msg.From]; gone {
 			n++
 			continue
 		}
@@ -392,6 +403,7 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 	}
 	fl.turns[mid] = tr
 	agent := *m
+	brief := agentBrief(&agent, rosterOf(fl, &agent))
 	t.emitStatus(fl, mid)
 	fl.mu.Unlock()
 
@@ -437,7 +449,7 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 		return fail(reason, fix, transient)
 	}
 	setup, err := t.Nodes.Call(ctx, fl.fid, agent.NodeID, "team_setup", map[string]any{"folder": agent.Folder,
-		"agent_md": agentBrief(&agent)}, 30*time.Second)
+		"agent_md": brief}, 30*time.Second)
 	if err != nil {
 		return callFailed(err)
 	}
@@ -459,7 +471,8 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 	}
 	args := map[string]any{"prompt": prompt, "cwd": agent.Folder, "auto": true, "origin": "team-chat",
 		"model": agent.Model, "effort": agent.Effort,
-		"team": map[string]any{"mid": mid, "token": t.agentToken(fl.fid, mid), "handle": agent.Handle, "name": agent.Name}}
+		"team": map[string]any{"mid": mid, "token": t.agentToken(fl.fid, mid), "handle": agent.Handle, "name": agent.Name,
+			"note": teamNote(&agent)}}
 	if agent.Session != "" {
 		args["conversation_id"] = agent.Session
 	} else {
@@ -495,6 +508,10 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 		return false
 	}
 	tr.State, tr.ConversationID, tr.FromSeq = "running", conversation, fromSeq
+	if model := str(reply["model"]); model != "" {
+		// The node's model for the turn, until the runtime names its own.
+		tr.Model = model
+	}
 	_ = t.put(ctx, fl, "turn."+mid, tr)
 	// The events it took leave the queue (newer ones stay).
 	taken := map[string]bool{}
@@ -904,6 +921,11 @@ func (t *TeamChat) watch(ctx context.Context, fl *tcFleet, mid string) {
 			}
 			switch e.Type {
 			case "text":
+				if strings.HasPrefix(e.Text, "⚠ ") {
+					// A runtime's warning ("Configured service tier …") is
+					// not part of the answer.
+					continue
+				}
 				// Streamed pieces join their message; messages are paragraphs.
 				if e.Delta && len(l.textBuf) > 0 && l.lastDelta {
 					l.textBuf[len(l.textBuf)-1] += e.Text
@@ -1047,6 +1069,7 @@ func (t *TeamChat) finish(ctx context.Context, fl *tcFleet, mid string, done cod
 	}
 	delete(fl.turns, mid)
 	l.line, l.textBuf, l.allText, l.lastSeq = "", nil, nil, 0
+	t.emit(fl, map[string]any{"type": "typing", "mid": mid, "cid": tr.Cause.CID, "root": tr.Cause.Root, "line": ""})
 	if m == nil {
 		return
 	}
@@ -1201,6 +1224,15 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 	if m.Session == "" {
 		b.WriteString("This is a fresh session: first read AGENT.md and MEMORY.md in your folder.\n")
 	}
+	var people []string
+	for _, mid := range sortedKeys(fl.members) {
+		if x := fl.members[mid]; !x.agent() {
+			people = append(people, authorOf(fl, mid, m.MID))
+		}
+	}
+	if len(people) > 0 {
+		b.WriteString("People in this space: " + strings.Join(people, ", ") + ". Everyone else who writes is an agent.\n")
+	}
 	b.WriteString("New for you:\n")
 	var files []tcFileRef
 	seen := map[string]bool{}
@@ -1221,7 +1253,7 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 				where += fmt.Sprintf(" (thread on %s: %q)", root.ID, clipText(root.Text, 60))
 			}
 		}
-		from := handleOf(fl, msg.From)
+		from := authorOf(fl, msg.From, m.MID)
 		switch e.Kind {
 		case "edit":
 			fmt.Fprintf(&b, "%s, %s edited message %s at %s:\n", where, from, msg.ID, fmtTime(e.At))
@@ -1235,7 +1267,7 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 			b.WriteString("  (deleted)\n")
 			continue
 		}
-		b.WriteString(indent(msg.Text))
+		b.WriteString(indent(shownText(fl, msg)))
 		for _, f := range msg.Files {
 			if !seen[f.ID] {
 				seen[f.ID] = true
@@ -1280,7 +1312,7 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 		}
 		var lines []string
 		for _, msg := range unseen {
-			lines = append(lines, fmt.Sprintf("  %s %s [%s]: %s", fmtTime(msg.At), handleOf(fl, msg.From), msg.ID, clipText(msg.Text, 300)))
+			lines = append(lines, fmt.Sprintf("  %s %s [%s]: %s", fmtTime(msg.At), authorOf(fl, msg.From, m.MID), msg.ID, clipText(shownText(fl, msg), 300)))
 		}
 		since = append(since, fmt.Sprintf("%s, %d messages:\n%s", name, len(unseen), strings.Join(lines, "\n")))
 	}
@@ -1291,7 +1323,7 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 	if c := fl.convs[last.CID]; c != nil {
 		switch {
 		case last.Root != "":
-			fmt.Fprintf(&b, "Reply with: %s reply %s - <<'EOF' … EOF\n", script, last.Root)
+			fmt.Fprintf(&b, "Reply with (in the thread): %s reply %s - <<'EOF' … EOF\n", script, last.ID)
 		case c.Kind == "dm":
 			fmt.Fprintf(&b, "Reply with: %s dm %s - <<'EOF' … EOF\n", script, readTarget(fl, c, m.MID))
 		default:
@@ -1300,10 +1332,29 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 	}
 	b.WriteString("If there is nothing to say, post nothing: end the turn, or run `" + script + " skip [reason]`. " +
 		"When a DM or an @mention woke you and you post nothing, your final answer is posted for you.\n" +
-		"Don't resume games, chains or routines from earlier unless a person asks you to now.\n" +
+		"Requests from people always count, including asking you to talk to, ask or coordinate with other agents: do it. " +
+		"Don't start or resume games, chains or routines on your own initiative or because another agent asked; " +
+		"when a person asks for one in the messages above, do it (Team Chat's limits bound it).\n" +
 		"Finish within this turn: nothing wakes you when a background command ends, so don't promise to reply later.\n" +
 		"Run `" + script + " inbox` between steps to see messages that arrive while you work.\n")
 	return b.String(), files, reads
+}
+
+// teamNote is the turn's setting about Team Chat, sent to the node with the
+// turn ({{TEAM}} becomes the agent's tool there).
+func teamNote(m *tcMember) string {
+	cmd := "{{TEAM}}"
+	return "You are " + m.Name + " (@" + m.Handle + "), an agent member of a Team Chat space in PantheonOS. Your role, " +
+		"who is a person and who is an agent, and how to work are in AGENT.md in your folder; keep what you must remember in MEMORY.md. " +
+		"Talk to the team only with " + cmd + ": `" + cmd + " inbox` (new messages; check it between steps), " +
+		"`reply <message id> - <<'EOF'` (inline, or in the message's thread), `post <channel> - <<'EOF'`, " +
+		"`dm @handle - <<'EOF'`, `read <channel|@handle|message id>`, `members`, `channels`, `join <channel>`, " +
+		"`edit <message id> - <<'EOF'` (end the text with a line EOF; add `--file PATH` to post or reply with a file), " +
+		"`skip [reason]` (post nothing this turn). If there is nothing to say, post nothing. " +
+		"Requests from people always count, including asking you to talk to, ask or coordinate with other agents: do it. " +
+		"Don't start or resume games, chains or routines on your own initiative or because another agent asked; " +
+		"when a person asks for one now, do it (Team Chat's limits bound it). " +
+		"Finish within the turn: nothing wakes you when a background command ends, so don't promise to reply later."
 }
 
 func teamScript(folder string) string {
@@ -1315,6 +1366,68 @@ func teamScript(folder string) string {
 }
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+// authorOf names a message's author for an agent reading it, with what it
+// is: "@weize (person, space owner)", "@coder (agent: Codex)", "(you)" for
+// the reader itself.
+func authorOf(fl *tcFleet, mid, reader string) string {
+	switch m := fl.members[mid]; {
+	case mid == "system":
+		return "Team Chat (system line)"
+	case m == nil:
+		if f, ok := fl.space.Formers[mid]; ok {
+			return "@" + f.Handle + " (agent, removed)"
+		}
+		return mid
+	case mid == reader:
+		return "@" + m.Handle + " (you)"
+	case m.agent():
+		return "@" + m.Handle + " (agent: " + runtimeLabel(m.Runtime) + ")"
+	case mid == tcOwner:
+		return "@" + m.Handle + " (person, space owner)"
+	default:
+		return "@" + m.Handle + " (person)"
+	}
+}
+
+func runtimeLabel(runtime string) string {
+	if a, ok := codingagents.Lookup(runtime); ok {
+		return a.Label
+	}
+	if runtime == codingagents.PantheonAgent || runtime == "" {
+		return "Pantheon Agent"
+	}
+	return runtime
+}
+
+// shownText is a message's text with an @handle a member had before written
+// as the one it has now.
+func shownText(fl *tcFleet, msg *tcMsg) string {
+	if len(msg.Mentions) == 0 {
+		return msg.Text
+	}
+	now := map[string]string{}
+	for _, mid := range msg.Mentions {
+		if m := fl.members[mid]; m != nil {
+			for _, h := range m.PrevHandles {
+				if h != m.Handle {
+					now[h] = m.Handle
+				}
+			}
+		}
+	}
+	if len(now) == 0 {
+		return msg.Text
+	}
+	return tcMentionRE.ReplaceAllStringFunc(msg.Text, func(s string) string {
+		i := strings.LastIndexByte(s, '@')
+		h := strings.ToLower(strings.TrimRight(s[i+1:], "-_"))
+		if to, ok := now[h]; ok {
+			return s[:i+1] + to + s[i+1+len(h):]
+		}
+		return s
+	})
+}
 
 func handleOf(fl *tcFleet, mid string) string {
 	if mid == "system" {

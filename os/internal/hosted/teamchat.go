@@ -310,6 +310,17 @@ type tcSpace struct {
 	// Turns of deleted agents in the last day, so deleting one does not
 	// lower the space's use.
 	Retired []int64 `json:"retired_turns,omitempty"`
+	// Agents deleted from the space, so their messages keep a name.
+	Formers map[string]tcFormer `json:"formers,omitempty"`
+}
+
+// tcFormer is what a deleted agent's messages still show of it.
+type tcFormer struct {
+	Handle  string `json:"handle"`
+	Name    string `json:"name"`
+	Avatar  string `json:"avatar,omitempty"`
+	Runtime string `json:"runtime,omitempty"`
+	Removed string `json:"removed_at"`
 }
 
 type tcAttention struct {
@@ -327,6 +338,9 @@ type tcMember struct {
 	Avatar      string `json:"avatar,omitempty"`
 	Description string `json:"description,omitempty"`
 	Created     string `json:"created"`
+	// Handles it had before, newest last: an @old in an earlier message
+	// still names it.
+	PrevHandles []string `json:"prev_handles,omitempty"`
 	// Agents.
 	Runtime string `json:"runtime,omitempty"`
 	Model   string `json:"model,omitempty"`
@@ -931,6 +945,11 @@ func (m *tcConvMsgs) page(root, before, after string, limit int) ([]*tcMsg, bool
 // mentions are the members a text names by @handle.
 func mentions(fl *tcFleet, text string) []string {
 	byHandle := map[string]string{}
+	for _, m := range fl.members {
+		for _, h := range m.PrevHandles {
+			byHandle[h] = m.MID
+		}
+	}
 	for _, m := range fl.members {
 		byHandle[m.Handle] = m.MID
 	}

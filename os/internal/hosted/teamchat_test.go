@@ -1182,6 +1182,83 @@ func TestSkipDeleteAndReplyPlacement(t *testing.T) {
 	if r := as("reply", []string{first}, "dm inline"); r.Code != 0 || strings.Contains(r.Text, "thread") {
 		t.Fatalf("%v", r)
 	}
+	// Replying to a thread's first message answers in the thread.
+	if r := as("reply", []string{top}, "to the root"); r.Code != 0 || !strings.Contains(r.Text, "thread of "+top) {
+		t.Fatalf("%v", r)
+	}
+	// A turn woken in a thread (Writer follows it) is told to reply to the
+	// message itself, and who wrote it.
+	nodes.release <- struct{}{}
+	eventually(t, "the thread turn", func() bool { return nodes.promptCount() == 3 })
+	p := nodes.lastPrompt()
+	if !strings.Contains(p, "reply "+inThread) || !strings.Contains(p, "(person, space owner)") || !strings.Contains(p, "People in this space: @owner (person, space owner)") {
+		t.Fatalf("%s", p)
+	}
+	if r := as("members", nil, ""); !strings.Contains(r.Text, "@owner  Owner  (person, space owner)") || !strings.Contains(r.Text, "(agent: Claude Code") {
+		t.Fatalf("%v", r)
+	}
+}
+
+func TestPeopleAndAgentsAreNamedAndOldHandlesStillMention(t *testing.T) {
+	url := jetStream(t)
+	nodes := newFakeAgents()
+	tc := teamOn(t, url, nodes)
+	h, mine, _ := teamHost(t, tc)
+	writer := makeAgent(t, h, mine, "Writer", "n_mac", "claude", nil)
+	coder := makeAgent(t, h, mine, "Coder", "n_mac", "codex", nil)
+	call(t, h, mine, "post", map[string]any{"cid": "general", "text": "@coder hello"})
+	eventually(t, "coder's turn", func() bool { return nodes.promptCount() == 1 })
+	call(t, h, mine, "me_update", map[string]any{"name": "Weize", "handle": "weize"})
+	// An @owner written before the change still names the person.
+	m := call(t, h, mine, "post", map[string]any{"cid": "general", "text": "@writer ask @coder something; @owner is me"})["message"].(map[string]any)
+	if ms, _ := m["mentions"].([]any); len(ms) != 3 {
+		t.Fatalf("mentions %v", m["mentions"])
+	}
+	var p string
+	eventually(t, "writer's turn", func() bool {
+		nodes.mu.Lock()
+		defer nodes.mu.Unlock()
+		for _, x := range nodes.prompts {
+			if strings.Contains(x, "You are @writer") {
+				p = x
+			}
+		}
+		return p != "" && writer != ""
+	})
+	for _, want := range []string{"@weize (person, space owner) at", "ask @coder something; @weize is me", "People in this space: @weize (person, space owner)"} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("%q not in %s", want, p)
+		}
+	}
+	space := call(t, h, mine, "space_get", map[string]any{})
+	var me map[string]any
+	for _, x := range space["members"].([]any) {
+		if x.(map[string]any)["mid"] == tcOwner {
+			me = x.(map[string]any)
+		}
+	}
+	if fmt.Sprint(me["prev_handles"]) != "[owner]" {
+		t.Fatalf("%v", me)
+	}
+	// The brief lists people and agents.
+	nodes.mu.Lock()
+	brief := str(nodes.setups[len(nodes.setups)-1]["agent_md"])
+	nodes.mu.Unlock()
+	if !strings.Contains(brief, "People:\n- @weize (Weize, the space owner)") || !strings.Contains(brief, "- @coder (Coder, Codex: ") ||
+		!strings.Contains(brief, "Requests from people always count") {
+		t.Fatalf("%s", brief)
+	}
+	// A deleted agent keeps its name for its messages.
+	eventually(t, "ready", func() bool {
+		s := call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[coder].(map[string]any)
+		return s["state"] == "ready"
+	})
+	call(t, h, mine, "agent_control", map[string]any{"mid": coder, "action": "delete"})
+	space = call(t, h, mine, "space_get", map[string]any{})
+	f := space["space"].(map[string]any)["formers"].(map[string]any)[coder].(map[string]any)
+	if f["name"] != "Coder" || f["handle"] != "coder" || f["runtime"] != "codex" {
+		t.Fatalf("%v", f)
+	}
 }
 
 func TestLiveLinesArePlainWords(t *testing.T) {

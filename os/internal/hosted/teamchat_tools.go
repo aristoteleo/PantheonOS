@@ -328,7 +328,7 @@ func (t *TeamChat) usage(fl *tcFleet) map[string]any {
 			}
 		}
 		agents[mid] = hour
-		minutes[mid] = turnMinutes(m, t.clock())
+		minutes[mid] = turnMinutes(m, t.clock(), fl.turns[mid])
 	}
 	s := fl.space.Settings
 	return map[string]any{"limits": s, "turns_last_hour": agents, "turn_minutes_last_hour": minutes, "turns_today": day}
@@ -399,6 +399,21 @@ func handleFrom(name string) string {
 	return strings.Trim(b.String(), "-_")
 }
 
+// withPrevHandle keeps a member's earlier handles (the last 10), without the
+// one it now has.
+func withPrevHandle(prev []string, old, now string) []string {
+	var out []string
+	for _, h := range append(append([]string(nil), prev...), old) {
+		if h != now && h != "" && !contains(out, h) {
+			out = append(out, h)
+		}
+	}
+	if len(out) > 10 {
+		out = out[len(out)-10:]
+	}
+	return out
+}
+
 func (t *TeamChat) handleFree(fl *tcFleet, handle, except string) error {
 	if !tcHandleRE.MatchString(handle) {
 		return &ArgumentError{"a handle has 1 to 32 lower case letters, digits, - and _, starting with a letter or digit"}
@@ -430,6 +445,9 @@ func (t *TeamChat) memberUpdate(ctx context.Context, fl *tcFleet, mid string, fi
 		h := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(*v), "@"))
 		if err := t.handleFree(fl, h, mid); err != nil {
 			return nil, err
+		}
+		if h != m.Handle {
+			next.PrevHandles = withPrevHandle(m.PrevHandles, m.Handle, h)
 		}
 		next.Handle = h
 	}
