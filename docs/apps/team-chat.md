@@ -1325,6 +1325,83 @@ on the test Mac:
 | Computer offline | Test node stopped after the confirmation: "⏰ Reminder for @weize: 站起来活动一下 …" at 11:22:29 (due 11:22:26), status "Weizes MacBook Pro is offline". |
 | Low items | Stopped Writer: sidebar "Writer: Stopped", profile "Stopped". Activity: "Team Chat: Stopped a chain…". A followed thread's reply shows "1 new reply" on its root and the channel badge 1; opening it clears both and the URL gains `&thread=`. Opening a DM from Activity sets `?conv=dm-…`; that URL in a new tab opens the same DM. Cancel dialog: '@weize won't be reminded about "Heads-up: …".' |
 
+### Fixes after the third Phase 2 check (2026-11-05)
+
+**A person's reminder does not wait for the agent's running turn.** Found:
+a reminder that came due during a 2.6-minute turn was posted 37 s late, when
+the turn ended (with `turn_max_minutes` 30 it could be 30 minutes). Now:
+
+* At its time, a person's reminder for an agent that is in a turn is posted
+  for them at once ("⏰ Reminder for @weize: <note>"), as in the cases where
+  the agent cannot run. It is not queued, so neither the running turn's
+  inbox nor a later turn gets it.
+* The agent is told, so it does not post it too: its next `inbox` (and
+  `remind list`, for two hours) says `Team Chat posted your reminder for
+  @weize at 12:46 while you were busy (Call Sam.). It is done: don't post it
+  again.` `remind`'s answer and `remind help` say the same in advance. (In
+  the first live retest, without this, Codex ran `remind list`, found it
+  gone, checked the clock and posted it again itself.)
+* Go tests: `TestAPersonsReminderDoesNotWaitForARunningTurn` (posted while
+  the turn runs; the inbox says it was posted, once; `remind list`; no
+  further turn; one post).
+
+**A reminder is written in the language it was asked in.** Found: two
+English requests got Chinese reminder posts (the confirmations were
+English; Writer's session had Chinese in it). A person's reminder now keeps
+`asked` (the person's request: the message it is about, else the newest
+message of theirs that woke the turn, 300 characters) and `lang` (from its
+letters: Chinese, Japanese, Korean, Russian, Arabic, English for plain
+Latin text, "" when it can't tell). Both are in `reminders` and carried on
+the wake, and the reminder's turn input (and inbox) says `Write the
+reminder in English, the language @weize asked in (they wrote: "…"), even
+if you used another language before.` Go tests:
+`TestAPersonsReminderIsWrittenInTheirLanguage`, `TestLangOf`.
+
+**Status.** An agent held by a limit has `paused: "limit"` in its status
+(the state stays `attention`); the UI reads "Paused (limit)" in the sidebar
+title, profile, DM header, mention picker, New conversation and Watch, and
+the working line says "Writer is paused (limit): …". Older services are read
+from the reason's words.
+
+**Interface.**
+
+* Addresses: `?conv=…&thread=<root>` opens the thread (root and replies,
+  fetched by the thread request even when the root is older than the
+  channel's first page; the follow state; `thread` stays in the address,
+  so a reload keeps the panel). The cause: the address values are the page's
+  live inputs, so opening the conversation first removed `thread` before
+  the panel read it. `?agent=<id or handle>` opens the profile. `?msg=<id>`
+  loads back to the message, scrolls to it and highlights it. Activity,
+  Tasks and Search have their own addresses (`?view=activity`,
+  `?view=tasks`, `?view=search&q=…`), and Back returns to the conversation.
+* Times in Team Chat's own lines ("…it continues at 20:08 UTC…") are shown
+  in the space's time zone, formatted like message times ("12:08 PM", with
+  the zone's name when it differs from the browser's), in the conversation,
+  Activity, Search, notifications and every status reason.
+* The task menu opens upward (and caps its height) when there is not room
+  below, and leftward near a phone's right edge.
+* Copy: a stopped agent reads "Coder is stopped. Messages wait until it's
+  started again; reminders it set for you still arrive." The Cancel confirm
+  adds no period after a note that already ends a sentence (。！？.!?, also
+  before a closing quote).
+
+**Staging verification.** Controller `6d01152a` (sha ceee00ec; first
+`316837e4`), frontend `275b5883` (no node release, no new agents image),
+test account, headless browser on `/app/team-chat` (1400×900 and 390×844),
+Writer (Claude Code, Haiku) and Coder (Codex) on the test Mac, PantheonOS
+models:
+
+| | Result |
+|---|---|
+| Reminder in a long turn | "@coder … set a reminder for me in 1 minute to call Sam, then run this in the foreground …" (a 2.8-minute CPU job, turn 20:45:52–20:48:47): due 20:46:57, "⏰ Reminder for @weize: Call Sam." at 20:47:01 while Coder was working. Its next inbox said Team Chat had posted it; Coder wrote "Team Chat has delivered the reminder…" and posted only the job's result. One reminder post. |
+| Language | "remind me in 3 minutes to close the window" → "@weize Close the window"; "at 12:31 ping me to stretch" → "@weize Stretch"; "4分钟后提醒我喝水" → "@weize 提醒：喝水". Stored `lang` English, English, Chinese. |
+| Thread link | `?conv=<#docs>&thread=<root from 00:38>` (older than the first page of 50) in a fresh browser context: the thread's root and replies, "Following", `thread` kept. The check's own repro thread in #p2v3-check after a reload: the same. |
+| `?agent=writer`, `?msg=` | The profile opens; `?msg=` of a message 50+ back scrolls to it and highlights it. |
+| Task menu | Newest message's chip: opens upward, all five states visible above the composer (desktop and 390 px; page width 390). |
+| Pause times | Turns an hour 5: DM "…it continues at 12:47 PM…", Activity "Team Chat: Paused: Coder reached its limit … it continues at 1:01 PM …"; sidebar titles "Writer: Paused (limit)", "Coder: Paused (limit)". |
+| Views | Tasks, Activity, Search set `?view=…`; each address opens that view in a fresh context (`?view=search&q=zanzibar` fills the search). |
+| Copy | Stopped Coder's DM: "…reminders it set for you still arrive."; Cancel confirm '@weize won't be reminded about "给 Sam 打电话".' (the punctuation case itself is a unit test: the agent stored the note without "。"). |
+
 ## Out of scope
 
 Payments, mobile native apps, external chat bridges, prod rollout (asked
