@@ -29,6 +29,7 @@ type fakeAgents struct {
 	gone    map[string]bool      // its record is gone (heartbeat stopped)
 	deaf    map[string]bool      // online by its record, but nothing answers calls
 	seen    map[string]time.Time // last heartbeat
+	resume  string               // agent_send refuses to resume a session with this error
 	prompts []string
 	sends   []map[string]any
 	reply   func(prompt string) (text, errText string)
@@ -83,6 +84,9 @@ func (f *fakeAgents) Call(_ context.Context, _ string, node, method string, args
 		f.files[str(args["name"])] += int64(len(str(args["data"])))
 		return map[string]any{"success": true}, nil
 	case "agent_send":
+		if f.resume != "" && str(args["conversation_id"]) != "" {
+			return map[string]any{"success": false, "error": f.resume}, nil
+		}
 		f.sends = append(f.sends, args)
 		f.prompts = append(f.prompts, str(args["prompt"]))
 		id := str(args["conversation_id"])
@@ -716,6 +720,29 @@ func TestUnreachableOrGoneNodesShowOfflineAndAnswerWhenBack(t *testing.T) {
 	})
 }
 
+// An agent whose model source changed cannot resume its session: a new one
+// starts by itself.
+func TestModelSourceChangeStartsANewSession(t *testing.T) {
+	url := jetStream(t)
+	nodes := newFakeAgents()
+	tc := teamOn(t, url, nodes)
+	h, mine, _ := teamHost(t, tc)
+	coder := makeAgent(t, h, mine, "Coder", "n_mac", "codex", nil)
+	call(t, h, mine, "post", map[string]any{"cid": "general", "text": "@coder one"})
+	eventually(t, "the first answer", func() bool { return lastFrom(msgs(t, h, mine, "general", ""), coder) != nil })
+	eventually(t, "ready", func() bool {
+		return call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[coder].(map[string]any)["state"] == "ready"
+	})
+	nodes.mu.Lock()
+	nodes.resume = "PantheonOS models: thread/resume failed: This chat uses openai, but your current provider is pantheon. Switch to openai to continue."
+	nodes.mu.Unlock()
+	call(t, h, mine, "post", map[string]any{"cid": "general", "text": "@coder two"})
+	eventually(t, "a new session", func() bool { return nodes.promptCount() == 2 })
+	if nodes.sends[1]["conversation_id"] != nil || !strings.Contains(nodes.lastPrompt(), "fresh session") {
+		t.Fatalf("%v", nodes.sends[1])
+	}
+}
+
 func TestFailureLinesArePlainWords(t *testing.T) {
 	m := &tcMember{Handle: "writer", Runtime: "claude", NodeID: "n_1316bc635ce442f489c5", Folder: "/Users/me/agents/writer", Model: "haiku"}
 	mac := TeamNode{ID: m.NodeID, Name: "Weizes-MacBook-Pro.local", Kind: "machine"}
@@ -733,6 +760,7 @@ func TestFailureLinesArePlainWords(t *testing.T) {
 		"session is gone":                                    "its session on Weizes MacBook Pro ended unexpectedly",
 		"exec: claude: executable file not found in $PATH":   "Claude Code is not installed on Weizes MacBook Pro",
 		"something odd at 0x1f":                              "its turn failed on Weizes MacBook Pro",
+		`thread/resume failed: This chat uses openai, but your current provider is pantheon. (code -32600)`: "its session was made with other models than it now uses",
 	} {
 		reason, fix, _ := explain(m, mac, raw)
 		if reason != want || fix == "" || strings.Contains(reason+fix, "n_") || strings.Contains(reason+fix, ".local") {

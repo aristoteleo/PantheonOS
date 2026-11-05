@@ -349,8 +349,9 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 	}
 	if reply["success"] != true {
 		why := str(reply["error"])
-		if agent.Session != "" && strings.Contains(why, "No conversation") {
-			// Its session is gone from the node: a new one starts.
+		if agent.Session != "" && (strings.Contains(why, "No conversation") || modelSourceChanged(why)) {
+			// Its session is gone from the node, or was made on other models
+			// than the agent now uses: a new one starts.
 			t.abortStart(ctx, fl, mid, "", "", false)
 			t.setSession(ctx, fl, mid, "")
 			return true
@@ -513,6 +514,13 @@ func (t *TeamChat) markUnreachable(ctx context.Context, fl *tcFleet, nodeID stri
 	t.noteNode(fl, n)
 }
 
+// modelSourceChanged: the agent's session was made with another model
+// provider than it now uses (its model source changed), so it cannot go on.
+func modelSourceChanged(errText string) bool {
+	low := strings.ToLower(errText)
+	return strings.Contains(low, "modelprovidermismatch") || strings.Contains(low, "but your current provider is")
+}
+
 // unreachable: a node call's error that means nothing answers for the node.
 func unreachable(errText string) bool {
 	low := strings.ToLower(errText)
@@ -657,6 +665,8 @@ func explainKnown(m *tcMember, n TeamNode, errText string) (reason, fix string, 
 	case has("connection refused", "no such host", "could not resolve", "econnrefused", "enotfound", "econnreset",
 		"connection reset", "network is unreachable", "network error", "fetch failed", "tls handshake"):
 		return where + " could not reach the model service", "Check " + where + "'s internet connection, then press Retry.", true, true
+	case modelSourceChanged(errText):
+		return "its session was made with other models than it now uses", "Reset its session from the agent's menu, then press Retry.", false, true
 	case has("no conversation", "session is gone", "session not found"):
 		return "its session on " + where + " ended unexpectedly", "Press Retry to start a new session.", false, true
 	case has("offline", "timeout", "timed out", "no responders", "deadline", "not a member of this user"):
