@@ -58,6 +58,9 @@ func (t *TeamChat) agentCreate(ctx context.Context, fid string, spec agentSpec) 
 	if spec.Name == "" || utf8.RuneCountInString(spec.Name) > 64 {
 		return nil, &ArgumentError{"an agent's name has 1 to 64 characters"}
 	}
+	if why := nameTrouble(spec.Name); why != "" {
+		return nil, &ArgumentError{why}
+	}
 	if spec.Handle == "" {
 		spec.Handle = handleFrom(spec.Name)
 	}
@@ -88,6 +91,9 @@ func (t *TeamChat) agentCreate(ctx context.Context, fid string, spec agentSpec) 
 	}
 	if spec.NodeID == "" {
 		return nil, &ArgumentError{"pick a computer"}
+	}
+	if err := folderShape(spec.Folder); err != nil {
+		return nil, err
 	}
 	fl, err := t.lockFleet(ctx, fid)
 	if err != nil {
@@ -158,7 +164,7 @@ func (t *TeamChat) agentCreate(ctx context.Context, fid string, spec agentSpec) 
 			reason, fix, _ := explain(&tcMember{Runtime: spec.Runtime, NodeID: spec.NodeID}, node, str(check["error"]))
 			return nil, &ArgumentError{strings.TrimSpace(reason + ". " + fix)}
 		}
-		if why := sharedFolderRefusal(firstNonBlank(str(check["folder"]), folder), str(detect["home"]), check["home"] == true, check["root"] == true); why != "" {
+		if why := checkedFolderRefusal(check, folder, str(detect["home"])); why != "" {
 			return nil, sharedRefusal(why)
 		}
 	}
@@ -727,7 +733,7 @@ func sharedFolderRefusal(folder, home string, isHome, isRoot bool) string {
 	if isRoot || f == "/" || clean == "" {
 		return "the whole computer (/)"
 	}
-	if isHome || homeFolderRE.MatchString(f) {
+	if isHome || homeFolderRE.MatchString(f) || homeFolderRE.MatchString(strings.ToLower(f)) {
 		return "a home folder"
 	}
 	if homeParentRE.MatchString(f) {
@@ -742,6 +748,44 @@ func sharedFolderRefusal(folder, home string, isHome, isRoot bool) string {
 		}
 	}
 	return ""
+}
+
+// checkedFolderRefusal is sharedFolderRefusal for a folder as its computer
+// checked it (team_setup check_only): by where it really is ("real": after
+// symlinks, case and the computer's other names for a folder) when the
+// computer says so, and by what it found (a home, /, a folder holding homes).
+func checkedFolderRefusal(check map[string]any, folder, home string) string {
+	if why := sharedFolderRefusal(firstNonBlank(str(check["folder"]), folder), home, check["home"] == true, check["root"] == true); why != "" {
+		return why
+	}
+	if real := str(check["real"]); real != "" {
+		if why := sharedFolderRefusal(real, home, false, false); why != "" {
+			return why
+		}
+	}
+	if check["holds_home"] == true {
+		return "a folder that holds people's home folders (" + firstNonBlank(str(check["real"]), folder) + ")"
+	}
+	return ""
+}
+
+// winFolderRE: a full Windows folder (C:\…).
+var winFolderRE = regexp.MustCompile(`^[A-Za-z]:[\\/]`)
+
+// folderShape: an agent's folder is a full folder on its computer (or ~ /
+// ~/…, its user's home); a relative folder, ~user, $HOME or a network
+// address is refused at once with what to give instead.
+func folderShape(folder string) error {
+	f := strings.TrimSpace(folder)
+	switch {
+	case f == "", f == "~", strings.HasPrefix(f, "~/"), winFolderRE.MatchString(f):
+		return nil
+	case strings.HasPrefix(f, "/") && !strings.Contains(f, "://"):
+		return nil
+	}
+	return &ArgumentError{"Choose a full folder on that computer, such as /Users/you/PantheonAgents/coder " +
+		"(or ~/PantheonAgents/coder). " + strings.TrimSpace(clipText(f, 80)) + " is not one: a relative folder, ~user, $HOME " +
+		"or a network address (smb://, \\\\server) can't be used."}
 }
 
 // sharedRefusal is the refusal of a shared agent's folder in plain words.
@@ -790,6 +834,9 @@ func (t *TeamChat) sharedFolderCheck(ctx context.Context, fid, mid string, field
 		next.Access = s
 	}
 	if s, ok := fields["folder"].(string); ok {
+		if err := folderShape(s); err != nil {
+			return err
+		}
 		next.Folder = s
 	}
 	if s, ok := fields["node_id"].(string); ok {
@@ -808,7 +855,7 @@ func (t *TeamChat) sharedFolderCheck(ctx context.Context, fid, mid string, field
 			next.Name, nodeLabel(n, next.NodeID), firstNonBlank(str(res["error"]), "not reachable"), nodeLabel(n, next.NodeID))}
 	}
 	home := t.nodeHome(ctx, fid, next.NodeID)
-	if why := sharedFolderRefusal(firstNonBlank(str(res["folder"]), next.Folder), home, res["home"] == true, res["root"] == true); why != "" {
+	if why := checkedFolderRefusal(res, next.Folder, home); why != "" {
 		return sharedRefusal(why)
 	}
 	return nil

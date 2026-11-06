@@ -28,7 +28,7 @@ func (c *fakeClock) Add(d time.Duration) {
 }
 
 func agentSays(tc *TeamChat, mid, op string, args []string, opts map[string]string, text string) agentReply {
-	return tc.AgentRequest(context.Background(), fleetID, agentRequest{MID: mid, Token: tc.agentToken(fleetID, mid), Op: op,
+	return tc.asTurn(context.Background(), fleetID, agentRequest{MID: mid, Token: tc.agentToken(fleetID, mid), Op: op,
 		Args: args, Opts: opts, Text: text})
 }
 
@@ -372,7 +372,7 @@ func TestActivityUnreadThreadsAndReview(t *testing.T) {
 	agentRoot := strings.TrimSuffix(w("general", "", "my own note"), ".")
 	call(t, h, mine, "read", map[string]any{"cid": "general", "id": agentRoot})
 	fl, _ := tc.lockFleet(context.Background(), fleetID)
-	if _, err := tc.agentPost(context.Background(), fl, fl.members[writer], nil, "general", agentRoot, "a reply nobody follows", nil); err != nil {
+	if _, err := tc.agentPost(context.Background(), fl, fl.members[writer], nil, "", "general", agentRoot, "a reply nobody follows", nil); err != nil {
 		t.Fatal(err)
 	}
 	fl.mu.Unlock()

@@ -122,6 +122,21 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 			if a.Members != nil && !who.owner() && conv.has(tcOwner) && !contains(*a.Members, tcOwner) {
 				return nil, &ArgumentError{"The space owner stays in " + conv.label(fl, who.mid) + ": only they can leave it."}
 			}
+			if err := t.adminLimit(fl, who, conv, a.Name != nil, a.Private != nil && *a.Private != conv.Private,
+				a.AgentReply != nil && *a.AgentReply != conv.AgentReply, false); err != nil {
+				return nil, err
+			}
+			if a.Members != nil {
+				var gone []string
+				for _, mid := range conv.Members {
+					if !contains(*a.Members, mid) {
+						gone = append(gone, mid)
+					}
+				}
+				if err := t.mayTakeOut(fl, who, conv, gone); err != nil {
+					return nil, err
+				}
+			}
 			if a.Members != nil {
 				var added []string
 				for _, mid := range *a.Members {
@@ -161,6 +176,11 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 				case c.Method == "conv_leave" && !who.admin() && conv.CreatedBy != who.mid:
 					return nil, &ArgumentError{"Only the space owner, admins and the person who made " + conv.label(fl, who.mid) + " can take others out of it."}
 				}
+				if c.Method == "conv_leave" {
+					if err := t.mayTakeOut(fl, who, conv, []string{mid}); err != nil {
+						return nil, err
+					}
+				}
 				if c.Method == "conv_join" {
 					if err := t.mayAdd(fl, who, []string{mid}); err != nil {
 						return nil, err
@@ -185,6 +205,9 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 			}
 			if !who.admin() && conv.CreatedBy != who.mid {
 				return nil, &ArgumentError{"Only the space owner, admins and the person who made " + conv.label(fl, who.mid) + " can archive it."}
+			}
+			if err := t.adminLimit(fl, who, conv, false, false, false, true); err != nil {
+				return nil, err
 			}
 			return t.convArchive(ctx, fl, a.CID, archived)
 		})
@@ -270,7 +293,7 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 			if _, err := sees(fl, found.CID); err != nil {
 				return nil, err
 			}
-			msg, err := t.change(ctx, fl, who.mid, c.Method, a.ID, found.CID, a.Text)
+			msg, err := t.change(ctx, fl, who.mid, "", c.Method, a.ID, found.CID, a.Text)
 			if err != nil {
 				return nil, err
 			}
@@ -529,12 +552,16 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 				// Retry spends the owner's budget on what the owner was told to
 				// fix, and a session reset loses the agent's conversation: the
 				// owner's.
-				what := strings.ReplaceAll(a.Action, "_", " ") + " an agent"
+				what := "do that to an agent"
 				switch a.Action {
 				case "reset_session":
 					what = "reset an agent's session"
+				case "reset_full":
+					what = "fully reset an agent"
 				case "retry":
 					what = "retry an agent's failed turn"
+				case "delete":
+					what = "delete an agent"
 				}
 				return nil, &ArgumentError{"Only the space owner can " + what + "."}
 			}
@@ -614,6 +641,55 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		return t.fileGet(ctx, c.Fleet, a.ID, a.Offset, a.Length)
 	}
 	return nil, &ArgumentError{fmt.Sprintf("unknown method %s", c.Method)}
+}
+
+// ownersChannel: #general, or a channel the space owner made.
+func ownersChannel(c *tcConv) bool {
+	return c.Kind == "channel" && (c.CID == "general" || c.CreatedBy == tcOwner)
+}
+
+// adminLimit: what an admin may not do to the owner's channels (#general
+// and those the owner made; docs/apps/team-chat.md, "Admin powers"): rename
+// or archive them, make them private or public, or change whether every
+// message wakes agents. Their own channels and members' channels are theirs
+// to manage. (Only the owner and admins get here for someone else's
+// channel; the maker of a channel manages it as before.)
+func (t *TeamChat) adminLimit(fl *tcFleet, who tcCaller, c *tcConv, rename, privacy, wake, archive bool) error {
+	if who.owner() || !ownersChannel(c) || c.CreatedBy == who.mid {
+		return nil
+	}
+	what := ""
+	switch {
+	case privacy:
+		what = "make it private or public"
+	case wake:
+		what = "change which messages wake agents there"
+	case rename:
+		what = "rename it"
+	case archive:
+		what = "archive it"
+	default:
+		return nil
+	}
+	return &ArgumentError{"Only the space owner can " + what + ": " + c.label(fl, who.mid) + " is the owner's channel."}
+}
+
+// mayTakeOut: someone other than the owner may not take the owner, or the
+// owner's agents they may not use themselves, out of the owner's channels.
+func (t *TeamChat) mayTakeOut(fl *tcFleet, who tcCaller, c *tcConv, mids []string) error {
+	if who.owner() {
+		return nil
+	}
+	for _, mid := range mids {
+		if mid == tcOwner {
+			return &ArgumentError{"The space owner stays in " + c.label(fl, who.mid) + ": only they can leave it."}
+		}
+		a := fl.members[mid]
+		if a != nil && a.agent() && ownersChannel(c) && ownerOf(a) == tcOwner && !fl.canUse(who.mid, a) {
+			return &ArgumentError{"Only the space owner can take " + a.Name + " out of " + c.label(fl, who.mid) + "."}
+		}
+	}
+	return nil
 }
 
 // mayAdd: a person may put members into a conversation (or assign a task):
@@ -901,6 +977,11 @@ func (t *TeamChat) handleFree(fl *tcFleet, handle, except string) error {
 	if !tcHandleRE.MatchString(handle) {
 		return &ArgumentError{"a handle has 1 to 32 lower case letters, digits, - and _, starting with a letter or digit"}
 	}
+	if reservedHandles[handle] {
+		if m := fl.members[except]; m == nil || m.Handle != handle {
+			return &ArgumentError{"@" + handle + " is reserved: choose another handle"}
+		}
+	}
 	for _, m := range fl.members {
 		if m.Handle == handle && m.MID != except {
 			return &ArgumentError{"@" + handle + " is taken"}
@@ -922,6 +1003,12 @@ func (t *TeamChat) memberUpdate(ctx context.Context, fl *tcFleet, mid string, fi
 		n := strings.TrimSpace(*v)
 		if n == "" || utf8.RuneCountInString(n) > 64 {
 			return nil, &ArgumentError{"a name has 1 to 64 characters"}
+		}
+		if why := nameTrouble(n); why != "" {
+			return nil, &ArgumentError{why}
+		}
+		if person && reservedName(n) {
+			return nil, &ArgumentError{"That name reads as Team Chat or a role in the space. Choose another."}
 		}
 		if person && n != m.Name {
 			if err := fl.tooClose(mid, "name", n); err != nil {
@@ -1351,8 +1438,10 @@ func (t *TeamChat) system(ctx context.Context, fl *tcFleet, cid, root, about, ac
 	return t.postEvent(ctx, fl, &tcEvent{From: "system", CID: cid, Root: root, Kind: "system", Text: text, About: about, Action: action}, nil)
 }
 
-// change edits or deletes one of mid's own messages.
-func (t *TeamChat) change(ctx context.Context, fl *tcFleet, mid, kind, id, cid, text string) (*tcMsg, error) {
+// change edits or deletes one of mid's own messages. worksFor: for an
+// agent, the person its turn works for (the agents an edit wakes again are
+// checked against them, and carry them on); "" for a person (themselves).
+func (t *TeamChat) change(ctx context.Context, fl *tcFleet, mid, worksFor, kind, id, cid, text string) (*tcMsg, error) {
 	msg, err := t.findMsg(ctx, fl, id, cid)
 	if err != nil {
 		return nil, err
@@ -1364,6 +1453,14 @@ func (t *TeamChat) change(ctx context.Context, fl *tcFleet, mid, kind, id, cid, 
 		return nil, &ArgumentError{"this message is deleted"}
 	}
 	e := &tcEvent{ID: tcNewID(t.clock()), CID: msg.CID, Root: msg.Root, From: mid, Kind: kind, Ref: msg.ID, At: t.stamp()}
+	actor := mid
+	if editor := fl.members[mid]; editor != nil && editor.agent() {
+		actor = worksFor
+		if actor == "" {
+			actor = ownerOf(editor)
+		}
+		e.Behalf = []string{actor}
+	}
 	if kind == "edit" {
 		text = strings.TrimRight(text, " \n\t")
 		if strings.TrimSpace(text) == "" && len(msg.Files) == 0 {
@@ -1389,11 +1486,13 @@ func (t *TeamChat) change(ctx context.Context, fl *tcFleet, mid, kind, id, cid, 
 		if agent == mid || fl.members[agent] == nil {
 			continue
 		}
-		if editor := fl.members[mid]; editor != nil && !editor.agent() && !fl.canUse(mid, fl.members[agent]) {
+		// The person behind the edit (an agent's: its turn's) must be one
+		// who may use the agent it would wake.
+		if !fl.canUse(actor, fl.members[agent]) {
 			continue
 		}
 		t.enqueue(ctx, fl, agent, tcWake{ID: msg.ID, Event: e.ID, CID: msg.CID, Root: msg.Root, Kind: kind,
-			Reason: kind, From: mid, At: e.At})
+			Reason: kind, From: mid, At: e.At, Behalf: e.Behalf})
 	}
 	return folded, nil
 }

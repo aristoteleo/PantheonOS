@@ -6,9 +6,12 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // teamCommand finds the pantheon-team command a turn was told about.
@@ -163,5 +166,118 @@ echo "exit $?" >> "$(dirname "$0")/bad.txt"
 	calls, _ := os.ReadFile(filepath.Join(dir, "calls-claude.txt"))
 	if !strings.Contains(string(calls), "You are Writer (@writer), an agent member of a Team Chat space") {
 		t.Fatalf("%s", calls)
+	}
+}
+
+// A Team Chat turn's commands carry its credential, which reaches the
+// agent's processes only through their environment; a command written with
+// an earlier turn's credential (a background loop left by that turn) is
+// refused without reaching the controller; and what a turn leaves running
+// (nohup, &, a process that started a session of its own) ends with it
+// (docs/apps/team-chat.md, "Turn-bound commands").
+func TestATeamTurnsCommandsAndProcessesEndWithIt(t *testing.T) {
+	old := teamProcLook
+	teamProcLook = 50 * time.Millisecond
+	t.Cleanup(func() { teamProcLook = old })
+	dir := fakeAgents(t, map[string]string{
+		"claude": teamCommand + `d="$(dirname "$0")"
+box="$(dirname "$team")/inbox"
+if [ -f "$d/second" ]; then
+	# The next turn: a request with the first turn's credential, as a loop
+	# left from it would write, then one of its own.
+	printf 'op: read\nturn: t1.c1\narg: general\n\n' > "$box/.1-1.tmp" && mv "$box/.1-1.tmp" "$box/1-1.msg"
+	i=0; while [ ! -f "$box/1-1.reply" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+	cat "$box/1-1.reply" > "$d/stale.txt"
+	"$team" read general > "$d/own.txt" 2>&1
+else
+	printf '%s' "$PANTHEON_TEAM_TURN" > "$d/env.txt"
+	nohup sh -c 'echo $$ > "$0/bg.pid"; while :; do sleep 0.2; done' "$d" > /dev/null 2>&1 &
+	if command -v perl > /dev/null; then
+		perl -MPOSIX -e 'POSIX::setsid(); open(my $f, ">", "$ARGV[0]/away.pid"); print $f "$$"; close $f; exec "sh", "-c", "while :; do sleep 0.2; done"' "$d" > /dev/null 2>&1 &
+	fi
+	sleep 0.6
+	touch "$d/second"
+fi
+` + claudeDone,
+	})
+	a := NewApp(nil, "", t.TempDir())
+	t.Cleanup(a.Close)
+	var mu sync.Mutex
+	var reqs []map[string]any
+	a.teamCaller = func(req map[string]any) (map[string]any, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		reqs = append(reqs, req)
+		return map[string]any{"code": float64(0), "text": "#general: hello"}, nil
+	}
+	folder := filepath.Join(t.TempDir(), "coder")
+	if r := teamSetup(folder, "brief", "", false); r["success"] != true {
+		t.Fatal(r)
+	}
+	alive := func(name string) (int, bool) {
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			return 0, false
+		}
+		pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+		return pid, pid > 1 && syscall.Kill(pid, 0) == nil
+	}
+	res := a.send(SendArgs{Agent: "claude", Cwd: folder, Prompt: "[Team Chat] first", Auto: true, Origin: "team-chat",
+		Team: &TeamTurn{MID: "a1", Token: "tok", Handle: "coder", Name: "Coder", Turn: "t1", Cred: "c1"}})
+	if res["success"] != true {
+		t.Fatal(res)
+	}
+	conv := res["conversation_id"].(string)
+	waitIdle(t, a, conv)
+	if env, _ := os.ReadFile(filepath.Join(dir, "env.txt")); string(env) != "t1.c1" {
+		t.Fatalf("the turn's environment: %q", env)
+	}
+	for _, name := range []string{"bg.pid", "away.pid"} {
+		if name == "away.pid" {
+			if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+				continue // no perl here
+			}
+		}
+		deadline := time.Now().Add(3 * time.Second)
+		for {
+			pid, live := alive(name)
+			if pid == 0 {
+				t.Fatalf("%s was not written", name)
+			}
+			if !live {
+				break
+			}
+			if time.Now().After(deadline) {
+				_ = syscall.Kill(pid, syscall.SIGKILL)
+				t.Fatalf("%s (%d) outlived its turn", name, pid)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	// The credential is in no file of the folder.
+	_ = filepath.WalkDir(folder, func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			if b, _ := os.ReadFile(p); strings.Contains(string(b), "c1") && strings.Contains(string(b), "t1.") {
+				t.Errorf("%s holds the credential", p)
+			}
+		}
+		return nil
+	})
+	res = a.send(SendArgs{Agent: "claude", Cwd: folder, Prompt: "[Team Chat] second", Auto: true, Origin: "team-chat",
+		ConversationID: conv, Team: &TeamTurn{MID: "a1", Token: "tok", Handle: "coder", Name: "Coder", Turn: "t2", Cred: "c2"}})
+	if res["success"] != true {
+		t.Fatal(res)
+	}
+	waitIdle(t, a, conv)
+	if stale, _ := os.ReadFile(filepath.Join(dir, "stale.txt")); !strings.Contains(string(stale), "not part of the agent's running Team Chat turn") {
+		t.Fatalf("a request with the first turn's credential: %q", stale)
+	}
+	if own, _ := os.ReadFile(filepath.Join(dir, "own.txt")); !strings.Contains(string(own), "#general: hello") {
+		t.Fatalf("the turn's own request: %q", own)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(reqs) != 1 || reqs[0]["turn"] != "t2" || reqs[0]["cred"] != "c2" {
+		t.Fatalf("what reached the controller: %v", reqs)
 	}
 }

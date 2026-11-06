@@ -9,6 +9,7 @@ package codingagentsapp
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -41,6 +42,27 @@ type TeamTurn struct {
 	// Note, when the service sends one, is the turn's setting about Team
 	// Chat in place of the built-in one ({{TEAM}} becomes the tool).
 	Note string `json:"note,omitempty"`
+	// Turn and Cred: the turn's id and credential (docs/apps/team-chat.md,
+	// "Turn-bound commands"). They reach the agent's processes only through
+	// their environment (teamTurnEnv), never a file; a request carries them
+	// back, and one without this turn's is refused here and by the
+	// controller. The credential is no use once the turn ends.
+	Turn string `json:"turn,omitempty"`
+	Cred string `json:"cred,omitempty"`
+}
+
+// teamTurnEnv is the variable that carries a turn's id and credential to
+// the agent's processes (its name has no KEY, SECRET or TOKEN in it, so
+// runtimes that drop such variables from their commands keep it).
+const teamTurnEnv = "PANTHEON_TEAM_TURN"
+
+// envValue is what teamTurnEnv holds for this turn ("" when the service
+// gave no credential).
+func (tt TeamTurn) envValue() string {
+	if tt.Turn == "" || tt.Cred == "" {
+		return ""
+	}
+	return tt.Turn + "." + tt.Cred
 }
 
 // teamBox is an agent folder's .team/ for one turn.
@@ -178,6 +200,7 @@ id="$(date +%s)-$$"
 stdin=0
 if ! {
 	printf 'op: %s\n' "$op"
+	printf 'turn: %s\n' "${` + teamTurnEnv + `:-}"
 	while [ "$#" -gt 0 ]; do
 		case "$1" in
 		--file)
@@ -220,13 +243,39 @@ exit 1
 func (a *App) watchTeam(id string, tr *turn) {
 	tick := time.NewTicker(linkPoll.get())
 	defer tick.Stop()
+	last := time.Time{}
 	for {
 		select {
 		case <-tr.done:
 			return
 		case <-tick.C:
 			a.scanTeam(id, tr)
+			if time.Since(last) >= teamProcLook {
+				// Its processes as they are now, to end the ones left
+				// running when it ends (also those that left its session).
+				last = time.Now()
+				tr.noteProcs()
+			}
 		}
+	}
+}
+
+// teamProcLook is how often a Team Chat turn's processes are looked at.
+var teamProcLook = time.Second
+
+// noteProcs adds the turn's processes now to the ones it was seen with.
+func (tr *turn) noteProcs() {
+	if tr.cmd == nil || tr.cmd.Process == nil {
+		return
+	}
+	now := turnProcs(tr.cmd.Process.Pid)
+	tr.procMu.Lock()
+	defer tr.procMu.Unlock()
+	if tr.procs == nil {
+		tr.procs = map[int]int64{}
+	}
+	for pid, start := range now {
+		tr.procs[pid] = start
 	}
 }
 
@@ -268,7 +317,11 @@ func (a *App) scanTeam(id string, tr *turn) {
 		}
 		box.taken[key] = true
 		code, text := 1, fmt.Sprintf("Not sent: this turn has made its limit of %d Team Chat requests.", teamTurnMax)
-		if box.handled < teamTurnMax {
+		if !box.ownRequest(b) {
+			// Written by a process of an earlier turn (left running in the
+			// background), or by one that never had this turn's credential.
+			code, text = 1, teamNotThisTurn
+		} else if box.handled < teamTurnMax {
 			box.handled++
 			code, text = a.teamRequest(box, b)
 		}
@@ -276,11 +329,32 @@ func (a *App) scanTeam(id string, tr *turn) {
 	}
 }
 
+// teamNotThisTurn answers a request that does not carry the running turn's
+// credential.
+const teamNotThisTurn = "pantheon-team: refused: this command is not part of the agent's running Team Chat turn " +
+	"(a command left running from an earlier turn, or one run outside a turn, cannot use Team Chat)."
+
+// ownRequest: the request carries this turn's id and credential (always, when
+// the service gave none: an older controller).
+func (b *teamBox) ownRequest(raw []byte) bool {
+	want := b.team.envValue()
+	if want == "" {
+		return true
+	}
+	head, _, _ := strings.Cut(string(raw), "\n\n")
+	for _, line := range strings.Split(head, "\n") {
+		if v, ok := strings.CutPrefix(line, "turn: "); ok {
+			return subtle.ConstantTimeCompare([]byte(v), []byte(want)) == 1
+		}
+	}
+	return false
+}
+
 // teamRequest sends one request to the controller: files first, then the
 // command with their ids.
 func (a *App) teamRequest(box *teamBox, b []byte) (int, string) {
 	head, text, _ := strings.Cut(string(b), "\n\n")
-	req := map[string]any{"mid": box.team.MID, "token": box.team.Token}
+	req := map[string]any{"mid": box.team.MID, "token": box.team.Token, "turn": box.team.Turn, "cred": box.team.Cred}
 	var args, files []string
 	opts := map[string]string{}
 	for _, line := range strings.Split(head, "\n") {
@@ -342,7 +416,8 @@ func (a *App) teamUpload(box *teamBox, p string) (string, error) {
 			return "", rerr
 		}
 		final := offset+int64(n) >= fi.Size() || rerr != nil
-		out, err := a.teamCall(map[string]any{"mid": box.team.MID, "token": box.team.Token, "op": "file_put",
+		out, err := a.teamCall(map[string]any{"mid": box.team.MID, "token": box.team.Token, "turn": box.team.Turn,
+			"cred": box.team.Cred, "op": "file_put",
 			"upload": map[string]any{"upload_id": upload, "name": filepath.Base(p), "offset": offset,
 				"data": base64.StdEncoding.EncodeToString(buf[:n]), "final": final}})
 		if err != nil {
@@ -414,7 +489,11 @@ func teamSetup(folder, agentMD, reset string, checkOnly bool) map[string]any {
 	home := homeDir()
 	isHome := home != "" && folder == filepath.Clean(home)
 	isRoot := folder == filepath.VolumeName(folder)+string(filepath.Separator)
-	out := map[string]any{"success": true, "folder": folder, "home": isHome, "root": isRoot}
+	// Where it really is (symlinks, case, macOS's other names for a folder),
+	// for the check that a shared agent stays out of homes and /.
+	real, realHome, realRoot, holdsHome := folderFacts(folder)
+	isHome, isRoot = isHome || realHome, isRoot || realRoot
+	out := map[string]any{"success": true, "folder": folder, "real": real, "home": isHome, "root": isRoot, "holds_home": holdsHome}
 	if st, err := os.Stat(folder); err == nil {
 		if !st.IsDir() {
 			return failure("%s is not a folder", folder)

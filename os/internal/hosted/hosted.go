@@ -125,6 +125,9 @@ type Call struct {
 type Member struct {
 	UserID, Username, Name, Fleet, Role string
 	Joined                              int64
+	// Membership is the Hub's id of this membership (new each time they
+	// join): a grant of a membership that ended is refused.
+	Membership string
 }
 
 // ArgumentError is a malformed call: unknown method or arguments.

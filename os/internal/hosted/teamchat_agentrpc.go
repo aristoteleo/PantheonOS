@@ -19,8 +19,14 @@ import (
 )
 
 type agentRequest struct {
-	MID   string            `json:"mid"`
-	Token string            `json:"token"`
+	MID   string `json:"mid"`
+	Token string `json:"token"`
+	// Turn and Cred: the running turn the command belongs to, and the
+	// credential the node gave that turn's processes (docs/apps/team-chat.md,
+	// "Turn-bound commands"). A command without the running turn's is
+	// refused.
+	Turn  string            `json:"turn"`
+	Cred  string            `json:"cred"`
 	Op    string            `json:"op"`
 	Args  []string          `json:"args"`
 	Opts  map[string]string `json:"opts"`
@@ -65,29 +71,40 @@ func (t *TeamChat) AgentRequest(ctx context.Context, fid string, req agentReques
 	if !desktopFleetRE.MatchString(fid) || !t.checkToken(fid, req.MID, req.Token) {
 		return agentReply{1, "pantheon-team: this agent is not known to Team Chat", nil}
 	}
+	fl, err := t.lockFleet(ctx, fid)
+	if err != nil {
+		return agentReply{1, "Team Chat is not available right now: " + err.Error(), nil}
+	}
+	m := fl.members[req.MID]
+	if m == nil || !m.agent() {
+		fl.mu.Unlock()
+		return agentReply{1, "pantheon-team: this agent was removed from the space", nil}
+	}
+	// Every command belongs to the running turn, and acts for the person
+	// that turn works for: a command left running from an earlier turn (a
+	// background loop) or one without the turn's credential is refused.
+	tr := fl.liveTurn(m.MID, req.Turn, req.Cred)
+	if tr == nil {
+		fl.mu.Unlock()
+		return agentReply{1, errNoTurn, nil}
+	}
 	if req.Op == "file_put" {
+		fl.mu.Unlock()
 		res, err := t.filePut(ctx, fid, req.MID, req.Upload)
 		if err != nil {
 			return agentReply{1, err.Error(), nil}
 		}
 		return agentReply{0, "", res}
 	}
-	fl, err := t.lockFleet(ctx, fid)
-	if err != nil {
-		return agentReply{1, "Team Chat is not available right now: " + err.Error(), nil}
-	}
 	defer fl.mu.Unlock()
-	m := fl.members[req.MID]
-	if m == nil || !m.agent() {
-		return agentReply{1, "pantheon-team: this agent was removed from the space", nil}
-	}
-	// Working for people other than its owner, it reads, searches and lists
-	// only what they see too (docs/apps/team-chat.md, "Phase 3 as built").
-	if people := fl.scopeOf(m); len(people) > 0 {
+	// Working for someone other than its owner, it reads, searches, lists
+	// and acts only within what that person sees and may use
+	// (docs/apps/team-chat.md, "Phase 3 as built").
+	if people := scopeFor(m, tr.WorksFor); len(people) > 0 {
 		fl.scoped = map[string][]string{m.MID: people}
 		defer func() { fl.scoped = nil }()
 	}
-	text, err := t.agentOp(ctx, fl, m, req)
+	text, err := t.agentOp(ctx, fl, m, tr, req)
 	if err != nil {
 		return agentReply{1, err.Error(), nil}
 	}
@@ -126,9 +143,13 @@ func needText(op string, req agentRequest, n int) error {
 		"then a line EOF); a message with --file needs its text too. Nothing was posted", op)
 }
 
-// agentOp runs one request as agent m; fl.mu is held.
-func (t *TeamChat) agentOp(ctx context.Context, fl *tcFleet, m *tcMember, req agentRequest) (string, error) {
-	tr := fl.turns[m.MID]
+// errNoTurn answers a command that is not part of the agent's running turn.
+const errNoTurn = "pantheon-team: refused: this command is not part of a running Team Chat turn of yours. " +
+	"Team Chat answers only commands made by the turn that is running now; a command left running from an " +
+	"earlier turn (in the background), or run outside a turn, cannot use it."
+
+// agentOp runs one request of agent m's running turn tr; fl.mu is held.
+func (t *TeamChat) agentOp(ctx context.Context, fl *tcFleet, m *tcMember, tr *tcTurn, req agentRequest) (string, error) {
 	switch req.Op {
 	case "post", "reply", "dm":
 		if arg(req, 0) == "" {
@@ -228,7 +249,7 @@ func (t *TeamChat) agentOp(ctx context.Context, fl *tcFleet, m *tcMember, req ag
 		if c == nil || !fl.visible(c, m.MID) {
 			return "", fmt.Errorf("Not posted: no channel %s (see: channels)", arg(req, 0))
 		}
-		msg, err := t.agentPost(ctx, fl, m, tr, c.CID, "", body(req, 1), req.Files)
+		msg, err := t.agentPost(ctx, fl, m, tr, "", c.CID, "", body(req, 1), req.Files)
 		if err != nil {
 			return "", err
 		}
@@ -254,7 +275,7 @@ func (t *TeamChat) agentOp(ctx context.Context, fl *tcFleet, m *tcMember, req ag
 		if c.Kind == "dm" {
 			root = ""
 		}
-		msg, err := t.agentPost(ctx, fl, m, tr, c.CID, root, body(req, 1), req.Files)
+		msg, err := t.agentPost(ctx, fl, m, tr, "", c.CID, root, body(req, 1), req.Files)
 		if err != nil {
 			return "", err
 		}
@@ -265,7 +286,15 @@ func (t *TeamChat) agentOp(ctx context.Context, fl *tcFleet, m *tcMember, req ag
 	case "dm":
 		return t.agentDM(ctx, fl, m, tr, arg(req, 0), body(req, 1), req.Files)
 	case "edit":
-		msg, err := t.change(ctx, fl, m.MID, "edit", arg(req, 0), "", body(req, 1))
+		// Only a message in a conversation the turn's person sees too.
+		target, err := t.findMsg(ctx, fl, arg(req, 0), "")
+		if err != nil {
+			return "", err
+		}
+		if c := fl.convs[target.CID]; !fl.visible(c, m.MID) {
+			return "", fmt.Errorf("Not edited: message %s is not in a conversation the person this turn works for can see", target.ID)
+		}
+		msg, err := t.change(ctx, fl, m.MID, tr.WorksFor, "edit", target.ID, target.CID, body(req, 1))
 		if err != nil {
 			return "", err
 		}
@@ -322,7 +351,7 @@ func (t *TeamChat) agentDM(ctx context.Context, fl *tcFleet, m *tcMember, tr *tc
 		return "", err
 	}
 	c := res.(map[string]any)["conversation"].(*tcConv)
-	msg, err := t.agentPost(ctx, fl, m, tr, c.CID, "", text, files)
+	msg, err := t.agentPost(ctx, fl, m, tr, "", c.CID, "", text, files)
 	if err != nil {
 		return "", err
 	}
@@ -349,7 +378,7 @@ func (t *TeamChat) agentInbox(ctx context.Context, fl *tcFleet, m *tcMember, tr 
 	q := fl.queues[m.MID]
 	var usable []tcWake
 	for _, e := range q {
-		if e.Kind == "reminder" || firstNotUsing(fl, fl.behalfOf([]tcWake{e}), m) == "" {
+		if e.Kind == "reminder" || fl.canUse(fl.worksFor(m, e), m) {
 			usable = append(usable, e)
 		}
 	}
@@ -358,14 +387,15 @@ func (t *TeamChat) agentInbox(ctx context.Context, fl *tcFleet, m *tcMember, tr 
 		t.saveQueue(ctx, fl, m.MID, usable)
 		q = usable
 	}
-	// Only what fits this turn's people; the rest waits for a later turn.
+	// Only what works for this turn's person: a message from anyone else
+	// (the owner's in a member's turn, or the reverse) waits for a turn of
+	// its own after this one.
 	var later []tcWake
 	if tr != nil {
-		taken := append([]tcWake{tr.Cause}, tr.Events...)
 		var now []tcWake
 		for _, e := range q {
-			if fl.fits(m, taken, e) {
-				now, taken = append(now, e), append(taken, e)
+			if fl.fits(m, tr.WorksFor, e) {
+				now = append(now, e)
 			} else {
 				later = append(later, e)
 			}

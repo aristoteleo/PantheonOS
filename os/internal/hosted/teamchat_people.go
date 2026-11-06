@@ -67,38 +67,37 @@ func (t *TeamChat) callerOf(ctx context.Context, fl *tcFleet, m *Member) (tcCall
 			suffix := fmt.Sprint(i)
 			handle = strings.TrimRight(base[:min(len(base), 32-len(suffix))], "-_") + suffix
 		}
-		name := strings.TrimSpace(m.Name)
+		name := plainName(m.Name)
 		if name == "" {
-			name = m.Username
+			name = plainName(m.Username)
 		}
 		if r := []rune(name); len(r) > 64 {
 			name = string(r[:64])
 		}
-		if fl.mimicked(mid, name) != nil {
+		if nameTrouble(name) != "" || reservedName(name) || fl.mimicked(mid, name) != nil {
 			// A name that reads like another member's: they go by their
 			// handle until they choose another.
 			name = handle
 		}
 		rec = &tcMember{MID: mid, Kind: "person", Handle: handle, Name: name, Created: t.stamp(), Role: m.Role,
-			Fleet: m.Fleet, Joined: m.Joined}
+			Fleet: m.Fleet, Joined: m.Joined, Membership: m.Membership}
 		if err := t.welcome(ctx, fl, rec, "joined"); err != nil {
 			return tcCaller{}, err
 		}
 	case rec.Removed != "":
-		removed, _ := time.Parse(time.RFC3339Nano, rec.Removed)
-		if m.Joined <= removed.Unix() {
+		if grantEnded(rec, m) {
 			// A grant from before the removal.
 			return tcCaller{}, errNotInSpace
 		}
 		next := *rec
-		next.Removed, next.Role, next.Fleet, next.Joined = "", m.Role, m.Fleet, m.Joined
+		next.Removed, next.Role, next.Fleet, next.Joined, next.Membership = "", m.Role, m.Fleet, m.Joined, m.Membership
 		if err := t.welcome(ctx, fl, &next, "joined"); err != nil {
 			return tcCaller{}, err
 		}
 		rec = &next
-	case rec.Role != m.Role || rec.Fleet != m.Fleet || rec.Joined != m.Joined:
+	case rec.Role != m.Role || rec.Fleet != m.Fleet || rec.Joined != m.Joined || rec.Membership != m.Membership:
 		next := *rec
-		next.Role, next.Fleet, next.Joined = m.Role, m.Fleet, m.Joined
+		next.Role, next.Fleet, next.Joined, next.Membership = m.Role, m.Fleet, m.Joined, m.Membership
 		if err := t.put(ctx, fl, "member."+mid, &next); err != nil {
 			return tcCaller{}, err
 		}
@@ -107,6 +106,18 @@ func (t *TeamChat) callerOf(ctx context.Context, fl *tcFleet, m *Member) (tcCall
 		rec = &next
 	}
 	return tcCaller{mid: mid, role: rec.Role}, nil
+}
+
+// grantEnded: whether a grant of a removed person is from the membership
+// that ended. With the Hub's membership ids it is the same id (so leaving
+// and joining again within a second works, whatever the clocks say);
+// without them, a grant from no later than the removal's second.
+func grantEnded(rec *tcMember, m *Member) bool {
+	if m.Membership != "" && rec.Ended != "" {
+		return m.Membership == rec.Ended
+	}
+	removed, _ := time.Parse(time.RFC3339Nano, rec.Removed)
+	return m.Joined <= removed.Unix()
 }
 
 // welcome stores a person who joined (again), puts them in #general and
@@ -132,7 +143,10 @@ func (t *TeamChat) welcome(ctx context.Context, fl *tcFleet, rec *tcMember, verb
 // MemberChange is the Hub's change to a person of a space (through the
 // controller, with their grants dropped at the same time): "remove" (by
 // someone else), "leave" (by themselves) or "role" (admin | member).
-func (t *TeamChat) MemberChange(ctx context.Context, fid, userID, action, role string) (bool, error) {
+//
+// membership is the Hub's id of the membership a remove or leave ends
+// ("" from an older Hub: the person's current one).
+func (t *TeamChat) MemberChange(ctx context.Context, fid, userID, action, role, membership string) (bool, error) {
 	if userID == "" {
 		return false, &ArgumentError{"no person"}
 	}
@@ -168,6 +182,7 @@ func (t *TeamChat) MemberChange(ctx context.Context, fid, userID, action, role s
 	now := t.stamp()
 	next := *rec
 	next.Removed, next.Role = now, ""
+	next.Ended = firstNonBlank(membership, rec.Membership)
 	if err := t.put(ctx, fl, "member."+mid, &next); err != nil {
 		return false, err
 	}
@@ -250,61 +265,70 @@ func (fl *tcFleet) visible(c *tcConv, mid string) bool {
 	return c.Kind == "channel" && !c.Private || fl.inConv(c, mid)
 }
 
-// turnPeople are the people a turn of agent a works for, other than its
-// owner (whose turns keep the agent's whole view).
-func (fl *tcFleet) turnPeople(a *tcMember, events []tcWake) []string {
-	var out []string
-	for _, p := range fl.behalfOf(events) {
-		if p != ownerOf(a) && fl.members[p] != nil && !fl.members[p].agent() {
-			out = append(out, p)
+// wakeFor is the one person an event works for: a person's own message,
+// the person an agent's message (or a reminder) was made for, a person's
+// reminder; "" when nobody (an agent's own reminder: its owner's).
+func (fl *tcFleet) wakeFor(w tcWake) string {
+	if w.Kind != "reminder" {
+		if m := fl.members[w.From]; m != nil && !m.agent() {
+			return w.From
 		}
 	}
-	return out
-}
-
-// scopeOf is who agent a's request now works for: its running turn's
-// people, else its last turn's.
-func (fl *tcFleet) scopeOf(a *tcMember) []string {
-	if tr := fl.turns[a.MID]; tr != nil {
-		return fl.turnPeople(a, append([]tcWake{tr.Cause}, tr.Events...))
+	if len(w.Behalf) > 0 {
+		return w.Behalf[0]
 	}
-	return fl.liveOf(a.MID).lastBehalf
+	if w.Kind == "reminder" {
+		return w.For
+	}
+	return ""
 }
 
-// seenByAll: every conversation of the events is one each of the people sees.
-func (fl *tcFleet) seenByAll(events []tcWake, people []string) bool {
-	for _, e := range events {
-		c := fl.convs[e.CID]
-		if c == nil {
-			continue
-		}
-		for _, p := range people {
-			if !fl.visible(c, p) {
-				return false
-			}
-		}
+// worksFor is the person a turn of agent a that takes event w works for:
+// the event's person, else the agent's owner.
+func (fl *tcFleet) worksFor(a *tcMember, w tcWake) string {
+	if p := fl.wakeFor(w); p != "" {
+		return p
+	}
+	return ownerOf(a)
+}
+
+// scopeFor is whom agent a's view is cut down to while it works for p:
+// nobody when p is its owner (whose turns keep the agent's whole view).
+func scopeFor(a *tcMember, p string) []string {
+	if p == "" || p == ownerOf(a) {
+		return nil
+	}
+	return []string{p}
+}
+
+// fits: whether event e may join a turn of agent a that works for p: it
+// works for the same person, who sees its conversation, so a turn never
+// carries one person's words to another (docs/apps/team-chat.md).
+func (fl *tcFleet) fits(a *tcMember, p string, e tcWake) bool {
+	if fl.worksFor(a, e) != p {
+		return false
+	}
+	if c := fl.convs[e.CID]; c != nil && p != ownerOf(a) && !fl.visible(c, p) {
+		return false
 	}
 	return true
 }
 
-// fits: whether event e may join a turn of agent a that took events
-// (asked by people): every person behind them all sees every one of their
-// conversations, so a turn never carries one person's words to another.
-func (fl *tcFleet) fits(a *tcMember, taken []tcWake, e tcWake) bool {
-	all := append(append([]tcWake(nil), taken...), e)
-	return fl.seenByAll(all, fl.turnPeople(a, all))
-}
-
-// turnEvents are the queued events one turn takes: the oldest, and every
-// later one that fits with it (the rest wait for a later turn).
-func (fl *tcFleet) turnEvents(a *tcMember, q []tcWake) []tcWake {
-	var out []tcWake
-	for i, e := range q {
-		if i == 0 || fl.fits(a, out, e) {
+// turnEvents are the queued events one turn takes, and whom it works for:
+// the oldest, and every later one that works for the same person (the rest
+// wait for a later turn).
+func (fl *tcFleet) turnEvents(a *tcMember, q []tcWake) ([]tcWake, string) {
+	if len(q) == 0 {
+		return nil, ownerOf(a)
+	}
+	p := fl.worksFor(a, q[0])
+	out := []tcWake{q[0]}
+	for _, e := range q[1:] {
+		if fl.fits(a, p, e) {
 			out = append(out, e)
 		}
 	}
-	return out
+	return out, p
 }
 
 // inConv: the conversations whose news is a person's (unread, Activity,
@@ -373,32 +397,9 @@ func (fl *tcFleet) usable(personID string) []string {
 	return out
 }
 
-// behalfOf is who an agent's turn works for: the people whose messages (or
-// whose agents' messages, or reminders) are among its events.
-func (fl *tcFleet) behalfOf(events []tcWake) []string {
-	var out []string
-	add := func(mid string) {
-		if mid != "" && !contains(out, mid) {
-			out = append(out, mid)
-		}
-	}
-	for _, w := range events {
-		if m := fl.members[w.From]; m != nil && !m.agent() {
-			add(w.From)
-		}
-		if w.For != "" {
-			add(w.For)
-		}
-		for _, b := range w.Behalf {
-			add(b)
-		}
-	}
-	return out
-}
-
 // actorsOf: whose access a message's wakes are checked against: a person's
-// own message, an agent's message on behalf of its turn's people (its owner
-// when none).
+// own message; an agent's message, the person its turn worked for (its
+// owner for an old message that names nobody).
 func (fl *tcFleet) actorsOf(e *tcEvent) []string {
 	sender := fl.members[e.From]
 	if sender == nil {
@@ -408,7 +409,7 @@ func (fl *tcFleet) actorsOf(e *tcEvent) []string {
 		return []string{e.From}
 	}
 	if len(e.Behalf) > 0 {
-		return e.Behalf
+		return e.Behalf[:1]
 	}
 	return []string{ownerOf(sender)}
 }
@@ -434,8 +435,9 @@ func (fl *tcFleet) memberView(m *tcMember, viewer string) *tcMember {
 			v.NodeName, v.NodeOS = fl.friendlyComputer(m), ""
 			v.Folder, v.NodeID, v.Session, v.Turns, v.Spans = "", "", "", nil, nil
 		}
-		if m.MID == tcOwner {
-			// The owner's earlier handles start with their account's name.
+		if !m.agent() && m.MID != viewer {
+			// People's earlier handles start with their account's name: the
+			// owner's are nobody else's to see, and a person sees only their own.
 			v.PrevHandles = nil
 		}
 	}
@@ -757,6 +759,65 @@ func (fl *tcFleet) tooClose(self, what, text string) error {
 		return &ArgumentError{fmt.Sprintf("That %s is too close to @%s (%s). Choose another.", what, m.Handle, m.Name)}
 	}
 	return nil
+}
+
+// reservedHandles name the space's own words: a person or agent may not
+// take them (a mention of one would read as a call to everyone, or as
+// Team Chat itself).
+var reservedHandles = map[string]bool{"owner": true, "admin": true, "everyone": true, "here": true, "all": true,
+	"channel": true, "system": true, "team-chat": true, "teamchat": true, "team_chat": true}
+
+// roleSuffixRE: a name that ends in a role ("Weize (owner)", "Sam admin").
+var roleSuffixRE = regexp.MustCompile(`(?i)[\s(\[{<-]*\b(owner|admin|administrator|moderator)\b[\s)\]}>.]*$`)
+
+// blank runes draw nothing though they are letters or symbols.
+var blankRunes = map[rune]bool{0x115F: true, 0x1160: true, 0x3164: true, 0xFFA0: true, 0x2800: true, 0x180E: true}
+
+// nameTrouble says why text cannot be a name (a person's or an agent's),
+// or "": no line breaks or other control characters, no direction or
+// invisible (format) characters such as U+202E or U+200B, and something
+// visible.
+func nameTrouble(n string) string {
+	visible := false
+	for _, r := range n {
+		switch {
+		case r == '\n' || r == '\r' || unicode.Is(unicode.Cc, r):
+			return "A name is one line, without control characters."
+		case unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r):
+			return "A name cannot hold invisible or text-direction characters."
+		case unicode.IsSpace(r) || blankRunes[r] || unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Me, r):
+		case unicode.IsGraphic(r):
+			visible = true
+		}
+	}
+	if !visible {
+		return "A name needs letters you can see."
+	}
+	return ""
+}
+
+// plainName drops what a name cannot hold (for an account's name taken at
+// join): control, format and direction characters, extra spaces.
+func plainName(n string) string {
+	var b strings.Builder
+	for _, r := range n {
+		if unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
+			b.WriteRune(' ')
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return strings.Join(strings.Fields(b.String()), " ")
+}
+
+// reservedName: a person's name that reads as Team Chat itself or carries a
+// role ("Team Chat", "Weize (owner)", "Space owner").
+func reservedName(n string) bool {
+	sk := skeleton(n)
+	if sk == "teamchat" || sk == "system" || reservedHandles[sk] || sk == "spaceowner" || sk == "spaceadmin" {
+		return true
+	}
+	return roleSuffixRE.MatchString(strings.TrimSpace(n))
 }
 
 // avatarRE: an avatar is an uploaded image (a data URL); without one, the

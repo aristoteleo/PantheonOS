@@ -254,6 +254,18 @@ func (t *TeamChat) agentTask(ctx context.Context, fl *tcFleet, m *tcMember, tr *
 	if len(req.Args) > 1 {
 		rest.Args = req.Args[1:]
 	}
+	// A task to claim, move or hand on is one in a conversation the turn's
+	// person sees too.
+	seenTask := func(id string) (*tcTask, error) {
+		tk, err := t.taskOf(fl, id)
+		if err != nil {
+			return nil, err
+		}
+		if c := fl.convs[tk.CID]; !fl.visible(c, m.MID) {
+			return nil, &ArgumentError{"no task " + tk.ID}
+		}
+		return tk, nil
+	}
 	switch sub {
 	case "create":
 		if arg(rest, 0) == "" {
@@ -266,7 +278,7 @@ func (t *TeamChat) agentTask(ctx context.Context, fl *tcFleet, m *tcMember, tr *
 		if c == nil || !fl.visible(c, m.MID) {
 			return "", fmt.Errorf("Not created: no channel %s (see: channels)", arg(rest, 0))
 		}
-		msg, err := t.agentPost(ctx, fl, m, tr, c.CID, "", body(rest, 1), rest.Files)
+		msg, err := t.agentPost(ctx, fl, m, tr, "", c.CID, "", body(rest, 1), rest.Files)
 		if err != nil {
 			return "", err
 		}
@@ -275,7 +287,7 @@ func (t *TeamChat) agentTask(ctx context.Context, fl *tcFleet, m *tcMember, tr *
 		}
 		return fmt.Sprintf("Created task %s in #%s (Todo).", msg.ID, c.Name), nil
 	case "claim":
-		tk, err := t.taskOf(fl, arg(rest, 0))
+		tk, err := seenTask(arg(rest, 0))
 		if err != nil {
 			return "", err
 		}
@@ -286,7 +298,7 @@ func (t *TeamChat) agentTask(ctx context.Context, fl *tcFleet, m *tcMember, tr *
 		return fmt.Sprintf("You hold task %s (%s). When you are done: task state %s in_review - <<'EOF' summary EOF.",
 			next.ID, taskStateLabel(next.State), next.ID), nil
 	case "state":
-		tk, err := t.taskOf(fl, arg(rest, 0))
+		tk, err := seenTask(arg(rest, 0))
 		if err != nil {
 			return "", err
 		}
@@ -309,7 +321,7 @@ func (t *TeamChat) agentTask(ctx context.Context, fl *tcFleet, m *tcMember, tr *
 			return "", fmt.Errorf("Not changed: task %s is claimed by %s, not you. Don't work on it.", tk.ID, handleOf(fl, tk.Assignee))
 		}
 		if summary != "" {
-			if _, err := t.agentPost(ctx, fl, m, tr, tk.CID, tk.Root, summary, rest.Files); err != nil {
+			if _, err := t.agentPost(ctx, fl, m, tr, "", tk.CID, tk.Root, summary, rest.Files); err != nil {
 				return "", err
 			}
 		}
@@ -323,13 +335,27 @@ func (t *TeamChat) agentTask(ctx context.Context, fl *tcFleet, m *tcMember, tr *
 		}
 		return out, nil
 	case "assign":
-		tk, err := t.taskOf(fl, arg(rest, 0))
+		tk, err := seenTask(arg(rest, 0))
 		if err != nil {
 			return "", err
 		}
 		who := arg(rest, 1)
 		if who == "" {
 			return "", fmt.Errorf("Not changed: say who: task assign %s @handle", tk.ID)
+		}
+		if x := t.memberByHandle(fl, who); x != nil {
+			// Handed only to an agent the turn's person may use, or a
+			// person still in the space.
+			p := tr.WorksFor
+			if p == "" {
+				p = ownerOf(m)
+			}
+			if x.agent() && x.MID != m.MID && !fl.canUse(p, x) {
+				return "", fmt.Errorf("Not changed: %s (%s asked you.)", fl.notUsable(x), handleOf(fl, p))
+			}
+			if !x.agent() && !fl.person(x.MID) {
+				return "", fmt.Errorf("Not changed: @%s is no longer in this space", x.Handle)
+			}
 		}
 		next, err := t.taskChange(ctx, fl, m.MID, tk, nil, &who, false)
 		if err != nil {

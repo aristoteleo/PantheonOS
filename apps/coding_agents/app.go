@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -97,6 +98,10 @@ type turn struct {
 	// team: a Team Chat agent's .team folder (team.go).
 	team   *teamBox
 	teamMu sync.Mutex
+	// procs: a Team Chat turn's processes seen while it ran (pid -> start
+	// time), ended with the turn (endTurnProcs).
+	procs  map[int]int64
+	procMu sync.Mutex
 	// platform: the agent runs on PantheonOS models, not its own sign-in.
 	platform bool
 	scanMu   sync.Mutex
@@ -541,13 +546,26 @@ func (a *App) send(p SendArgs) map[string]any {
 	if extra := strings.TrimSpace(extra); extra != "" && agent.Instructions != nil {
 		args = append(args, agent.Instructions(extra)...)
 	}
+	if team != nil {
+		if v := team.team.envValue(); v != "" {
+			// The turn's credential reaches its processes only here, so it
+			// ends with them (docs/apps/team-chat.md, "Turn-bound commands").
+			env = codingagents.SetEnv(env, teamTurnEnv+"="+v)
+		}
+	}
 	cmd := exec.Command(r.path, args...)
 	cmd.Dir = c.Cwd
 	cmd.Env = env
 	if !agent.Headless.PromptArg {
 		cmd.Stdin = strings.NewReader(agentPrompt)
 	}
-	setProcessGroup(cmd)
+	if team != nil {
+		// A Team Chat turn runs in a session of its own: what it leaves
+		// running (nohup …, &) is ended with it.
+		setSession(cmd)
+	} else {
+		setProcessGroup(cmd)
+	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		a.mu.Unlock()
@@ -660,6 +678,16 @@ func (a *App) pump(id string, tr *turn, agent codingagents.Agent, found codingag
 	}
 	_, _ = io.Copy(io.Discard, stdout)
 	waitErr := tr.cmd.Wait()
+	if tr.team != nil && tr.cmd.Process != nil {
+		// Nothing of a Team Chat turn outlives it: a background loop it
+		// started would otherwise act in later turns, for other people.
+		tr.procMu.Lock()
+		seen := tr.procs
+		tr.procMu.Unlock()
+		if n := endTurnProcs(tr.cmd.Process.Pid, seen); n > 0 {
+			log.Printf("[coding-agents] %s: ended %d process(es) its Team Chat turn left running", id, n)
+		}
+	}
 	close(tr.exited)
 	end := codingagents.Event{Type: "done"}
 	if last != nil {

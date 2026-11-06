@@ -348,10 +348,10 @@ func TestWakeRules(t *testing.T) {
 	before := nodes.promptCount()
 	queued := call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[writer].(map[string]any)["queue"]
 	ctok := tc.agentToken(fleetID, coder)
-	if r := tc.AgentRequest(context.Background(), fleetID, agentRequest{MID: coder, Token: ctok, Op: "post", Args: []string{"docs"}, Text: "noted"}); r.Code != 0 {
+	if r := tc.asTurn(context.Background(), fleetID, agentRequest{MID: coder, Token: ctok, Op: "post", Args: []string{"docs"}, Text: "noted"}); r.Code != 0 {
 		t.Fatalf("%v", r)
 	}
-	if r := tc.AgentRequest(context.Background(), fleetID, agentRequest{MID: coder, Token: ctok, Op: "reply", Args: []string{m["id"].(string)}, Text: "noted too"}); r.Code != 0 {
+	if r := tc.asTurn(context.Background(), fleetID, agentRequest{MID: coder, Token: ctok, Op: "reply", Args: []string{m["id"].(string)}, Text: "noted too"}); r.Code != 0 {
 		t.Fatalf("%v", r)
 	}
 	time.Sleep(50 * time.Millisecond)
@@ -395,11 +395,11 @@ func TestQueueDurabilityAndInboxNoneTwice(t *testing.T) {
 	}
 	// The running turn takes two of them through inbox...
 	token := tc.agentToken(fleetID, writer)
-	in := tc.AgentRequest(context.Background(), fleetID, agentRequest{MID: writer, Token: token, Op: "inbox"})
+	in := tc.asTurn(context.Background(), fleetID, agentRequest{MID: writer, Token: token, Op: "inbox"})
 	if in.Code != 0 || !strings.Contains(in.Text, "two") || !strings.Contains(in.Text, "four") {
 		t.Fatalf("%v", in)
 	}
-	if again := tc.AgentRequest(context.Background(), fleetID, agentRequest{MID: writer, Token: token, Op: "inbox"}); !strings.Contains(again.Text, "Nothing new") {
+	if again := tc.asTurn(context.Background(), fleetID, agentRequest{MID: writer, Token: token, Op: "inbox"}); !strings.Contains(again.Text, "Nothing new") {
 		t.Fatalf("%v", again)
 	}
 	call(t, h, mine, "post", map[string]any{"cid": dm, "text": "five"})
@@ -428,10 +428,10 @@ func TestQueueDurabilityAndInboxNoneTwice(t *testing.T) {
 		return n >= 2
 	})
 	// Bad identities are refused.
-	if r := tc2.AgentRequest(context.Background(), fleetID, agentRequest{MID: writer, Token: "nope", Op: "inbox"}); r.Code == 0 {
+	if r := tc2.asTurn(context.Background(), fleetID, agentRequest{MID: writer, Token: "nope", Op: "inbox"}); r.Code == 0 {
 		t.Fatal("a bad token was taken")
 	}
-	if r := tc2.AgentRequest(context.Background(), otherFleet, agentRequest{MID: writer, Token: token, Op: "inbox"}); r.Code == 0 {
+	if r := tc2.asTurn(context.Background(), otherFleet, agentRequest{MID: writer, Token: token, Op: "inbox"}); r.Code == 0 {
 		t.Fatal("a token of another Fleet was taken")
 	}
 }
@@ -845,7 +845,7 @@ func TestAgentToolsPostReplyDMReadJoinAndFiles(t *testing.T) {
 	}
 	tok := tc.agentToken(fleetID, writer)
 	do := func(op string, args []string, text string, files ...string) agentReply {
-		return tc.AgentRequest(context.Background(), fleetID, agentRequest{MID: writer, Token: tok, Op: op, Args: args, Text: text, Files: files})
+		return tc.asTurn(context.Background(), fleetID, agentRequest{MID: writer, Token: tok, Op: op, Args: args, Text: text, Files: files})
 	}
 	if r := do("post", []string{"dev"}, "hi dev"); r.Code == 0 {
 		t.Fatal("posted without joining")
@@ -867,7 +867,7 @@ func TestAgentToolsPostReplyDMReadJoinAndFiles(t *testing.T) {
 		t.Fatalf("%s", p)
 	}
 	// An agent attaches a file it made.
-	ftok := tc.AgentRequest(context.Background(), fleetID, agentRequest{MID: writer, Token: tok, Op: "file_put",
+	ftok := tc.asTurn(context.Background(), fleetID, agentRequest{MID: writer, Token: tok, Op: "file_put",
 		Upload: filePutArgs{Name: "report.md", Data: base64.StdEncoding.EncodeToString([]byte("# Report")), Final: true}})
 	var stored struct {
 		File tcFile `json:"file"`
@@ -975,8 +975,22 @@ func TestOnlyTheTeamChatCredentialReachesItsStores(t *testing.T) {
 	if got["data"] != base64.StdEncoding.EncodeToString([]byte("abc")) {
 		t.Fatalf("%v", got)
 	}
-	// A node (the App credential) asks for the agent.
-	req, _ := json.Marshal(map[string]any{"mid": writer, "token": tc.agentToken(fleetID, writer), "op": "members"})
+	// A node (the App credential) asks for the agent, in its running turn.
+	nodes.mu.Lock()
+	nodes.hold = true
+	nodes.mu.Unlock()
+	call(t, h, mine, "post", map[string]any{"cid": "general", "text": "@writer hold on"})
+	var turnID, cred string
+	eventually(t, "a running turn", func() bool {
+		fl, _ := tc.lockFleet(context.Background(), fleetID)
+		defer fl.mu.Unlock()
+		if tr := fl.turns[writer]; tr != nil && tr.State == "running" {
+			turnID, cred = tr.ID, tr.Cred
+			return true
+		}
+		return false
+	})
+	req, _ := json.Marshal(map[string]any{"mid": writer, "token": tc.agentToken(fleetID, writer), "op": "members", "turn": turnID, "cred": cred})
 	msg, err := browser.Request("fleet."+fleetID+".apps.team-chat.rpc", req, 10*time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -1095,7 +1109,7 @@ func TestInboxRaisesTheHopAndTurnsPostAtMostTheirLimit(t *testing.T) {
 	call(t, h, mine, "post", map[string]any{"cid": dm, "text": "hello"})
 	eventually(t, "the turn", func() bool { return nodes.promptCount() == 1 })
 	as := func(mid, op string, args []string, text string) agentReply {
-		return tc.AgentRequest(context.Background(), fleetID, agentRequest{MID: mid, Token: tc.agentToken(fleetID, mid), Op: op, Args: args, Text: text})
+		return tc.asTurn(context.Background(), fleetID, agentRequest{MID: mid, Token: tc.agentToken(fleetID, mid), Op: op, Args: args, Text: text})
 	}
 	// Coder (no turn) posts at hop 1; Writer takes it via inbox: its next post is hop 2.
 	if r := as(coder, "dm", []string{"@writer"}, "@writer ping"); r.Code != 0 {
@@ -1158,7 +1172,7 @@ func TestSkipDeleteAndReplyPlacement(t *testing.T) {
 	first := call(t, h, mine, "post", map[string]any{"cid": dm, "text": "nothing really"})["message"].(map[string]any)["id"].(string)
 	eventually(t, "the turn", func() bool { return nodes.promptCount() == 1 })
 	as := func(op string, args []string, text string) agentReply {
-		return tc.AgentRequest(context.Background(), fleetID, agentRequest{MID: writer, Token: tc.agentToken(fleetID, writer), Op: op, Args: args, Text: text})
+		return tc.asTurn(context.Background(), fleetID, agentRequest{MID: writer, Token: tc.agentToken(fleetID, writer), Op: op, Args: args, Text: text})
 	}
 	if r := as("skip", []string{"nothing", "asked"}, ""); r.Code != 0 {
 		t.Fatalf("%v", r)
@@ -1317,7 +1331,7 @@ func TestAStoppedExchangeStaysStopped(t *testing.T) {
 	makeAgent(t, h, mine, "Coder", "n_ws", "codex", nil)
 	ctx := context.Background()
 	as := func(mid, op string, args []string, text string, files ...string) agentReply {
-		return tc.AgentRequest(ctx, fleetID, agentRequest{MID: mid, Token: tc.agentToken(fleetID, mid), Op: op, Args: args, Text: text, Files: files})
+		return tc.asTurn(ctx, fleetID, agentRequest{MID: mid, Token: tc.agentToken(fleetID, mid), Op: op, Args: args, Text: text, Files: files})
 	}
 	// Loud failures: no channel (an unquoted #general is a shell comment), no text.
 	if r := as(writer, "post", nil, ""); r.Code == 0 || !strings.Contains(r.Text, "Quote the channel") {
@@ -1395,7 +1409,7 @@ func TestPostsGetTheTurnsModelAtTheEnd(t *testing.T) {
 	dm := call(t, h, mine, "conv_create", map[string]any{"kind": "dm", "members": []string{writer}})["conversation"].(map[string]any)["cid"].(string)
 	first := call(t, h, mine, "post", map[string]any{"cid": dm, "text": "hi"})["message"].(map[string]any)["id"].(string)
 	eventually(t, "the turn", func() bool { return nodes.promptCount() == 1 })
-	r := tc.AgentRequest(context.Background(), fleetID, agentRequest{MID: writer, Token: tc.agentToken(fleetID, writer), Op: "reply", Args: []string{first}, Text: "hello"})
+	r := tc.asTurn(context.Background(), fleetID, agentRequest{MID: writer, Token: tc.agentToken(fleetID, writer), Op: "reply", Args: []string{first}, Text: "hello"})
 	if r.Code != 0 {
 		t.Fatalf("%v", r)
 	}

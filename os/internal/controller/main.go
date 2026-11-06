@@ -691,6 +691,9 @@ func Main(args []string) {
 				User   string `json:"user_id"`
 				Action string `json:"action"`
 				Role   string `json:"role"`
+				// Membership: the Hub's id of the membership a remove or a
+				// leave ends.
+				Membership string `json:"membership"`
 			}
 			decoder := json.NewDecoder(io.LimitReader(r.Body, 4096))
 			decoder.DisallowUnknownFields()
@@ -702,7 +705,7 @@ func Main(args []string) {
 			if grants != nil {
 				revoked = grants.RevokeShare(hosted.TeamChatGrantID(q.Fleet, q.User))
 			}
-			changed, err := teamChat.MemberChange(r.Context(), q.Fleet, q.User, q.Action, q.Role)
+			changed, err := teamChat.MemberChange(r.Context(), q.Fleet, q.User, q.Action, q.Role, q.Membership)
 			w.Header().Set("Content-Type", "application/json")
 			if err != nil {
 				w.WriteHeader(http.StatusUnprocessableEntity)

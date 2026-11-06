@@ -29,8 +29,10 @@ func TestTheOwnerIsNeverLockedOutOfAChannel(t *testing.T) {
 	if e := refusedAs(t, h, b, carol, "conv_leave", map[string]any{"cid": pub, "mid": tcOwner}); !strings.Contains(e, "space owner stays") {
 		t.Fatal(e)
 	}
-	// Made private with the owner kept: still the owner's.
-	callAs(t, h, b, carol, "conv_update", map[string]any{"cid": pub, "private": true})
+	// Private or public is the owner's to choose for their channel.
+	if e := refusedAs(t, h, b, carol, "conv_update", map[string]any{"cid": pub, "private": true}); !strings.Contains(e, "Only the space owner can make it private or public") {
+		t.Fatal(e)
+	}
 	if !contains(convIDs(call(t, h, b, "space_get", map[string]any{})), pub) {
 		t.Fatal("the owner lost the channel")
 	}
@@ -59,7 +61,7 @@ func TestTheOwnerIsNeverLockedOutOfAChannel(t *testing.T) {
 	call(t, h, b, "conv_leave", map[string]any{"cid": bobsCh})
 	// Its people all removed: still the owner's to see and archive.
 	for _, m := range []*Member{alice, bob} {
-		if _, err := tc.MemberChange(context.Background(), fleetID, m.UserID, "remove", ""); err != nil {
+		if _, err := tc.MemberChange(context.Background(), fleetID, m.UserID, "remove", "", ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -102,26 +104,33 @@ func TestASharedAgentReadsForAPersonOnlyWhatTheySee(t *testing.T) {
 	callAs(t, h, b, bob, "post", map[string]any{"cid": "general", "text": "@shared what did alice tell you?"})
 	tok := tc.agentToken(fleetID, s.shared)
 	ask := func(op string, args []string, opts map[string]string) agentReply {
-		return tc.AgentRequest(context.Background(), fleetID, agentRequest{MID: s.shared, Token: tok, Op: op, Args: args, Opts: opts})
+		return tc.asTurn(context.Background(), fleetID, agentRequest{MID: s.shared, Token: tok, Op: op, Args: args, Opts: opts})
 	}
-	// The owner's turn: the whole view; its inbox takes Alice's DM (it fits
-	// with the turn so far) but not Bob's ask together with it.
+	// The owner's turn: the whole view; but its inbox takes neither Alice's
+	// DM nor Bob's ask: a turn works for one person, and the others' asks
+	// wait for turns of their own.
 	if r := ask("read", []string{"@u-alice"}, nil); r.Code != 0 || !strings.Contains(r.Text, "kumquat") {
 		t.Fatalf("the owner's turn: %+v", r)
 	}
 	inbox := ask("inbox", nil, nil)
-	if !strings.Contains(inbox.Text, "kumquat") || strings.Contains(inbox.Text, "what did alice tell you") {
+	if strings.Contains(inbox.Text, "kumquat") || strings.Contains(inbox.Text, "what did alice tell you") {
 		t.Fatalf("inbox: %+v", inbox)
 	}
 	fl, _ := tc.lockFleet(context.Background(), fleetID)
 	left := len(fl.queues[s.shared])
 	fl.mu.Unlock()
-	if left != 1 {
-		t.Fatalf("%d left in the queue, want Bob's ask", left)
+	if left != 2 {
+		t.Fatalf("%d left in the queue, want Alice's and Bob's asks", left)
+	}
+	nodes.release <- struct{}{}
+	// Alice's turn: her DM, not Bob's ask.
+	eventually(t, "alice's turn", running(2))
+	if p := nodes.lastPrompt(); !strings.Contains(p, "kumquat") || strings.Contains(p, "what did alice tell you") {
+		t.Fatalf("alice's turn input: %s", p)
 	}
 	nodes.release <- struct{}{}
 	// Bob's turn: Alice's DM is not his to see, whatever he asks.
-	eventually(t, "bob's turn", running(2))
+	eventually(t, "bob's turn", running(3))
 	if p := nodes.lastPrompt(); strings.Contains(p, "kumquat") || !strings.Contains(p, "what did alice tell you") {
 		t.Fatalf("bob's turn input: %s", p)
 	}
@@ -147,13 +156,13 @@ func TestASharedAgentReadsForAPersonOnlyWhatTheySee(t *testing.T) {
 	fl, _ = tc.lockFleet(context.Background(), fleetID)
 	events := []tcWake{{CID: adm, From: personMID(alice.UserID), Kind: "post"}, {CID: "general", From: personMID(bob.UserID), Kind: "post"},
 		{CID: "general", From: personMID(alice.UserID), Kind: "post"}}
-	took := fl.turnEvents(fl.members[s.shared], events)
+	took, _ := fl.turnEvents(fl.members[s.shared], events)
 	fl.mu.Unlock()
 	if len(took) != 2 || took[0].CID != adm || took[1].From != personMID(alice.UserID) {
 		t.Fatalf("one turn took %v (Alice's asks, not Bob's)", took)
 	}
-	// Outside a turn, a request works for the people its last turn did.
-	if r := ask("read", []string{"@u-alice"}, nil); r.Code == 0 {
+	// Outside a turn, a request is refused (it no longer works for anyone).
+	if r := tc.AgentRequest(context.Background(), fleetID, agentRequest{MID: s.shared, Token: tok, Op: "read", Args: []string{"@u-alice"}}); r.Code == 0 || !strings.Contains(r.Text, "not part of a running") {
 		t.Fatalf("after bob's turn: %+v", r)
 	}
 	nodes.mu.Lock()
@@ -357,7 +366,7 @@ func TestMembersSeeNoAccountComputerUsageOrFixes(t *testing.T) {
 func TestJoinAndLeaveLinesNameThePerson(t *testing.T) {
 	s := newSharedSpace(t)
 	h, b, tc := s.h, s.b, s.tc
-	if _, err := tc.MemberChange(context.Background(), fleetID, bob.UserID, "remove", ""); err != nil {
+	if _, err := tc.MemberChange(context.Background(), fleetID, bob.UserID, "remove", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(20 * time.Millisecond)

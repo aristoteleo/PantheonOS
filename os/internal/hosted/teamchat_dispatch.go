@@ -472,7 +472,7 @@ func (t *TeamChat) dropPaused(ctx context.Context, fl *tcFleet, m *tcMember, q [
 	limit := fl.space.Settings.AgentRun
 	var keep []tcWake
 	for _, e := range q {
-		if e.Kind != "reminder" && firstNotUsing(fl, fl.behalfOf([]tcWake{e}), m) != "" {
+		if e.Kind != "reminder" && !fl.canUse(fl.worksFor(m, e), m) {
 			continue
 		}
 		if from := fl.members[e.From]; e.Kind == "post" && from != nil && from.agent() {
@@ -563,9 +563,8 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 	}
 	// One turn takes only asks that every person it works for may see
 	// together; the rest wait for the next turn.
-	events := fl.turnEvents(m, q)
-	l.lastBehalf = fl.turnPeople(m, events)
-	fl.scoped = map[string][]string{mid: l.lastBehalf}
+	events, worksFor := fl.turnEvents(m, q)
+	fl.scoped = map[string][]string{mid: scopeFor(m, worksFor)}
 	prompt, files, reads := t.turnInput(ctx, fl, m, events)
 	fl.scoped = nil
 	cause := events[len(events)-1]
@@ -576,13 +575,14 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 		}
 	}
 	hop := turnHop(fl, events)
-	tr := &tcTurn{State: "starting", NodeID: m.NodeID, Started: t.stamp(), Hop: hop, Cause: cause, Events: events,
-		Runtime: m.Runtime, Model: m.Model}
+	tr := &tcTurn{ID: "t" + shortID(), Cred: newTurnCred(), WorksFor: worksFor, State: "starting", NodeID: m.NodeID,
+		Started: t.stamp(), Hop: hop, Cause: cause, Events: events, Runtime: m.Runtime, Model: m.Model}
 	if err := t.put(ctx, fl, "turn."+mid, tr); err != nil {
 		fl.mu.Unlock()
 		return false
 	}
 	fl.turns[mid] = tr
+	turnID, turnCred := tr.ID, tr.Cred
 	agent := *m
 	brief := agentBrief(&agent, rosterOf(fl, &agent))
 	t.emitStatus(fl, mid)
@@ -653,7 +653,7 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 	args := map[string]any{"prompt": prompt, "cwd": agent.Folder, "auto": true, "origin": "team-chat",
 		"model": agent.Model, "effort": agent.Effort,
 		"team": map[string]any{"mid": mid, "token": t.agentToken(fl.fid, mid), "handle": agent.Handle, "name": agent.Name,
-			"note": teamNote(&agent)}}
+			"note": teamNote(&agent), "turn": turnID, "cred": turnCred}}
 	if agent.Session != "" {
 		args["conversation_id"] = agent.Session
 	} else {
@@ -1422,7 +1422,7 @@ func (t *TeamChat) finish(ctx context.Context, fl *tcFleet, mid string, done cod
 	case tr.Skipped != "":
 		log.Printf("[team-chat] %s %s skipped: %s", fl.fid, m.Handle, clipText(tr.Skipped, 200))
 	case final != "" && asked != nil && len(tr.Posted) == 0 && !declines(final):
-		if _, err := t.agentPost(ctx, fl, m, tr, asked.CID, asked.Root, final, nil); err != nil {
+		if _, err := t.agentPost(ctx, fl, m, tr, "", asked.CID, asked.Root, final, nil); err != nil {
 			log.Printf("[team-chat] %s auto-post %s: %v", fl.fid, m.Handle, err)
 		}
 		final = ""
@@ -1469,7 +1469,11 @@ func (t *TeamChat) finish(ctx context.Context, fl *tcFleet, mid string, done cod
 // agentPost posts as an agent during (or at the end of) its turn: the
 // message carries the turn's hop, runtime and model; longer text than a
 // message holds is attached as a Markdown file. fl.mu is held.
-func (t *TeamChat) agentPost(ctx context.Context, fl *tcFleet, m *tcMember, tr *tcTurn, cid, root, text string, files []string) (*tcMsg, error) {
+//
+// Every agent message works for one person, whose access the agents it
+// wakes are checked against: its turn's (tr), else worksFor (a reminder's
+// person, when Team Chat posts it while the agent cannot).
+func (t *TeamChat) agentPost(ctx context.Context, fl *tcFleet, m *tcMember, tr *tcTurn, worksFor, cid, root, text string, files []string) (*tcMsg, error) {
 	hop := 1
 	if tr != nil {
 		hop = tr.Hop + 1
@@ -1500,12 +1504,14 @@ func (t *TeamChat) agentPost(ctx context.Context, fl *tcFleet, m *tcMember, tr *
 	if tr != nil && tr.Model != "" {
 		model = tr.Model
 	}
-	var behalf []string
 	if tr != nil {
-		behalf = fl.behalfOf(append([]tcWake{tr.Cause}, tr.Events...))
+		worksFor = tr.WorksFor
+	}
+	if worksFor == "" {
+		worksFor = ownerOf(m)
 	}
 	msg, err := t.postEvent(ctx, fl, &tcEvent{From: m.MID, CID: cid, Root: root, Kind: "post", Text: text, Hop: hop,
-		Runtime: m.Runtime, Model: model, Behalf: behalf}, files)
+		Runtime: m.Runtime, Model: model, Behalf: []string{worksFor}}, files)
 	if err != nil {
 		return nil, err
 	}

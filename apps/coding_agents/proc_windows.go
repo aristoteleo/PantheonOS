@@ -31,3 +31,12 @@ const nonBlock = 0
 func fileKey(fi os.FileInfo) string {
 	return fmt.Sprintf("%s/%d/%d", fi.Name(), fi.Size(), fi.ModTime().UnixNano())
 }
+
+func setSession(*exec.Cmd) {}
+
+type procInfo struct{ pid int }
+
+func turnProcs(int) map[int]int64 { return nil }
+
+// endTurnProcs: on Windows only the agent's own process is ended.
+func endTurnProcs(int, map[int]int64) int { return 0 }

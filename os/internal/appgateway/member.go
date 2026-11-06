@@ -22,6 +22,8 @@ type MemberGrant struct {
 	FleetID  string `json:"fleet_id"`
 	Role     string `json:"role"`
 	Joined   int64  `json:"joined"`
+	// Membership: the Hub's id of this membership (new each time they join).
+	Membership string `json:"membership,omitempty"`
 }
 
 // MemberCheck reports whether a binding is one a member grant may reach (an
@@ -39,7 +41,7 @@ func (g *Gateway) validMember(q *AttachRequest) bool {
 	m := q.Member
 	return g.memberCheck != nil && !q.Workload && !q.URLAuth && q.Visitor == nil &&
 		shareIDRE.MatchString(m.GrantID) && m.Space == q.Fleet && memberIdentRE.MatchString(m.FleetID) &&
-		memberIdentRE.MatchString(m.UserID) && len(m.Username) <= 200 && len(m.Name) <= 200 &&
+		memberIdentRE.MatchString(m.UserID) && len(m.Username) <= 200 && len(m.Name) <= 200 && len(m.Membership) <= 200 &&
 		(m.Role == "admin" || m.Role == "member") && m.Joined > 0 &&
 		g.hostedNode != "" && q.Node == g.hostedNode && g.memberCheck(q.Binding)
 }

@@ -232,6 +232,30 @@ func (t *TeamChat) checkToken(fid, mid, token string) bool {
 	return len(t.Key) > 0 && hmac.Equal([]byte(t.agentToken(fid, mid)), []byte(token))
 }
 
+// newTurnCred is a turn's credential: 32 random bytes, hex. The node puts it
+// in the turn's process environment (never in a file), and the agent's
+// commands carry it; it is good while that turn runs.
+func newTurnCred() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b)
+}
+
+// liveTurn is agent mid's running turn when turnID and cred name it (nil
+// when they do not: no turn, another turn, or an ended one).
+func (fl *tcFleet) liveTurn(mid, turnID, cred string) *tcTurn {
+	tr := fl.turns[mid]
+	if tr == nil || tr.ID == "" || tr.Cred == "" || turnID != tr.ID {
+		return nil
+	}
+	if !hmac.Equal([]byte(cred), []byte(tr.Cred)) {
+		return nil
+	}
+	return tr
+}
+
 // ── ids ────────────────────────────────────────────────────────────────────
 
 const crockford = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
@@ -385,6 +409,12 @@ type tcMember struct {
 	Fleet   string `json:"fleet,omitempty"`
 	Joined  int64  `json:"joined,omitempty"`
 	Removed string `json:"removed_at,omitempty"`
+	// Membership: the Hub's id of the person's current membership (a new
+	// one each time they join); Ended: the one a removal or a leave ended,
+	// so a grant of that membership is refused and a later one is not,
+	// whatever the clocks say.
+	Membership string `json:"membership,omitempty"`
+	Ended      string `json:"ended_membership,omitempty"`
 }
 
 func (m *tcMember) agent() bool { return m.Kind == "agent" }
@@ -538,6 +568,16 @@ func (w tcWake) key() string { return w.Event }
 
 // tcTurn is an agent's running turn.
 type tcTurn struct {
+	// ID and Cred: the turn's identity and the credential its agent's
+	// commands carry (docs/apps/team-chat.md, "Turn-bound commands"). Made
+	// when the turn starts; a command whose turn is not the running one is
+	// refused, so the credential ends with the turn.
+	ID   string `json:"id,omitempty"`
+	Cred string `json:"cred,omitempty"`
+	// WorksFor: the one person the turn works for (whose message started
+	// it, or the agent's owner); everything the turn does is checked
+	// against what that person may see and use.
+	WorksFor       string   `json:"works_for,omitempty"`
 	State          string   `json:"state"` // starting | running
 	ConversationID string   `json:"conversation_id,omitempty"`
 	NodeID         string   `json:"node_id"`
@@ -615,9 +655,6 @@ type tcLive struct {
 	// itself while the agent was in a turn (inbox and remind list say so,
 	// so the agent does not post them again).
 	remPosted []tcRemPosted
-	// lastBehalf: the people its last turn worked for, for a request that
-	// comes when no turn is running.
-	lastBehalf []string
 }
 
 type tcRemPosted struct {

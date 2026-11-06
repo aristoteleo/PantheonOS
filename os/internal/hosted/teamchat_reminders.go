@@ -421,8 +421,9 @@ func (t *TeamChat) setReminder(ctx context.Context, fl *tcFleet, m *tcMember, by
 	}
 	r := &tcRem{ID: "r" + shortID(), Agent: m.MID, Note: note, At: first.UTC().Format(time.RFC3339), TimeZone: locName(loc),
 		CID: cid, Root: root, About: about, For: forMID, Created: t.stamp(), CreatedBy: by}
-	if tr := fl.turns[m.MID]; tr != nil {
-		r.Behalf = fl.behalfOf(append([]tcWake{tr.Cause}, tr.Events...))
+	if tr := fl.turns[m.MID]; tr != nil && tr.WorksFor != "" {
+		// Set in a turn: it works for that turn's person, always.
+		r.Behalf = []string{tr.WorksFor}
 	}
 	if forMID != "" {
 		r.Asked = clipText(strings.TrimSpace(asked), 300)
@@ -447,6 +448,24 @@ func (t *TeamChat) cancelReminder(ctx context.Context, fl *tcFleet, r *tcRem) er
 	delete(fl.rems, r.ID)
 	t.emit(fl, map[string]any{"type": "reminder", "id": r.ID, "agent": r.Agent, "deleted": true, "for": r.For})
 	return nil
+}
+
+// remSeen: whether agent m's turn tr may list or cancel reminder r: all of
+// them in its owner's turns; in a member's turn, the ones set in that
+// member's turns or for them, and the ones tied to a conversation they see.
+func (fl *tcFleet) remSeen(m *tcMember, tr *tcTurn, r *tcRem) bool {
+	p := ownerOf(m)
+	if tr != nil && tr.WorksFor != "" {
+		p = tr.WorksFor
+	}
+	if p == ownerOf(m) {
+		return true
+	}
+	if r.For == p || len(r.Behalf) > 0 && r.Behalf[0] == p {
+		return true
+	}
+	c := fl.convs[r.CID]
+	return c != nil && fl.visible(c, p)
 }
 
 // remindersOf lists reminders (one agent's when mid is set), soonest first.
@@ -640,6 +659,9 @@ func (t *TeamChat) agentRemind(ctx context.Context, fl *tcFleet, m *tcMember, tr
 	case "list", "":
 		var lines []string
 		for _, r := range remindersOf(fl, m.MID) {
+			if !fl.remSeen(m, tr, r) {
+				continue
+			}
 			at, _ := time.Parse(time.RFC3339, r.At)
 			line := fmt.Sprintf("[%s] %s", r.ID, remWhen(at, space))
 			if r.Every != "" {
@@ -666,7 +688,7 @@ func (t *TeamChat) agentRemind(ctx context.Context, fl *tcFleet, m *tcMember, tr
 	case "cancel", "delete", "remove":
 		id := arg(req, 1)
 		r := fl.rems[id]
-		if r == nil || r.Agent != m.MID {
+		if r == nil || r.Agent != m.MID || !fl.remSeen(m, tr, r) {
 			return "", fmt.Errorf("Not cancelled: you have no reminder %s (see: remind list)", id)
 		}
 		if err := t.cancelReminder(ctx, fl, r); err != nil {
@@ -721,6 +743,12 @@ func (t *TeamChat) agentRemind(ctx context.Context, fl *tcFleet, m *tcMember, tr
 	forMID, err := t.remFor(fl, m, tr, aboutMsg, req.Opts["for"])
 	if err != nil {
 		return "", err
+	}
+	if p := tr.WorksFor; p != "" && p != ownerOf(m) && forMID != "" && forMID != p {
+		// A member's turn sets reminders for that member (or the agent):
+		// never in someone else's name.
+		return "", fmt.Errorf("Not set: this turn works for %s, so a reminder set in it is for %s (or for you: --for me)",
+			handleOf(fl, p), handleOf(fl, p))
 	}
 	asked := t.remAsked(ctx, fl, tr, aboutMsg, forMID)
 	r, err := t.setReminder(ctx, fl, m, m.MID, when, every, note, cid, root, about, forMID, asked, loc)
@@ -952,9 +980,12 @@ func (t *TeamChat) remindPeople(ctx context.Context, fl *tcFleet, m *tcMember, t
 			}
 			final = "" // once
 		}
-		msg, err := t.agentPost(ctx, fl, m, tr, cid, root, text, nil)
+		// It works for the reminder's person (whom the turn that set it
+		// worked for), also when Team Chat posts it outside a turn.
+		worksFor := fl.worksFor(m, e)
+		msg, err := t.agentPost(ctx, fl, m, tr, worksFor, cid, root, text, nil)
 		if err != nil && tr != nil {
-			msg, err = t.agentPost(ctx, fl, m, nil, cid, root, text, nil)
+			msg, err = t.agentPost(ctx, fl, m, nil, worksFor, cid, root, text, nil)
 		}
 		if err != nil {
 			log.Printf("[team-chat] %s reminder for %s by %s: %v", fl.fid, p.Handle, m.Handle, err)

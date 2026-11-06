@@ -401,7 +401,8 @@ func makeGateway(domain, token string, origins []string, authority *auth.Authori
 		gateway.SetHosted(hosted.Node, func(w http.ResponseWriter, r *http.Request, b appgateway.Binding, m *appgateway.MemberGrant) {
 			var member *hosted.Member
 			if m != nil {
-				member = &hosted.Member{UserID: m.UserID, Username: m.Username, Name: m.Name, Fleet: m.FleetID, Role: m.Role, Joined: m.Joined}
+				member = &hosted.Member{UserID: m.UserID, Username: m.Username, Name: m.Name, Fleet: m.FleetID, Role: m.Role, Joined: m.Joined,
+					Membership: m.Membership}
 			}
 			host.ServeRPC(w, r, b, member)
 		})

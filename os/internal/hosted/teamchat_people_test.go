@@ -96,11 +96,14 @@ type sharedSpace struct {
 	secretMsg, secretFile  string
 }
 
-func newSharedSpace(t *testing.T) *sharedSpace {
+func newSharedSpace(t *testing.T, with ...func(*TeamChat)) *sharedSpace {
 	t.Helper()
 	url := jetStream(t)
 	nodes := newFakeAgents()
 	tc := teamOn(t, url, nodes)
+	for _, f := range with {
+		f(tc)
+	}
 	h, mine, _ := teamHost(t, tc)
 	s := &sharedSpace{h: h, b: mine, tc: tc, nodes: nodes, url: url}
 	s.writer = makeAgent(t, h, mine, "Writer", "n_mac", "claude", nil)
@@ -380,11 +383,11 @@ func TestAnAgentCannotWakeAnAgentThePersonItWorksForMayNotUse(t *testing.T) {
 	})
 	before := s.nodes.promptCount()
 	tok := tc.agentToken(fleetID, s.shared)
-	r := tc.AgentRequest(context.Background(), fleetID, agentRequest{MID: s.shared, Token: tok, Op: "post", Args: []string{"general"}, Text: "@writer what is the plan?"})
+	r := tc.asTurn(context.Background(), fleetID, agentRequest{MID: s.shared, Token: tok, Op: "post", Args: []string{"general"}, Text: "@writer what is the plan?"})
 	if r.Code != 0 || !strings.Contains(r.Text, "Not woken: @writer") || !strings.Contains(r.Text, "@u-alice asked you") {
 		t.Fatalf("%+v", r)
 	}
-	r = tc.AgentRequest(context.Background(), fleetID, agentRequest{MID: s.shared, Token: tok, Op: "dm", Args: []string{"@writer"}, Text: "the plan?"})
+	r = tc.asTurn(context.Background(), fleetID, agentRequest{MID: s.shared, Token: tok, Op: "dm", Args: []string{"@writer"}, Text: "the plan?"})
 	if r.Code != 0 || !strings.Contains(r.Text, "Not woken: @writer") {
 		t.Fatalf("%+v", r)
 	}
@@ -413,7 +416,7 @@ func TestAnAgentCannotWakeAnAgentThePersonItWorksForMayNotUse(t *testing.T) {
 		defer fl.mu.Unlock()
 		return fl.turns[s.shared] != nil && fl.turns[s.shared].State == "running"
 	})
-	r = tc.AgentRequest(context.Background(), fleetID, agentRequest{MID: s.shared, Token: tok, Op: "post", Args: []string{"general"}, Text: "@writer what is the plan?"})
+	r = tc.asTurn(context.Background(), fleetID, agentRequest{MID: s.shared, Token: tok, Op: "post", Args: []string{"general"}, Text: "@writer what is the plan?"})
 	if r.Code != 0 || strings.Contains(r.Text, "Not woken") {
 		t.Fatalf("%+v", r)
 	}
@@ -519,7 +522,7 @@ func TestRemovingAPersonEndsTheirAccessAtOnce(t *testing.T) {
 	sub, _ := nc.SubscribeSync("fleet." + aliceFleet + ".apps.team-chat.spaces." + fleetID)
 	nc.Flush()
 	callAs(t, h, b, alice, "conv_create", map[string]any{"kind": "channel", "name": "alices"})
-	if ok, err := tc.MemberChange(context.Background(), fleetID, alice.UserID, "remove", ""); !ok || err != nil {
+	if ok, err := tc.MemberChange(context.Background(), fleetID, alice.UserID, "remove", "", ""); !ok || err != nil {
 		t.Fatal(ok, err)
 	}
 	gotRemoved := false
@@ -575,7 +578,7 @@ func TestRemovingAPersonEndsTheirAccessAtOnce(t *testing.T) {
 		t.Fatal("rejoin")
 	}
 	// A role change takes effect with the next grant; the service follows the Hub.
-	if ok, _ := tc.MemberChange(context.Background(), fleetID, bob.UserID, "role", "admin"); !ok {
+	if ok, _ := tc.MemberChange(context.Background(), fleetID, bob.UserID, "role", "admin", ""); !ok {
 		t.Fatal("role")
 	}
 	if memberByName(call(t, h, b, "space_get", map[string]any{}), "Bob")["role"] != "admin" {
