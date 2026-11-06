@@ -355,7 +355,7 @@ func (t *TeamChat) agentSearch(ctx context.Context, fl *tcFleet, m *tcMember, re
 			cm, _ := t.convMsgs(ctx, fl, msg.CID)
 			text = fl.asShown(fl.convs[msg.CID], cm, msg, m, p, text)
 		}
-		fmt.Fprintf(&b, "%s %s, %s [%s]:\n%s", fmtTime(msg.At), where, authorOf(fl, msg.From, m.MID), msg.ID, indent(text))
+		fmt.Fprintf(&b, "%s %s, %s [%s]:\n%s", fmtTime(msg.At), where, postAuthor(fl, msg, m.MID), msg.ID, indent(text))
 	}
 	return b.String(), nil
 }

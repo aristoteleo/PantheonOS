@@ -765,7 +765,43 @@ func (fl *tcFleet) tooClose(self, what, text string) error {
 // take them (a mention of one would read as a call to everyone, or as
 // Team Chat itself).
 var reservedHandles = map[string]bool{"owner": true, "admin": true, "everyone": true, "here": true, "all": true,
-	"channel": true, "system": true, "team-chat": true, "teamchat": true, "team_chat": true}
+	"channel": true, "system": true, "team-chat": true, "teamchat": true, "team_chat": true, "bot": true, "agent": true}
+
+// digitLooks folds digits that pass for letters ("Adm1n", "0wner", "syst3m")
+// when names and handles are checked against role words; 1 reads as i
+// here, and as l in a second look (lookAlikes). A name's words come folded
+// by skeleton, which already reads 1 as l: lookAlikes also reads l as i.
+var digitLooks = strings.NewReplacer("0", "o", "1", "i", "3", "e", "4", "a", "5", "s", "7", "t", "8", "b", "9", "g")
+
+// lookAlikes are the ways one folded word (or handle) may be read: as it
+// is, with its digits read as letters (1 as i, then as l; l as i), and without the
+// digits, - and _ at its ends ("system32", "_admin").
+func lookAlikes(w string) []string {
+	return []string{w, digitLooks.Replace(w), digitLooks.Replace(strings.ReplaceAll(w, "1", "l")),
+		strings.ReplaceAll(digitLooks.Replace(w), "l", "i"), strings.Trim(w, "0123456789-_")}
+}
+
+// isRoleWord: w (one folded word of a name) is a role word, singular or
+// plural, read with digits as letters, or starts or ends with one of the
+// role words of five letters or more ("ownerweize", "superadmin",
+// "system32"); the short ones (mod, bot) match only whole ("bot7", "b0t"),
+// so names such as Botha or Modi stay free.
+func isRoleWord(w string) bool {
+	for _, v := range lookAlikes(w) {
+		if v == "" {
+			continue
+		}
+		if roleWords[v] || roleWords[strings.TrimSuffix(v, "s")] {
+			return true
+		}
+		for rw := range roleWords {
+			if len(rw) >= 5 && (strings.HasPrefix(v, rw) || strings.HasSuffix(strings.TrimSuffix(v, "s"), rw)) {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // roleSuffixRE: a name that ends in a role ("Weize (owner)", "Sam admin").
 var roleSuffixRE = regexp.MustCompile(`(?i)[\s(\[{<-]*\b(owner|admin|administrator|moderator)\b[\s)\]}>.]*$`)
@@ -827,7 +863,7 @@ func reservedName(n string) bool {
 	}
 	words := nameWords(n)
 	for i, w := range words {
-		if roleWords[w] || roleWords[strings.TrimSuffix(w, "s")] {
+		if isRoleWord(w) {
 			return true
 		}
 		if w == "team" && i+1 < len(words) && strings.TrimSuffix(words[i+1], "s") == "chat" {
@@ -866,10 +902,21 @@ func nameWords(n string) []string {
 }
 
 // reservedHandle: a handle that is one of the space's own words, also with
-// a plural s or digits, - or _ after it ("admins", "everyone1", "owner_2").
+// a plural s, digits, - or _ after it ("admins", "everyone1", "owner_2",
+// "agent7", "bots"), or with digits that pass for letters ("adm1n",
+// "0wner").
 func reservedHandle(h string) bool {
-	base := strings.TrimRight(strings.ToLower(h), "0123456789-_")
-	return reservedHandles[base] || reservedHandles[strings.TrimSuffix(base, "s")]
+	low := strings.ToLower(h)
+	for _, v := range []string{low, digitLooks.Replace(low), digitLooks.Replace(strings.ReplaceAll(low, "1", "l"))} {
+		base := strings.TrimRight(v, "0123456789-_")
+		if base == "" {
+			base = v
+		}
+		if reservedHandles[base] || reservedHandles[strings.TrimSuffix(base, "s")] {
+			return true
+		}
+	}
+	return false
 }
 
 // avatarRE: an avatar is an uploaded image (a data URL); without one, the
@@ -1007,6 +1054,10 @@ func (fl *tcFleet) asShown(c *tcConv, cm *tcConvMsgs, msg *tcMsg, a *tcMember, p
 	who := fl.askOf(msg)
 	if who == "" || who == p {
 		return text
+	}
+	if msg.From == a.MID {
+		// Its own message, from a turn for someone else.
+		return fmt.Sprintf("[your own message, from a turn for %s]", handleOf(fl, who)) + " " + text
 	}
 	if fl.othersAsk(c, cm, msg, a, p) && fl.waiting(a.MID, msg.ID) {
 		return fmt.Sprintf("(not shown: %s's request to you; it waits for a turn of its own, for them)", handleOf(fl, who))

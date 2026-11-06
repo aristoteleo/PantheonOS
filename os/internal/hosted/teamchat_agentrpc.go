@@ -441,7 +441,7 @@ func (t *TeamChat) agentInbox(ctx context.Context, fl *tcFleet, m *tcMember, tr 
 		case "edit":
 			fmt.Fprintf(&b, "%s: %s edited message %s:\n", where, authorOf(fl, e.From, m.MID), msg.ID)
 		default:
-			fmt.Fprintf(&b, "%s, %s at %s [%s]:\n", where, authorOf(fl, msg.From, m.MID), fmtTime(msg.At), msg.ID)
+			fmt.Fprintf(&b, "%s, %s at %s [%s]:\n", where, postAuthor(fl, msg, m.MID), fmtTime(msg.At), msg.ID)
 		}
 		if msg.Deleted {
 			b.WriteString("  (deleted)\n")
@@ -546,7 +546,7 @@ func (t *TeamChat) agentRead(ctx context.Context, fl *tcFleet, m *tcMember, targ
 			}
 			suffix += fmt.Sprintf(" (task: %s, %s)", taskStateLabel(tk.State), who)
 		}
-		fmt.Fprintf(&b, "%s %s [%s]%s:\n%s", fmtTime(msg.At), authorOf(fl, msg.From, m.MID), msg.ID, suffix, indent(text))
+		fmt.Fprintf(&b, "%s %s [%s]%s:\n%s", fmtTime(msg.At), postAuthor(fl, msg, m.MID), msg.ID, suffix, indent(text))
 		for _, f := range msg.Files {
 			fmt.Fprintf(&b, "  (file %s, %d bytes)\n", f.Name, f.Size)
 		}

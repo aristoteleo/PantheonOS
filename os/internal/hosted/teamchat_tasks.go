@@ -385,6 +385,12 @@ func (t *TeamChat) agentTask(ctx context.Context, fl *tcFleet, m *tcMember, tr *
 			}
 			state = v
 		}
+		// Another person's task is context for this turn, marked as such
+		// (as read and search mark other people's messages).
+		p := ownerOf(m)
+		if tr != nil && tr.WorksFor != "" {
+			p = tr.WorksFor
+		}
 		var lines []string
 		for _, tk := range t.taskList(fl, m.MID, cid, assignee, "", state) {
 			if state == "" && (tk.State == "done" || tk.State == "closed") {
@@ -394,8 +400,12 @@ func (t *TeamChat) agentTask(ctx context.Context, fl *tcFleet, m *tcMember, tr *
 			if tk.Assignee != "" {
 				who = "claimed by " + handleOf(fl, tk.Assignee)
 			}
+			title := tk.Title
+			if whose := t.taskPerson(ctx, fl, tk); whose != "" && whose != p {
+				title = fmt.Sprintf("[%s's task: context only, not a request to you in this turn] %s", handleOf(fl, whose), title)
+			}
 			lines = append(lines, fmt.Sprintf("[%s] %s · %s · %s: %s", tk.ID, taskStateLabel(tk.State), who,
-				fl.convs[tk.CID].label(fl, m.MID), tk.Title))
+				fl.convs[tk.CID].label(fl, m.MID), title))
 			if len(lines) == 50 {
 				break
 			}
@@ -406,4 +416,17 @@ func (t *TeamChat) agentTask(ctx context.Context, fl *tcFleet, m *tcMember, tr *
 		return strings.Join(lines, "\n"), nil
 	}
 	return "", fmt.Errorf("pantheon-team task: create '#channel' | claim ID | state ID todo|in_progress|in_review | assign ID @handle | list")
+}
+
+// taskPerson is the person a task works for: the person who made it, or
+// for an agent's task the person its message was written for ("" when
+// unknown); fl.mu is held.
+func (t *TeamChat) taskPerson(ctx context.Context, fl *tcFleet, tk *tcTask) string {
+	if x := fl.members[tk.CreatedBy]; x != nil && !x.agent() {
+		return x.MID
+	}
+	if msg, err := t.findMsg(ctx, fl, tk.ID, tk.CID); err == nil {
+		return fl.askOf(msg)
+	}
+	return ""
 }

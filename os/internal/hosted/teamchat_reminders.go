@@ -468,6 +468,20 @@ func (fl *tcFleet) remSeen(m *tcMember, tr *tcTurn, r *tcRem) bool {
 	return c != nil && fl.visible(c, p)
 }
 
+// remPerson is the person a reminder works for: the one it reminds, else
+// the person the turn that set it worked for ("" for the agent's own).
+func remPerson(fl *tcFleet, r *tcRem) string {
+	if x := fl.members[r.For]; x != nil && !x.agent() {
+		return x.MID
+	}
+	if len(r.Behalf) > 0 {
+		if x := fl.members[r.Behalf[0]]; x != nil && !x.agent() {
+			return x.MID
+		}
+	}
+	return ""
+}
+
 // remindersOf lists reminders (one agent's when mid is set), soonest first.
 func remindersOf(fl *tcFleet, mid string) []*tcRem {
 	var out []*tcRem
@@ -662,6 +676,10 @@ func (t *TeamChat) agentRemind(ctx context.Context, fl *tcFleet, m *tcMember, tr
 	case "help", "--help", "-h":
 		return remindHelp, nil
 	case "list", "":
+		turnP := ownerOf(m)
+		if tr != nil && tr.WorksFor != "" {
+			turnP = tr.WorksFor
+		}
 		var lines []string
 		for _, r := range remindersOf(fl, m.MID) {
 			if !fl.remSeen(m, tr, r) {
@@ -679,7 +697,12 @@ func (t *TeamChat) agentRemind(ctx context.Context, fl *tcFleet, m *tcMember, tr
 			if x := fl.members[r.For]; x != nil {
 				line += " for @" + x.Handle
 			}
-			line += ": " + clipText(r.Note, 120)
+			note := clipText(r.Note, 120)
+			if whose := remPerson(fl, r); whose != "" && whose != turnP {
+				// Another person's reminder: context for this turn.
+				note = fmt.Sprintf("[%s's reminder: context only, not a request to you in this turn] %s", handleOf(fl, whose), note)
+			}
+			line += ": " + note
 			lines = append(lines, line)
 		}
 		var done string

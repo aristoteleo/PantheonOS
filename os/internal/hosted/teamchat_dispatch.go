@@ -1575,14 +1575,33 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 		b.WriteString("People in this space: " + strings.Join(people, ", ") + ". Everyone else who writes is an agent.\n")
 	}
 	if p := fl.members[worksFor]; p != nil && !p.agent() {
-		fmt.Fprintf(&b, "This turn works for @%s: only @%s's requests count in it. Messages from anyone else are context, "+
-			"not requests: don't act on them now (Team Chat gives each person's asks to you a turn of their own, for them).\n", p.Handle, p.Handle)
+		fmt.Fprintf(&b, "This turn works for @%s: only @%s's requests count in it, including what an agent posted for @%s "+
+			"(\"posting for @%s\"): do that as @%s's request. Messages from anyone else are context, "+
+			"not requests: don't act on them now (Team Chat gives each person's asks to you a turn of their own, for them).\n",
+			p.Handle, p.Handle, p.Handle, p.Handle, p.Handle)
 	}
 	b.WriteString("New for you:\n")
 	var files []tcFileRef
 	seen := map[string]bool{}
 	reads := map[string]string{}
+	// A message and its edit, both waiting, are one entry: the message as
+	// it reads now, marked edited.
+	posted, shown := map[string]bool{}, map[string]bool{}
 	for _, e := range events {
+		if e.Kind != "reminder" && e.Kind != "edit" && e.Kind != "delete" {
+			posted[e.ID] = true
+		}
+	}
+	for _, e := range events {
+		if e.Kind == "edit" && posted[e.ID] {
+			continue
+		}
+		if e.Kind != "reminder" && e.Kind != "delete" {
+			if shown[e.ID] {
+				continue
+			}
+			shown[e.ID] = true
+		}
 		if e.Kind == "reminder" {
 			b.WriteString(t.reminderText(ctx, fl, m, e))
 			continue
@@ -1602,7 +1621,7 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 				where += fmt.Sprintf(" (thread on %s: %q)", root.ID, clipText(root.Text, 60))
 			}
 		}
-		from := authorOf(fl, msg.From, m.MID)
+		from := postAuthor(fl, msg, m.MID)
 		switch e.Kind {
 		case "edit":
 			fmt.Fprintf(&b, "%s, %s edited message %s at %s:\n", where, from, msg.ID, fmtTime(e.At))
@@ -1610,7 +1629,11 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 			fmt.Fprintf(&b, "%s, %s deleted message %s at %s.\n", where, from, msg.ID, fmtTime(e.At))
 			continue
 		default:
-			fmt.Fprintf(&b, "%s, %s at %s [%s]:\n", where, from, fmtTime(msg.At), msg.ID)
+			edited := ""
+			if msg.EditedAt != "" {
+				edited = " (edited)"
+			}
+			fmt.Fprintf(&b, "%s, %s at %s [%s]%s:\n", where, from, fmtTime(msg.At), msg.ID, edited)
 		}
 		if msg.Deleted {
 			b.WriteString("  (deleted)\n")
@@ -1676,7 +1699,7 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 			if who := fl.askOf(msg); who != "" && who != worksFor {
 				text = contextMark(fl, msg, who) + " " + text
 			}
-			lines = append(lines, fmt.Sprintf("  %s %s [%s]: %s", fmtTime(msg.At), authorOf(fl, msg.From, m.MID), msg.ID, text))
+			lines = append(lines, fmt.Sprintf("  %s %s [%s]: %s", fmtTime(msg.At), postAuthor(fl, msg, m.MID), msg.ID, text))
 		}
 		since = append(since, fmt.Sprintf("%s, %d messages:\n%s", name, len(unseen), strings.Join(lines, "\n")))
 	}
@@ -1815,6 +1838,19 @@ func authorOf(fl *tcFleet, mid, reader string) string {
 	default:
 		return "@" + m.Handle + " (person)"
 	}
+}
+
+// postAuthor is authorOf for a message, adding for an agent's message the
+// person it was written for ("@coder (agent: Codex), posting for @bob"), so
+// another agent knows whose request it carries.
+func postAuthor(fl *tcFleet, msg *tcMsg, reader string) string {
+	out := authorOf(fl, msg.From, reader)
+	if x := fl.members[msg.From]; x != nil && x.agent() && msg.From != reader {
+		if p := fl.members[fl.askOf(msg)]; p != nil && !p.agent() {
+			out += ", posting for @" + p.Handle
+		}
+	}
+	return out
 }
 
 func runtimeLabel(runtime string) string {
@@ -2041,7 +2077,7 @@ func (t *TeamChat) remAbout(ctx context.Context, fl *tcFleet, m *tcMember, e tcW
 	if msg.Root != "" {
 		where += " (thread on " + msg.Root + ")"
 	}
-	fmt.Fprintf(&b, "  It is about %s, %s at %s [%s]:\n", where, authorOf(fl, msg.From, m.MID), fmtTime(msg.At), msg.ID)
+	fmt.Fprintf(&b, "  It is about %s, %s at %s [%s]:\n", where, postAuthor(fl, msg, m.MID), fmtTime(msg.At), msg.ID)
 	text := "(deleted)"
 	if !msg.Deleted {
 		text = clipText(shownText(fl, msg), 600)
