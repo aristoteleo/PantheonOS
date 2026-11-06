@@ -550,11 +550,11 @@ func (a *App) send(p SendArgs) map[string]any {
 		args = append(args, agent.Instructions(extra)...)
 	}
 	if team != nil {
-		if v := team.team.envValue(); v != "" {
-			// The turn's credential reaches its processes only here, so it
-			// ends with them (docs/apps/team-chat.md, "Turn-bound commands").
-			env = codingagents.SetEnv(env, teamTurnEnv+"="+v)
-		}
+		// The turn's credential stays in this node (it goes only to the
+		// controller, with each request a process of the turn vouched
+		// for): never in the turn's environment or files
+		// (docs/apps/team-chat.md, "Turn-bound commands").
+		env = slices.DeleteFunc(slices.Clone(env), func(kv string) bool { return strings.HasPrefix(kv, teamTurnEnv+"=") })
 	}
 	cmd := exec.Command(r.path, args...)
 	cmd.Dir = c.Cwd

@@ -104,7 +104,7 @@ func TestAgentPostsForAPersonAndEditedAsksReadRight(t *testing.T) {
 	}
 	end()
 	in := inputFor(t, tc, s.writer, bobMID)
-	if !strings.Contains(in, "posting for @"+bobHandle(t, s)) || !strings.Contains(in, "including what an agent posted for @"+bobHandle(t, s)) {
+	if !strings.Contains(in, "), posting for @"+bobHandle(t, s)+" at ") || !strings.Contains(in, "including what an agent posted for @"+bobHandle(t, s)) {
 		t.Fatalf("writer's input does not say the post is for bob:\n%s", in)
 	}
 	endW()
@@ -119,11 +119,13 @@ func TestAgentPostsForAPersonAndEditedAsksReadRight(t *testing.T) {
 		t.Fatalf("the agent's own message: %+v", r)
 	}
 	quiet(t, tc, s.shared)
-	// A DM ask that waits, then is edited: one entry, as it reads now.
+	// An ask that waits, then is edited: one entry, as it reads now.
 	_, endC := turnFor(t, tc, s.shared, carolMIDOf())
-	dm := callAs(t, h, b, bob, "conv_create", map[string]any{"kind": "dm", "members": []string{s.shared}})["conversation"].(map[string]any)["cid"].(string)
-	mid := callAs(t, h, b, bob, "post", map[string]any{"cid": dm, "text": "first draft HERON"})["message"].(map[string]any)["id"].(string)
-	callAs(t, h, b, bob, "edit", map[string]any{"id": mid, "text": "second draft HERON"})
+	mid := callAs(t, h, b, bob, "post", map[string]any{"cid": s.team, "text": "@shared first draft HERON"})["message"].(map[string]any)["id"].(string)
+	callAs(t, h, b, bob, "edit", map[string]any{"id": mid, "text": "@shared second draft HERON"})
+	if n := queued(tc, s.shared); n != 3 {
+		t.Fatalf("%d queued or running: Carol's turn, the message and its edit", n)
+	}
 	in = inputFor(t, tc, s.shared, bobMID)
 	endC()
 	if strings.Count(in, "second draft HERON") != 1 || strings.Contains(in, "edited message "+mid) || !strings.Contains(in, "(edited)") {

@@ -10,13 +10,13 @@ package codingagentsapp
 import (
 	"context"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -45,27 +45,19 @@ type TeamTurn struct {
 	// Chat in place of the built-in one ({{TEAM}} becomes the tool).
 	Note string `json:"note,omitempty"`
 	// Turn and Cred: the turn's id and credential (docs/apps/team-chat.md,
-	// "Turn-bound commands"). They reach the agent's processes only through
-	// their environment (teamTurnEnv), never a file; a request carries them
-	// back, and one without this turn's is refused here and by the
-	// controller. The credential is no use once the turn ends.
+	// "Turn-bound commands"). They stay in this node: it sends them to the
+	// controller with each request a process of the turn vouched for, and
+	// the controller refuses any other. They never reach the agent's
+	// processes, their environment or a file. The credential is no use once
+	// the turn ends.
 	Turn string `json:"turn,omitempty"`
 	Cred string `json:"cred,omitempty"`
 }
 
-// teamTurnEnv is the variable that carries a turn's id and credential to
-// the agent's processes (its name has no KEY, SECRET or TOKEN in it, so
-// runtimes that drop such variables from their commands keep it).
+// teamTurnEnv is the variable that carried a turn's id and credential to
+// the agent's processes before the fourth Phase 3 check; a Team Chat turn's
+// environment never has it now (not even inherited from the node's).
 const teamTurnEnv = "PANTHEON_TEAM_TURN"
-
-// envValue is what teamTurnEnv holds for this turn ("" when the service
-// gave no credential).
-func (tt TeamTurn) envValue() string {
-	if tt.Turn == "" || tt.Cred == "" {
-		return ""
-	}
-	return tt.Turn + "." + tt.Cred
-}
 
 // teamBox is an agent folder's .team/ for one turn.
 type teamBox struct {
@@ -200,43 +192,51 @@ case "$op" in
 *) shift ;;
 esac
 id="$(date +%s)-$$"
+nl='
+'
+# The request is built here, in memory; the process that waits for its
+# answer vouches for it with its SHA-256 in its arguments, and PantheonOS
+# answers only a request vouched for by a process of the running turn
+# (docs/apps/team-chat.md, "Turn-bound commands").
+req="op: $op$nl"
 stdin=0
-if ! {
-	printf 'op: %s\n' "$op"
-	printf 'turn: %s\n' "${` + teamTurnEnv + `:-}"
-	while [ "$#" -gt 0 ]; do
-		case "$1" in
-		--file)
-			[ "$#" -ge 2 ] || { echo "$usage" >&2; exit 2; }
-			f=$2; case "$f" in /*) ;; *) f="$PWD/$f" ;; esac
-			printf 'file: %s\n' "$f"; shift ;;
-		--?*)
-			[ "$#" -ge 2 ] || { echo "$usage" >&2; exit 2; }
-			printf 'opt: %s=%s\n' "${1#--}" "$2"; shift ;;
-		-) stdin=1 ;;
-		*) printf 'arg: %s\n' "$1" ;;
-		esac
-		shift
-	done
-	printf '\n'
-	if [ "$stdin" = 1 ]; then cat; fi
-} > "$box/.$id.tmp" 2>/dev/null; then
-	rm -f "$box/.$id.tmp" 2>/dev/null
-	echo "pantheon-team: cannot write the request to $box: your sandbox may not allow it (a Codex turn in its read-only sandbox cannot)." >&2
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+	--file)
+		[ "$#" -ge 2 ] || { echo "$usage" >&2; exit 2; }
+		f=$2; case "$f" in /*) ;; *) f="$PWD/$f" ;; esac
+		req="${req}file: $f$nl"; shift ;;
+	--?*)
+		[ "$#" -ge 2 ] || { echo "$usage" >&2; exit 2; }
+		req="${req}opt: ${1#--}=$2$nl"; shift ;;
+	-) stdin=1 ;;
+	*) req="${req}arg: $1$nl" ;;
+	esac
+	shift
+done
+req="$req$nl"
+if [ "$stdin" = 1 ]; then
+	text=$(cat; echo .)
+	req="$req${text%.}"
+fi
+if [ "${#req}" -gt ` + fmt.Sprint(linkMaxBytes+linkHeadMax) + ` ]; then
+	echo "pantheon-team: not sent: a message is at most ` + fmt.Sprint(linkMaxBytes>>10) + ` KB; attach longer text with --file." >&2
 	exit 1
 fi
-# The process that waits for the answer vouches for the request: its
-# arguments carry the request's id and SHA-256, and PantheonOS answers only a
-# request vouched for by a process of the running turn.
+# The digest is of the request in memory, never of the file: a file swapped
+# or rewritten in the inbox no longer matches it.
 sum=
-if command -v sha256sum > /dev/null 2>&1; then sum=$(sha256sum < "$box/.$id.tmp")
-elif command -v shasum > /dev/null 2>&1; then sum=$(shasum -a 256 < "$box/.$id.tmp")
-elif command -v openssl > /dev/null 2>&1; then sum=$(openssl dgst -sha256 -r < "$box/.$id.tmp")
+if command -v sha256sum > /dev/null 2>&1; then sum=$(printf '%s' "$req" | sha256sum)
+elif command -v shasum > /dev/null 2>&1; then sum=$(printf '%s' "$req" | shasum -a 256)
+elif command -v openssl > /dev/null 2>&1; then sum=$(printf '%s' "$req" | openssl dgst -sha256 -r)
 fi
 sum=${sum%% *}
 if [ -z "$sum" ]; then
-	rm -f "$box/.$id.tmp"
 	echo "pantheon-team: needs sha256sum, shasum or openssl on this computer." >&2
+	exit 1
+fi
+if ! (set -C; printf '%s' "$req" > "$box/.$id.tmp") 2>/dev/null; then
+	echo "pantheon-team: cannot write the request to $box: your sandbox may not allow it (a Codex turn in its read-only sandbox cannot)." >&2
 	exit 1
 fi
 exec sh -c ` + shellArg(teamWaitScript) + ` ` + teamWaitName + ` "$box" "$id" "$sum"
@@ -348,21 +348,26 @@ func (a *App) scanTeam(id string, tr *turn) {
 		}
 		box.taken[key] = true
 		code, text := 1, fmt.Sprintf("Not sent: this turn has made its limit of %d Team Chat requests.", teamTurnMax)
-		if !box.ownRequest(b) {
-			// Written by a process of an earlier turn (left running in the
-			// background), or by one that never had this turn's credential.
+		switch {
+		case !procVouch:
+			code, text = 1, teamNoVouch
+		case len(b) > linkMaxBytes+linkHeadMax:
+			// Larger than any request pantheon-team makes: refused
+			// outright (it was read only that far).
+			code, text = 1, requestTrouble(b)
+		case !vouched(tr.leader(), box.inbox, req, b):
+			// Every request, whatever its size: not vouched for by a
+			// process of the running turn (one that left it, one of an
+			// earlier turn, a file written by hand), or changed since.
 			code, text = 1, teamNotThisTurn
-		} else if !box.scriptIntact() {
+		case !box.scriptIntact():
 			// Something rewrote the tool the turn runs: nothing more is
 			// answered in this turn.
 			box.off = true
 			code, text = 1, teamToolChanged
-		} else if len(b) <= linkMaxBytes+linkHeadMax && !vouched(tr.leader(), req, b) {
-			// Not vouched for by a process of the running turn: written by
-			// a process that left it (one that read the credential from the
-			// computer), or by hand.
-			code, text = 1, teamNotThisTurn
-		} else if box.handled < teamTurnMax {
+		case requestTrouble(b) != "":
+			code, text = 1, requestTrouble(b)
+		case box.handled < teamTurnMax:
 			box.handled++
 			code, text = a.teamRequest(box, b)
 		}
@@ -370,8 +375,8 @@ func (a *App) scanTeam(id string, tr *turn) {
 	}
 }
 
-// teamNotThisTurn answers a request that does not carry the running turn's
-// credential.
+// teamNotThisTurn answers a request that no process of the running turn,
+// with its credential, waits for.
 const teamNotThisTurn = "pantheon-team: refused: this command is not part of the agent's running Team Chat turn " +
 	"(a command left running from an earlier turn, or one run outside a turn, cannot use Team Chat)."
 
@@ -397,47 +402,64 @@ func (tr *turn) leader() int {
 
 // vouched: a process of the running turn (the agent's process, its session
 // or process group, or a descendant) vouches for request id: it is the
-// pantheon-team process waiting for its answer, whose arguments carry the
-// id and the request's SHA-256. A process that left the turn (a new session
-// under launchd or init) cannot vouch, even with the turn's credential; nor
-// can it change a vouched request (the digest would not match). Where a
-// process's arguments cannot be read (Windows), the credential alone binds
-// a request to the turn.
-func vouched(leader int, id string, raw []byte) bool {
-	if !procVouch {
-		return true
-	}
+// pantheon-team process waiting for its answer, whose arguments carry this
+// inbox, the id and the SHA-256 of the request as pantheon-team made it in
+// memory. A process that left the turn (a new session under launchd or
+// init) cannot vouch; nor can a file swapped into the inbox or changed
+// pass for a vouched request (the digest would not match). Every request
+// is checked, whatever its size.
+func vouched(leader int, inbox, id string, raw []byte) bool {
 	if leader <= 1 {
 		return false
 	}
 	h := sha256.Sum256(raw)
 	sum := hex.EncodeToString(h[:])
-	for pid := range turnProcs(leader) {
+	before := turnProcs(leader)
+	for _, pid := range slices.Sorted(maps.Keys(before)) {
 		args := procArgs(pid)
 		for i := 0; i+3 < len(args); i++ {
-			if args[i] == teamWaitName && args[i+2] == id && args[i+3] == sum {
-				return true
+			if args[i] == teamWaitName && args[i+1] == inbox && args[i+2] == id && args[i+3] == sum {
+				// Still that process of the turn (its pid not reused).
+				if start, ok := turnProcs(leader)[pid]; ok && start == before[pid] {
+					return true
+				}
 			}
 		}
 	}
 	return false
 }
 
-// ownRequest: the request carries this turn's id and credential (always, when
-// the service gave none: an older controller).
-func (b *teamBox) ownRequest(raw []byte) bool {
-	want := b.team.envValue()
-	if want == "" {
-		return true
+// requestTrouble says why a request is refused before it is sent, or "": it
+// is larger than a request may be, its header is too long, or it has a line
+// that is not one of op (once), arg, opt and file.
+func requestTrouble(b []byte) string {
+	if len(b) > linkMaxBytes+linkHeadMax {
+		return fmt.Sprintf("pantheon-team: refused: a request is at most %d KB; attach longer text with --file.", (linkMaxBytes+linkHeadMax)>>10)
 	}
-	head, _, _ := strings.Cut(string(raw), "\n\n")
+	head, _, _ := strings.Cut(string(b), "\n\n")
+	if len(head) > linkHeadMax {
+		return fmt.Sprintf("pantheon-team: refused: a request's header is at most %d bytes.", linkHeadMax)
+	}
+	ops := 0
 	for _, line := range strings.Split(head, "\n") {
-		if v, ok := strings.CutPrefix(line, "turn: "); ok {
-			return subtle.ConstantTimeCompare([]byte(v), []byte(want)) == 1
+		k, _, ok := strings.Cut(line, ": ")
+		switch {
+		case ok && k == "op":
+			ops++
+		case ok && (k == "arg" || k == "opt" || k == "file"):
+		default:
+			return "pantheon-team: refused: the request has a line PantheonOS does not know (" + clip(line, 40) + ")."
 		}
 	}
-	return false
+	if ops != 1 {
+		return "pantheon-team: refused: a request names one command."
+	}
+	return ""
 }
+
+// teamNoVouch answers every request on a system where the node cannot read
+// another process's arguments and environment.
+const teamNoVouch = "pantheon-team: refused: Team Chat commands need a macOS or Linux computer."
 
 // teamRequest sends one request to the controller: files first, then the
 // command with their ids.
@@ -697,3 +719,4 @@ func teamFilePut(folder, name string, offset, size int64, data string, final boo
 	}
 	return map[string]any{"success": true, "path": p}
 }
+

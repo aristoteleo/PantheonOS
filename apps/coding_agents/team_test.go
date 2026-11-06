@@ -170,7 +170,7 @@ echo "exit $?" >> "$(dirname "$0")/bad.txt"
 	}
 	// Without the computer user's own settings, plugins, hooks and MCP
 	// servers (docs/apps/team-chat.md, "What Team Chat cannot prevent").
-	if !strings.Contains(string(calls), "--setting-sources project,local --strict-mcp-config") {
+	if !strings.Contains(string(calls), "--setting-sources  --strict-mcp-config") {
 		t.Fatalf("a Team Chat turn's runtime loads the user's setup: %s", calls)
 	}
 }
@@ -184,7 +184,18 @@ func TestTeamCleanArgs(t *testing.T) {
 	if got := strings.Join(teamCleanArgs("codex", "codex"), " "); got != "--ignore-user-config" {
 		t.Fatal(got)
 	}
-	if got := strings.Join(teamCleanArgs("claude", "claude"), " "); got != "--setting-sources project,local --strict-mcp-config" {
+	// No settings files at all: not the folder's (its hooks), not the user's.
+	if got := teamCleanArgs("claude", "claude"); strings.Join(got, "|") != "--setting-sources||--strict-mcp-config" {
+		t.Fatalf("%q", got)
+	}
+	// Codex with hooks: they are off.
+	runtimeHelp = func(_ string, args ...string) string {
+		if strings.Join(args, " ") == "features list" {
+			return "guardian_trust   under development  false\nhooks   stable   true\nplugins  stable  true\n"
+		}
+		return "--ignore-user-config --disable <FEATURE>"
+	}
+	if got := strings.Join(teamCleanArgs("codex", "codex"), " "); got != "--ignore-user-config --disable hooks" {
 		t.Fatal(got)
 	}
 	runtimeHelp = func(string, ...string) string { return "--model" }
@@ -193,16 +204,16 @@ func TestTeamCleanArgs(t *testing.T) {
 	}
 }
 
-// A Team Chat turn's commands carry its credential, which reaches the
-// agent's processes only through their environment; a command written with
-// an earlier turn's credential (a background loop left by that turn) is
-// refused without reaching the controller; and what a turn leaves running
+// A Team Chat turn's credential stays in the node (not in the turn's
+// environment or files); a command written by a background loop left by an
+// earlier turn is refused without reaching the controller; and what a turn leaves running
 // (nohup, &, a process that started a session of its own) ends with it
 // (docs/apps/team-chat.md, "Turn-bound commands").
 func TestATeamTurnsCommandsAndProcessesEndWithIt(t *testing.T) {
 	old := teamProcLook
 	teamProcLook = 50 * time.Millisecond
 	t.Cleanup(func() { teamProcLook = old })
+	t.Setenv("PANTHEON_TEAM_TURN", "t0.inherited")
 	dir := fakeAgents(t, map[string]string{
 		"claude": teamCommand + `d="$(dirname "$0")"
 box="$(dirname "$team")/inbox"
@@ -253,7 +264,8 @@ fi
 	}
 	conv := res["conversation_id"].(string)
 	waitIdle(t, a, conv)
-	if env, _ := os.ReadFile(filepath.Join(dir, "env.txt")); string(env) != "t1.c1" {
+	// The credential stays in the node: not in the turn's environment.
+	if env, _ := os.ReadFile(filepath.Join(dir, "env.txt")); string(env) != "" {
 		t.Fatalf("the turn's environment: %q", env)
 	}
 	for _, name := range []string{"bg.pid", "away.pid"} {
@@ -307,12 +319,12 @@ fi
 }
 
 // A command is answered only when a process of the running turn vouches for
-// it (the pantheon-team process waiting for its answer, whose arguments
-// carry the request's id and SHA-256): a process that left the turn (fork,
-// setsid, fork) is refused even with the running turn's credential, and so
-// is a request written by hand inside the turn; once the tool itself is
-// changed, the turn's Team Chat is off (docs/apps/team-chat.md, "Turn-bound
-// commands").
+// it (the pantheon-team process waiting for its answer, whose environment
+// holds the request and the turn's credential): a process that left the
+// turn (fork, setsid, fork) is refused even with the running turn's
+// credential, and so is a request file written by hand with no such
+// process; once the tool itself is changed, the turn's Team Chat is off
+// (docs/apps/team-chat.md, "Turn-bound commands").
 func TestATeamCommandNeedsAProcessOfTheRunningTurn(t *testing.T) {
 	if !procVouch {
 		t.Skip("this system cannot read another process's arguments")
