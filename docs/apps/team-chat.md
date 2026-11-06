@@ -2345,6 +2345,98 @@ channel `#p3c6-solo` with a canary):
   loop: a shared agent acts as its computer's user ("What Team Chat cannot
   prevent").
 
+### Fixes after the fifth Phase 3 check (2026-11-06)
+
+The fifth independent check (staging, 2026-11-06) found: (1, high) every
+Team Chat turn's environment held `PANTHEON_KEY`, the node's `pbk_`
+platform key (the Coding Agents `access.key`), which alone opened the
+owner's Team Chat as the owner (`workload-identity` → the controller's
+`general-team` deployment → `workload-connect` → the App gateway's `/rpc`:
+role owner, the owner-only channel read) and the owner's other Apps; (2,
+medium) a vouched request could be replayed: an outside process removed
+the node's `.reply` before the turn's waiting process read it and wrote a
+byte-identical `ID.msg` again, and the post ran three times, as answered
+requests were remembered by file identity, not by id; (3, low–medium)
+plugins listed in `CLAUDE_CODE_PLUGIN_DIRS` (inherited from the node's
+environment) still loaded in Claude Code turns, hooks included, despite
+`--setting-sources ""`; (4, low) the names "PantheonOS", "Pantheon Team",
+"Support", "Staff", "Root", "sudo" and the handles `pantheon`, `support`,
+`root` were accepted; (5) the doc said an escaped process "cannot use Team
+Chat by itself", which the key made untrue. The fixes are in "Turn-bound
+commands" ("The turn's environment", answered once) and "What Team Chat
+cannot prevent". Tests: `apps/coding_agents/team_p3check5_test.go`
+(`TestATeamTurnCarriesOnlyTheModelKey`, `TestTeamEnvIsAnAllowList`,
+`TestAReplayedTeamRequestIsAnsweredOnce`,
+`TestATeamTurnsInboxIsEmptiedWhenItEnds`),
+`os/internal/hosted/teamchat_p3check5_test.go`
+(`TestPlatformAndStaffNamesAreRefused`), and in the Hub
+`tests/test_workload_platform_keys.py`
+(`test_model_key_opens_nothing_but_the_model_proxy`). Each fails with its
+fix reverted (8 reverts; the Hub test fails against a Hub patched to take
+the model key as a workload credential, as the Hub itself needed no
+change).
+
+| Finding | Fix |
+|---|---|
+| 1. (high) The node's PantheonOS key in every turn | A Team Chat turn's runtime starts from an allow-list (`codingagents.TeamEnv`, see "The turn's environment"): no `PANTHEON_KEY` and none of Coding Agents' other access variables, no Fleet or Hub credential, no ssh agent; the turn is no longer told that the `pantheon` command is signed in. The only credential left is the model key, on PantheonOS models. **Design choice:** that key is the user's LiteLLM virtual key, the one `PlatformEnv` already gives the runtime (`ANTHROPIC_AUTH_TOKEN` for Claude Code, `PANTHEON_LLM_API_KEY` for Codex, OpenCode and Pi), and it is already model-only: the proxy takes it for model calls, billed to and capped by the user's PantheonOS budget, and answers its management routes (`/key/generate`, `/key/update`, `/key/regenerate`, `/key/delete`, `/user/update`, `/team/new`, `/spend/logs`, `/global/spend/logs`, `/config/update`, `/cache/flushall`) with "Only proxy admin"; the Hub accepts only a `pbk_` key or a token it signed, and the controller only what the Hub validates (`/api/platform-keys/validate` says `valid: false`). Minting a separate key per turn was not chosen: LiteLLM budgets are per key, so a second key would not share the owner's budget; a node-side model proxy with a per-turn token would add a local server for no gain while turns run unsandboxed, as the turn can read the node's files anyway (below). Coding Agents' own turns keep `PANTHEON_KEY`: it is what signs in the `pantheon` command their note tells them to use (skills, browser, desktop, Apps, nodes), so a model-only key would break them; their model key was already the virtual key. |
+| 2. (medium) Replay of a vouched request | The node records each request id a process of the turn vouched for, with the request's SHA-256 (`answered`), and refuses any later request under that id ("refused: this request was answered already in this turn"), whatever its bytes and file. When the turn ends, after its last scan, the node empties the turn's inbox and forgets the ids (unless a newer turn of the conversation already runs, which made its own inbox empty). |
+| 3. (low–medium) Plugins from `CLAUDE_CODE_PLUGIN_DIRS` | Gone with the allow-list: the node's environment reaches the turn only through the listed names. The user's own variables for the agent are kept except any name with `PLUGIN`, PantheonOS and Fleet credentials, and variables that load code or start-up files (`NODE_OPTIONS`, `BASH_ENV`, `ENV`, `ZDOTDIR`, `CLAUDE_ENV_FILE`, `PROMPT_COMMAND`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, `DYLD_*`, `PYTHONSTARTUP`, `PERL5OPT`, `RUBYOPT`, `GIT_CONFIG_GLOBAL`). `CLAUDE_CONFIG_DIR` and `CODEX_HOME` are kept on purpose: they say where the runtime's sign-in and sessions are (the node finds sessions there to resume them), and what else lives there (settings, hooks, plugins, `config.toml`) is already off through `--setting-sources ""` and `--ignore-user-config --disable hooks`. |
+| 4. (low) Platform and staff names | Role words and reserved handles now include pantheon, pantheonos, support, staff, root, sudo, superuser, sysadmin and helpdesk, with the same digit and plural rules (`Supp0rt`, `R00t`, `roots`, `support1`); a handle that starts with `pantheon` is reserved (`pantheon-team`); "staff" counts only as a whole word, so names such as Staffan stay free. |
+| 5. Doc | "What Team Chat cannot prevent" no longer says an escaped process cannot use Team Chat by itself. It says what holds (no turn credential in the turn, no command answered through the inbox without a vouching process of the turn, each request once, no PantheonOS key in the turn's environment) and, plainly, that an unsandboxed turn runs as the computer's user and can read the node's own credential files (the Coding Agents `settings.json` with `access.key`, the `pantheon` command's saved sign-in, the runtimes' sign-ins) and the node binary, and with that key reach the owner's Team Chat as the owner. Whether shared agents must run sandboxed is an open product decision; sandbox behaviour is unchanged. |
+
+Staging verification (2026-11-06; controller build of `6905ce43`, node
+release `fleet-v0.5.1-staging.15` (`6905ce43`, its released macOS binary on
+the test Mac node, PantheonOS models), Hub unchanged `767986d`, frontend
+unchanged; the owner's own turns; Coder (Codex,
+`openrouter/deepseek/deepseek-v4-flash-0731`) and Writer (Claude Code,
+`openrouter/anthropic/claude-haiku-5.5`); an owner-only channel
+`#p3c8-solo` with a canary):
+
+* **1 and 3, the turn's environment and its key.** A same-user process
+  outside the turn read the running runtime's environment (`ps -E`) and
+  tried every credential in it on the check's path. Writer's runtime had
+  only `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, the
+  `ANTHROPIC_*_MODEL` names, `HOME`, `LANG`, `LOGNAME`, `PATH`, `SHELL`,
+  `TERM`, `TMPDIR`, `USER`; Coder's only `PANTHEON_LLM_API_KEY` and the
+  same basics: no `pbk_` value, no `PANTHEON_KEY`, no
+  `CLAUDE_CODE_PLUGIN_DIRS` (the test node itself runs with it and with the
+  Orca and Claude Code session variables), no `SSH_AUTH_SOCK`, and the
+  arguments carry no "signed in" note. With the model key (`sk-…`):
+  `workload-identity` 401, the controller's `/deployments/general-team`
+  401, `workload-connect` 401, the Hub's deployments 401, LiteLLM
+  `/key/generate` 401 ("Only proxy admin"). The canary was read nowhere.
+  Both turns still worked on PantheonOS models (posts and DM answered).
+* **2, replay.** A tight-loop outside process renamed away the node's
+  `.reply` to each of a Coder turn's three commands (two posts, one DM)
+  before the turn read it and wrote the byte-identical request again, twice
+  each: every copy got "refused: this request was answered already in this
+  turn"; `#p3c8-solo` holds `REPLAY-CHECK-9A` and `REPLAY-CHECK-9B` once
+  each. The check's `outside.py` (same turn as the environment probe)
+  lost its race to the turn's reader this time (no replay attempted); its
+  forged outside waiter was refused ("not part of the agent's running Team
+  Chat turn"), its oversize request refused ("at most 36 KB"), its
+  symlinked request dropped. The inbox was empty after each turn.
+* **4, names.** The owner's `me_update` with the names "PantheonOS",
+  "Pantheon Team", "Support", "Staff", "Root", "sudo", "Supp0rt" and the
+  handles `pantheon`, `support`, `root`, `pantheon-team`, `r00t`: all
+  refused.
+* **Coding Agents turn.** A normal Claude Code turn (`agent_send`,
+  `openrouter/anthropic/claude-haiku-5.5`) answered as asked; its
+  environment still has `PANTHEON_KEY` and its note about the `pantheon`
+  command (unchanged, by design).
+* Spend: the owner's key $6.8804 → $6.9856 over 5 turns (Writer 2, Coder 2,
+  the Coding Agents turn 1); members $0.
+
+What is left: the turn still runs unsandboxed as the computer's user and
+can read the node's key from disk (above; an open product decision). The
+model key reaches the proxy's read-only routes (`/key/info` for itself,
+`/model/info`, `/health`); a LiteLLM model route (`/model/delete` with an
+unknown id) answered "not found" rather than "only proxy admin", so the
+proxy's own checks on model routes for a user key were not probed further
+(it applies to every user's key, in Workspaces too, not only Team Chat).
+Workspace nodes get the new node with the agents image built from
+`6905ce43` (pinned in the Hub and prewarmed).
+
 ## Out of scope
 
 Payments, mobile native apps, external chat bridges, prod rollout (asked
