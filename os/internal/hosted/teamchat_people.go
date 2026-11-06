@@ -12,8 +12,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"time"
+	"unicode"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 // TeamChatGrantID names a person's space grants on the App gateway, so the
@@ -70,6 +74,11 @@ func (t *TeamChat) callerOf(ctx context.Context, fl *tcFleet, m *Member) (tcCall
 		if r := []rune(name); len(r) > 64 {
 			name = string(r[:64])
 		}
+		if fl.mimicked(mid, name) != nil {
+			// A name that reads like another member's: they go by their
+			// handle until they choose another.
+			name = handle
+		}
 		rec = &tcMember{MID: mid, Kind: "person", Handle: handle, Name: name, Created: t.stamp(), Role: m.Role,
 			Fleet: m.Fleet, Joined: m.Joined}
 		if err := t.welcome(ctx, fl, rec, "joined"); err != nil {
@@ -115,7 +124,8 @@ func (t *TeamChat) welcome(ctx context.Context, fl *tcFleet, rec *tcMember, verb
 			return err
 		}
 	}
-	_, _ = t.system(ctx, fl, "general", "", "", "", "@"+rec.Handle+" "+verb+" the space.")
+	// about and action let pages name them by their handle now.
+	_, _ = t.system(ctx, fl, "general", "", rec.MID, verb, "@"+rec.Handle+" "+verb+" the space.")
 	return nil
 }
 
@@ -184,11 +194,11 @@ func (t *TeamChat) MemberChange(ctx context.Context, fid, userID, action, role s
 		}
 	}
 	t.emit(fl, map[string]any{"type": "member", "member": &next})
-	text := "@" + rec.Handle + " was removed from the space."
+	text, verb := "@"+rec.Handle+" was removed from the space.", "removed"
 	if action == "leave" {
-		text = "@" + rec.Handle + " left the space."
+		text, verb = "@"+rec.Handle+" left the space.", "left"
 	}
-	_, _ = t.system(ctx, fl, "general", "", "", "", text)
+	_, _ = t.system(ctx, fl, "general", "", mid, verb, text)
 	return true, nil
 }
 
@@ -210,21 +220,91 @@ func (fl *tcFleet) person(mid string) bool {
 }
 
 // visible: whether mid may read a conversation. An agent: its conversations
-// and public channels. A person: public channels, the conversations they
-// are in, and the DMs of agents they own (a DM only of agents that are gone,
-// its owner).
+// and public channels, and while it serves a turn for people other than its
+// owner, only those they see too. A person: public channels, the
+// conversations they are in, and the DMs of agents they own (a DM only of
+// agents that are gone, its owner). The owner sees every channel of their
+// space, private ones they are not in included.
 func (fl *tcFleet) visible(c *tcConv, mid string) bool {
 	m := fl.members[mid]
-	if m == nil {
+	if m == nil || c == nil {
 		return false
 	}
 	if m.agent() {
-		return c.has(mid) || c.Kind == "channel" && !c.Private
+		if !(c.has(mid) || c.Kind == "channel" && !c.Private) {
+			return false
+		}
+		for _, p := range fl.scoped[mid] {
+			if !fl.visible(c, p) {
+				return false
+			}
+		}
+		return true
 	}
 	if m.Removed != "" {
 		return false
 	}
+	if mid == tcOwner && c.Kind == "channel" {
+		return true
+	}
 	return c.Kind == "channel" && !c.Private || fl.inConv(c, mid)
+}
+
+// turnPeople are the people a turn of agent a works for, other than its
+// owner (whose turns keep the agent's whole view).
+func (fl *tcFleet) turnPeople(a *tcMember, events []tcWake) []string {
+	var out []string
+	for _, p := range fl.behalfOf(events) {
+		if p != ownerOf(a) && fl.members[p] != nil && !fl.members[p].agent() {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// scopeOf is who agent a's request now works for: its running turn's
+// people, else its last turn's.
+func (fl *tcFleet) scopeOf(a *tcMember) []string {
+	if tr := fl.turns[a.MID]; tr != nil {
+		return fl.turnPeople(a, append([]tcWake{tr.Cause}, tr.Events...))
+	}
+	return fl.liveOf(a.MID).lastBehalf
+}
+
+// seenByAll: every conversation of the events is one each of the people sees.
+func (fl *tcFleet) seenByAll(events []tcWake, people []string) bool {
+	for _, e := range events {
+		c := fl.convs[e.CID]
+		if c == nil {
+			continue
+		}
+		for _, p := range people {
+			if !fl.visible(c, p) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// fits: whether event e may join a turn of agent a that took events
+// (asked by people): every person behind them all sees every one of their
+// conversations, so a turn never carries one person's words to another.
+func (fl *tcFleet) fits(a *tcMember, taken []tcWake, e tcWake) bool {
+	all := append(append([]tcWake(nil), taken...), e)
+	return fl.seenByAll(all, fl.turnPeople(a, all))
+}
+
+// turnEvents are the queued events one turn takes: the oldest, and every
+// later one that fits with it (the rest wait for a later turn).
+func (fl *tcFleet) turnEvents(a *tcMember, q []tcWake) []tcWake {
+	var out []tcWake
+	for i, e := range q {
+		if i == 0 || fl.fits(a, out, e) {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // inConv: the conversations whose news is a person's (unread, Activity,
@@ -346,28 +426,66 @@ func (fl *tcFleet) memberView(m *tcMember, viewer string) *tcMember {
 	if m.MID == tcOwner {
 		v.Role = "owner"
 	}
-	if m.agent() && viewer != tcOwner {
-		v.Folder, v.NodeID, v.Session, v.Turns, v.Spans = "", "", "", nil, nil
+	if avatarOK(v.Avatar) != nil {
+		v.Avatar = ""
+	}
+	if viewer != tcOwner {
+		if m.agent() {
+			v.NodeName, v.NodeOS = fl.friendlyComputer(m), ""
+			v.Folder, v.NodeID, v.Session, v.Turns, v.Spans = "", "", "", nil, nil
+		}
+		if m.MID == tcOwner {
+			// The owner's earlier handles start with their account's name.
+			v.PrevHandles = nil
+		}
 	}
 	return &v
 }
 
-// statusView leaves out where an agent works when the viewer does not see
-// that conversation.
-func (fl *tcFleet) statusView(status map[string]any, viewer string) map[string]any {
-	cid, _ := status["cid"].(string)
-	if cid == "" {
-		return status
-	}
-	if c := fl.convs[cid]; c != nil && fl.visible(c, viewer) {
-		return status
-	}
+// statusView is an agent's status as a person sees it: where it works only
+// when they see that conversation; for anyone but the owner, its computer by
+// a friendly name and its problems without the owner's fixes.
+func (fl *tcFleet) statusView(status map[string]any, mid, viewer string) map[string]any {
 	out := map[string]any{}
-	for k, v := range status {
-		if k != "cid" && k != "root" && k != "line" {
-			out[k] = v
-		}
+	hide := false
+	if cid, _ := status["cid"].(string); cid != "" {
+		c := fl.convs[cid]
+		hide = c == nil || !fl.visible(c, viewer)
 	}
+	for k, v := range status {
+		if hide && (k == "cid" || k == "root" || k == "line") {
+			continue
+		}
+		out[k] = v
+	}
+	a := fl.members[mid]
+	if viewer == tcOwner || a == nil || !a.agent() {
+		return out
+	}
+	friendly := fl.friendlyComputer(a)
+	raw, _ := status["computer"].(string)
+	plain := func(s string) string {
+		if raw != "" && raw != friendly {
+			s = strings.ReplaceAll(s, capFirst(raw), friendly)
+			s = strings.ReplaceAll(s, raw, friendly)
+		}
+		s = strings.ReplaceAll(s, "Your Workspace", friendly)
+		return strings.ReplaceAll(s, "your Workspace", friendly)
+	}
+	out["computer"] = friendly
+	if line, ok := out["line"].(string); ok {
+		if strings.HasPrefix(line, "Retrying soon") {
+			line = "Retrying soon"
+		}
+		out["line"] = plain(line)
+	}
+	if reason, ok := out["reason"].(string); ok {
+		out["reason"] = plain(reason)
+	}
+	if out["state"] == "attention" && out["paused"] != "limit" {
+		out["reason"] = a.Name + " couldn't answer right now"
+	}
+	delete(out, "fix")
 	return out
 }
 
@@ -430,6 +548,7 @@ func (fl *tcFleet) eventFor(event map[string]any, viewer string) map[string]any 
 		if msg == nil || !sees(msg.CID) {
 			return nil
 		}
+		out["message"] = fl.msgView(msg, viewer)
 	case "conv":
 		if c, _ := event["conversation"].(*tcConv); c != nil && !fl.visible(c, viewer) {
 			return nil
@@ -448,13 +567,18 @@ func (fl *tcFleet) eventFor(event map[string]any, viewer string) map[string]any 
 		if tk, _ := event["task"].(*tcTask); tk == nil || !sees(tk.CID) {
 			return nil
 		}
+	case "space":
+		if viewer != tcOwner {
+			delete(out, "usage")
+		}
 	case "member":
 		if m, _ := event["member"].(*tcMember); m != nil {
 			out["member"] = fl.memberView(m, viewer)
 		}
 	case "agent_status":
 		if st, _ := event["status"].(map[string]any); st != nil {
-			out["status"] = fl.statusView(st, viewer)
+			mid, _ := event["mid"].(string)
+			out["status"] = fl.statusView(st, mid, viewer)
 		}
 	case "notify":
 		if mid, _ := event["mid"].(string); mid != viewer {
@@ -541,6 +665,157 @@ func (fl *tcFleet) readsBy(me string) map[string]map[string]string {
 			out[cid] = map[string]string{}
 		}
 		out[cid][mid] = id
+	}
+	return out
+}
+
+// ── names people cannot take ───────────────────────────────────────────────
+
+// confusable folds characters that read like others.
+var confusable = strings.NewReplacer("0", "o", "1", "l", "|", "l", "!", "l", "3", "e", "5", "s", "$", "s", "@", "a",
+	"rn", "m", "vv", "w", "а", "a", "е", "e", "о", "o", "р", "p", "с", "c", "х", "x", "у", "y", "і", "i", "ӏ", "l", "ı", "i")
+
+// skeleton is how a name reads: case, accents, spacing and punctuation
+// left out, look-alike characters folded.
+func skeleton(name string) string {
+	var b strings.Builder
+	for _, r := range norm.NFKD.String(strings.ToLower(name)) {
+		if !unicode.Is(unicode.Mn, r) {
+			b.WriteRune(r)
+		}
+	}
+	folded := confusable.Replace(b.String())
+	b.Reset()
+	for _, r := range folded {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// oneEdit: a and b differ by at most one inserted, removed or changed rune.
+func oneEdit(a, b string) bool {
+	x, y := []rune(a), []rune(b)
+	if len(x) < len(y) {
+		x, y = y, x
+	}
+	if len(x)-len(y) > 1 {
+		return false
+	}
+	i, j, edits := 0, 0, 0
+	for i < len(x) && j < len(y) {
+		if x[i] == y[j] {
+			i, j = i+1, j+1
+			continue
+		}
+		if edits++; edits > 1 {
+			return false
+		}
+		if len(x) == len(y) {
+			j++
+		}
+		i++
+	}
+	return edits+(len(x)-i) <= 1
+}
+
+// mimicked is the member whose name or handle text reads like (another
+// person may not take it): the same skeleton as anyone's, or one letter off
+// the owner's or an admin's.
+func (fl *tcFleet) mimicked(self, text string) *tcMember {
+	sk := skeleton(text)
+	if sk == "" {
+		return nil
+	}
+	for _, mid := range sortedKeys(fl.members) {
+		m := fl.members[mid]
+		if mid == self || !m.agent() && m.Removed != "" {
+			continue
+		}
+		boss := mid == tcOwner || m.Role == "admin"
+		for _, other := range []string{m.Name, m.Handle} {
+			o := skeleton(other)
+			if o == "" {
+				continue
+			}
+			if o == sk || boss && len([]rune(o)) >= 5 && len([]rune(sk)) >= 5 && oneEdit(o, sk) {
+				return m
+			}
+		}
+	}
+	return nil
+}
+
+// tooClose refuses a person's name or handle that reads like another
+// member's.
+func (fl *tcFleet) tooClose(self, what, text string) error {
+	if self == tcOwner {
+		return nil
+	}
+	if m := fl.mimicked(self, text); m != nil {
+		return &ArgumentError{fmt.Sprintf("That %s is too close to @%s (%s). Choose another.", what, m.Handle, m.Name)}
+	}
+	return nil
+}
+
+// avatarRE: an avatar is an uploaded image (a data URL); without one, the
+// page draws one.
+var avatarRE = regexp.MustCompile(`^data:image/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/]+=*$`)
+
+func avatarOK(v string) error {
+	if v == "" || avatarRE.MatchString(v) {
+		return nil
+	}
+	return &ArgumentError{"An avatar is an uploaded image (PNG, JPEG, GIF or WebP)."}
+}
+
+// friendlyComputer names an agent's computer for people other than the
+// owner: whose it is and what it is, never its network name.
+func (fl *tcFleet) friendlyComputer(a *tcMember) string {
+	owner := "The owner"
+	if o := fl.members[ownerOf(a)]; o != nil && strings.TrimSpace(o.Name) != "" {
+		owner = strings.TrimSpace(o.Name)
+	}
+	whose := owner + "'s "
+	if strings.HasSuffix(owner, "s") {
+		whose = owner + "' "
+	}
+	lower := strings.ToLower(a.NodeName)
+	switch {
+	case a.NodeKind == "sandbox" || a.NodeKind == "pod" || a.NodeKind == "" && strings.HasPrefix(a.Folder, "/workspace/"):
+		return whose + "Workspace"
+	case a.NodeOS == "darwin" || a.NodeOS == "macos" || a.NodeOS == "" && (strings.Contains(lower, "mac") || strings.HasSuffix(lower, ".local")):
+		return whose + "Mac"
+	case a.NodeOS == "windows":
+		return whose + "PC"
+	}
+	return whose + "computer"
+}
+
+// msgView is a message as a person sees it: a line about an agent that
+// could not answer tells the owner what went wrong and how to fix it; anyone
+// else reads only that it could not answer.
+func (fl *tcFleet) msgView(msg *tcMsg, viewer string) *tcMsg {
+	if msg == nil || viewer == tcOwner || msg.Kind != "system" || msg.Action != "retry" {
+		return msg
+	}
+	v := *msg
+	name := "The agent"
+	if a := fl.members[msg.About]; a != nil {
+		name = a.Name
+	}
+	v.Text, v.Action = name+" couldn't answer right now.", ""
+	return &v
+}
+
+func (fl *tcFleet) msgsView(page []*tcMsg, viewer string) []*tcMsg {
+	if viewer == tcOwner {
+		return page
+	}
+	out := make([]*tcMsg, len(page))
+	for i, msg := range page {
+		out[i] = fl.msgView(msg, viewer)
 	}
 	return out
 }

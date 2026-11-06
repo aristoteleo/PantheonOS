@@ -8,6 +8,7 @@ import (
 	"github.com/aristoteleo/pantheonos/os/codingagents"
 	"net"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -81,6 +82,12 @@ func (f *fakeAgents) Call(_ context.Context, _ string, node, method string, args
 	case "team_setup":
 		f.setups = append(f.setups, args)
 		folder := str(args["folder"])
+		if folder == "~" || strings.HasPrefix(folder, "~/") {
+			folder = "/home/me" + strings.TrimPrefix(folder, "~")
+		}
+		if strings.HasPrefix(folder, "/") {
+			folder = path.Clean(folder)
+		}
 		return map[string]any{"success": true, "folder": folder, "home": folder == "/home/me", "root": folder == "/"}, nil
 	case "team_file_put":
 		f.files[str(args["name"])] += int64(len(str(args["data"])))

@@ -119,6 +119,9 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 			if !who.admin() && conv.CreatedBy != who.mid {
 				return nil, &ArgumentError{"Only the space owner, admins and the person who made " + conv.label(fl, who.mid) + " can change it."}
 			}
+			if a.Members != nil && !who.owner() && conv.has(tcOwner) && !contains(*a.Members, tcOwner) {
+				return nil, &ArgumentError{"The space owner stays in " + conv.label(fl, who.mid) + ": only they can leave it."}
+			}
 			if a.Members != nil {
 				var added []string
 				for _, mid := range *a.Members {
@@ -151,6 +154,8 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 			}
 			if mid != who.mid {
 				switch {
+				case c.Method == "conv_leave" && mid == tcOwner:
+					return nil, &ArgumentError{"The space owner stays in " + conv.label(fl, who.mid) + ": only they can leave it."}
 				case c.Method == "conv_join" && !conv.has(who.mid) && !who.admin():
 					return nil, &ArgumentError{"Join " + conv.label(fl, who.mid) + " first, then add others."}
 				case c.Method == "conv_leave" && !who.admin() && conv.CreatedBy != who.mid:
@@ -519,9 +524,14 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 				return nil, nil
 			}
 			switch a.Action {
-			case "start", "stop", "stop_turn", "retry", "reset_session":
+			case "start", "stop", "stop_turn", "retry":
 			default:
-				return nil, &ArgumentError{"Only the space owner can " + strings.ReplaceAll(a.Action, "_", " ") + " an agent."}
+				// A session reset loses the agent's conversation: the owner's.
+				what := strings.ReplaceAll(a.Action, "_", " ") + " an agent"
+				if a.Action == "reset_session" {
+					what = "reset an agent's session"
+				}
+				return nil, &ArgumentError{"Only the space owner can " + what + "."}
 			}
 			agent := fl.members[a.MID]
 			if !who.admin() {
@@ -540,7 +550,23 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if a.Action == "delete" && a.KeepFolder != nil && !*a.KeepFolder {
 			a.Action = "delete_folder"
 		}
-		return t.agentControl(ctx, c.Fleet, a.MID, a.Action, a.Confirm)
+		out, err := t.agentControl(ctx, c.Fleet, a.MID, a.Action, a.Confirm)
+		if err != nil || who.owner() {
+			return out, err
+		}
+		// An admin's answer: the agent as they see it (no folder, computer
+		// or turns: those are the owner's).
+		return with(func(fl *tcFleet) (any, error) {
+			res := map[string]any{}
+			if a.Action == "stop_turn" {
+				res["stopped"] = true
+			}
+			if m := fl.members[a.MID]; m != nil {
+				res["agent"] = fl.memberView(m, who.mid)
+				res["status"] = fl.statusView(t.statusOf(fl, m), m.MID, who.mid)
+			}
+			return res, nil
+		})
 	case "agent_live":
 		var a struct {
 			MID string `json:"mid"`
@@ -681,7 +707,7 @@ func (t *TeamChat) spaceGet(ctx context.Context, fl *tcFleet, who tcCaller) (map
 		m := fl.members[mid]
 		members = append(members, fl.memberView(m, me))
 		if m.agent() {
-			status[mid] = fl.statusView(t.statusOf(fl, m), me)
+			status[mid] = fl.statusView(t.statusOf(fl, m), mid, me)
 		}
 	}
 	convs := []any{}
@@ -736,10 +762,15 @@ func (t *TeamChat) spaceGet(ctx context.Context, fl *tcFleet, who tcCaller) (map
 	if tasks == nil {
 		tasks = []*tcTask{}
 	}
-	return map[string]any{"space": fl.space, "me": me, "role": who.role, "owner": tcOwner, "members": members,
+	out := map[string]any{"space": fl.space, "me": me, "role": who.role, "owner": tcOwner, "members": members,
 		"conversations": convs, "reads": reads, "reads_by": fl.readsBy(me), "can_use": fl.usable(me),
 		"follows": follows, "unfollows": unfollows, "agent_status": status, "unread": unread, "thread_unread": threadUnread, "tasks": tasks,
-		"notify": notify, "usage": t.usage(fl), "revision": fl.revOf(me), "subject": fl.subjectOf(me)}, nil
+		"notify": notify, "revision": fl.revOf(me), "subject": fl.subjectOf(me)}
+	if who.owner() {
+		// Usage counts are the owner's (their agents, their budget).
+		out["usage"] = t.usage(fl)
+	}
+	return out, nil
 }
 
 // usage is each guard with its current use.
@@ -881,10 +912,16 @@ func (t *TeamChat) memberUpdate(ctx context.Context, fl *tcFleet, mid string, fi
 		return nil, &ArgumentError{"no member " + mid}
 	}
 	next := *m
+	person := !m.agent()
 	if v, ok := fields["name"].(*string); ok && v != nil {
 		n := strings.TrimSpace(*v)
 		if n == "" || utf8.RuneCountInString(n) > 64 {
 			return nil, &ArgumentError{"a name has 1 to 64 characters"}
+		}
+		if person && n != m.Name {
+			if err := fl.tooClose(mid, "name", n); err != nil {
+				return nil, err
+			}
 		}
 		next.Name = n
 	}
@@ -892,6 +929,11 @@ func (t *TeamChat) memberUpdate(ctx context.Context, fl *tcFleet, mid string, fi
 		h := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(*v), "@"))
 		if err := t.handleFree(fl, h, mid); err != nil {
 			return nil, err
+		}
+		if person && h != m.Handle {
+			if err := fl.tooClose(mid, "handle", h); err != nil {
+				return nil, err
+			}
 		}
 		if h != m.Handle {
 			next.PrevHandles = withPrevHandle(m.PrevHandles, m.Handle, h)
@@ -901,6 +943,9 @@ func (t *TeamChat) memberUpdate(ctx context.Context, fl *tcFleet, mid string, fi
 	if v, ok := fields["avatar"].(*string); ok && v != nil {
 		if len(*v) > 64<<10 {
 			return nil, &ArgumentError{"an avatar is at most 64 KB"}
+		}
+		if err := avatarOK(*v); err != nil {
+			return nil, err
 		}
 		next.Avatar = *v
 	}
@@ -1093,7 +1138,8 @@ func (t *TeamChat) convMembership(ctx context.Context, fl *tcFleet, by, cid, mid
 	if c.Kind == "dm" {
 		return nil, &ArgumentError{"a DM's members do not change"}
 	}
-	if join && c.Private && !c.has(by) {
+	if join && c.Private && !c.has(by) && by != tcOwner {
+		// The owner may join any channel of their space.
 		return nil, &ArgumentError{"#" + c.Name + " is private"}
 	}
 	if join && !fl.members[mid].agent() && fl.members[mid].Removed != "" {
@@ -1159,7 +1205,7 @@ func (t *TeamChat) messages(ctx context.Context, fl *tcFleet, me, cid, before, a
 		limit = 50
 	}
 	page, more := m.page(root, before, after, limit)
-	return map[string]any{"messages": page, "more": more, "cid": cid, "root": root}, nil
+	return map[string]any{"messages": fl.msgsView(page, me), "more": more, "cid": cid, "root": root}, nil
 }
 
 // post adds a message from mid (the person, an agent, or "system"), wakes the

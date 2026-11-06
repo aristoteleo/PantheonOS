@@ -503,7 +503,7 @@ func TestEachPersonGetsOnlyTheirEvents(t *testing.T) {
 	}
 	// An agent working in the private channel: others see that it works, not where.
 	fl, _ := s.tc.lockFleet(context.Background(), fleetID)
-	st := fl.statusView(map[string]any{"state": "working", "cid": s.secret, "root": "", "line": "Reading plan.txt"}, personMID(alice.UserID))
+	st := fl.statusView(map[string]any{"state": "working", "cid": s.secret, "root": "", "line": "Reading plan.txt"}, s.writer, personMID(alice.UserID))
 	fl.mu.Unlock()
 	if st["cid"] != nil || st["line"] != nil || st["state"] != "working" {
 		t.Fatalf("%v", st)
@@ -594,8 +594,11 @@ func TestRoles(t *testing.T) {
 	callAs(t, h, b, carol, "conv_update", map[string]any{"cid": s.team, "topic": "set by an admin"})
 	own := callAs(t, h, b, bob, "conv_create", map[string]any{"kind": "channel", "name": "bobs", "private": true})["conversation"].(map[string]any)["cid"].(string)
 	callAs(t, h, b, bob, "conv_update", map[string]any{"cid": own, "topic": "mine"})
-	if contains(convIDs(call(t, h, b, "space_get", map[string]any{})), own) {
-		t.Fatal("the owner lists a member's private channel")
+	if !contains(convIDs(call(t, h, b, "space_get", map[string]any{})), own) {
+		t.Fatal("the owner does not see a member's private channel")
+	}
+	if contains(convIDs(callAs(t, h, b, alice, "space_get", map[string]any{})), own) {
+		t.Fatal("another member lists a member's private channel")
 	}
 	if e := refusedAs(t, h, b, carol, "agent_update", map[string]any{"mid": s.shared, "access": "only_me"}); !strings.Contains(e, "Only the space owner") {
 		t.Fatal(e)

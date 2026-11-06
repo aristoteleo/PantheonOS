@@ -361,6 +361,7 @@ type tcMember struct {
 	// The node's name and kind as last seen, for when it is offline.
 	NodeName   string       `json:"node_name,omitempty"`
 	NodeKind   string       `json:"node_kind,omitempty"`
+	NodeOS     string       `json:"node_os,omitempty"`
 	Folder     string       `json:"folder,omitempty"`
 	Session    string       `json:"session_conversation_id,omitempty"`
 	Access     string       `json:"access,omitempty"` // only_me | everyone | listed
@@ -587,6 +588,9 @@ type tcFleet struct {
 	unreachable map[string]time.Time
 	// appState is the owner's Agent App state as last told to browsers.
 	appState string
+	// scoped: while an agent's request is served, the people its turn works
+	// for (other than its owner): it then sees only what they see too.
+	scoped map[string][]string
 }
 
 // tcLive is what the service knows of an agent beyond its record.
@@ -611,6 +615,9 @@ type tcLive struct {
 	// itself while the agent was in a turn (inbox and remind list say so,
 	// so the agent does not post them again).
 	remPosted []tcRemPosted
+	// lastBehalf: the people its last turn worked for, for a request that
+	// comes when no turn is running.
+	lastBehalf []string
 }
 
 type tcRemPosted struct {

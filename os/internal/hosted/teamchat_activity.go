@@ -169,7 +169,7 @@ func (t *TeamChat) activity(ctx context.Context, fl *tcFleet, me, filter string)
 				if filter != "mentions" || mentions > 0 {
 					last := m.byID[conv.lastNew]
 					rows = append(rows, map[string]any{"kind": "conv", "cid": cid, "root": "", "count": top, "mentions": mentions,
-						"first_unread": conv.First, "last": last, "at": last.At})
+						"first_unread": conv.First, "last": fl.msgView(last, me), "at": last.At})
 				}
 			}
 			for root, u := range threads {
@@ -178,7 +178,7 @@ func (t *TeamChat) activity(ctx context.Context, fl *tcFleet, me, filter string)
 				}
 				last := m.byID[u.lastNew]
 				rows = append(rows, map[string]any{"kind": "thread", "cid": cid, "root": root, "count": u.Count, "mentions": u.Mentions,
-					"first_unread": u.First, "last": last, "at": last.At, "root_message": m.byID[root]})
+					"first_unread": u.First, "last": fl.msgView(last, me), "at": last.At, "root_message": fl.msgView(m.byID[root], me)})
 			}
 		}
 	}

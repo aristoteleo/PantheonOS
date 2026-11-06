@@ -561,8 +561,13 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 		fl.mu.Unlock()
 		return false
 	}
-	events := append([]tcWake(nil), q...)
+	// One turn takes only asks that every person it works for may see
+	// together; the rest wait for the next turn.
+	events := fl.turnEvents(m, q)
+	l.lastBehalf = fl.turnPeople(m, events)
+	fl.scoped = map[string][]string{mid: l.lastBehalf}
 	prompt, files, reads := t.turnInput(ctx, fl, m, events)
+	fl.scoped = nil
 	cause := events[len(events)-1]
 	for i := len(events) - 1; i >= 0; i-- {
 		if events[i].Kind == "post" {
@@ -783,9 +788,12 @@ func (t *TeamChat) noteNode(fl *tcFleet, n TeamNode) TeamNode {
 	if n.Name != "" || n.Kind != "" {
 		// Agents' records remember it, to name it while it is offline.
 		for mid, m := range fl.members {
-			if m.agent() && m.NodeID == n.ID && (m.NodeName != n.Name || m.NodeKind != n.Kind) {
+			if m.agent() && m.NodeID == n.ID && (m.NodeName != n.Name || m.NodeKind != n.Kind || n.OS != "" && m.NodeOS != n.OS) {
 				next := *m
 				next.NodeName, next.NodeKind = n.Name, n.Kind
+				if n.OS != "" {
+					next.NodeOS = n.OS
+				}
 				if err := t.put(context.Background(), fl, "member."+mid, &next); err == nil {
 					fl.members[mid] = &next
 				}
@@ -1615,7 +1623,7 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 	var since []string
 	for _, cid := range sortedKeys(fl.convs) {
 		c := fl.convs[cid]
-		if !c.has(m.MID) || c.Archived {
+		if !c.has(m.MID) || c.Archived || !fl.visible(c, m.MID) {
 			continue
 		}
 		cm, err := t.convMsgs(ctx, fl, cid)
@@ -1652,7 +1660,7 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 	var over []string
 	for _, cid := range sortedKeys(fl.convs) {
 		c := fl.convs[cid]
-		if !c.has(m.MID) || c.Archived {
+		if !c.has(m.MID) || c.Archived || !fl.visible(c, m.MID) {
 			continue
 		}
 		cm, err := t.convMsgs(ctx, fl, cid)

@@ -81,6 +81,12 @@ func (t *TeamChat) AgentRequest(ctx context.Context, fid string, req agentReques
 	if m == nil || !m.agent() {
 		return agentReply{1, "pantheon-team: this agent was removed from the space", nil}
 	}
+	// Working for people other than its owner, it reads, searches and lists
+	// only what they see too (docs/apps/team-chat.md, "Phase 3 as built").
+	if people := fl.scopeOf(m); len(people) > 0 {
+		fl.scoped = map[string][]string{m.MID: people}
+		defer func() { fl.scoped = nil }()
+	}
 	text, err := t.agentOp(ctx, fl, m, req)
 	if err != nil {
 		return agentReply{1, err.Error(), nil}
@@ -352,6 +358,20 @@ func (t *TeamChat) agentInbox(ctx context.Context, fl *tcFleet, m *tcMember, tr 
 		t.saveQueue(ctx, fl, m.MID, usable)
 		q = usable
 	}
+	// Only what fits this turn's people; the rest waits for a later turn.
+	var later []tcWake
+	if tr != nil {
+		taken := append([]tcWake{tr.Cause}, tr.Events...)
+		var now []tcWake
+		for _, e := range q {
+			if fl.fits(m, taken, e) {
+				now, taken = append(now, e), append(taken, e)
+			} else {
+				later = append(later, e)
+			}
+		}
+		q = now
+	}
 	var b strings.Builder
 	l := fl.liveOf(m.MID)
 	for i, x := range l.remPosted {
@@ -417,7 +437,7 @@ func (t *TeamChat) agentInbox(ctx context.Context, fl *tcFleet, m *tcMember, tr 
 		tr.Events = append(tr.Events, q...)
 		_ = t.put(ctx, fl, "turn."+m.MID, tr)
 	}
-	t.saveQueue(ctx, fl, m.MID, nil)
+	t.saveQueue(ctx, fl, m.MID, later)
 	t.emitStatus(fl, m.MID)
 	return b.String()
 }
@@ -454,6 +474,9 @@ func (t *TeamChat) agentRead(ctx context.Context, fl *tcFleet, m *tcMember, targ
 		}
 	}
 	if !fl.visible(c, m.MID) {
+		if len(fl.scoped[m.MID]) > 0 && (c.has(m.MID) || c.Kind == "channel" && !c.Private) {
+			return "", fmt.Errorf("Not shown: %s is not a conversation the person this turn works for can see, so you cannot read it for them", c.label(fl, m.MID))
+		}
 		return "", fmt.Errorf("you are not in %s", c.label(fl, m.MID))
 	}
 	cm, err := t.convMsgs(ctx, fl, c.CID)
