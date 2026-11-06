@@ -26,3 +26,35 @@ func listProcs() []procInfo {
 	}
 	return out
 }
+
+// procArgs is a process's argument list (nil when it cannot be read).
+// KERN_PROCARGS2: argc (int32), the executable's path, NULs, then argc
+// NUL-terminated arguments (then its environment).
+func procArgs(pid int) []string {
+	b, err := unix.SysctlRaw("kern.procargs2", pid)
+	if err != nil || len(b) < 4 {
+		return nil
+	}
+	argc := int(int32(uint32(b[0]) | uint32(b[1])<<8 | uint32(b[2])<<16 | uint32(b[3])<<24))
+	rest := b[4:]
+	i := 0
+	for i < len(rest) && rest[i] != 0 { // the executable's path
+		i++
+	}
+	for i < len(rest) && rest[i] == 0 {
+		i++
+	}
+	var out []string
+	for len(out) < argc && i < len(rest) {
+		j := i
+		for j < len(rest) && rest[j] != 0 {
+			j++
+		}
+		out = append(out, string(rest[i:j]))
+		i = j + 1
+	}
+	return out
+}
+
+// procVouch: this system can read another process's arguments.
+const procVouch = true

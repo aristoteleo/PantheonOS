@@ -405,7 +405,9 @@ func (t *TeamChat) agentInbox(ctx context.Context, fl *tcFleet, m *tcMember, tr 
 	var b strings.Builder
 	l := fl.liveOf(m.MID)
 	for i, x := range l.remPosted {
-		if !x.shown {
+		// Only the lines of reminders this turn's person may see (the
+		// same rule as remind list).
+		if !x.shown && fl.remSeen(m, tr, &x.rem) {
 			b.WriteString(postedLine(x, spaceLoc(fl)))
 			l.remPosted[i].shown = true
 		}
@@ -527,6 +529,8 @@ func (t *TeamChat) agentRead(ctx context.Context, fl *tcFleet, m *tcMember, targ
 		text := shownText(fl, msg)
 		if msg.Deleted {
 			text = "(deleted)"
+		} else {
+			text = fl.asShown(c, cm, msg, m, fl.turnPerson(m), text)
 		}
 		suffix := ""
 		if msg.EditedAt != "" && !msg.Deleted {

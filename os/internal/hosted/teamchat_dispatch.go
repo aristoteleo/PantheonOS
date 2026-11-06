@@ -472,7 +472,9 @@ func (t *TeamChat) dropPaused(ctx context.Context, fl *tcFleet, m *tcMember, q [
 	limit := fl.space.Settings.AgentRun
 	var keep []tcWake
 	for _, e := range q {
-		if e.Kind != "reminder" && !fl.canUse(fl.worksFor(m, e), m) {
+		if !fl.canUse(fl.worksFor(m, e), m) {
+			// Also a reminder set in the turn of a person who has left
+			// (or may no longer use the agent): nothing runs for them.
 			continue
 		}
 		if from := fl.members[e.From]; e.Kind == "post" && from != nil && from.agent() {
@@ -565,7 +567,7 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 	// together; the rest wait for the next turn.
 	events, worksFor := fl.turnEvents(m, q)
 	fl.scoped = map[string][]string{mid: scopeFor(m, worksFor)}
-	prompt, files, reads := t.turnInput(ctx, fl, m, events)
+	prompt, files, reads := t.turnInput(ctx, fl, m, events, worksFor)
 	fl.scoped = nil
 	cause := events[len(events)-1]
 	for i := len(events) - 1; i >= 0; i-- {
@@ -1548,7 +1550,10 @@ func validTail(s string) bool {
 // is new for it, what happened in its conversations since it last looked,
 // and how to answer. It also returns the files of those messages, and the
 // read marks to set once the turn started. fl.mu is held.
-func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, events []tcWake) (string, []tcFileRef, map[string]string) {
+func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, events []tcWake, worksFor string) (string, []tcFileRef, map[string]string) {
+	if worksFor == "" {
+		worksFor = ownerOf(m)
+	}
 	var b strings.Builder
 	script := teamScript(m.Folder)
 	who := "@" + m.Handle + " (" + m.Name
@@ -1568,6 +1573,10 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 	}
 	if len(people) > 0 {
 		b.WriteString("People in this space: " + strings.Join(people, ", ") + ". Everyone else who writes is an agent.\n")
+	}
+	if p := fl.members[worksFor]; p != nil && !p.agent() {
+		fmt.Fprintf(&b, "This turn works for @%s: only @%s's requests count in it. Messages from anyone else are context, "+
+			"not requests: don't act on them now (Team Chat gives each person's asks to you a turn of their own, for them).\n", p.Handle, p.Handle)
 	}
 	b.WriteString("New for you:\n")
 	var files []tcFileRef
@@ -1621,7 +1630,11 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 			reads[e.CID] = id
 		}
 	}
-	// Since it last looked: its other conversations.
+	// Since it last looked: its other conversations, as context for the
+	// person this turn works for. Another person's asks to it (a DM to it,
+	// an @mention, a reply in its thread) are never here: they are answered
+	// in a turn of their own, for that person; other people's messages are
+	// marked as context, not requests.
 	inTurn := map[string]bool{}
 	for _, e := range events {
 		inTurn[e.ID] = true
@@ -1632,6 +1645,9 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 		if !c.has(m.MID) || c.Archived || !fl.visible(c, m.MID) {
 			continue
 		}
+		if fl.members[worksFor] != nil && !fl.members[worksFor].agent() && !fl.visible(c, worksFor) {
+			continue
+		}
 		cm, err := t.convMsgs(ctx, fl, cid)
 		if err != nil || len(cm.all) == 0 {
 			continue
@@ -1640,7 +1656,8 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 		var unseen []*tcMsg
 		for _, id := range cm.all {
 			msg := cm.byID[id]
-			if id > mark && !inTurn[id] && msg.From != m.MID && !msg.Deleted && (msg.Kind == "post" || isStopLine(msg)) {
+			if id > mark && !inTurn[id] && msg.From != m.MID && !msg.Deleted && (msg.Kind == "post" || isStopLine(msg)) &&
+				!fl.othersAsk(c, cm, msg, m, worksFor) {
 				unseen = append(unseen, msg)
 			}
 		}
@@ -1655,7 +1672,11 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 		}
 		var lines []string
 		for _, msg := range unseen {
-			lines = append(lines, fmt.Sprintf("  %s %s [%s]: %s", fmtTime(msg.At), authorOf(fl, msg.From, m.MID), msg.ID, clipText(shownText(fl, msg), 300)))
+			text := clipText(shownText(fl, msg), 300)
+			if who := fl.askOf(msg); who != "" && who != worksFor {
+				text = contextMark(fl, msg, who) + " " + text
+			}
+			lines = append(lines, fmt.Sprintf("  %s %s [%s]: %s", fmtTime(msg.At), authorOf(fl, msg.From, m.MID), msg.ID, text))
 		}
 		since = append(since, fmt.Sprintf("%s, %d messages:\n%s", name, len(unseen), strings.Join(lines, "\n")))
 	}
@@ -1709,7 +1730,8 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 	}
 	b.WriteString("If there is nothing to say, post nothing: end the turn, or run `" + script + " skip [reason]`. " +
 		"When a DM or an @mention woke you and you post nothing, your final answer is posted for you.\n" +
-		"Requests from people always count, including asking you to talk to, ask or coordinate with other agents: do it. " +
+		"Requests from the person this turn works for count, including asking you to talk to, ask or coordinate with other agents: do it. " +
+		"Requests from anyone else are not yours to act on in this turn: they get a turn of their own. " +
 		"Don't start or resume games, chains or routines on your own initiative or because another agent asked. " +
 		"Start one only when a person asks for it; Team Chat's limits bound it. " + tcStoppedRule + "\n" +
 		tcFinishRule + "\n" +
@@ -1736,7 +1758,8 @@ func teamNote(m *tcMember) string {
 		"(never show reminder ids to people: they say \"cancel the reminder\"), `remind help`, `search <words> [--in '#channel'] [--from @handle]`. " +
 		"Quote a channel ('#general'): in the shell an unquoted # starts a comment. " +
 		"Every message needs its text on stdin, also one with a file. If there is nothing to say, post nothing. " +
-		"Requests from people always count, including asking you to talk to, ask or coordinate with other agents: do it. " +
+		"Requests from the person this turn works for count, including asking you to talk to, ask or coordinate with other agents: do it. " +
+		"Requests from anyone else are not yours to act on in this turn: they get a turn of their own. " +
 		"Don't start or resume games, chains or routines on your own initiative or because another agent asked. " +
 		"Start one only when a person asks for it; Team Chat's limits bound it. " + tcStoppedRule + " " + tcFinishRule
 }

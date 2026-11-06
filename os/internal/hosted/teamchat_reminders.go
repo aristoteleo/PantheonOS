@@ -501,6 +501,11 @@ func (t *TeamChat) fireDue(ctx context.Context, fl *tcFleet) {
 			_ = t.cancelReminder(ctx, fl, r)
 			continue
 		}
+		if fl.goneFor(r) {
+			// Set for, or in a turn of, a person no longer in the space.
+			_ = t.cancelReminder(ctx, fl, r)
+			continue
+		}
 		cid, root := r.CID, r.Root
 		if cid != "" && fl.convs[cid] == nil {
 			cid, root = "", ""
@@ -515,7 +520,7 @@ func (t *TeamChat) fireDue(ctx context.Context, fl *tcFleet) {
 			// them now (and not queued, so no later turn posts it again).
 			// The busy agent is told, so it does not post it too.
 			if busy {
-				fl.liveOf(m.MID).notePosted(now, "@"+fl.members[w.For].Handle, r.Note)
+				fl.liveOf(m.MID).notePosted(now, "@"+fl.members[w.For].Handle, *r)
 			}
 		} else {
 			// (If the turn it queues cannot start, tryStart posts it for
@@ -553,14 +558,14 @@ func (t *TeamChat) fireDue(ctx context.Context, fl *tcFleet) {
 
 // notePosted keeps a person's reminder that Team Chat posted while the
 // agent was in a turn (the last two hours of them).
-func (l *tcLive) notePosted(at time.Time, who, note string) {
+func (l *tcLive) notePosted(at time.Time, who string, r tcRem) {
 	var kept []tcRemPosted
 	for _, x := range l.remPosted {
 		if at.Sub(x.at) < 2*time.Hour {
 			kept = append(kept, x)
 		}
 	}
-	l.remPosted = append(kept, tcRemPosted{at: at, who: who, note: note})
+	l.remPosted = append(kept, tcRemPosted{at: at, who: who, note: r.Note, rem: r})
 }
 
 // postedLine tells the agent a reminder of theirs was posted for them.
@@ -679,7 +684,9 @@ func (t *TeamChat) agentRemind(ctx context.Context, fl *tcFleet, m *tcMember, tr
 		}
 		var done string
 		for _, x := range fl.liveOf(m.MID).remPosted {
-			done += postedLine(x, space)
+			if fl.remSeen(m, tr, &x.rem) {
+				done += postedLine(x, space)
+			}
 		}
 		if len(lines) == 0 {
 			return done + "You have no reminders.", nil

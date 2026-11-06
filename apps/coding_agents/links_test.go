@@ -44,6 +44,9 @@ func fakeAgents(t *testing.T, bodies map[string]string) string {
 	t.Setenv("SHELL", "/bin/sh")
 	t.Setenv("PATH", dir+":/usr/bin:/bin")
 	t.Setenv("TMPDIR", t.TempDir())
+	old := runtimeHelp
+	runtimeHelp = func(string, ...string) string { return "--ignore-user-config --setting-sources --strict-mcp-config" }
+	t.Cleanup(func() { runtimeHelp = old })
 	codingagents.Detect(true)
 	return dir
 }

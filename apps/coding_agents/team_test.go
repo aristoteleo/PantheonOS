@@ -5,6 +5,7 @@ package codingagentsapp
 import (
 	"encoding/base64"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -167,6 +168,29 @@ echo "exit $?" >> "$(dirname "$0")/bad.txt"
 	if !strings.Contains(string(calls), "You are Writer (@writer), an agent member of a Team Chat space") {
 		t.Fatalf("%s", calls)
 	}
+	// Without the computer user's own settings, plugins, hooks and MCP
+	// servers (docs/apps/team-chat.md, "What Team Chat cannot prevent").
+	if !strings.Contains(string(calls), "--setting-sources project,local --strict-mcp-config") {
+		t.Fatalf("a Team Chat turn's runtime loads the user's setup: %s", calls)
+	}
+}
+
+// Only Team Chat turns start without the user's setup, and only with a
+// runtime version that has the flag.
+func TestTeamCleanArgs(t *testing.T) {
+	old := runtimeHelp
+	t.Cleanup(func() { runtimeHelp = old })
+	runtimeHelp = func(string, ...string) string { return "--ignore-user-config --setting-sources --strict-mcp-config" }
+	if got := strings.Join(teamCleanArgs("codex", "codex"), " "); got != "--ignore-user-config" {
+		t.Fatal(got)
+	}
+	if got := strings.Join(teamCleanArgs("claude", "claude"), " "); got != "--setting-sources project,local --strict-mcp-config" {
+		t.Fatal(got)
+	}
+	runtimeHelp = func(string, ...string) string { return "--model" }
+	if teamCleanArgs("codex", "codex") != nil || teamCleanArgs("claude", "claude") != nil {
+		t.Fatal("a flag the runtime does not have")
+	}
 }
 
 // A Team Chat turn's commands carry its credential, which reaches the
@@ -278,6 +302,79 @@ fi
 	mu.Lock()
 	defer mu.Unlock()
 	if len(reqs) != 1 || reqs[0]["turn"] != "t2" || reqs[0]["cred"] != "c2" {
+		t.Fatalf("what reached the controller: %v", reqs)
+	}
+}
+
+// A command is answered only when a process of the running turn vouches for
+// it (the pantheon-team process waiting for its answer, whose arguments
+// carry the request's id and SHA-256): a process that left the turn (fork,
+// setsid, fork) is refused even with the running turn's credential, and so
+// is a request written by hand inside the turn; once the tool itself is
+// changed, the turn's Team Chat is off (docs/apps/team-chat.md, "Turn-bound
+// commands").
+func TestATeamCommandNeedsAProcessOfTheRunningTurn(t *testing.T) {
+	if !procVouch {
+		t.Skip("this system cannot read another process's arguments")
+	}
+	if _, err := exec.LookPath("perl"); err != nil {
+		t.Skip("no perl to start an escaped process")
+	}
+	dir := fakeAgents(t, map[string]string{
+		"claude": teamCommand + `d="$(dirname "$0")"
+box="$(dirname "$team")/inbox"
+# A process that leaves the turn (fork, setsid, fork) and uses the tool with
+# the running turn's credential.
+perl -MPOSIX -e 'exit 0 if fork; POSIX::setsid(); exit 0 if fork; exec "sh", "-c", "\"$ARGV[0]\" read general > \"$ARGV[1]/escaped.txt\" 2>&1; echo \"exit \$?\" >> \"$ARGV[1]/escaped.txt\"", "x"' "$team" "$d" < /dev/null > /dev/null 2>&1
+i=0; while [ ! -s "$d/escaped.txt" ] || ! grep -q '^exit' "$d/escaped.txt"; do sleep 0.1; i=$((i+1)); [ $i -lt 100 ] || break; done
+# A request written by hand inside the turn, with its credential.
+printf 'op: read\nturn: %s\narg: general\n\n' "$PANTHEON_TEAM_TURN" > "$box/.9-9.tmp" && mv "$box/.9-9.tmp" "$box/9-9.msg"
+i=0; while [ ! -f "$box/9-9.reply" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+cat "$box/9-9.reply" > "$d/byhand.txt"
+"$team" read general > "$d/own.txt" 2>&1
+echo '# changed' >> "$team"
+"$team" read general > "$d/changed.txt" 2>&1
+` + claudeDone,
+	})
+	a := NewApp(nil, "", t.TempDir())
+	t.Cleanup(a.Close)
+	var mu sync.Mutex
+	var reqs []map[string]any
+	a.teamCaller = func(req map[string]any) (map[string]any, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		reqs = append(reqs, req)
+		return map[string]any{"code": float64(0), "text": "#general: hello"}, nil
+	}
+	folder := filepath.Join(t.TempDir(), "coder")
+	if r := teamSetup(folder, "brief", "", false); r["success"] != true {
+		t.Fatal(r)
+	}
+	res := a.send(SendArgs{Agent: "claude", Cwd: folder, Prompt: "[Team Chat] go", Auto: true, Origin: "team-chat",
+		Team: &TeamTurn{MID: "a1", Token: "tok", Handle: "coder", Name: "Coder", Turn: "t1", Cred: "c1"}})
+	if res["success"] != true {
+		t.Fatal(res)
+	}
+	waitIdle(t, a, res["conversation_id"].(string))
+	read := func(name string) string {
+		b, _ := os.ReadFile(filepath.Join(dir, name))
+		return string(b)
+	}
+	if got := read("escaped.txt"); !strings.Contains(got, "not part of the agent's running Team Chat turn") || !strings.Contains(got, "exit 1") {
+		t.Fatalf("an escaped process with the turn's credential: %q", got)
+	}
+	if got := read("byhand.txt"); !strings.Contains(got, "not part of the agent's running Team Chat turn") {
+		t.Fatalf("a request written by hand: %q", got)
+	}
+	if got := read("own.txt"); !strings.Contains(got, "#general: hello") {
+		t.Fatalf("the turn's own command: %q", got)
+	}
+	if got := read("changed.txt"); !strings.Contains(got, "was changed by something other than PantheonOS") {
+		t.Fatalf("after the tool was changed: %q", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(reqs) != 1 {
 		t.Fatalf("what reached the controller: %v", reqs)
 	}
 }

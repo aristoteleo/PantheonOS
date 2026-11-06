@@ -62,6 +62,10 @@ func (t *TeamChat) callerOf(ctx context.Context, fl *tcFleet, m *Member) (tcCall
 		if handle == "" || !tcHandleRE.MatchString(handle) {
 			handle = "person"
 		}
+		if reservedHandle(handle) {
+			// No number makes a reserved word free.
+			handle = "person"
+		}
 		base := handle
 		for i := 2; t.handleFree(fl, handle, mid) != nil; i++ {
 			suffix := fmt.Sprint(i)
@@ -203,11 +207,7 @@ func (t *TeamChat) MemberChange(ctx context.Context, fid, userID, action, role, 
 			return false, err
 		}
 	}
-	for _, r := range fl.rems {
-		if r.For == mid {
-			_ = t.cancelReminder(ctx, fl, r)
-		}
-	}
+	t.endWorkFor(ctx, fl, mid)
 	t.emit(fl, map[string]any{"type": "member", "member": &next})
 	text, verb := "@"+rec.Handle+" was removed from the space.", "removed"
 	if action == "leave" {
@@ -810,14 +810,66 @@ func plainName(n string) string {
 	return strings.Join(strings.Fields(b.String()), " ")
 }
 
-// reservedName: a person's name that reads as Team Chat itself or carries a
-// role ("Team Chat", "Weize (owner)", "Space owner").
+// roleWords may not be a word of a person's name (singular or plural): a
+// name with one reads as a role in the space, Team Chat itself, or an agent
+// ("Weize (owner)", "Owner of the space", "weize_owner", "coder (agent)").
+var roleWords = map[string]bool{"owner": true, "admin": true, "administrator": true, "moderator": true, "mod": true,
+	"agent": true, "bot": true, "system": true, "teamchat": true, "everyone": true}
+
+// reservedName: a person's name that reads as Team Chat itself, a role or
+// an agent: one of its words (split at anything not a letter or digit, and
+// at a change of letter case) is a role word, singular or plural, or the
+// whole name is a reserved handle.
 func reservedName(n string) bool {
 	sk := skeleton(n)
-	if sk == "teamchat" || sk == "system" || reservedHandles[sk] || sk == "spaceowner" || sk == "spaceadmin" {
+	if sk == "teamchat" || sk == "system" || reservedHandle(sk) || sk == "spaceowner" || sk == "spaceadmin" {
 		return true
 	}
+	words := nameWords(n)
+	for i, w := range words {
+		if roleWords[w] || roleWords[strings.TrimSuffix(w, "s")] {
+			return true
+		}
+		if w == "team" && i+1 < len(words) && strings.TrimSuffix(words[i+1], "s") == "chat" {
+			return true
+		}
+	}
 	return roleSuffixRE.MatchString(strings.TrimSpace(n))
+}
+
+// nameWords are a name's words, each folded as skeleton folds a name
+// ("WeizeOwner" and "weize_owner" are weize, owner).
+func nameWords(n string) []string {
+	var words []string
+	var cur []rune
+	var prev rune
+	flush := func() {
+		if w := skeleton(string(cur)); w != "" {
+			words = append(words, w)
+		}
+		cur = cur[:0]
+	}
+	for _, r := range norm.NFKC.String(n) {
+		switch {
+		case !unicode.IsLetter(r) && !unicode.IsDigit(r):
+			flush()
+		case unicode.IsUpper(r) && unicode.IsLower(prev):
+			flush()
+			cur = append(cur, r)
+		default:
+			cur = append(cur, r)
+		}
+		prev = r
+	}
+	flush()
+	return words
+}
+
+// reservedHandle: a handle that is one of the space's own words, also with
+// a plural s or digits, - or _ after it ("admins", "everyone1", "owner_2").
+func reservedHandle(h string) bool {
+	base := strings.TrimRight(strings.ToLower(h), "0123456789-_")
+	return reservedHandles[base] || reservedHandles[strings.TrimSuffix(base, "s")]
 }
 
 // avatarRE: an avatar is an uploaded image (a data URL); without one, the
@@ -879,4 +931,148 @@ func (fl *tcFleet) msgsView(page []*tcMsg, viewer string) []*tcMsg {
 		out[i] = fl.msgView(msg, viewer)
 	}
 	return out
+}
+
+// ── one person's asks per turn ──────────────────────────────────────────────
+
+// askOf is the one person a message works for: a person's own message; an
+// agent's, the person its turn worked for (its owner for an old message
+// that names nobody); "" for Team Chat's own lines.
+func (fl *tcFleet) askOf(msg *tcMsg) string {
+	if msg == nil || msg.Kind != "post" {
+		return ""
+	}
+	sender := fl.members[msg.From]
+	switch {
+	case sender == nil:
+		return ""
+	case !sender.agent():
+		return msg.From
+	case len(msg.behalf) > 0:
+		return msg.behalf[0]
+	}
+	return ownerOf(sender)
+}
+
+// addresses: whether msg asks agent a something: a DM to it, an @mention of
+// it, a message that woke it, or a reply in a thread it follows.
+func (fl *tcFleet) addresses(c *tcConv, cm *tcConvMsgs, msg *tcMsg, a string) bool {
+	if msg == nil || msg.From == a || msg.Kind != "post" {
+		return false
+	}
+	if c != nil && c.Kind == "dm" && c.has(a) {
+		return true
+	}
+	if contains(msg.Mentions, a) || contains(msg.woke, a) {
+		return true
+	}
+	return cm != nil && msg.Root != "" && fl.followsThread(cm, a, msg.Root)
+}
+
+// othersAsk: msg asks agent a something for someone other than p, the person
+// a turn of a works for. Such a message never reaches that turn: it is
+// answered in a turn of its own, for its person (docs/apps/team-chat.md,
+// "One person's asks per turn").
+func (fl *tcFleet) othersAsk(c *tcConv, cm *tcConvMsgs, msg *tcMsg, a *tcMember, p string) bool {
+	return fl.addresses(c, cm, msg, a.MID) && fl.askOf(msg) != p
+}
+
+// waiting: msg is in agent a's queue, waiting for a turn of its own.
+func (fl *tcFleet) waiting(a string, msgID string) bool {
+	for _, e := range fl.queues[a] {
+		if e.ID == msgID && e.Kind != "reminder" {
+			return true
+		}
+	}
+	return false
+}
+
+// turnPerson is the person agent a's running turn works for ("" outside a
+// turn).
+func (fl *tcFleet) turnPerson(a *tcMember) string {
+	if tr := fl.turns[a.MID]; tr != nil {
+		return tr.WorksFor
+	}
+	return ""
+}
+
+// asShown is how a turn of agent a that works for p shows msg's text when it
+// reads a conversation or searches: another person's ask that still waits
+// for its own turn is not shown; another person's message is marked as
+// context, not a request.
+func (fl *tcFleet) asShown(c *tcConv, cm *tcConvMsgs, msg *tcMsg, a *tcMember, p, text string) string {
+	if p == "" || msg == nil || msg.Kind != "post" {
+		return text
+	}
+	who := fl.askOf(msg)
+	if who == "" || who == p {
+		return text
+	}
+	if fl.othersAsk(c, cm, msg, a, p) && fl.waiting(a.MID, msg.ID) {
+		return fmt.Sprintf("(not shown: %s's request to you; it waits for a turn of its own, for them)", handleOf(fl, who))
+	}
+	return contextMark(fl, msg, who) + " " + text
+}
+
+// contextMark marks another person's message (or an agent's written for
+// them) as context for a turn that works for someone else.
+func contextMark(fl *tcFleet, msg *tcMsg, who string) string {
+	if msg.From == who {
+		return fmt.Sprintf("[%s's message: context only, not a request to you in this turn]", handleOf(fl, who))
+	}
+	return fmt.Sprintf("[written for %s: context only, not a request to you in this turn]", handleOf(fl, who))
+}
+
+// endWorkFor ends everything that would run later for a person who left or
+// was removed: their reminders and every reminder set in their turns
+// (recurring ones too), the queued messages that work for them, and a turn
+// running for them; fl.mu is held.
+func (t *TeamChat) endWorkFor(ctx context.Context, fl *tcFleet, mid string) {
+	for _, r := range fl.rems {
+		if r.For == mid || contains(r.Behalf, mid) {
+			_ = t.cancelReminder(ctx, fl, r)
+		}
+	}
+	for _, amid := range sortedKeys(fl.queues) {
+		q := fl.queues[amid]
+		var keep []tcWake
+		for _, e := range q {
+			if fl.wakeFor(e) == mid || e.For == mid || contains(e.Behalf, mid) {
+				continue
+			}
+			keep = append(keep, e)
+		}
+		if len(keep) != len(q) {
+			t.saveQueue(ctx, fl, amid, keep)
+			t.emitStatus(fl, amid)
+		}
+	}
+	for _, amid := range sortedKeys(fl.turns) {
+		tr := fl.turns[amid]
+		if tr == nil || tr.WorksFor != mid || tr.Stop != "" {
+			continue
+		}
+		tr.Stop = "user"
+		_ = t.put(ctx, fl, "turn."+amid, tr)
+		if tr.State != "running" {
+			continue
+		}
+		fid, node, conv := fl.fid, tr.NodeID, tr.ConversationID
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			_, _ = t.Nodes.Call(ctx, fid, node, "agent_stop", map[string]any{"conversation_id": conv}, 30*time.Second)
+		}()
+	}
+}
+
+// goneFor: whether a reminder works for a person who is no longer in the
+// space (its For, or the person whose turn set it).
+func (fl *tcFleet) goneFor(r *tcRem) bool {
+	for _, p := range append([]string{r.For}, r.Behalf...) {
+		if x := fl.members[p]; x != nil && !x.agent() && x.Removed != "" {
+			return true
+		}
+	}
+	return false
 }

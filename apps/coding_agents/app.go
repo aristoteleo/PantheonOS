@@ -539,6 +539,9 @@ func (a *App) send(p SendArgs) map[string]any {
 		args = append(args, platformArgs...)
 	}
 	args = append(args, r.settings.Agents[c.Agent].Args...)
+	if team != nil {
+		args = append(args, teamCleanArgs(c.Agent, r.path)...)
+	}
 	extra := note
 	if !inMessage {
 		extra += "\n\n" + system

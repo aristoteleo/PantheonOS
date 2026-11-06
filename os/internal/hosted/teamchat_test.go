@@ -1270,7 +1270,7 @@ func TestPeopleAndAgentsAreNamedAndOldHandlesStillMention(t *testing.T) {
 	brief := str(nodes.setups[len(nodes.setups)-1]["agent_md"])
 	nodes.mu.Unlock()
 	if !strings.Contains(brief, "People:\n- @weize (Weize, the space owner)") || !strings.Contains(brief, "- @coder (Coder, Codex: ") ||
-		!strings.Contains(brief, "Requests from people always count") {
+		!strings.Contains(brief, "Each turn works for one person") {
 		t.Fatalf("%s", brief)
 	}
 	// A deleted agent keeps its name for its messages.

@@ -45,3 +45,15 @@ func listProcs() []procInfo {
 	}
 	return out
 }
+
+// procArgs is a process's argument list (nil when it cannot be read).
+func procArgs(pid int) []string {
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline")
+	if err != nil || len(b) == 0 {
+		return nil
+	}
+	return strings.Split(strings.TrimSuffix(string(b), "\x00"), "\x00")
+}
+
+// procVouch: this system can read another process's arguments.
+const procVouch = true

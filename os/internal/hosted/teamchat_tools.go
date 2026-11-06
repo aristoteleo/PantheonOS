@@ -977,7 +977,7 @@ func (t *TeamChat) handleFree(fl *tcFleet, handle, except string) error {
 	if !tcHandleRE.MatchString(handle) {
 		return &ArgumentError{"a handle has 1 to 32 lower case letters, digits, - and _, starting with a letter or digit"}
 	}
-	if reservedHandles[handle] {
+	if reservedHandle(handle) {
 		if m := fl.members[except]; m == nil || m.Handle != handle {
 			return &ArgumentError{"@" + handle + " is reserved: choose another handle"}
 		}

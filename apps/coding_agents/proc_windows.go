@@ -40,3 +40,9 @@ func turnProcs(int) map[int]int64 { return nil }
 
 // endTurnProcs: on Windows only the agent's own process is ended.
 func endTurnProcs(int, map[int]int64) int { return 0 }
+
+func procArgs(int) []string { return nil }
+
+// procVouch: Windows agents have no sh tool; requests are bound to the turn
+// by its credential only.
+const procVouch = false

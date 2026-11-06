@@ -350,7 +350,12 @@ func (t *TeamChat) agentSearch(ctx context.Context, fl *tcFleet, m *tcMember, re
 		if msg.Root != "" {
 			where += " (thread on " + msg.Root + ")"
 		}
-		fmt.Fprintf(&b, "%s %s, %s [%s]:\n%s", fmtTime(msg.At), where, authorOf(fl, msg.From, m.MID), msg.ID, indent(clipText(shownText(fl, msg), 400)))
+		text := clipText(shownText(fl, msg), 400)
+		if p := fl.turnPerson(m); p != "" {
+			cm, _ := t.convMsgs(ctx, fl, msg.CID)
+			text = fl.asShown(fl.convs[msg.CID], cm, msg, m, p, text)
+		}
+		fmt.Fprintf(&b, "%s %s, %s [%s]:\n%s", fmtTime(msg.At), where, authorOf(fl, msg.From, m.MID), msg.ID, indent(text))
 	}
 	return b.String(), nil
 }

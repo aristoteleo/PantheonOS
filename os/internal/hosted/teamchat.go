@@ -518,7 +518,8 @@ type tcMsg struct {
 	Task        string      `json:"task,omitempty"`
 	By          string      `json:"by,omitempty"`
 	woke        []string
-	lower       string // its words and file names in lower case, for search
+	behalf      []string // an agent's post: the person its turn worked for
+	lower       string   // its words and file names in lower case, for search
 	// notWoken: agents its writer named but may not use (the post's answer
 	// says so; never stored).
 	notWoken []tcNotWoken
@@ -661,7 +662,8 @@ type tcRemPosted struct {
 	at    time.Time
 	who   string // @handle
 	note  string
-	shown bool // in the inbox already
+	shown bool  // in the inbox already
+	rem   tcRem // the reminder: a turn sees the line only when it may see the reminder (remSeen)
 }
 
 func (fl *tcFleet) liveOf(mid string) *tcLive {
@@ -960,7 +962,7 @@ func (m *tcConvMsgs) fold(e *tcEvent) *tcMsg {
 		}
 		msg := &tcMsg{ID: e.ID, CID: e.CID, Root: e.Root, From: e.From, Kind: e.Kind, Text: e.Text, Mentions: e.Mentions,
 			Files: e.Files, At: e.At, Hop: e.Hop, Runtime: e.Runtime, Model: e.Model, About: e.About, Action: e.Action, woke: e.Woke,
-			Task: e.Task, By: e.By}
+			Task: e.Task, By: e.By, behalf: e.Behalf}
 		msg.index()
 		m.byID[e.ID] = msg
 		m.all = append(m.all, e.ID)

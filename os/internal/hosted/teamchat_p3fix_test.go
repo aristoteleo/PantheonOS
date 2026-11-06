@@ -106,10 +106,12 @@ func TestASharedAgentReadsForAPersonOnlyWhatTheySee(t *testing.T) {
 	ask := func(op string, args []string, opts map[string]string) agentReply {
 		return tc.asTurn(context.Background(), fleetID, agentRequest{MID: s.shared, Token: tok, Op: op, Args: args, Opts: opts})
 	}
-	// The owner's turn: the whole view; but its inbox takes neither Alice's
-	// DM nor Bob's ask: a turn works for one person, and the others' asks
-	// wait for turns of their own.
-	if r := ask("read", []string{"@u-alice"}, nil); r.Code != 0 || !strings.Contains(r.Text, "kumquat") {
+	// The owner's turn: the whole view; but neither its inbox nor its read
+	// takes Alice's DM or Bob's ask: a turn works for one person, and the
+	// others' asks wait for turns of their own (since the third Phase 3
+	// check, read shows a waiting ask only as a line saying so).
+	if r := ask("read", []string{"@u-alice"}, nil); r.Code != 0 || strings.Contains(r.Text, "kumquat") ||
+		!strings.Contains(r.Text, "waits for a turn of its own") {
 		t.Fatalf("the owner's turn: %+v", r)
 	}
 	inbox := ask("inbox", nil, nil)
