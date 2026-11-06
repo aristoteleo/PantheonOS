@@ -473,6 +473,42 @@ terminal resume for runtimes with one).
     process's environment when that process is a platform binary such as
     `/bin/sh`.) Nodes that cannot read another process's arguments
     (Windows, whose agents have no `sh` tool) answer no Team Chat command.
+    Each request id is answered at most once in a turn (from the fifth
+    Phase 3 check): the node records every id a process of the turn
+    vouched for, with the request's SHA-256, and refuses a later request
+    under that id ("answered already"), so a copy of a request written
+    again while its waiting process still lives (its `.reply` removed
+    first) does not run again. When the turn ends the node empties its
+    inbox and forgets the ids.
+  * **The turn's environment** (from the fifth Phase 3 check). A Team Chat
+    turn's runtime starts from an allow-list, not from the node's
+    environment: `HOME`, `USER`, `LOGNAME`, `SHELL`, `PATH` (as Coding
+    Agents sets it), `TMPDIR`/`TMP`/`TEMP`, `LANG`, `LANGUAGE`, `LC_*`,
+    `TZ`, `TERM`, certificate and proxy variables (`SSL_CERT_FILE`,
+    `SSL_CERT_DIR`, `NODE_EXTRA_CA_CERTS`, `REQUESTS_CA_BUNDLE`,
+    `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `ALL_PROXY`), the runtimes'
+    homes `CLAUDE_CONFIG_DIR` and `CODEX_HOME` (where their sign-in and
+    sessions live, and where the node looks for sessions; the clean
+    arguments below keep their settings, hooks and plugins off) and
+    Windows' system folders; then what the runtime needs (`IS_SANDBOX` for
+    Claude Code as root, Gemini's trust variable), the user's own variables
+    for that agent from Coding Agents settings except credentials and
+    variables that load code (`PANTHEON_*`, `FLEET_KEY`, `NATS_*`, any
+    name with `PLUGIN`, `NODE_OPTIONS`, `BASH_ENV`, `ENV`, `ZDOTDIR`,
+    `CLAUDE_ENV_FILE`, `PROMPT_COMMAND`, `LD_PRELOAD`, `LD_LIBRARY_PATH`,
+    `DYLD_*`, `PYTHONSTARTUP`, `PERL5OPT`, `RUBYOPT`, `GIT_CONFIG_GLOBAL`,
+    `SSH_AUTH_SOCK`), and, on PantheonOS models, the model proxy's
+    variables. So the turn never gets the node's PantheonOS key
+    (`PANTHEON_KEY`, which Coding Agents gives its own turns for the
+    `pantheon` command), a Fleet or Hub credential, the ssh agent or the
+    plugin folders the node was started with (`CLAUDE_CODE_PLUGIN_DIRS`,
+    whose plugins' hooks Claude Code loads even with no setting sources).
+    The only credential in it is the model key: the user's LiteLLM virtual
+    key, which the model proxy accepts for model calls on the user's
+    PantheonOS budget and refuses for its management routes (keys, users,
+    budgets, spend logs, configuration), and which the Hub and the
+    controller never accept (they take a `pbk_` platform key or a signed
+    token). The turn is not told that the `pantheon` command is signed in.
   * A person who leaves or is removed takes with them everything that
     would run later for them: their reminders and every reminder set in a
     turn that worked for them (recurring ones too), queued messages that
@@ -504,10 +540,23 @@ terminal resume for runtimes with one).
   that escape the turn (a process that leaves the turn's session and its
   descendants within a second, or one started by another service such as
   `launchd`, `cron` or `systemd`, outlives the turn). Such a process finds
-  no credential to steal (it stays in the node) and cannot use Team Chat
-  by itself: a command needs a process of the running turn to vouch for it,
-  with the digest of the request it made (see "Turn-bound commands"). What
-  it can still do, as the same user: read the answers the turn's own
+  no turn credential in the turn (it stays in the node), and Team Chat
+  answers it no command through the agent's inbox: a command needs a
+  process of the running turn to vouch for it, with the digest of the
+  request it made, and each request is answered once (see "Turn-bound
+  commands"). The turn's environment holds no PantheonOS key either, only
+  the model key on PantheonOS models (below). But the turn, and anything
+  it starts, runs **as the computer's user, without a sandbox** (Team Chat
+  sends `auto: true`; whether shared agents must run sandboxed is an open
+  product decision): it can read every file that user can, including the
+  node's own credentials, such as the Coding Agents `settings.json` with
+  the node's PantheonOS key (`access.key`), the `pantheon` command's saved
+  sign-in, the runtimes' sign-ins and the node binary and its state folder.
+  With the node's PantheonOS key, a process can do whatever that key
+  allows, which includes connecting to the owner's Team Chat as the owner
+  (`workload-identity`, then `workload-connect`): on a computer the owner
+  also uses, a shared agent's turn is not separated from the owner's
+  account. What it can still do, as the same user: read the answers the turn's own
   commands get (the `.reply` files), or write a false one first, and
   anything the agent writes; make the turn's own commands fail (remove or
   swap their request files: refused, never answered as its own); change
@@ -517,8 +566,11 @@ terminal resume for runtimes with one).
   the system allows it, attach to or inject into the turn's processes
   (`ptrace`, a debugger); and act through the agent's other channels (its
   computer's own services, the network). The credential and the vouching
-  process stop an escaped process from using Team Chat by itself; they do
-  not make a shared agent on a person's own computer a boundary.
+  process stop a process from using Team Chat through the agent's inbox
+  outside the turn's own commands, and the allow-listed environment keeps
+  the node's keys out of what the turn is handed; neither makes a shared
+  agent on a person's own computer a boundary, as the files above can be
+  read.
   * **The runtime loads its computer user's own setup.** A shared agent's
     runtime is the computer user's: Codex reads `~/.codex` (plugins, MCP
     servers, connectors, notify and computer-use hooks), Claude Code reads

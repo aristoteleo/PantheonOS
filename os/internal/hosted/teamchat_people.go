@@ -765,7 +765,11 @@ func (fl *tcFleet) tooClose(self, what, text string) error {
 // take them (a mention of one would read as a call to everyone, or as
 // Team Chat itself).
 var reservedHandles = map[string]bool{"owner": true, "admin": true, "everyone": true, "here": true, "all": true,
-	"channel": true, "system": true, "team-chat": true, "teamchat": true, "team_chat": true, "bot": true, "agent": true}
+	"channel": true, "system": true, "team-chat": true, "teamchat": true, "team_chat": true, "bot": true, "agent": true,
+	// The platform and its staff (from the fifth Phase 3 check): a
+	// mention of one would read as PantheonOS or its support speaking.
+	"pantheon": true, "pantheonos": true, "support": true, "staff": true, "root": true, "sudo": true,
+	"superuser": true, "sysadmin": true, "helpdesk": true}
 
 // digitLooks folds digits that pass for letters ("Adm1n", "0wner", "syst3m")
 // when names and handles are checked against role words; 1 reads as i
@@ -795,7 +799,7 @@ func isRoleWord(w string) bool {
 			return true
 		}
 		for rw := range roleWords {
-			if len(rw) >= 5 && (strings.HasPrefix(v, rw) || strings.HasSuffix(strings.TrimSuffix(v, "s"), rw)) {
+			if len(rw) >= 5 && !wholeRoleWords[rw] && (strings.HasPrefix(v, rw) || strings.HasSuffix(strings.TrimSuffix(v, "s"), rw)) {
 				return true
 			}
 		}
@@ -850,7 +854,14 @@ func plainName(n string) string {
 // name with one reads as a role in the space, Team Chat itself, or an agent
 // ("Weize (owner)", "Owner of the space", "weize_owner", "coder (agent)").
 var roleWords = map[string]bool{"owner": true, "admin": true, "administrator": true, "moderator": true, "mod": true,
-	"agent": true, "bot": true, "system": true, "teamchat": true, "everyone": true}
+	"agent": true, "bot": true, "system": true, "teamchat": true, "everyone": true,
+	// The platform and its staff (from the fifth Phase 3 check).
+	"pantheon": true, "pantheonos": true, "support": true, "staff": true, "root": true, "sudo": true,
+	"superuser": true, "sysadmin": true, "helpdesk": true}
+
+// wholeRoleWords are role words of five letters or more that count only as
+// a whole word, as the short ones do: names such as Staffan stay free.
+var wholeRoleWords = map[string]bool{"staff": true}
 
 // reservedName: a person's name that reads as Team Chat itself, a role or
 // an agent: one of its words (split at anything not a letter or digit, and
@@ -912,7 +923,7 @@ func reservedHandle(h string) bool {
 		if base == "" {
 			base = v
 		}
-		if reservedHandles[base] || reservedHandles[strings.TrimSuffix(base, "s")] {
+		if reservedHandles[base] || reservedHandles[strings.TrimSuffix(base, "s")] || strings.HasPrefix(base, "pantheon") {
 			return true
 		}
 	}

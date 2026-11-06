@@ -67,7 +67,12 @@ type teamBox struct {
 	root    *os.Root
 	info    os.FileInfo
 	taken   map[string]bool
-	handled int
+	// answered: each request id a process of the turn vouched for, with
+	// the request's SHA-256. An id is answered at most once in a turn: a
+	// copy of a request written again under its id (its .reply removed
+	// before the turn's process read it) is refused, not run again.
+	answered map[string]string
+	handled  int
 	off     bool
 }
 
@@ -127,7 +132,7 @@ func (a *App) teamBoxFor(folder string, tt TeamTurn) (*teamBox, string) {
 		}
 	}
 	box := &teamBox{team: tt, script: script, inbox: filepath.Join(folder, teamDir, name), root: inbox, info: info,
-		taken: map[string]bool{}}
+		taken: map[string]bool{}, answered: map[string]string{}}
 	if err := writeFresh(team, teamScript, []byte(teamScriptFor(box.inbox)), 0o700); err != nil {
 		box.close()
 		return fail(err)
@@ -349,6 +354,10 @@ func (a *App) scanTeam(id string, tr *turn) {
 		box.taken[key] = true
 		code, text := 1, fmt.Sprintf("Not sent: this turn has made its limit of %d Team Chat requests.", teamTurnMax)
 		switch {
+		case box.answered[req] != "":
+			// Its id was answered already in this turn: a request is
+			// answered once, whoever writes it again.
+			code, text = 1, teamAnsweredAlready
 		case !procVouch:
 			code, text = 1, teamNoVouch
 		case len(b) > linkMaxBytes+linkHeadMax:
@@ -360,6 +369,9 @@ func (a *App) scanTeam(id string, tr *turn) {
 			// process of the running turn (one that left it, one of an
 			// earlier turn, a file written by hand), or changed since.
 			code, text = 1, teamNotThisTurn
+		case !box.answer(req, b):
+			// Never taken: vouched for, its id is now answered (whatever
+			// the checks below say), so a copy of it is refused.
 		case !box.scriptIntact():
 			// Something rewrote the tool the turn runs: nothing more is
 			// answered in this turn.
@@ -379,6 +391,31 @@ func (a *App) scanTeam(id string, tr *turn) {
 // with its credential, waits for.
 const teamNotThisTurn = "pantheon-team: refused: this command is not part of the agent's running Team Chat turn " +
 	"(a command left running from an earlier turn, or one run outside a turn, cannot use Team Chat)."
+
+// sweep empties the turn's inbox when it ends and forgets the ids it
+// answered; the next turn starts with an empty inbox of its own.
+func (b *teamBox) sweep() {
+	if b == nil || b.off {
+		return
+	}
+	if fi, err := os.Lstat(b.inbox); err == nil && os.SameFile(fi, b.info) {
+		_ = emptied(b.root)
+	}
+	clear(b.answered)
+}
+
+// teamAnsweredAlready answers a request whose id this turn answered
+// already.
+const teamAnsweredAlready = "pantheon-team: refused: this request was answered already in this turn; " +
+	"a request is answered once (send the command again to repeat it)."
+
+// answer records that request id, vouched for, is being answered (always
+// true: it is a step of scanTeam's checks).
+func (b *teamBox) answer(id string, raw []byte) bool {
+	h := sha256.Sum256(raw)
+	b.answered[id] = hex.EncodeToString(h[:])
+	return true
+}
 
 // teamToolChanged answers a request once the pantheon-team script is no
 // longer the one PantheonOS wrote for the turn.

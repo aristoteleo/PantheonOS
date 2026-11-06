@@ -104,6 +104,88 @@ func LaunchEnv(s Settings, l Launch) []string {
 	return env
 }
 
+// TeamEnv is the whole environment of a Team Chat turn's runtime
+// (docs/apps/team-chat.md, "Fixes after the fifth Phase 3 check"). People
+// other than the computer's user may ask a shared agent to run commands, so
+// the turn starts from an allow-list, not from the node's environment:
+//   - the computer basics (teamBaseVars, LC_*), PATH as AgentEnv sets it,
+//     and what the runtime itself needs (ExtraEnv);
+//   - the user's own variables for this agent (Coding Agents settings),
+//     without PantheonOS credentials and without variables that make a
+//     program load code or configuration (teamDenied);
+//   - on PantheonOS models, the platform's variables: the model proxy and
+//     the user's model key (a LiteLLM virtual key, good only for model
+//     calls on the user's PantheonOS budget).
+//
+// Never the node's PantheonOS key (PANTHEON_KEY: AccessEnv), a Fleet or Hub
+// credential, the ssh agent, or plugin folders such as
+// CLAUDE_CODE_PLUGIN_DIRS the node itself was started with.
+func TeamEnv(s Settings, agentID string) []string {
+	var env []string
+	for _, kv := range AgentEnv(agentID) {
+		name, _, _ := strings.Cut(kv, "=")
+		if teamBase(name) {
+			env = append(env, kv)
+		}
+	}
+	env = mergeEnv(env, ExtraEnv(agentID)...)
+	var own map[string]string
+	if c, ok := s.CustomAgent(agentID); ok {
+		own = c.Env
+	} else {
+		own = s.Agents[agentID].Env
+	}
+	var mine []string
+	for _, kv := range EnvList(own) {
+		if name, _, _ := strings.Cut(kv, "="); !teamDenied(name) {
+			mine = append(mine, kv)
+		}
+	}
+	env = mergeEnv(env, mine...)
+	if p, ok := s.PlatformFor(agentID); ok {
+		set, unset := PlatformEnv(agentID, p, PlatformModels(agentID, p))
+		env = mergeEnv(withoutVars(env, unset), set...)
+	}
+	return env
+}
+
+// teamBaseVars are the node's variables a Team Chat turn keeps: who and
+// where the user is, language and time zone, the terminal type, certificate
+// and proxy settings the network may need, the runtimes' own homes (their
+// sign-in and sessions live there; Team Chat starts them without the
+// configuration and hooks those homes hold: teamCleanArgs), and Windows'
+// system folders.
+var teamBaseVars = map[string]bool{"HOME": true, "USER": true, "LOGNAME": true, "SHELL": true, "PATH": true,
+	"TMPDIR": true, "TMP": true, "TEMP": true, "LANG": true, "LANGUAGE": true, "TZ": true, "TERM": true,
+	"SSL_CERT_FILE": true, "SSL_CERT_DIR": true, "NODE_EXTRA_CA_CERTS": true, "REQUESTS_CA_BUNDLE": true,
+	"HTTP_PROXY": true, "HTTPS_PROXY": true, "NO_PROXY": true, "ALL_PROXY": true,
+	"CLAUDE_CONFIG_DIR": true, "CODEX_HOME": true,
+	"SYSTEMROOT": true, "WINDIR": true, "COMSPEC": true, "PATHEXT": true, "USERPROFILE": true, "USERNAME": true,
+	"APPDATA": true, "LOCALAPPDATA": true, "PROGRAMDATA": true, "PROGRAMFILES": true, "PROGRAMFILES(X86)": true,
+	"HOMEDRIVE": true, "HOMEPATH": true, "SYSTEMDRIVE": true}
+
+// teamBase: the node's variable name is one a Team Chat turn keeps.
+func teamBase(name string) bool {
+	up := strings.ToUpper(name)
+	return teamBaseVars[up] || strings.HasPrefix(up, "LC_")
+}
+
+// teamDenied are variables a Team Chat turn never gets from the user's
+// settings either: PantheonOS and Fleet credentials, and those that make a
+// program load code or configuration (plugin folders, Node's and the
+// shell's start-up files, preloaded libraries).
+func teamDenied(name string) bool {
+	up := strings.ToUpper(name)
+	switch up {
+	case "FLEET_KEY", "NODE_OPTIONS", "BASH_ENV", "ENV", "ZDOTDIR", "CLAUDE_ENV_FILE", "PROMPT_COMMAND",
+		"LD_PRELOAD", "LD_LIBRARY_PATH", "PYTHONSTARTUP", "PERL5OPT", "RUBYOPT", "GIT_CONFIG_GLOBAL",
+		"SSH_AUTH_SOCK":
+		return true
+	}
+	return strings.HasPrefix(up, "PANTHEON_") || strings.HasPrefix(up, "DYLD_") || strings.Contains(up, "PLUGIN") ||
+		strings.HasPrefix(up, "NATS_") || strings.HasPrefix(up, "MODAL_TOKEN")
+}
+
 // LaunchUnset is the variables a shell on this node must unset before
 // starting the agent (LaunchEnv leaves them out): an agent on PantheonOS
 // models runs without the user's own keys.

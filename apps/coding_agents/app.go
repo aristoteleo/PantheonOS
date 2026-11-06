@@ -465,7 +465,16 @@ func (a *App) send(p SendArgs) map[string]any {
 	}
 	launch := codingagents.Launch{Agent: c.Agent, Conversation: c.ID, NodeID: a.NodeID, NodeName: a.NodeName}
 	note := codingagents.Note(r.settings, launch)
-	env := withDefaults(codingagents.LaunchEnv(r.settings, launch), agent.Headless.Env)
+	env := codingagents.LaunchEnv(r.settings, launch)
+	if p.Team != nil {
+		// A Team Chat turn starts from an allow-listed environment, with
+		// no PantheonOS key: nothing in it is good for more than model
+		// calls on the user's PantheonOS budget (docs/apps/team-chat.md,
+		// "Fixes after the fifth Phase 3 check"). The note about the
+		// pantheon command, signed in by that key, does not apply.
+		_ = note
+	}
+	env = withDefaults(env, agent.Headless.Env)
 	box, trouble := a.linkBoxLocked(c)
 	if p.link == nil {
 		// The user continues the group: what a Stop held may start after.
@@ -778,6 +787,16 @@ func (a *App) finish(id string, tr *turn, end codingagents.Event) {
 		scanned := make(chan struct{})
 		go func() {
 			a.scanTeam(id, tr)
+			// Then nothing of the turn is left in its inbox (requests,
+			// answers no one read) and its answered ids go with it.
+			a.mu.Lock()
+			later := a.running[id] != nil && a.running[id] != tr
+			a.mu.Unlock()
+			tr.teamMu.Lock()
+			if !later {
+				tr.team.sweep()
+			}
+			tr.teamMu.Unlock()
 			close(scanned)
 		}()
 		select {
