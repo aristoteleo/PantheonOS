@@ -390,13 +390,17 @@ terminal resume for runtimes with one).
   (default), *Everyone in this space*, *Listed people*. Without access a
   person cannot DM, mention-wake or add the agent; it is shown greyed with
   its owner.
-* **Files:** an agent works with its computer's files, and can read and
-  change whatever its computer's user can, whatever its runtime: Team Chat
-  runs every turn with `auto` on, so Codex runs with
+* **Files:** an *Only me* agent works with its computer's files, and can
+  read and change whatever its computer's user can, whatever its runtime:
+  Team Chat runs every turn with `auto` on, so Codex runs with
   `--dangerously-bypass-approvals-and-sandbox` (no sandbox) and Claude Code
-  with `--dangerously-skip-permissions` (no permission prompts); nothing
-  keeps a turn to its folder. (Whether shared agents should run sandboxed
-  is an open product decision.) A shared agent's folder may not
+  with `--dangerously-skip-permissions` (no permission prompts). A **shared**
+  agent (anything but Only me) runs every Team Chat turn in an OS sandbox
+  around its whole runtime (macOS `sandbox-exec`, Linux bubblewrap): its
+  folder, a home of its own and what the runtime needs, nothing of the
+  user's home or the node's files (see "Shared agents run sandboxed"); a
+  turn that cannot be sandboxed is refused, and only the owner can turn
+  the sandbox off, with a stored confirmation. A shared agent's folder may not
   be a home directory, a folder that holds home folders (`/Users`, `/home`,
   `/root`, …) or `/`; the create dialog says what the agent can reach on that
   computer and recommends the Workspace or a dedicated machine for shared
@@ -503,7 +507,10 @@ terminal resume for runtimes with one).
     ssh agent or the plugin folders the node was started with
     (`CLAUDE_CODE_PLUGIN_DIRS`, whose plugins' hooks Claude Code loads even
     with no setting sources). The turn is not told that the `pantheon`
-    command is signed in.
+    command is signed in. A sandboxed turn (a shared agent) then gets its
+    own `HOME`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `XDG_*` and temp folders
+    in its sandbox home instead of the user's ("Shared agents run
+    sandboxed").
   * **The turn's model token** (from the sixth Phase 3 check). A turn on
     PantheonOS models never holds the user's model key (the user's LiteLLM
     virtual key, which never expires and carries the user's whole monthly
@@ -545,12 +552,31 @@ terminal resume for runtimes with one).
     descendant (checked each second) that is still the same process, so
     `nohup … &` loops do not live on into later turns.
 * **What Team Chat cannot prevent** (the whole of it here; the T35 dialog
-  says the gist: the agent can read anything its computer's user can and
-  change or run things there, without a sandbox, the keys saved on that
-  computer included, so whoever copies them can act as the owner and
-  spend the owner's model budget, also after being removed; a turn's own
-  model access ends with the turn; it reads its channels): a
-  shared agent runs as its computer's user. Whatever that user can do, a
+  says the gist). **A shared agent with the sandbox on** (the default, see
+  "Shared agents run sandboxed") reads and writes only its folder and a
+  home of its own: the OS refuses its turns the user's home (`~/.ssh`,
+  documents, `~/.codex`, `~/.claude*`, the Keychain), other people's home
+  folders, the node's own files (Coding Agents `settings.json` with
+  `access.key` and `platform.key`, the `pantheon` sign-in, the node binary
+  and its state folder), every loopback port but the model gateway, and
+  signals or debugging of processes outside the turn. What it can still
+  do: anything inside its folder, which carries over between turns and
+  people (below); read its own session and `MEMORY.md` (one memory for
+  everyone, below); reach the internet and the LAN, and so send what its
+  folder holds anywhere; read the system's public files (`/Library`,
+  `/private/etc`, Homebrew's programs); use the turn's model token while
+  the turn runs (it ends with the turn); make the turn's own commands fail
+  or read their answers (they share the inbox); run up to Team Chat's
+  limits. On Linux the sandbox does not separate loopback ports. Where no
+  sandbox runs (Windows, a Workspace or other container without
+  bubblewrap), a shared agent's turns are refused, not run unsandboxed.
+  **An Only me agent, or a shared agent whose owner turned the sandbox
+  off,** runs as its computer's user, as follows (the T35 dialog says so
+  when the sandbox is off: the agent can read anything its computer's user
+  can and change or run things there, the keys saved on that computer
+  included, so whoever copies them can act as the owner and spend the
+  owner's model budget, also after being removed; a turn's own model
+  access ends with the turn; it reads its channels). Whatever that user can do, a
   person who may use the agent can ask it to do, in its turn: read any file
   the user can read, including other agents' folders, `.team/` inboxes and
   the agent's own `MEMORY.md` and session (so what one person told it can
@@ -563,10 +589,9 @@ terminal resume for runtimes with one).
   process of the running turn to vouch for it, with the digest of the
   request it made, and each request is answered once (see "Turn-bound
   commands"). The turn's environment holds no PantheonOS key and no model
-  key either, only the turn's model token, which ends with the turn. But the turn, and anything
-  it starts, runs **as the computer's user, without a sandbox** (Team Chat
-  sends `auto: true`; whether shared agents must run sandboxed is an open
-  product decision): it can read every file that user can, including the
+  key either, only the turn's model token, which ends with the turn. But
+  without the sandbox the turn, and anything it starts, runs **as the
+  computer's user**: it can read every file that user can, including the
   node's own credentials, such as the Coding Agents `settings.json` with
   the node's PantheonOS key (`access.key`) and the owner's model key
   (`platform.key`; on a Workspace, the node's own environment holds it),
@@ -577,9 +602,11 @@ terminal resume for runtimes with one).
   `workload-connect`); with the model key, anyone it reaches can spend the
   owner's whole model budget from anywhere, after the turn and after they
   are removed, until the owner's key is changed: on a computer the owner
-  also uses, a shared agent's turn is not separated from the owner's
-  account. The T35 dialog says so ("That includes the keys saved on that
-  computer, such as its PantheonOS sign-in and your model key"). What it can still do, as the same user: read the answers the turn's own
+  also uses, an unsandboxed shared agent's turn is not separated from the
+  owner's account. That is what the owner confirms when turning the
+  sandbox off ("People who can use this agent can then run any command as
+  you on this computer, read your files, and use your PantheonOS
+  account."). What it can still do, as the same user: read the answers the turn's own
   commands get (the `.reply` files), or write a false one first, and
   anything the agent writes; make the turn's own commands fail (remove or
   swap their request files: refused, never answered as its own); change
@@ -591,10 +618,13 @@ terminal resume for runtimes with one).
   computer's own services, the network). The credential and the vouching
   process stop a process from using Team Chat through the agent's inbox
   outside the turn's own commands, and the allow-listed environment keeps
-  the node's keys out of what the turn is handed; neither makes a shared
-  agent on a person's own computer a boundary, as the files above can be
-  read.
-  * **The runtime loads its computer user's own setup.** A shared agent's
+  the node's keys out of what the turn is handed; without the sandbox,
+  neither makes a shared agent on a person's own computer a boundary, as
+  the files above can be read.
+  * **The runtime loads its computer user's own setup** (without the
+    sandbox: a sandboxed turn's `HOME`, `CLAUDE_CONFIG_DIR` and
+    `CODEX_HOME` are the agent's own sandbox home, so none of the below is
+    loaded or readable). An unsandboxed shared agent's
     runtime is the computer user's: Codex reads `~/.codex` (plugins, MCP
     servers, connectors, notify and computer-use hooks), Claude Code reads
     `~/.claude` (hooks, plugins, MCP servers), and so on, so people who may
@@ -644,8 +674,9 @@ terminal resume for runtimes with one).
     keep one memory for everyone who uses them. What one person tells it may
     come up for others.").
 
-  The Workspace or a computer of its own is the safe home for a shared
-  agent.
+  With the sandbox off, the Workspace or a computer of its own is the
+  safe home for a shared agent. (A Workspace has no sandbox today, so a
+  shared agent there runs only with the sandbox off.)
 * **Admin powers** (from the second Phase 3 check). An admin: does what a
   member does; renames, archives, changes the topic, the members, privacy
   and wake mode of channels that are not the owner's (#general and the
@@ -821,10 +852,12 @@ Criteria:
   nothing but what they downloaded.
 * T35 Making an agent shared refuses a home-directory or `/` folder (and a
   folder that holds home folders), and the dialog states plainly what the
-  agent can reach on its computer. (Folder confinement is not promised: a
-  shared agent can read and change whatever its computer's user can,
-  whatever the runtime; Team Chat runs its turns without the runtime's
-  sandbox or permission prompts.)
+  agent can reach on its computer. Since 2026-11-06 a shared agent's turns
+  run in an OS sandbox by default (its folder, a home of its own, what the
+  runtime needs; not the user's home or the node's files), and the dialog
+  says so; with the sandbox off (the owner's confirmed choice) it can read
+  and change whatever its computer's user can, and the dialog says that
+  instead (see "Shared agents run sandboxed").
 
 ## Phase 1 backend as built (2026-11-04)
 
@@ -2568,6 +2601,206 @@ with hooks that touch a marker file; Codex `-c notify=[…]`)):
   owner's key $7.3156 → $7.3161 (the gateway's own probe calls and small
   direct checks; the turns cost nothing, refused by the provider); members
   $0; four agent runs (Writer 1, Coder 1, two Coding Agents turns).
+
+
+### Shared agents run sandboxed (2026-11-06)
+
+**Decision (the owner's, option A).** A Team Chat agent whose "Who can use
+it" is anything but *Only me* runs its Team Chat turns, everyone's
+including the owner's, in an OS sandbox by default. A turn reads and
+writes its own folder and reads what its runtime needs to run; it cannot
+read the user's home or the node's own files, signal or trace processes
+outside its turn, or write outside its folder. *Only me* agents and Coding
+Agents' own turns are unchanged. A turn that cannot be sandboxed is
+refused, never run without the sandbox. Only the owner can turn the
+sandbox off for a shared agent, by confirming "People who can use this
+agent can then run any command as you on this computer, read your files,
+and use your PantheonOS account."; the confirmation is stored on the agent
+(`sandbox_off`: when, by whom, the words).
+
+**1. Mechanism: the whole runtime process tree in an OS sandbox.** The
+runtimes' own sandboxes do not cover what matters: Claude Code's file tools
+(Read, Edit) are outside its Bash sandbox and Team Chat runs it with
+`--dangerously-skip-permissions`; Codex sandboxes only the commands it runs,
+not itself. So the node starts the runtime itself inside the sandbox, and
+everything it starts inherits it:
+
+* **macOS:** `sandbox-exec -p <profile> <runtime> …` (Seatbelt; the same
+  mechanism Codex and Chrome use). The node writes the profile for each
+  turn (`codingagents.Sandbox.SeatbeltProfile`): `(deny default)` with
+  `system.sb` (what libSystem needs), then allows only what is listed in
+  the table below. The runtime keeps its own flags (Claude Code
+  `--dangerously-skip-permissions`, Codex
+  `--dangerously-bypass-approvals-and-sandbox`): inside the OS sandbox
+  they only spare approval prompts no one could answer, and Codex's own
+  sandbox would be a second Seatbelt profile it may not apply there; the
+  OS sandbox is the boundary, not them. The clean arguments
+  (`--setting-sources "" --strict-mcp-config`, `--ignore-user-config
+  --disable hooks`) stay.
+* **Linux:** bubblewrap (`bwrap`), when it is installed and can make its
+  namespaces (checked once by running it): a new mount namespace that holds
+  read-only `/usr`, `/bin`, `/sbin`, `/lib*`, `/etc`, `/opt`, the runtime's
+  install, the agent's folder and sandbox home (read-write), `.team`
+  read-only with its inbox read-write, a fresh `/tmp`, and a process
+  namespace (`--unshare-pid`, `--new-session`, `--die-with-parent`) with its
+  own `/proc`, so no other process can be seen, signalled or traced.
+  Landlock is not used. Checked in a privileged Linux container (bubblewrap
+  0.8: folder, home and inbox writable; `.team` read-only; the outside file
+  absent; a process outside cannot be signalled; a write elsewhere lands
+  in the sandbox's own `/tmp`); in an unprivileged container (the usual
+  Kubernetes or Modal pod) bubblewrap cannot make a namespace, so the node
+  reports no sandbox and shared turns there are refused. The Workspace
+  image has no bubblewrap: **a shared agent on a Workspace is refused**
+  until the owner turns its sandbox off (or the platform gives Workspaces a
+  sandbox that runs there).
+* **Windows and other systems:** no sandbox; shared turns are refused
+  unless the owner turned the sandbox off.
+
+What a runtime needs to run was measured by running Claude Code 2.1.319
+and Codex 0.166 in the profile with a scripted model gateway (`/v1/messages`,
+`/v1/responses`, tool calls included): the system and developer tools
+(`/usr`, `/bin`, `/sbin`, `/System`, `/Library`, `/private/etc`,
+`/private/var/select`, Xcode), Homebrew (`/opt/homebrew`), the runtime's
+install (its executable, its folder, the package around a `bin/` folder, a
+global `node_modules`, and the interpreter a script runtime names; never
+`/`, a one-name folder, the home folder or a folder that holds it), the
+sandbox home and temp folder (`CLAUDE_CODE_TMPDIR` too: Claude Code uses
+`/tmp/claude-<uid>` otherwise, which holds the user's own Claude Code
+data), `/dev/null`, `/dev/tty`, `/dev/fd`, random devices, DNS
+(`mDNSResponder`, the system configuration service for proxies) and the
+model gateway. Nothing in the user's home is needed.
+
+**2. Runtime config home.** Each shared agent has a home of its own on the
+node, `<Coding Agents folder>/team-sandbox/<agent id>/home` (with `tmp/`
+beside it), outside the agent's folder: the turn's `HOME`,
+`CLAUDE_CONFIG_DIR` (`home/.claude`), `CODEX_HOME` (`home/.codex`),
+`XDG_*`, `TMPDIR`/`TMP`/`TEMP` and `CLAUDE_CODE_TMPDIR` point there. It
+holds none of the user's sign-ins, so the user's own Claude or Codex
+subscription is never reachable; the runtime's session for the agent lives
+there and carries over between its turns. A shared agent therefore runs on
+PantheonOS models through the turn's own `ptk_` token on the node's
+gateway (see "The turn's model token"). The node refuses a sandboxed turn
+of a runtime set to the user's own subscription ("A shared agent runs in a
+sandbox without your own Codex sign-in, so it needs PantheonOS models.
+Choose PantheonOS models for Codex in Coding Agents on this computer, or
+turn the sandbox off in the agent's settings"); the New agent dialog says
+so before Create and offers "Use PantheonOS models". A conversation that
+ran outside the sandbox (its session in the user's home) is not resumed
+inside it, nor the reverse: the node answers "start a new one to use the
+sandbox" and Team Chat starts a new session (the agent's `MEMORY.md` and
+notes in its folder stay).
+
+**3. Network.** Outbound network stays on: turns need the model gateway and
+work needs the web (packages, docs, APIs). On this computer's loopback the
+turn may connect only to the node's model gateway port
+(`127.0.0.1:<gateway>`); every other loopback port, IPv4, IPv6 and
+v4-mapped, is denied by the OS, which covers the node's own local
+endpoints (terminal servers, App ports, group-network forwards) and any
+other local service on loopback. The node's control plane is NATS to the
+controller, which needs the node's credentials (unreadable). Not covered:
+services this computer exposes on its LAN address, other computers on the
+LAN, and the internet (the turn can send what it can read, i.e. its folder,
+anywhere). On Linux bubblewrap shares the network namespace, so loopback
+ports are not separated there.
+
+**4. Team Chat commands inside the sandbox.** `pantheon-team` and
+`pantheon-team-wait` are `/bin/sh` scripts in the agent's `.team`; they
+need `sh`, `date`, `printf`, `shasum`/`sha256sum`, `mv`, `head`, `tail`,
+`sleep` (all under `/bin`, `/usr/bin`) and writes in the turn's inbox. The
+profile makes `.team` read-only and its inbox writable, so the turn can no
+longer rewrite the script or anything else of the node's there. Vouching is
+unchanged: the node, outside the sandbox, reads the turn's processes'
+arguments.
+
+**5. Keychain and system services.** The profile allows `mach-lookup` only
+for what `system.sb` names (preferences, logging, directory lookups,
+`trustd` for certificates) plus DNS and system configuration, and
+explicitly denies `com.apple.SecurityServer`, `com.apple.securityd.xpc`,
+the keychain database and `secd`, the pasteboard, Apple Events and Launch
+Services; `~/Library/Keychains` and `/Library/Keychains` are unreadable.
+`security find-generic-password -s "Claude Code-credentials"` answers 44
+("could not be found") inside the sandbox and 0 outside; `security
+list-keychains`, `defaults read`, `pbpaste`, `open -a`, `launchctl list`
+and `launchctl submit` fail; an AppleScript `tell application "Finder"`
+gets no answer. (Both layers matter: with only the mach services allowed
+`security list-keychains` answers again; with them and the keychain files
+allowed, the item is found.)
+
+**6. Processes.** `(allow signal (target same-sandbox))` and
+`(allow process-info* (target same-sandbox))`: the turn can signal and
+inspect its own processes only. `kill -0` on any process outside fails
+with "Operation not permitted", `ps -p 1` shows nothing, and a debugger
+cannot attach to a process outside (lldb: "Not allowed to attach"; it
+attaches outside the sandbox). The node still ends the turn's processes
+from outside.
+
+**7. Windows and other systems:** refused unless the owner turned the
+sandbox off (above). Team Chat learns what a computer can do from
+`team_setup`, asked before every turn: `sandbox: {kind, why}` (`seatbelt`,
+`bubblewrap` or `""`). A node from before this change sends no `sandbox`,
+and a shared turn there is refused ("PantheonOS on … is too old to run
+shared agents in a sandbox"), since it would ignore the request.
+
+**8. Other runtimes.** Gemini CLI, Cursor Agent, OpenCode, Pi and the
+Pantheon Agent are refused for shared agents with the sandbox on: the
+controller refuses before asking the node, and the node refuses too. They
+were not measured in the sandbox, and some sign in only through the user's
+home or the node's PantheonOS key (the Pantheon Agent). The owner can
+switch the agent to Claude Code or Codex, or turn the sandbox off.
+
+**What the sandbox allows and denies (macOS)**
+
+| | Read | Write | Other |
+|---|---|---|---|
+| The agent's folder | yes | yes (`.team` only its inbox) | run programs |
+| The agent's sandbox home and tmp | yes | yes | run programs |
+| `/usr` `/bin` `/sbin` `/System` `/Library` `/private/etc` `/opt/homebrew` Xcode | yes, except `/Library/Keychains`, `/opt/homebrew/var`, `/usr/local/var`, TCC | no | run programs |
+| The runtime's install | yes | no | run |
+| The user's home (`~/.ssh`, `~/.codex`, `~/.claude*`, `~/Documents`, `~/Library`, shell history), `/Users/<other>`, `/Users/Shared` | no (names of the folders above the allowed paths only, by name) | no | no |
+| The node's files (Coding Agents `settings.json` with `access.key` and `platform.key`, the `pantheon` sign-in, the node binary, its state folder) | no | no | no |
+| `/tmp`, `/private/var/folders` (the user's temp) | no | no | |
+| Keychain, pasteboard, Apple Events, Launch Services, launchd jobs, preferences | no | | |
+| Processes outside the turn | | | no signal, no inspection, no debugger |
+| Network | internet: yes; loopback: only the model gateway | | |
+
+**Turning it off.** Settings → Who can use it shows "Sandbox on." and
+"Turn the sandbox off…" (the owner only); the confirmation dialog shows the
+words above, and `agent_update {sandbox: "off", sandbox_confirm: <the
+words>}` is refused unless they are exactly those words; `agent_update` is
+the owner's alone, so an admin cannot. "Turn the sandbox on" clears it. The
+member-visible profile carries `sandbox_off`.
+
+**Tests.** `apps/coding_agents/team_sandbox_test.go`
+(`TestASharedAgentsTurnRunsInTheSandbox`: real `sandbox-exec`, a fake
+Claude Code and Codex started by the node exactly as for a turn, which try
+the user's real `~/.ssh/config`, `~/.codex/auth.json`, `~/.claude.json`,
+`~/.claude/settings.json`, the node's `settings.json`, a secret beside the
+folder, `/Users`, a stat of a secret, a write outside, a write to
+`.team/pantheon-team`, `kill -0` of a process outside, `security
+list-keychains` and `find-generic-password`, a loopback server standing in
+for a node endpoint (all fail), and the model gateway, `pantheon-team
+members`, reading and writing in the folder (all work), with `HOME` and
+the config homes in the sandbox home;
+`TestASharedTurnThatCannotBeSandboxedIsRefused`;
+`TestASandboxChangeStartsANewConversation`),
+`os/codingagents/sandbox_test.go` (the profile run by `sandbox-exec`;
+install reads never `/` or the home), `sandbox_linux_test.go`
+(bubblewrap), `os/internal/hosted/teamchat_sandbox_test.go` (the turn asks
+for the sandbox only for a shared agent; off only by the owner with the
+exact words; a node without a sandbox or too old, and another runtime, are
+refused before the node runs anything). Each part fails with its fix
+reverted (19 reverts, below).
+
+**What the sandbox does not do.** The turn still reads and writes its
+folder, which is shared between turns and people (see "The agent's folder
+carries over"), and its own session in the sandbox home; it reaches the
+internet and the LAN; it reads the system's public files (`/Library`,
+`/private/etc`, Homebrew programs) and can learn whether a path above its
+folder exists; the model gateway token is still usable during the turn by
+anything in it. Tools installed in the user's home (`~/.local/bin`,
+`~/.cargo`, `~/.nvm`, …) are not available inside, except the runtime
+itself. With the sandbox off, everything in "What Team Chat cannot
+prevent" holds as before.
 
 
 ## Out of scope
