@@ -2789,7 +2789,71 @@ install reads never `/` or the home), `sandbox_linux_test.go`
 for the sandbox only for a shared agent; off only by the owner with the
 exact words; a node without a sandbox or too old, and another runtime, are
 refused before the node runs anything). Each part fails with its fix
-reverted (19 reverts, below).
+reverted (21 reverts: wrap, own home, loopback, signals, `.team`, metadata,
+Keychain in two layers, no sandbox, subscription, other runtimes, resumed
+session, install reads, the controller's request, confirmation, node
+capability, runtime, owner-only, the UI text and words, zsh here-documents).
+
+**Staging verification (2026-11-06).** Controller build of `093aee2b`
+(`ebc20e33`), frontend #30 (`009dfba4`), node `fleet-v0.5.1-staging.17`
+code (`b3881043`) on the test Mac node (PantheonOS models through the
+turn's `ptk_` token on the node gateway; OpenRouter credit topped up, a
+cheap call through LiteLLM answered first). Coder (Codex,
+`openrouter/deepseek/deepseek-v4-flash-0731`) and Writer (Claude Code,
+`openrouter/anthropic/claude-haiku-5.5`) shared with Everyone, member
+`p3v-alice` joined by invite:
+
+* **Member, Coder:** Alice asked Coder to run `cat` (to `/dev/null`) on
+  `/Users/weizexu/.ssh/config`, the node's `settings.json`,
+  `~/.codex/auth.json`, `~/.claude.json`, `security find-generic-password
+  -s 'Claude Code-credentials'`, `ls /Users`, `ls ~/Documents` and a
+  loopback server. Coder ran them all and answered her: each `cat:
+  …: Operation not permitted` (exit 1), `security: … The specified item
+  could not be found in the keychain.` (exit 44), `ls: /Users: Operation
+  not permitted`, the loopback `curl: (7) Failed to connect`; `~` was its
+  sandbox home (`…/team-sandbox/a252b7c7731ab/home`).
+* **Member, Writer:** the model (Claude Haiku) declined both of Alice's
+  requests to touch credential paths, so the OS was not reached there;
+  the owner's turn below shows Claude Code in the sandbox.
+* **Owner, cooperative:** the owner asked Coder to run a probe script in
+  its folder (prints only denied/READABLE and byte counts). Sandbox on:
+  every one of `~/.ssh/config`, `~/.ssh/known_hosts`, `~/.codex/auth.json`,
+  `~/.claude.json`, `~/.claude/settings.json`, both Coding Agents
+  `settings.json` (the test node's and the Mac's own), the node binary,
+  the node's `fleet.creds` and `node.key`, `login.keychain-db` and
+  `~/.zsh_history` "Operation not permitted"; `ls /Users`, `/Users/Shared`,
+  `~/Documents`, writes to `~` and `/private/tmp` denied; `security
+  find-generic-password` 44, `list-keychains` 1; `kill -0` of the node and
+  of an outside `sleep` "Operation not permitted"; `127.0.0.1:18765` (a
+  stand-in local endpoint) blocked, the gateway answered (401 without a
+  token); `https://example.com` 200; `pantheon-team members` answered;
+  `HOME`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME` in its sandbox home. Writer's
+  model declined the script; asked instead to use its Write tool on
+  `~/Documents`, run `ls /Users` and write `/private/tmp`, Claude Code got
+  `EPERM: operation not permitted, open '/Users/weizexu/Documents'`, `ls:
+  /Users: Operation not permitted`, `operation not permitted:
+  /private/tmp/…`, while writing and reading in its folder worked, and it
+  replied through `pantheon-team`.
+* **Sandbox off through the UI:** Coder → Settings showed "Sandbox on." and
+  the sandboxed text; "Turn the sandbox off…" opened "Turn the sandbox off
+  for Coder?" with the confirmation words; after "Turn the sandbox off" the
+  panel showed "Sandbox off since 11/6/2026, 8:42:47 AM. People who can use
+  this agent…" and the unsandboxed text. The same probe then printed
+  READABLE with sizes for every file above, the Keychain item found (0),
+  signals allowed, the loopback server 200, `HOME=/Users/weizexu` (Team
+  Chat started a new session, since the old one was sandboxed). "Turn the
+  sandbox on" restored it; the next probe was all denied again.
+* **Found and fixed during the check:** zsh writes here-documents under
+  `TMPPREFIX` (`/tmp/zsh`), not `TMPDIR`, so `pantheon-team … - <<'EOF'`
+  failed in the first live turns ("can't create temp file for here
+  document"); the sandbox now sets `TMPPREFIX` in its temp folder (test
+  `zsh heredoc` in `TestASharedAgentsTurnRunsInTheSandbox`, fails reverted).
+* **A full answered turn through the per-turn token** (what the sixth
+  check's fixer could not see for lack of credit): both Coder and Writer
+  answered in full through the node gateway with their `ptk_` token, the
+  owner's and Alice's turns alike.
+* Spend: the owner's key $7.3161 → $7.3625, members $0; ten agent turns
+  (Coder 5, Writer 5, two of them requests queued from an earlier check).
 
 **What the sandbox does not do.** The turn still reads and writes its
 folder, which is shared between turns and people (see "The agent's folder
