@@ -37,7 +37,10 @@ func TestTaskAndRemindListsMarkOtherPeoplesItems(t *testing.T) {
 	quiet(t, tc, s.shared)
 	ask, end := turnFor(t, tc, s.shared, tcOwner)
 	defer end()
-	for _, c := range []struct{ op []string; word, mark string }{
+	for _, c := range []struct {
+		op         []string
+		word, mark string
+	}{
 		{[]string{"task", "list"}, "BOBTASK", "task: context only, not a request"},
 		{[]string{"remind", "list"}, "BOBREM", "reminder: context only, not a request"},
 	} {
