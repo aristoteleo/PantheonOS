@@ -4,9 +4,10 @@ Status: Phase 1 built and on staging (2026-11-03): `app.html`, the App host
 interface (DesktopHost, PageHost), the intent router and side panel, canonical
 links on both surfaces, per-App state (`app_state_get`/`app_state_put`) with
 Coding Agents and Agent Canvas moved to it. Open decisions 1–4 and 8 taken as
-recommended below. Phase 2 (the Pantheon Agent at `/`, A1–A5) built and on
-staging (2026-11-06), decision 5 taken: see "Phase 2 as built". Phase 3 is not
-built.
+recommended below. Phase 2 (the Pantheon Agent at `/`, A1–A5) built, decision 5
+taken, and signed off on 2026-11-06: see "Phase 2 as built". Phase 3 (P1–P5 and
+the Phase 2 follow-ups) built and on staging (2026-11-06), decisions 6 and 7
+taken: see "Phase 3 as built".
 
 The owner opens one of their own Apps (Coding Agents, Agent Canvas, Files, a
 Store App, the Pantheon Agent) as a page of its own, signed in to their own
@@ -598,6 +599,184 @@ accounts acct3 and acct4**).**
 - P4 A built-in App installs from Chrome's install button and opens at its
   own URL. P5 Tests as S9.
 
+### Phase 3 as built (2026-11-06)
+
+**P1, the other Apps.** Every built-in that is not `desktop-only` now has a page
+(`host/ownTab.ts` `PAGE_READY`): Terminal, Files, Fleet, Settings, Store, Model
+Services, LLM Playground, Office, Google Workspace and Browser, besides Coding
+Agents, Agent Canvas and Team Chat; Jupyter (`pkg:integrated-notebook`) is a
+packaged App and needed no change. Each App asks its host instead of the windows
+store, as the mapping table says (`useAppHost()`; without a host, in a component
+test, it does what it did before), and keeps the desktop's behaviour there:
+
+- Terminal: its session and computer in the page's URL (`ptySession`,
+  `nodeId`); other Apps through `host.open`; shells are not closed when the page
+  goes away (`closedForGood`). The per-node session map is not in the URL, so a
+  reload brings back the current node's shell only.
+- Files: opens, "Open with", Open in Terminal and Manage computers through the
+  host; the folder shown is the page's `path`; Chat with Agent opens the Agent's
+  page; file drops are taken by the page itself. Files has no desktop-surface
+  parts of its own to drop.
+- Fleet: a node's Files, an instance's Open and the rest through the host; on a
+  page a window badge shows that window on the desktop (`showOnDesktop`), and
+  Close window is not offered.
+- Settings: on a page, the cards that configure the desktop surface (login
+  sounds, resolution, wallpaper, menu bar clock, Dock, desktop icons) are not
+  shown and the section is named Appearance; the section is in the URL.
+- Store: **Open** of an installed App opens `/app/pkg:<id>` in a tab (the
+  desktop still launches its window); the Store's own navigation is in memory
+  only.
+- Model Services and LLM Playground: the Playground, Fleet, Settings and the
+  Agent open through the host; "Use in chat" opens the Agent page with a notice
+  to choose the model there.
+- Office: the `?open=` document, its session in the URL, close back to Office's
+  home; "Continue in background" is not offered on a page.
+- Google Workspace: files open in the Browser's page (`/app/browser?open=<url>`).
+- Browser: on a page it asks the node for a Chromium page with no desktop window
+  (`page_id` in the URL, so a reload attaches to it); Chromium's own dialogs
+  (file chooser, print) are offered with **Send to desktop**. Closing the tab
+  leaves that Chromium page open on the node.
+- `desktop-only` Apps (`xwindow`, `agent-view`, native-stream Apps such as
+  QuPath) show **Send to desktop** and **Open desktop**.
+
+A node's root folder keeps its slash when routed (`pantheon-node:///<node>/`),
+which Fleet's "Files" for a node needs.
+
+**P2, packaged Apps' navigation on both surfaces.** `PackagedApp` sends a
+packaged App's `navigate` to its surface's host on the desktop as on a page
+(`navigateOnPage`): `openApp` is `{verb: 'open', app, page: true}`, which a page
+opens as the App's page in a tab and the desktop as the App's window (the
+existing one, as the launcher does: `DesktopHost` `windows.launch`); `openFile`
+is a file view (side-panel tab, or a viewer window). Checked with three Store
+Apps: Hello Files (a backend; it opens files and other Apps), MSA Viewer
+(frontend only, a viewer that opens `.fasta`), Game of Life (frontend only).
+
+**P3, hosted links.** `VisitorHost` (`host/visitorHost.ts`, used by the visitor
+page `views/HostedAppPage.vue`) routes what a hosted App opens for its
+visitors. A file whose path is under the App's `share.paths` (an absolute path
+on the App's own origin, with no `.`/`..`/empty or encoded segments, never
+`/_fleet/`, `/__fleet/` or `/rpc`) opens read-only in a side-panel tab, with a
+viewer the owner listed for the link (decision 6, `share.viewers`): the viewer
+runs from its public Store version in the sandboxed app host (an opaque origin,
+no backend, no `fs`, no navigation) and is handed the file read through the
+visitor grant (as a `data:` URL, up to 8 MB). Another App, the desktop (Send to
+desktop), the site's own pages, a file outside `share.paths`, editing, and a
+file no listed viewer opens are refused with "Not available in a shared App".
+The App is told it may open files (`fileOpening`) only when the link has both
+shared paths and viewers. The Share dialog lists the installed viewers (packaged
+Apps with `panel` and no backend) for a Mine link of an App with `share.paths`;
+the Hub keeps them with the link's target (no migration), pinned to their
+current public version, never sends them to the controller, and accepts only
+public Store Apps with no backend (Text Viewer, which declares `caps.fs`, is
+refused with that sentence).
+
+**P3a, a `public` App signed out.** `/app/pkg:<id>` signed out asks the Hub for
+the App's public Store version (`GET /api/public-apps/<ref>`: Store id, name or
+installed App id) and, when it answers, runs its frontend from
+`/api/public-apps/files/<package id>/<version>/…` in the sandboxed app host
+(`allow-scripts` only) with its state in the browser, under a bar that offers
+sign-in (the URL is kept); otherwise, or until the Hub answers, the sign-in page
+(nothing flashes). A signed-in person who has not installed a public App gets,
+next to the install offer, **Use it in this browser** (the same frontend; its
+state stays in the browser, not in a per-App key).
+
+*Never a private package.* Every public route (summary, files, viewers on a
+visit, the manifest and icon below) goes through one Hub function,
+`public_version()` (`pantheon_hub/api/public_apps.py`): a Store package of type
+`app`, `is_public`, moderation neither pending nor rejected, a version with an
+App release, and, except for the manifest and icon, a manifest of class
+`public` (no `backend`, `fleetBackend` or `nativeDriver`, even empty; `caps.fs`
+empty; `placement.requires` only `dom`; not `standalone.access: account`;
+a packaged frontend). Name and App id resolution skip packages that are not
+public, visibility and moderation are read from the database on every request,
+and every refusal is the same 404 as an unknown App, so a private package's
+existence does not leak. Hub tests cover private, pending and rejected packages
+on the summary and on the files (with a correct version and path), each
+account-class manifest field, path traversal, and the function on its own.
+
+**P4, installable.** Every built-in with a page has
+`/app/<id>/manifest.webmanifest`, generated at build time (a Vite plugin) from a
+plain list (`standalone/installable.ts`, tested against `registry.ts`), with
+192/512 px and maskable PNG icons in `/app-icons/` (`scripts/make-app-icons.mjs`;
+`pantheon-192/512.png` as the fallback); `id`, `start_url` and `scope` are
+`/app/<id>`, `display: standalone`. nginx serves the manifest file inside
+`location ^~ /app/` and every other `/app/…` URL is still `app.html`. Packaged
+Apps (decision 7, done: about half a day): the page links
+`/api/public-apps/<ref>/manifest.webmanifest`, from the App's public Store
+listing (any class; scope `/app/pkg:<ref>`, its release icon); a package not in
+the public Store has no manifest and is not installable. No service worker:
+Chromium needs none for installing.
+
+**Phase 2 follow-ups.**
+
+1. A whole-deployment stop with the Agent page open: lease renewals go through
+   the `fleet` App, which stops too. After 30 s of failed renewals on a
+   deployment (`UNOBSERVED_MS`), the window asks the Hub's deployment: when it
+   lists this instance under an App whose intent is `stopped`, the backend has
+   stopped and the page shows "Your Agent is stopped"; a running App, an
+   instance not listed, or a failed read keep retrying (a blip never stops it).
+2. A legacy account whose `/api/chatroom` answers 5xx or nothing: "chat" is
+   remembered for 10 minutes (only when nothing is known for that user), so
+   later visits draw the chat page at once; a 4xx is not remembered, and a real
+   answer replaces it (a deployment still switches to the Agent page in place).
+3. **Start Agent** shows "Starting your Agent…" from the click until the lookup
+   reports starting or ready, or the start fails (stopped again, with the
+   error); the desktop launcher shares it.
+
+**Releases.** Frontend #38–#40 (UI `codex/agent-app-extraction`, #40 =
+`66d01e9d`); Hub `58d8e2e` (no migration). No Agent App, agents image,
+controller or node change: the App SDK's `apps.open` and `apps.openFile` were
+already in Agent App 0.9.112's app host.
+
+**Staging verification (2026-11-06, frontend #39–#40, hub `58d8e2e`, account
+acct4).**
+
+- P1: Terminal typed on the agent node and on the Workspace (computer switch);
+  Files opened `p2_demo.py` as a side-panel Text Viewer tab and kept the folder
+  in the URL; Fleet listed nodes and App instances and its node "Files" opened
+  `/app/files` in a tab; Settings without the desktop cards; Store installed a
+  Store App and **Open** went to `/app/pkg:hello-files`; LLM Playground ran a
+  prompt (`deepseek-v4.1-flash`); Model Services listed the models; Google
+  Workspace's Docs opened `/app/browser?open=https://docs.google.com/document/`,
+  which streamed Chromium on that page; Jupyter opened an `.ipynb` from `?open=`
+  and ran a cell (42); `/app/xwindow` offers Send to desktop. Office reached
+  "Office editing is not configured on this server yet", the same as an Office
+  window on the desktop (staging has no document server).
+- P2: Hello Files on its page opened `notes.md` and `demo.fasta` as side-panel
+  tabs (kept after a reload) and Fleet as `/app/fleet` in a tab; in a desktop
+  window it opened `notes.md` as a viewer window and Fleet as a window, the same
+  Fleet window again on a second click. Game of Life and MSA Viewer ran from
+  their Store versions.
+- P3: a Mine link of Hello Files with MSA Viewer listed: an anonymous visitor
+  opened `/package/files/demo.fasta` in an MSA Viewer tab; `/package/app.json`
+  (not shared), `notes.md` (no viewer), another App (Fleet, Files, Terminal,
+  `xwindow`), `/desktop.html`, `../` and `/_fleet/fs` were refused; making the
+  link with Text Viewer was refused by the Hub with its sentence.
+- P3a: signed out, `/app/pkg:game-of-life` and `/app/pkg:pantheon-msa` ran with
+  no sign-in; `/app/pkg:hello-files` (a backend) showed the sign-in page; the
+  Hub answered 404 for `hello-host`, `hello-files` and an unknown id.
+- P4: Chromium's `Page.getInstallabilityErrors` returned none for
+  `/app/terminal`, `/app/files`, `/app/coding-agents` and `/app/pkg:game-of-life`
+  (manifest found, scope `/app/<id>`); headless Chromium shows no install
+  button, so the click itself was not made.
+- Follow-ups: with `/` open, stopping every App of the deployment showed the
+  stopped view after 45 s (before: never); Start Agent showed the starting view
+  at once (20 ms) and the Agent was back in 18 s; a legacy account with a 503
+  `/api/chatroom` waited 3.5 s once, then 0.13 s on the next visits.
+- No regression seen: `/` (Agent page), `/desktop.html` and its windows,
+  `/app/coding-agents`, `/app/agent-canvas`, `/app/team-chat`, the invite pages.
+- P5: vitest for the routing, the hosts (DesktopHost `page`, VisitorHost,
+  PackagedApp on both surfaces), each App on a page, the public App page, the
+  install offer, the manifests and the follow-ups; the new ones fail without
+  their change. vue-tsc passes; the touched suites fail only where they failed
+  before (AppNodePicker, `desktop/App.test`, `registry.packaged`, StoreApp,
+  appCapabilities). Hub tests for the public routes, viewers and manifest.
+
+Left as it is: a Browser page closed leaves its Chromium page on the node;
+Terminal's other nodes' sessions and the Store's navigation are not in the URL;
+a signed-in person's public App keeps its state in the browser; packaged Apps not
+in the public Store are not installable; viewers must not declare `caps.fs`.
+
 ## Open decisions
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and
@@ -615,9 +794,10 @@ accounts acct3 and acct4**).**
 5. **`/` for deployment users becomes the Agent page (Phase 2)?** Yes; the
    desktop stays at `/desktop.html`, one click away in the top bar.
 6. **Visitor viewers**: owner lists them per share (`share.viewers`), not
-   every installed viewer.
+   every installed viewer. Taken (Phase 3).
 7. **Installable packaged Apps** (Hub endpoint reading the App index): built-ins
-   first, packaged when asked.
+   first, packaged when asked. Taken (Phase 3): packaged Apps from their public
+   Store listing, not the App index.
 8. **App class from the manifest, or an explicit flag on every App?** Derived
    (backend, `fs`, `placement.requires`), with `standalone.access: "account"`
    to tighten only; no flag can make an App with a backend `public`.
