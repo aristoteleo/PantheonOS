@@ -442,3 +442,57 @@ def test_planners_see_why_an_attempt_was_rejected():
     m, c, seed, champ, donor, bad = _prompt_world()
     attempts = m._views(c)[3]
     assert any("rejected: 7/150 cases rejected" in a for a in attempts)
+
+
+# ---- ablations: each knob removes exactly one part --------------------------------------
+
+def test_ablation_no_redesign_is_rsi_tops_two_types():
+    s = Store()
+    m, c, seed = make(s, redesign=False)
+    calls = fake_llm(m, seed.id, types=("redesign", "integration"))   # a planner that ignores it
+    items = run_until_stall(m, c)
+    assert "redesign" not in calls[0]
+    assert {it.meta["molt_type"] for it in items if "molt_direction" in it.meta} == {
+        "exploration", "integration"}, "a redesign the planner returns anyway runs as exploration"
+    resolve(m, c, items, 0.5)
+    assert not m.sprouts and m.name == "molt-noredesign"
+
+
+def test_ablation_no_protect_puts_a_redesign_in_its_targets_chain():
+    s = Store()
+    m, c, seed = make(s, protect=False)
+    fake_llm(m, seed.id, types=("redesign",))
+    items = run_until_stall(m, c)
+    ids = resolve(m, c, items, 0.5)
+    red = next(it for it in items if it.meta.get("molt_type") == "redesign")
+    assert not m.sprouts and all(ids[red.batch_id][0] in m.chains[k] for k in (0, 1))
+
+
+def test_ablation_no_probation_keeps_every_sprout_and_sheds_nothing():
+    s = Store()
+    m, c, seed = make(s, probation=False, max_established=2)
+    fake_llm(m, seed.id, types=("redesign", "redesign"))
+    resolve(m, c, run_until_stall(m, c), 0.1)          # far below the champion
+    sprouts = list(m.sprouts)
+    assert len(sprouts) == 2 and all(m.role[k] == ESTABLISHED for k in sprouts)
+    assert len(m._active()) == 4, "no cap: nothing shed"
+    n = len(m.interventions)
+    for _ in range(10):                                 # no probation blocks the next stall
+        resolve(m, c, asyncio.run(m.ask(c, 3)), 1.0)
+    assert len(m.interventions) > n
+
+
+def test_ablation_periodic_plans_on_schedule_even_while_improving():
+    s = Store()
+    m, c, seed = make(s, trigger="periodic", period=10, period_first=6)
+    calls = fake_llm(m, seed.id, types=("integration",))
+    score = [1.0]
+    for _ in range(40):
+        items = asyncio.run(m.ask(c, 2))
+        score[0] += 0.5                                 # always improving: never a stall
+        resolve(m, c, items, score[0])
+        if len(m.interventions) >= 3:
+            break
+    ats = [iv["at"] for iv in m.interventions]
+    assert len(ats) >= 3 and ats[0] >= 6 and all(b - a >= 10 for a, b in zip(ats, ats[1:]))
+    assert m.name == "molt-periodic"

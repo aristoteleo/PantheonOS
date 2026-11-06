@@ -84,7 +84,7 @@ PLANNER = """# Dynamic branch intervention portfolio
 ## Intervention objective
 
 Ordinary search has stalled in its current neighborhood. This bounded intervention must redirect
-search toward global progress. Use the integration, exploration and redesign proposal types defined
+search toward global progress. Use the {type_names} proposal types defined
 below to build a portfolio that both seeks credible routes beyond the current frontier and opens
 causally distinct, reusable measured states for future search. Routine novelty or a weak-parent gain
 is insufficient.
@@ -126,17 +126,10 @@ live branches created by strong measured parent gains or carrying mechanisms abs
   donor branch demonstrably carries, or apply a lesson the attempts establish. Cite the attempt ids.
 - `exploration`: test a genuinely new representation, algorithmic or search hypothesis. Positive
   evidence is not required; never invent it. State the new axis and what result would falsify it.
-- `redesign`: replace the target's overall algorithm with a different one -- a different
-  representation of a solution, a different search paradigm, or a different decomposition of
-  the problem -- written as a complete new program, not an edit of the target. The target is
-  only a reference for the input/output format and reusable helpers. A new design usually
-  starts below the polished incumbent; it is judged after a few refinement steps, so argue
-  for the design's ceiling, not its first version.
-
+{redesign_type}
 ## Portfolio selection
 
-- Return exactly {num_directions} directions. Include at least {min_redesign} `redesign` direction(s);
-  the other types are labels, not quotas.
+- Return exactly {num_directions} directions.{redesign_rule}
 - Every direction must target global progress, not merely improve a weak parent: give the target's
   score, the frontier score, the gain required to beat the frontier, and why the mechanism could
   plausibly clear that gap.
@@ -159,7 +152,7 @@ Return exactly one JSON object as your entire final answer -- no prose, no Markd
 {{"diagnosis": "concise evidence-backed diagnosis of the current search state",
   "exhausted_patterns": ["up to three evidence-backed patterns not to repeat"],
   "directions": [
-    {{"type": "integration" | "exploration" | "redesign",
+    {{"type": {type_enum},
       "target_branch_id": "live catalog id the worker will edit",
       "mechanism_hypothesis": "falsifiable target-local reason the experiment may raise the score",
       "task": "one concrete bounded source-code experiment (not code, not a list of alternatives)",
@@ -272,6 +265,14 @@ DESIGN_STRATEGY = """
 Generate the next version of this design:
 """
 
+REDESIGN_TYPE = """- `redesign`: replace the target's overall algorithm with a different one -- a different
+  representation of a solution, a different search paradigm, or a different decomposition of
+  the problem -- written as a complete new program, not an edit of the target. The target is
+  only a reference for the input/output format and reusable helpers. A new design usually
+  starts below the polished incumbent; it is judged after a few refinement steps, so argue
+  for the design's ceiling, not its first version.
+"""
+
 BASE, SPROUT, ESTABLISHED, RETIRED = "base", "sprout", "established", "retired"
 
 
@@ -332,7 +333,15 @@ class Molt(SimpleTES):
                  probation_turns: int = 5, probation_margin: float = 0.01,
                  max_established: int = 4, planner_reasoning: bool = True,
                  catalog_size: int = 24, attempts_shown: int = 40, code_shown: int = 3,
-                 tried_shown: int = 20, **kw):
+                 tried_shown: int = 20, redesign: bool = True, protect: bool = True,
+                 probation: bool = True, trigger: str = "stall", period: int = 65,
+                 period_first: int = 20, **kw):
+        """The last six are ablations; their defaults are Molt. `redesign=False`: planners get
+        RSI-top's two types only. `protect=False`: a redesign's program joins its target's
+        chains like an edit instead of opening a sprout. `probation=False`: every sprout is kept
+        at once, never judged, and no chain is shed. `trigger="periodic"`: plan at attempt
+        `period_first` and then every `period` attempts, stalled or not (the defaults match
+        Molt's measured spacing on AHC058/024/046: first at ~20, then every ~65)."""
         super().__init__(**kw)
         self.planners = planners
         self.directions_per_planner = directions_per_planner
@@ -347,6 +356,15 @@ class Molt(SimpleTES):
         self.attempts_shown = attempts_shown
         self.code_shown = code_shown
         self.tried_shown = tried_shown
+        if trigger not in ("stall", "periodic"):
+            raise ValueError(f"trigger must be 'stall' or 'periodic', not {trigger!r}")
+        self.use_redesign, self.protect, self.use_probation = redesign, protect, probation
+        self.trigger, self.period, self.period_first = trigger, period, period_first
+        off = [n for n, on in (("noredesign", redesign), ("noprotect", protect),
+                               ("noprobation", probation), ("periodic", trigger == "stall"))
+               if not on]
+        if off:
+            self.name = "molt-" + "-".join(off)
 
         self.role: Dict[int, str] = {c: BASE for c in range(self.num_chains)}
         self.sprouts: Dict[int, Dict[str, Any]] = {}
@@ -477,7 +495,7 @@ class Molt(SimpleTES):
     def _shed(self, ctx: EvolveContext) -> None:
         """Keep at most `max_established` active chains: retire the weakest, never the champion's."""
         active = self._active()
-        if len(active) <= self.max_established:
+        if not self.use_probation or len(active) <= self.max_established:
             return
         bests = {}
         for c in active:
@@ -682,6 +700,20 @@ class Molt(SimpleTES):
 
     # ---- planning ---------------------------------------------------------------------
 
+    def _types(self) -> tuple:
+        return (("integration", "exploration", "redesign") if self.use_redesign
+                else ("integration", "exploration"))
+
+    def _type_slots(self) -> Dict[str, str]:
+        t = self._types()
+        return {"type_names": ", ".join(t[:-1]) + " and " + t[-1],
+                "type_enum": " | ".join(f'"{x}"' for x in t),
+                "redesign_type": REDESIGN_TYPE if self.use_redesign else "",
+                "redesign_rule": (f" Include at least {self.min_redesign} `redesign` "
+                                  f"direction(s);\n  the other types are labels, not quotas."
+                                  if self.use_redesign else
+                                  " The types are labels, not quotas.")}
+
     async def _plan(self, ctx: EvolveContext) -> None:
         live, ranked, catalog, attempts, code, tried = self._views(ctx)
         frontier = ranked[0]["score"] if ranked else None
@@ -692,7 +724,7 @@ class Molt(SimpleTES):
             reply = await self._llm(PLANNER.format(
                 objective=ctx.objective, catalog=catalog, attempts="\n".join(view) or "(none)",
                 code=code, tried=tried, num_directions=self.directions_per_planner,
-                min_redesign=self.min_redesign))
+                **self._type_slots()))
             out = _json(reply) or {}
             ds = [d for d in (out.get("directions") or []) if isinstance(d, dict)]
             return p, out, ds, bool(reply.strip())
@@ -708,7 +740,7 @@ class Molt(SimpleTES):
             for j, d in enumerate(ds):
                 if d.get("target_branch_id") not in live:
                     continue                      # a target must be live
-                if d.get("type") not in ("integration", "exploration", "redesign"):
+                if d.get("type") not in self._types():
                     d["type"] = "exploration"
                 d["donor_branch_ids"] = [x for x in (d.get("donor_branch_ids") or [])
                                          if x in live][:2]
@@ -792,7 +824,7 @@ class Molt(SimpleTES):
                                  "child": child.id if child else None, "score": s}
         if not produced:
             entry["not_produced"] = True
-        if d.get("type") == "redesign":
+        if d.get("type") == "redesign" and self.protect:
             if not produced:
                 pass
             elif child is not None and s is not None:
@@ -803,6 +835,9 @@ class Molt(SimpleTES):
                                    "hypothesis": d.get("mechanism_hypothesis"),
                                    "fate": "probation", "opened_at": self.attempts}
                 entry["chain"] = c
+                if not self.use_probation:          # ablation: kept at once, never judged
+                    self.role[c] = ESTABLISHED
+                    self.sprouts[c].update(fate="kept (no probation)", decided_at=self.attempts)
                 echo = self._echo_of(ctx, s, d["target_branch_id"], d.get("reference"))
                 if echo is not None:
                     self.sprouts[c]["echo"] = s
@@ -834,8 +869,14 @@ class Molt(SimpleTES):
         self._sync_stall(ctx)
         self._review_sprouts(ctx)
         in_probation = bool(self._active((SPROUT,)))
+        if self.trigger == "stall":
+            due = (self.since or 0) >= self.stall_evals
+        else:
+            last = (self.interventions[-1].get("at") if self.interventions
+                    else self.period_first - self.period)
+            due = (self.attempts or 0) - (last or 0) >= self.period
         if (not self._planning and not self.pending and not self.open_dirs and not in_probation
-                and (self.since or 0) >= self.stall_evals):
+                and due):
             self._planning = True
             try:
                 await self._plan(ctx)

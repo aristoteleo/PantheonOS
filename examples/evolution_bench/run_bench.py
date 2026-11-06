@@ -33,6 +33,10 @@ sys.path.insert(0, str(HERE.parent.parent))
 TASKS = HERE / "tasks"
 
 
+MOLT_ABLATIONS = {"molt_noredesign": {"redesign": False}, "molt_noprotect": {"protect": False},
+                  "molt_noprobation": {"probation": False}, "molt_periodic": {"trigger": "periodic"}}
+
+
 def build_method(name: str, seed: int, judge=None, norm: str = "minmax", sched=None,
                  low_fidelity: bool = False, ln_opts=None):
     from pantheon.evolution.methods import (
@@ -57,6 +61,16 @@ def build_method(name: str, seed: int, judge=None, norm: str = "minmax", sched=N
                                 feature_bins=6, exploration_ratio=0.2, num_inspirations=2,
                                 migration_interval=8, function_weight=1.0, llm_weight=0.0,
                                 seed=seed)
+    if name in MOLT_ABLATIONS:
+        # one part of Molt removed (methods/molt.py: redesign / protect / probation / trigger)
+        from pantheon.evolution.methods.molt import Molt
+        return Molt(num_chains=2, k_candidates=2, num_inspirations=2,
+                    selector=(ln_opts or {}).get("tes_selector") or "rpucg", seed=seed,
+                    **MOLT_ABLATIONS[name])
+    if name == "simpletes4":
+        # control for Molt's extra chains: SimpleTES with the ~4 active chains Molt ends with
+        return SimpleTES(num_chains=4, k_candidates=2, num_inspirations=2,
+                         selector=(ln_opts or {}).get("tes_selector") or "rpucg", seed=seed)
     if name == "molt":
         # SimpleTES's settings above, plus stall-triggered redesigns on probation chains
         # (methods/molt.py)
@@ -421,7 +435,7 @@ if __name__ == "__main__":
     p.add_argument("--task", required=True)
     p.add_argument("--method", default="agent_map_elites",
                    choices=["agent_map_elites", "map_elites", "simpletes", "idea_code", "annealed",
-                            "pantheon_evo", "hypothesis_bandit", "lab_notebook", "molt"])
+                            "pantheon_evo", "hypothesis_bandit", "lab_notebook", "molt", "molt_noredesign", "molt_noprotect", "molt_noprobation", "molt_periodic", "simpletes4"])
     p.add_argument("--iterations", type=int, default=40)
     p.add_argument("--model", default="openai/gpt-5.6-luna")
     p.add_argument("--eval-server", default=os.environ.get("EVAL_SERVER_URL", ""),
