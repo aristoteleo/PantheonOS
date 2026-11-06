@@ -2254,6 +2254,42 @@ fails with its fix reverted (12 reverts, one per fix).
 | F. (low) Names "Adm1n", "system32", "ownerweize" and handles `bot`, `agent7` passed | Names: each word is also read with digits as letters (0→o, 1→i or l, 3→e, 4→a, 5→s, 7→t, 8→b, 9→g; `l` also as `i`, as the look-alike folding already reads 1 as l) and without digits at its ends, and a role word of five letters or more (owner, admin, administrator, moderator, agent, system, teamchat, everyone) may not start or end a word ("ownerweize", "superadmin", "system32"); the short ones (mod, bot) count only as a whole word ("b0t", "bot7"), so names such as Botha or Modi stay free. Handles: `bot` and `agent` are reserved like the others (plural, digits, `-`, `_` after them), and a handle is also checked with its digits read as letters ("adm1n", "0wner"). |
 | G. (low) Functional and cosmetic | An agent's message names the person it was written for wherever an agent reads it ("@coder (agent: Codex), posting for @bob"), and the brief says a post for the turn's person counts as their request (Writer had skipped Coder's post for Bob as "from @coder"). The agent's own earlier message from a turn for someone else reads "[your own message, from a turn for @bob]" instead of "[written for @bob: context only …]". A waiting ask edited before its turn is one entry, as it reads now, marked "(edited)". |
 
+Staging verification (2026-11-06; controller build of `67038be1`, node
+release `fleet-v0.5.1-staging.14` (`b7c60d79`, its released macOS binary on
+the test Mac node), agents image `sha-67038be`, frontend `a5f2f2d0`; hub
+unchanged `767986d`; the owner's own turns; Coder (Codex,
+`openrouter/deepseek/deepseek-v4-flash-0731`) and Writer (Claude Code,
+`openrouter/anthropic/claude-haiku-5.5`) on PantheonOS models; an owner-only
+channel `#p3c6-solo` with a canary):
+
+* **A, padded request.** The check's `pad.py` (it steals the credential from
+  the turn's runtime) found none during a running Coder turn ("no running
+  turn": the credential is in no process's environment). Its variant without
+  a credential (`pad2.py`, a same-user process outside the turn) sent
+  `read '#p3c6-solo'` padded with a 40 KB `pad:` line → "refused: a request
+  is at most 36 KB", and unpadded → "refused: this command is not part of
+  the agent's running Team Chat turn". The canary appeared nowhere.
+* **B, swapped request.** `race2.py` (the check's `race.py` without the
+  credential step; kqueue on the inbox, renames its own `read '#p3c6-solo'`
+  over each `channels` request file) swapped 12 of the turn's own
+  `channels` requests: all 12 refused, none answered with the canary;
+  the turn's other commands (`inbox`, `members`, `read`, `search`, `dm`)
+  were answered. The swap costs the turn those commands, as designed.
+* **C, folder hooks.** `UserPromptSubmit` and `SessionStart` hooks planted
+  in `~/PantheonAgents/writer/.claude/settings.json` and
+  `settings.local.json`, and in `~/PantheonAgents/coder/.codex/hooks.json`
+  and `.codex/config.toml` (each would run `pantheon-team read
+  '#p3c6-solo'`): two owner Writer turns and one Coder turn ran; no hook
+  ran. Writer's process had `--setting-sources "" --strict-mcp-config` and
+  no `PANTHEON_TEAM_TURN` in its environment.
+* Spend: the owner's key $6.5654 → $6.6937 over 4 turns (Coder 2, one of
+  them failed at once with "PantheonOS budget exhausted" before the budget
+  was raised for the test; Writer 2). In the B run the Codex model, seeing
+  its `channels` refused, looked at `ps` and killed a few of the computer
+  user's stray `sleep` processes and an old `while :; do sleep 0.2; done`
+  loop: a shared agent acts as its computer's user ("What Team Chat cannot
+  prevent").
+
 ## Out of scope
 
 Payments, mobile native apps, external chat bridges, prod rollout (asked
