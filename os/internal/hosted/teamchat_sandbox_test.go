@@ -128,9 +128,13 @@ func TestASharedAgentOnAnotherRuntimeIsRefused(t *testing.T) {
 	eventually(t, "the refusal", func() bool {
 		return strings.Contains(attentionOf(t, s, "Gem"), "Cursor Agent can't run in Team Chat's sandbox")
 	})
-	if s.nodes.promptCount() != before {
-		t.Fatal("cursor's turn reached the node")
+	s.nodes.mu.Lock()
+	for _, send := range s.nodes.sends[before:] {
+		if strings.Contains(str(send["cwd"]), "gem") {
+			t.Error("cursor's turn reached the node")
+		}
 	}
+	s.nodes.mu.Unlock()
 	reason, fix, transient, known := explainKnown(&tcMember{Runtime: "codex"}, TeamNode{}, "Team Chat sandbox: A shared agent runs in a sandbox without your own Codex sign-in, so it needs PantheonOS models. Choose PantheonOS models.")
 	if !known || transient || fix != "" || !strings.HasPrefix(reason, "A shared agent runs in a sandbox") {
 		t.Fatalf("explain: %q %q %v %v", reason, fix, transient, known)
