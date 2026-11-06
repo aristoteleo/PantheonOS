@@ -142,6 +142,7 @@
     function createAppBridge() {
       let state = null
       let canNavigate = false
+      let canOpenFiles = false
       let hostInfo = null, visitorInfo = null
       let stateCb = null
       const actions = new Map()
@@ -320,6 +321,8 @@
         if (!m || m.__lv !== LV) return
         if (m.t === 'boot') {
           canNavigate = m.capabilities?.appNavigation === 1
+          // The host shows the files this App links (an App page's side panel).
+          canOpenFiles = m.capabilities?.fileOpening === 1
           // A hosted App (docs/apps/app-hosting.md) learns who is using it.
           hostInfo = m.host || null
           visitorInfo = m.visitor || null
@@ -376,6 +379,11 @@
           open: (appId) => canNavigate
             ? request({ t: 'navigate', op: 'openApp', args: { appId } }, 120_000)
             : Promise.reject(new Error('This host cannot open other Apps yet. Open the App from your desktop launcher.')),
+          /** Whether openFile shows files in the host (known once booted). */
+          get canOpenFiles() { return canOpenFiles },
+          openFile: (path, name) => canOpenFiles
+            ? request({ t: 'navigate', op: 'openFile', args: name ? { path, name } : { path } }, 120_000)
+            : Promise.reject(new Error('This host does not open files.')),
         },
         onEvent(name, cb) {
           if (!events.has(name)) events.set(name, new Set())
