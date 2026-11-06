@@ -719,4 +719,3 @@ func teamFilePut(folder, name string, offset, size int64, data string, final boo
 	}
 	return map[string]any{"success": true, "path": p}
 }
-
