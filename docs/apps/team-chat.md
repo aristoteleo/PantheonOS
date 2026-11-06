@@ -1479,7 +1479,9 @@ verification" below): controller `2a8975fa`, hub `ea2eda2`
 (`space_members`, migrated on staging only), frontend `f570c28a`; fixed
 after the first independent check on 2026-11-06 (see "Fixes after the
 first Phase 3 check"): controller `f25093d8`, hub `15128fe`, frontend
-`ac426461`. No node release and no new agents image. Not in production.
+`ac426461`; fixed after the second check on 2026-11-06 (see "Fixes after the
+second Phase 3 check"): controller `8f252aac`, hub `767986d`, frontend
+`1bb09915`, node release `fleet-v0.5.1-staging.12`. Not in production.
 
 ### Decisions where the design left a choice
 
@@ -1906,10 +1908,100 @@ members, Alice and Bob; one headless Chromium):
 **Left.** A shared agent's own memory (its runtime session and the
 `MEMORY.md` it keeps) is not split by person: what one person tells it can
 come back in another person's turn if the model chooses to repeat it. The
-DM note and the T35 dialog say so; per-person sessions would close it. A
-shared folder is checked as the computer resolves the path (`..`, `~`) but
-not through symlinks. An owner without a display name is still named by
+DM note and the T35 dialog say so; per-person sessions would close it. (A
+shared folder is now checked where it really is, symlinks included: see the
+second check.) An owner without a display name is still named by
 their account username (as the invite page names them).
+
+### Fixes after the second Phase 3 check (2026-11-06)
+
+The second independent check (staging, 2026-11-06) found that "no relay around
+access" could still be bypassed: an agent's commands were not bound to the
+turn and the person it worked for. Three holes gave a member's request the
+owner's full view (an agent's edit re-woke an Only-me agent with no access
+check; a member's reminder posted while its agent was stopped woke one as
+the owner; and a command from a process left running by a member's turn read
+the owner's private channels during the owner's next turn), and smaller ones
+followed from the same cause (`remind list`, mid-turn follow-ups, tasks). The
+fix is at the cause: "Turn-bound commands" and "Admin powers" under "Privacy
+and permissions". Each hole has a test that fails on the code before the fix
+(`os/internal/hosted/teamchat_p3check2_test.go`; node
+`apps/coding_agents/team_test.go` `TestATeamTurnsCommandsAndProcessesEndWithIt`
+and `teamfolder_test.go`; hub `tests/test_team_chat_spaces.py`; UI
+`phase3check2.test.ts`).
+
+| Finding | Fix |
+|---|---|
+| 1. An agent's edit re-woke the agents its message woke, with no "works for" and no access check | An edit by an agent carries its turn's person; it re-wakes an agent only when that person may use it, and the wake carries the person (checked again when the turn would start). An agent edits only messages in conversations that person sees. |
+| 2. A person's reminder posted by Team Chat outside a turn (agent stopped or busy) woke agents as the owner | A reminder set in a turn works for that turn's person, always; Team Chat posts it with that person, so its mentions wake only agents they may use. In a member's turn `remind --for` names only that member or the agent. |
+| 3. Agent commands were not bound to a turn (a fixed per-agent token; outside a turn, the last turn's people) | Turn id + credential made at turn start, dropped at its end, given to the turn's processes only in their environment; the node and the controller refuse a command without the running turn's credential; no fallback. A Team Chat turn runs in its own session and its leftover processes are ended with it. |
+| 4. `remind list` (and `cancel`) in a member's turn showed the owner's reminders | In a member's turn only reminders set in that member's turns or for them, or tied to a conversation they see. |
+| 5. T35 bypassed through `/System/Volumes/Data/Users/<me>`, `/Volumes/<boot>`, symlinks, case | The computer resolves the folder (symlinks, true case, macOS data volume and boot volume names) and compares it, and its device and inode, with every home folder, the folders that hold them and `/` (`team_setup` check: `real`, `home`, `root`, `holds_home`); the service refuses by that. A relative folder, `~user`, `$HOME`, `smb://` or `\\server` is refused at once: "Choose a full folder on that computer…". The New agent dialog folds the same macOS names and asks for a full folder before Create. |
+| 6. An admin could make the owner's private channel public, take the owner's Only-me agents out, set wake-every-message on #general | "Admin powers": the owner's channels' privacy, wake mode, name and archive are the owner's; nobody else takes the owner's agents they may not use out of them. |
+| 7. Names that pass for others: RTL override, "Team Chat", "Weize (owner)", newline, invisible; handles `owner`, `everyone`, … | Names refuse control, format (direction, zero-width) and blank characters and need something visible; people's names refuse "Team Chat", "system" and a role at the end ("(owner)", "admin"); handles `owner`, `admin`, `everyone`, `here`, `all`, `channel`, `system`, `team-chat` are reserved. An account name that fails goes by its handle. |
+| 8. An owner's turn took in a member's ask mid-turn (and the reverse) | A turn works for one person and takes only that person's messages (start and `inbox`); the others start their own turn after it. |
+| 9. Agent `task claim/state/assign` did not check the task's conversation; `assign` no access check | Only tasks in conversations the turn's person sees; assign only to agents that person may use and people still in the space. |
+| 10. Leaving and rejoining within a second locked a person out (seconds compared, two clocks) | The Hub gives each membership an id (`membership`: its row and the microsecond it began) in the space grant and in a removal or leave; the service refuses a grant of the membership that ended and only that one. |
+| Refusal words "can  an agent", "can reset full an agent" | "Only the space owner can do that to an agent / fully reset an agent / delete an agent." |
+| The invite page named an admin inviter by their account username | An admin's invite names them by a name they chose, else by the space's owner. |
+| Members saw each other's earlier handles (account usernames) | A person's `prev_handles` reach only themselves and the owner. |
+
+Staging verification (2026-11-06, controller `8f252aac`, hub `767986d`,
+frontend `1bb09915`, the test Mac node on `fleet-v0.5.1-staging.12`; the owner,
+Alice (member) and Bob (admin) with their own grants; Coder (Codex,
+`openrouter/deepseek/deepseek-v4-flash-0731`, shared) and Writer (Claude Code,
+haiku through OpenRouter, Only me); no browser):
+
+* **Edit-wake.** Coder posted "@writer please reply with just the word PONG"
+  for the owner (Writer woke). The model refused when Alice asked it to edit
+  that message, so the check ran the command as a cooperative agent would,
+  inside Alice's running turn (with that turn's credential, read from the
+  turn's process): `edit` → "Edited message …" to "@writer please check
+  #p3c2-vault …"; Writer was not woken (no turn, queue 0). In the same turn
+  `read '#p3c2-vault'` → "you are not in #p3c2-vault". Without the credential
+  the same command → "refused: this command is not part of the agent's
+  running Team Chat turn".
+* **Stopped-agent reminder.** In Alice's turn `remind 'in 2 minutes'` "@writer
+  please check #p3c2-solo …" (for @p3v-alice); Bob stopped Coder; at the due
+  time Team Chat posted "⏰ Reminder for @p3v-alice: @writer please check
+  #p3c2-solo …" and Writer did not wake.
+* **Background loop across turns.** Coder (Alice's turn) ran `nohup sleep 777
+  … &` and `pgrep` showed it running; two seconds after the turn ended it was
+  gone. Two leftover loops reading `#p3c2-vault` every 3 s (one with Alice's
+  ended turn's credential, one with none) got 17 refusals each during the
+  owner's next turn and no canary (the first check: the canary 88 times).
+  (Coder refused to start an endless polling loop itself.)
+* **`remind list`.** The owner had a reminder ("owner note: rotate the OSPREY
+  vault code"); in Alice's turn `remind list` → "You have no reminders." and
+  `remind cancel <its id>` → "you have no reminder".
+* **T35.** Shared dry runs on the Mac were refused for
+  `/System/Volumes/Data/Users/weizexu` (a home folder),
+  `/System/Volumes/Data` and `/Volumes/Macintosh HD` (the whole computer),
+  `/System/Volumes/Data/Users` (holds home folders), `/Volumes/Macintosh
+  HD/Users/weizexu`, `/users/Shared`, `/USERS/WEIZEXU`, and symlinks to `~`,
+  `/` and `/Users`; `agents/coder`, `~weizexu/agents`, `$HOME/agents`,
+  `smb://server/share` and `\\server\share` → "Choose a full folder on that
+  computer…"; `/Users/weizexu/PantheonAgents/t35ok` accepted.
+* **Admin.** Bob on the owner's private `#p3c2-vault`: `private: false`,
+  `agent_reply: all` (there and on #general), taking Writer out
+  (`conv_update` members and `conv_leave`), rename and archive were all
+  refused with "Only the space owner can …"; Alice still could not read it.
+* **Names.** Alice's `me_update` refused "‮ezieW" (RTL override), "Wei⁦ze",
+  "Team Chat", "Weize (owner)", "Space owner", a newline name, a zero-width
+  space, a Hangul filler; handles `owner`, `everyone`, `here`, `all`,
+  `channel`, `system`, `team-chat` were reserved.
+* **Leave and rejoin.** Alice left and joined again through the invite at
+  03:07:29.45 and 03:07:29.70 UTC (the same second) and her next calls
+  worked.
+* **Released node.** After the swap to the released `staging.12` binary, a
+  Coder turn used `pantheon-team read` and posted.
+* Spend: the owner's key $5.0424 → $5.2990 over 11 Coder turns (Writer's two
+  wakes at the start skipped); Alice and Bob $0.00.
+
+The Hub's own check that an invite link is newer than a removal (`created_at`
+against the removal time) still compares times; a link made in the same
+second as a removal (on a database that keeps whole seconds) is refused, and
+the next one works.
 
 ## Out of scope
 
