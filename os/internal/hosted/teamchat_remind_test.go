@@ -88,16 +88,21 @@ func (r *remindRig) delivered(note string) {
 			r.t.Fatalf("still listed: %v", x)
 		}
 	}
-	fl, err := r.tc.lockFleet(context.Background(), fleetID)
-	if err != nil {
-		r.t.Fatal(err)
-	}
-	defer fl.mu.Unlock()
-	for _, w := range fl.queues[r.agent] {
-		if w.forPerson(fl) {
-			r.t.Fatalf("still queued: %+v", w)
+	// Its wake leaves the queue (another reminder's may still wait to be
+	// posted: each is checked when it is delivered).
+	eventually(r.t, note+" out of the queue", func() bool {
+		fl, err := r.tc.lockFleet(context.Background(), fleetID)
+		if err != nil {
+			r.t.Fatal(err)
 		}
-	}
+		defer fl.mu.Unlock()
+		for _, w := range fl.queues[r.agent] {
+			if w.forPerson(fl) && w.Note == note {
+				return false
+			}
+		}
+		return true
+	})
 }
 
 // queue puts a due person's reminder wake straight in the agent's queue
