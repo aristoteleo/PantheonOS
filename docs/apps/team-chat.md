@@ -1607,7 +1607,10 @@ second Phase 3 check"): controller `8f252aac`, hub `767986d`, frontend
 (the Workspace node); fixed after the third check on 2026-11-06 (see "Fixes
 after the third Phase 3 check"): controller `5467ebf8`, frontend `60e5ae12`,
 node release `fleet-v0.5.1-staging.13` and agents image `sha-f093686`, hub
-unchanged. Not in production.
+unchanged; fixed after the fourth check on 2026-11-06 (see "Fixes after the
+fourth Phase 3 check"): controller `67038be1`, frontend `a5f2f2d0`, node
+release `fleet-v0.5.1-staging.14` (`b7c60d79`) and agents image
+`sha-67038be`, hub unchanged. Not in production.
 
 ### Decisions where the design left a choice
 
