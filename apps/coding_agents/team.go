@@ -52,6 +52,11 @@ type TeamTurn struct {
 	// the turn ends.
 	Turn string `json:"turn,omitempty"`
 	Cred string `json:"cred,omitempty"`
+	// Sandbox: the turn runs in the OS sandbox (a shared agent whose owner
+	// did not turn it off; docs/apps/team-chat.md, "Shared agents run
+	// sandboxed"). When the sandbox cannot be applied the turn is refused,
+	// never run without it.
+	Sandbox bool `json:"sandbox,omitempty"`
 }
 
 // teamTurnEnv is the variable that carried a turn's id and credential to
@@ -642,6 +647,9 @@ func teamSetup(folder, agentMD, reset string, checkOnly bool) map[string]any {
 	real, realHome, realRoot, holdsHome := folderFacts(folder)
 	isHome, isRoot = isHome || realHome, isRoot || realRoot
 	out := map[string]any{"success": true, "folder": folder, "real": real, "home": isHome, "root": isRoot, "holds_home": holdsHome}
+	// The sandbox shared agents' turns run in here (docs/apps/team-chat.md,
+	// "Shared agents run sandboxed").
+	out["sandbox"] = sandboxAvailable()
 	if st, err := os.Stat(folder); err == nil {
 		if !st.IsDir() {
 			return failure("%s is not a folder", folder)

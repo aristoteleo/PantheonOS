@@ -53,6 +53,9 @@ type Conversation struct {
 	// Interrupted: the last turn ended because the service stopped; a
 	// new message resumes the agent's session.
 	Interrupted bool `json:"interrupted,omitempty"`
+	// Sandboxed: its turns run in Team Chat's sandbox, with a home of their
+	// own (its runtime session lives there, not in the user's home).
+	Sandboxed bool `json:"sandboxed,omitempty"`
 	// Canvas is what the latest canvas turn asked for.
 	Canvas *CanvasTurn `json:"canvas,omitempty"`
 	// Limits is the account quota the agent last reported, with its time.
@@ -454,6 +457,32 @@ func (a *App) send(p SendArgs) map[string]any {
 		a.mu.Unlock()
 		return failure("Could not start %s on PantheonOS models: %s", agent.Label, codingagents.PlatformMissing)
 	}
+	sandboxed := p.Team != nil && p.Team.Sandbox
+	if sandboxed {
+		// A sandboxed turn is refused, never run without its sandbox
+		// (docs/apps/team-chat.md, "Shared agents run sandboxed").
+		why := ""
+		switch kind, sysWhy := codingagents.SandboxKind(); {
+		case !codingagents.SandboxRuntimes[c.Agent]:
+			why = agent.Label + " can't run in Team Chat's sandbox (only Claude Code and Codex can). The owner can switch the agent to Claude Code or Codex, or turn the sandbox off in the agent's settings"
+		case kind == "":
+			why = codingagents.ErrNoSandbox.Error() + " (" + sysWhy + ")"
+		case !onPlatform:
+			why = "A shared agent runs in a sandbox without your own " + agent.Label + " sign-in, so it needs PantheonOS models. Choose PantheonOS models for " + agent.Label + " in Coding Agents on this computer, or turn the sandbox off in the agent's settings"
+		case p.ConversationID != "" && !c.Sandboxed:
+			why = "This conversation ran outside the sandbox; start a new one to use the sandbox"
+		}
+		if why != "" {
+			if p.ConversationID == "" {
+				delete(a.convs, c.ID)
+			}
+			a.mu.Unlock()
+			return failure("%s%s", codingagents.SandboxRefusal, why)
+		}
+	} else if p.Team != nil && p.ConversationID != "" && c.Sandboxed {
+		a.mu.Unlock()
+		return failure("This conversation ran in the sandbox; start a new one to use it without")
+	}
 	var platformModels codingagents.Models
 	var platformArgs []string
 	if onPlatform {
@@ -606,7 +635,22 @@ func (a *App) send(p SendArgs) map[string]any {
 		// (docs/apps/team-chat.md, "Turn-bound commands").
 		env = slices.DeleteFunc(slices.Clone(env), func(kv string) bool { return strings.HasPrefix(kv, teamTurnEnv+"=") })
 	}
-	cmd := exec.Command(r.path, args...)
+	program := r.path
+	if sandboxed {
+		// The whole runtime process tree runs in the OS sandbox.
+		var err error
+		if program, args, env, err = a.sandboxTurn(c, team, r.path, args, env, teamModel); err != nil {
+			if p.ConversationID == "" {
+				delete(a.convs, c.ID)
+			}
+			a.mu.Unlock()
+			box.close()
+			team.close()
+			return failure("%v", err)
+		}
+		c.Sandboxed = true
+	}
+	cmd := exec.Command(program, args...)
 	cmd.Dir = c.Cwd
 	cmd.Env = env
 	if !agent.Headless.PromptArg {
