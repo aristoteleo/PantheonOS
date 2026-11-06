@@ -18,6 +18,7 @@ PantheonEvo = HypothesisBandit
 """The working name during development; runs recorded under `pantheon_evo` load fine."""
 from .simpletes import PUCTSelector, RPUCGSelector, Selector, SimpleTES
 from .lab_notebook import LabNotebook
+from .molt import Molt
 
 __all__ = [
     "AgentMapElites",
@@ -29,4 +30,5 @@ __all__ = [
     "PantheonEvo",
     "SimpleTES", "Selector", "PUCTSelector", "RPUCGSelector",
     "LabNotebook",
+    "Molt",
 ]
