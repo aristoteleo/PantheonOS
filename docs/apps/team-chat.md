@@ -2219,6 +2219,41 @@ shared with everyone); 11 real Coder turns, no emulated agent):
   a private note, and declined to share either (the one-memory choice, told
   to people in the UI).
 
+### Fixes after the fourth Phase 3 check (2026-11-06)
+
+The fourth independent check (staging, 2026-11-06) found two ways around
+vouched commands and a way to persist across turns: (A, high) the node
+checked vouching only for requests of at most 36 KB and ignored header lines
+it did not know, so a process outside the turn, with a credential read from
+Codex's environment, padded its request with a 40 KB `pad:` line and read
+the owner-only `#p3c5-solo` in the owner's turn; (B, high) `pantheon-team`
+wrote its request to `.ID.tmp` and then hashed the file by path, so an
+outside process watching the inbox (kqueue) renamed its own request over
+`.ID.tmp` first and the turn's own `pantheon-team-wait` vouched for it (5
+of 5 commands hijacked); the `.tmp` also held the credential; (C, medium) a
+`UserPromptSubmit` hook in `~/PantheonAgents/writer/.claude/settings.local.json`
+(which an agent can be asked to write in one person's turn) ran in the
+owner's later Writer turn, with that turn's credential, and was vouched.
+The fixes are at the cause ("Turn-bound commands", "What Team Chat cannot
+prevent" under "Privacy and permissions"). Tests:
+`apps/coding_agents/team_p3check4_test.go`
+(`TestEveryTeamRequestIsVouchedWhateverItsSize`,
+`TestASwappedTeamRequestFileIsNeverAnswered`), `team_test.go`
+(`TestTeamCleanArgs`, the empty credential in
+`TestATeamTurnsCommandsAndProcessesEndWithIt`),
+`os/internal/hosted/teamchat_p3check4_test.go`, UI `phase3.test.ts`. Each
+fails with its fix reverted (12 reverts, one per fix).
+
+| Finding | Fix |
+|---|---|
+| A. (high) A request over 36 KB skipped vouching; unknown header lines were ignored | Every request is vouched for, with no size condition. One larger than 36 KB (32 KB of text and a 4 KB header) is refused before anything else (`pantheon-team` itself refuses text over 32 KB); one whose header has a line other than one `op:` and any `arg:`, `opt:`, `file:` is refused. No other branch skips the check: a node that cannot read another process's arguments now answers no command at all (it used to fall back to the credential). |
+| B. (high) Swapping `.ID.tmp` before `pantheon-team` hashed it hijacked the turn's own commands; the `.tmp` held the credential | `pantheon-team` builds the request in memory and computes its SHA-256 from those bytes (a pipe between two of the turn's processes), then writes the file (`set -C`, a new file only); `pantheon-team-wait`'s arguments carry the inbox, the id and that digest. The node answers only a file whose digest is that one, with the vouching process still the same process (start time) afterwards. A file swapped or rewritten at any moment is refused: it costs the turn that command, never more. The credential no longer leaves the node: not in requests, files, arguments or the turn's environment (`PANTHEON_TEAM_TURN` is removed, also when inherited); the node adds it to the request it sends the controller. (Reading the request from the vouching process's environment instead, so no file is involved, was tried: macOS hides another process's environment when that process is a platform binary such as `/bin/sh`; arguments are visible to other users through `ps`, so the request itself stays out of them.) |
+| C. (medium) Hooks and settings in the agent's own folder loaded in Team Chat turns | Claude Code runs with `--setting-sources ""` (no settings files: neither the user's nor the folder's `.claude/settings.json`/`settings.local.json`, so none of their hooks, `env`, helpers or permissions; nor the folder's `CLAUDE.md` or skills) and `--strict-mcp-config`. Codex runs with `--ignore-user-config` (which also leaves the folder's `.codex/config.toml` unloaded: its trust lives in the user's config) and `--disable hooks`. Checked offline against a local capture endpoint with hooks, settings and instruction files planted in the folder (Claude Code 2.1.319, Codex 0.166): no hook ran, no folder setting or `CLAUDE.md` reached the model; Codex still reads the folder's `AGENTS.md`. "What Team Chat cannot prevent" now says that the folder (`AGENTS.md`, `MEMORY.md`, notes, scripts) carries over between turns and people, and that other runtimes still load their folder setup. |
+| D. (low) Doc statements that were not true | "A request written by hand inside the turn is refused" is gone: any process inside the turn can vouch, so vouching binds a command to the running turn, not to the script (said in "Turn-bound commands"). "Never in a file" is now true (B). Team Chat always sends `auto: true`, so Codex runs with `--dangerously-bypass-approvals-and-sandbox` and Claude Code with `--dangerously-skip-permissions`: the doc ("Files", T35) and the T35 dialog now say "Team Chat runs its turns without the runtime's sandbox or permission prompts, so nothing keeps it to its folder" instead of "Codex's sandbox, when on, …". The behaviour is unchanged (an open product decision). |
+| E. (low) `task list` and `remind list` showed other people's task titles and reminder notes unmarked | In a turn for one person, another person's task (its maker, or for an agent's task the person its message was written for) reads "[@bob's task: context only, not a request to you in this turn] …", and another person's reminder (its person, else the person of the turn that set it) "[@bob's reminder: context only, …] …", as `read` and `search` mark messages. |
+| F. (low) Names "Adm1n", "system32", "ownerweize" and handles `bot`, `agent7` passed | Names: each word is also read with digits as letters (0→o, 1→i or l, 3→e, 4→a, 5→s, 7→t, 8→b, 9→g; `l` also as `i`, as the look-alike folding already reads 1 as l) and without digits at its ends, and a role word of five letters or more (owner, admin, administrator, moderator, agent, system, teamchat, everyone) may not start or end a word ("ownerweize", "superadmin", "system32"); the short ones (mod, bot) count only as a whole word ("b0t", "bot7"), so names such as Botha or Modi stay free. Handles: `bot` and `agent` are reserved like the others (plural, digits, `-`, `_` after them), and a handle is also checked with its digits read as letters ("adm1n", "0wner"). |
+| G. (low) Functional and cosmetic | An agent's message names the person it was written for wherever an agent reads it ("@coder (agent: Codex), posting for @bob"), and the brief says a post for the turn's person counts as their request (Writer had skipped Coder's post for Bob as "from @coder"). The agent's own earlier message from a turn for someone else reads "[your own message, from a turn for @bob]" instead of "[written for @bob: context only …]". A waiting ask edited before its turn is one entry, as it reads now, marked "(edited)". |
+
 ## Out of scope
 
 Payments, mobile native apps, external chat bridges, prod rollout (asked
