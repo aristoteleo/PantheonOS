@@ -472,7 +472,7 @@ func (a *App) send(p SendArgs) map[string]any {
 		// calls on the user's PantheonOS budget (docs/apps/team-chat.md,
 		// "Fixes after the fifth Phase 3 check"). The note about the
 		// pantheon command, signed in by that key, does not apply.
-		_ = note
+		env, note = codingagents.TeamEnv(r.settings, c.Agent), ""
 	}
 	env = withDefaults(env, agent.Headless.Env)
 	box, trouble := a.linkBoxLocked(c)
