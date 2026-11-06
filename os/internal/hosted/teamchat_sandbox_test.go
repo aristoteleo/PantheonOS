@@ -103,9 +103,14 @@ func TestASharedTurnWithoutASandboxIsRefused(t *testing.T) {
 		if !strings.Contains(attentionOf(t, s, "Shared"), "turn the sandbox off in the agent's settings") {
 			t.Errorf("%s: no way out: %s", c.node, attentionOf(t, s, "Shared"))
 		}
-		if s.nodes.promptCount() != before {
-			t.Fatalf("%s: the turn reached the node", c.node)
+		// (Writer's turn for the owner's DM in the setup may arrive meanwhile.)
+		s.nodes.mu.Lock()
+		for _, send := range s.nodes.sends[before:] {
+			if strings.Contains(str(send["cwd"]), "shared") {
+				t.Errorf("%s: the turn reached the node", c.node)
+			}
 		}
+		s.nodes.mu.Unlock()
 	}
 }
 
