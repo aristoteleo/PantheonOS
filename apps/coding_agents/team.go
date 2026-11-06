@@ -61,19 +61,19 @@ const teamTurnEnv = "PANTHEON_TEAM_TURN"
 
 // teamBox is an agent folder's .team/ for one turn.
 type teamBox struct {
-	team    TeamTurn
-	script  string
-	inbox   string
-	root    *os.Root
-	info    os.FileInfo
-	taken   map[string]bool
+	team   TeamTurn
+	script string
+	inbox  string
+	root   *os.Root
+	info   os.FileInfo
+	taken  map[string]bool
 	// answered: each request id a process of the turn vouched for, with
 	// the request's SHA-256. An id is answered at most once in a turn: a
 	// copy of a request written again under its id (its .reply removed
 	// before the turn's process read it) is refused, not run again.
 	answered map[string]string
 	handled  int
-	off     bool
+	off      bool
 }
 
 func (b *teamBox) close() {

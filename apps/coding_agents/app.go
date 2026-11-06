@@ -105,6 +105,9 @@ type turn struct {
 	// platform: the agent runs on PantheonOS models, not its own sign-in.
 	platform bool
 	scanMu   sync.Mutex
+	// endModel ends a Team Chat turn's model token (and route token) the
+	// moment its runtime exits (codingagents.TurnModelKey).
+	endModel func()
 }
 
 // App holds the conversations on this node and the turns running now.
@@ -463,16 +466,43 @@ func (a *App) send(p SendArgs) map[string]any {
 			return failure("Could not start %s on PantheonOS models: %v", agent.Label, err)
 		}
 	}
+	// endModel ends what a Team Chat turn was given for model calls: until
+	// the turn holds it (tr.endModel), any return ends it.
+	endModel, handed := func() {}, false
+	defer func() {
+		if !handed {
+			endModel()
+		}
+	}()
+	var teamModel *codingagents.Platform
+	if p.Team != nil && onPlatform {
+		// A Team Chat turn never holds the user's model key: a token of its
+		// own, good on this node's gateway for model calls until the turn
+		// ends (docs/apps/team-chat.md, "Fixes after the sixth Phase 3
+		// check").
+		turnModel, revoke, err := codingagents.TurnModelKey(c.Agent, platform)
+		if err == nil {
+			platformArgs, err = codingagents.PlatformArgs(c.Agent, turnModel, platformModels)
+		}
+		endModel, teamModel = revoke, &turnModel
+		if err != nil {
+			if p.ConversationID == "" {
+				delete(a.convs, c.ID)
+			}
+			a.mu.Unlock()
+			return failure("Could not start %s on PantheonOS models: %v", agent.Label, err)
+		}
+	}
 	launch := codingagents.Launch{Agent: c.Agent, Conversation: c.ID, NodeID: a.NodeID, NodeName: a.NodeName}
 	note := codingagents.Note(r.settings, launch)
 	env := codingagents.LaunchEnv(r.settings, launch)
 	if p.Team != nil {
 		// A Team Chat turn starts from an allow-listed environment, with
-		// no PantheonOS key: nothing in it is good for more than model
-		// calls on the user's PantheonOS budget (docs/apps/team-chat.md,
-		// "Fixes after the fifth Phase 3 check"). The note about the
-		// pantheon command, signed in by that key, does not apply.
-		env, note = codingagents.TeamEnv(r.settings, c.Agent), ""
+		// no PantheonOS key and no model key: nothing in it is good beyond
+		// this turn's model calls (docs/apps/team-chat.md, "The turn's
+		// environment"). The note about the pantheon command, signed in by
+		// that key, does not apply.
+		env, note = codingagents.TeamEnv(c.Agent, teamModel, platformModels), ""
 	}
 	env = withDefaults(env, agent.Headless.Env)
 	box, trouble := a.linkBoxLocked(c)
@@ -528,6 +558,11 @@ func (a *App) send(p SendArgs) map[string]any {
 		}
 		platformArgs, model = routeArgs, routeModel
 		env = codingagents.SetEnv(env, routeEnv...)
+		if p.Team != nil {
+			// The route's token ends with the turn too.
+			turnModel := endModel
+			endModel = func() { turnModel(); codingagents.RevokeLaunchTokens(routeEnv) }
+		}
 	} else if onPlatform {
 		model = codingagents.PlatformModelArg(c.Agent, codingagents.PlatformModel(model, platformModels))
 	} else {
@@ -547,8 +582,14 @@ func (a *App) send(p SendArgs) map[string]any {
 	if onPlatform {
 		args = append(args, platformArgs...)
 	}
-	args = append(args, r.settings.Agents[c.Agent].Args...)
-	if team != nil {
+	if p.Team == nil {
+		// The user's own arguments for the agent: not in a Team Chat turn,
+		// where they could load settings, plugins, hooks or a config
+		// (--settings, --plugin-dir, -c, --profile) that teamCleanArgs keeps
+		// out (docs/apps/team-chat.md, "Fixes after the sixth Phase 3
+		// check").
+		args = append(args, r.settings.Agents[c.Agent].Args...)
+	} else {
 		args = append(args, teamCleanArgs(c.Agent, r.path)...)
 	}
 	extra := note
@@ -591,7 +632,8 @@ func (a *App) send(p SendArgs) map[string]any {
 	c.Status, c.LastError, c.Interrupted, c.Updated = "running", "", false, now()
 	userSeq := c.Seq + 1
 	tr := &turn{cmd: cmd, done: make(chan struct{}), exited: make(chan struct{}), started: time.Now(), box: box, platform: onPlatform,
-		team: team}
+		team: team, endModel: endModel}
+	handed = true
 	if p.link != nil {
 		tr.hop = p.link.Hop
 	}
@@ -690,6 +732,11 @@ func (a *App) pump(id string, tr *turn, agent codingagents.Agent, found codingag
 	}
 	_, _ = io.Copy(io.Discard, stdout)
 	waitErr := tr.cmd.Wait()
+	// The turn's model token dies with its runtime: what it left running,
+	// or anyone who copied the token, gets no more model calls.
+	if tr.endModel != nil {
+		tr.endModel()
+	}
 	if tr.team != nil && tr.cmd.Process != nil {
 		// Nothing of a Team Chat turn outlives it: a background loop it
 		// started would otherwise act in later turns, for other people.
@@ -768,6 +815,9 @@ func (a *App) noteSignIn(agent, errText, output string) {
 }
 
 func (a *App) finish(id string, tr *turn, end codingagents.Event) {
+	if tr.endModel != nil {
+		tr.endModel()
+	}
 	if tr.box != nil {
 		// Requests written before the end carry this turn's hop: answered
 		// while the turn still holds its place (no next turn can take the

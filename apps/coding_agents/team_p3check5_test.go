@@ -34,7 +34,9 @@ func TestATeamTurnCarriesOnlyTheModelKey(t *testing.T) {
 	}
 	a := NewApp(nil, "", t.TempDir())
 	t.Cleanup(a.Close)
-	a.teamCaller = func(map[string]any) (map[string]any, error) { return map[string]any{"code": float64(0), "text": "ok"}, nil }
+	a.teamCaller = func(map[string]any) (map[string]any, error) {
+		return map[string]any{"code": float64(0), "text": "ok"}, nil
+	}
 	setSource(t, a, map[string]string{"claude": "pantheon", "codex": "pantheon"})
 	if r := a.configure(Configure{Agents: map[string]codingagents.AgentSettings{
 		"claude": {ModelSource: "pantheon", Env: map[string]string{"MY_VAR": "1", "CLAUDE_CODE_PLUGIN_DIRS": "/mine", "PANTHEON_KEY": pbk}},
@@ -64,8 +66,13 @@ func TestATeamTurnCarriesOnlyTheModelKey(t *testing.T) {
 		if strings.Contains(calls, "signed in as the user") {
 			t.Errorf("%s's Team Chat turn was told the pantheon command is signed in:\n%s", agent, calls)
 		}
-		want := map[string]string{"claude": "ANTHROPIC_AUTH_TOKEN=" + platformKey, "codex": "PANTHEON_LLM_API_KEY=" + platformKey}[agent]
-		for _, w := range []string{want, "MY_VAR=", "HOME=", "PATH=", "LANG=en_US.UTF-8", "LC_ALL=en_US.UTF-8"} {
+		// The model key is the turn's own token since the sixth check
+		// (team_p3check6_test.go); the user's variables no longer pass.
+		want := map[string]string{"claude": "ANTHROPIC_AUTH_TOKEN=ptk_", "codex": "PANTHEON_LLM_API_KEY=ptk_"}[agent]
+		if strings.Contains(env, platformKey) || strings.Contains(env, "MY_VAR=") {
+			t.Errorf("%s's Team Chat turn environment has the model key or the user's variable:\n%s", agent, env)
+		}
+		for _, w := range []string{want, "HOME=", "PATH=", "LANG=en_US.UTF-8", "LC_ALL=en_US.UTF-8"} {
 			if !strings.Contains(env, w) {
 				t.Errorf("%s's Team Chat turn environment lacks %s:\n%s", agent, w, env)
 			}
@@ -98,13 +105,14 @@ func TestTeamEnvIsAnAllowList(t *testing.T) {
 	t.Setenv("GIT_ASKPASS", "/askpass")
 	s := codingagents.Settings{Agents: map[string]codingagents.AgentSettings{"codex": {Env: map[string]string{
 		"KEEP": "1", "DYLD_INSERT_LIBRARIES": "/x", "BASH_ENV": "/x", "PANTHEON_TOKEN": "t", "MY_PLUGIN_DIR": "/x"}}}}
-	env := strings.Join(codingagents.TeamEnv(s, "codex"), "\n")
-	for _, bad := range []string{"CLAUDE_CODE_PLUGIN_DIRS", "GIT_ASKPASS", "DYLD_", "BASH_ENV", "PANTHEON_TOKEN", "MY_PLUGIN_DIR"} {
+	_ = s // the user's variables: none pass since the sixth check (team_p3check6_test.go)
+	env := strings.Join(codingagents.TeamEnv("codex", nil, codingagents.Models{}), "\n")
+	for _, bad := range []string{"CLAUDE_CODE_PLUGIN_DIRS", "GIT_ASKPASS", "DYLD_", "BASH_ENV", "PANTHEON_TOKEN", "MY_PLUGIN_DIR", "KEEP=1"} {
 		if strings.Contains(env, bad) {
 			t.Errorf("TeamEnv has %s:\n%s", bad, env)
 		}
 	}
-	for _, w := range []string{"KEEP=1", "CODEX_HOME=/codex-home", "HOME="} {
+	for _, w := range []string{"CODEX_HOME=/codex-home", "HOME="} {
 		if !strings.Contains(env, w) {
 			t.Errorf("TeamEnv lacks %s:\n%s", w, env)
 		}

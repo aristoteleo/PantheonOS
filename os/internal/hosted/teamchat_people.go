@@ -678,13 +678,26 @@ var confusable = strings.NewReplacer("0", "o", "1", "l", "|", "l", "!", "l", "3"
 	"rn", "m", "vv", "w", "а", "a", "е", "e", "о", "o", "р", "p", "с", "c", "х", "x", "у", "y", "і", "i", "ӏ", "l", "ı", "i")
 
 // skeleton is how a name reads: case, accents, spacing and punctuation
-// left out, look-alike characters folded.
+// left out, look-alike characters folded: every character the Unicode
+// confusables table (UTS #39) reads as ASCII letters or digits
+// (teamchat_confusables.go: Greek Ρ and ο, Cyrillic Ѕ, Cherokee Ꮲ, …), then
+// digits and signs that pass for letters (confusable).
 func skeleton(name string) string {
 	var b strings.Builder
-	for _, r := range norm.NFKD.String(strings.ToLower(name)) {
-		if !unicode.Is(unicode.Mn, r) {
-			b.WriteRune(r)
+	for _, r := range norm.NFKD.String(name) {
+		if unicode.Is(unicode.Mn, r) {
+			continue
 		}
+		if t, ok := confusableASCII[r]; ok {
+			b.WriteString(t)
+			continue
+		}
+		low := unicode.ToLower(r)
+		if t, ok := confusableASCII[low]; ok {
+			b.WriteString(t)
+			continue
+		}
+		b.WriteRune(low)
 	}
 	folded := confusable.Replace(b.String())
 	b.Reset()
@@ -833,7 +846,40 @@ func nameTrouble(n string) string {
 	if !visible {
 		return "A name needs letters you can see."
 	}
+	if mixedScript(n) {
+		return "A word of a name may not mix alphabets (such as Latin with Greek, Cyrillic or Cherokee letters that look alike)."
+	}
 	return ""
+}
+
+// lookAlikeScripts are the alphabets with letters that read as Latin ones.
+var lookAlikeScripts = []*unicode.RangeTable{unicode.Latin, unicode.Greek, unicode.Cyrillic, unicode.Cherokee,
+	unicode.Armenian, unicode.Coptic, unicode.Lisu, unicode.Canadian_Aboriginal, unicode.Georgian}
+
+// mixedScript: a word of n (letters between anything else) has letters of
+// two of lookAlikeScripts, as a spoof does ("Ρantheon" with a Greek Rho,
+// "Ѕupport" with a Cyrillic Dze). Other scripts (Chinese, Japanese,
+// Korean, …) may sit in a word with Latin ones.
+func mixedScript(n string) bool {
+	seen := -1
+	for _, r := range norm.NFKC.String(n) {
+		if !unicode.IsLetter(r) {
+			if !unicode.Is(unicode.Mn, r) {
+				seen = -1
+			}
+			continue
+		}
+		for i, sc := range lookAlikeScripts {
+			if unicode.Is(sc, r) {
+				if seen >= 0 && seen != i {
+					return true
+				}
+				seen = i
+				break
+			}
+		}
+	}
+	return false
 }
 
 // plainName drops what a name cannot hold (for an account's name taken at
@@ -869,7 +915,7 @@ var wholeRoleWords = map[string]bool{"staff": true}
 // whole name is a reserved handle.
 func reservedName(n string) bool {
 	sk := skeleton(n)
-	if sk == "teamchat" || sk == "system" || reservedHandle(sk) || sk == "spaceowner" || sk == "spaceadmin" {
+	if sk == "teamchat" || sk == "system" || reservedJoined(sk) || sk == "spaceowner" || sk == "spaceadmin" {
 		return true
 	}
 	words := nameWords(n)
@@ -914,16 +960,33 @@ func nameWords(n string) []string {
 
 // reservedHandle: a handle that is one of the space's own words, also with
 // a plural s, digits, - or _ after it ("admins", "everyone1", "owner_2",
-// "agent7", "bots"), or with digits that pass for letters ("adm1n",
-// "0wner").
+// "agent7", "bots"), with digits that pass for letters ("adm1n", "0wner"),
+// or with - and _ inside it ("help-desk", "sys_admin"); one that holds
+// pantheon anywhere ("official-pantheon", "xpantheon"); or one with a word
+// (between - and _) that would make a name reserved (reservedName's rule:
+// "weize-owner", "super-admin").
 func reservedHandle(h string) bool {
-	low := strings.ToLower(h)
+	if reservedJoined(h) {
+		return true
+	}
+	for _, w := range strings.FieldsFunc(strings.ToLower(h), func(r rune) bool { return r == '-' || r == '_' }) {
+		if isRoleWord(w) {
+			return true
+		}
+	}
+	return false
+}
+
+// reservedJoined: text, its - and _ left out, is a reserved handle (with a
+// plural s or digits after it, digits read as letters) or holds pantheon.
+func reservedJoined(text string) bool {
+	low := strings.NewReplacer("-", "", "_", "").Replace(strings.ToLower(text))
 	for _, v := range []string{low, digitLooks.Replace(low), digitLooks.Replace(strings.ReplaceAll(low, "1", "l"))} {
-		base := strings.TrimRight(v, "0123456789-_")
+		base := strings.TrimRight(v, "0123456789")
 		if base == "" {
 			base = v
 		}
-		if reservedHandles[base] || reservedHandles[strings.TrimSuffix(base, "s")] || strings.HasPrefix(base, "pantheon") {
+		if reservedHandles[base] || reservedHandles[strings.TrimSuffix(base, "s")] || strings.Contains(v, "pantheon") {
 			return true
 		}
 	}

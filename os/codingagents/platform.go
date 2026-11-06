@@ -202,7 +202,13 @@ func writePiExtension(p Platform, m Models) (string, error) {
 	piExtensionMu.Lock()
 	defer piExtensionMu.Unlock()
 	dir := filepath.Join(Root(), "platform")
-	path := filepath.Join(dir, "pi-pantheon.js")
+	name := "pi-pantheon.js"
+	if g, err := url.Parse(p.Base); err == nil && g.Hostname() == "127.0.0.1" {
+		// A Team Chat turn's, through the node's gateway (TurnModelKey):
+		// a file of its own, so a turn at the proxy itself never reads it.
+		name = "pi-pantheon-turn.js"
+	}
+	path := filepath.Join(dir, name)
 	data := piExtension(p, m)
 	if old, err := os.ReadFile(path); err == nil && bytes.Equal(old, data) {
 		return path, nil

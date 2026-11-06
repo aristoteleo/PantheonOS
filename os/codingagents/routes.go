@@ -296,8 +296,14 @@ func resolveRoute(ctx context.Context, base, key, id string) (routePlan, error) 
 
 // ---- the gateway ------------------------------------------------------------
 
-// routeGrant is what one launch's token may do: run one route.
-type routeGrant struct{ Agent, Route string }
+// routeGrant is what one launch's token may do: run one route, or (model
+// set: a Team Chat turn's, turnkey.go) pass model calls on to the platform
+// proxy with the node's key, until it is revoked or until.
+type routeGrant struct {
+	Agent, Route string
+	model        *Platform
+	until        time.Time
+}
 
 // RouteGateway is the node's route gateway.
 type RouteGateway struct {
@@ -340,19 +346,35 @@ func (g *RouteGateway) grant(agent, id string) string {
 	_, _ = rand.Read(b)
 	token := "prt_" + hex.EncodeToString(b)
 	g.mu.Lock()
-	g.grants[sha256.Sum256([]byte(token))] = routeGrant{agent, id}
+	g.grants[sha256.Sum256([]byte(token))] = routeGrant{Agent: agent, Route: id}
 	g.mu.Unlock()
 	return token
+}
+
+// revoke ends a token: the gateway refuses it from now on.
+func (g *RouteGateway) revoke(token string) {
+	g.mu.Lock()
+	delete(g.grants, sha256.Sum256([]byte(token)))
+	g.mu.Unlock()
 }
 
 func (g *RouteGateway) grantOf(r *http.Request) (routeGrant, bool) {
 	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok || token == "" {
+		// Anthropic's clients with an API key send it so.
+		token = r.Header.Get("X-Api-Key")
+	}
+	if token == "" {
 		return routeGrant{}, false
 	}
+	sum := sha256.Sum256([]byte(token))
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	grant, ok := g.grants[sha256.Sum256([]byte(token))]
+	grant, ok := g.grants[sum]
+	if ok && !grant.until.IsZero() && time.Now().After(grant.until) {
+		delete(g.grants, sum)
+		return routeGrant{}, false
+	}
 	return grant, ok
 }
 
@@ -366,6 +388,10 @@ func (g *RouteGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	grant, ok := g.grantOf(r)
 	if !ok {
 		gatewayError(w, http.StatusUnauthorized, "authentication_error", "This route gateway needs the token of a launch")
+		return
+	}
+	if grant.model != nil {
+		g.passModel(w, r, grant)
 		return
 	}
 	switch strings.TrimSuffix(r.URL.Path, "/") {
