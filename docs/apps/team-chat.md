@@ -6,7 +6,8 @@ their own messages; the store and dispatcher run on the controller). Phase 1
 built and verified on staging 2026-11-05 (T1–T16; see "Phase 1 backend as
 built" and its "Staging verification"); Phase 2 built and verified on staging
 2026-11-05 (T20–T27; see "Phase 2 as built"); Phase 3 built and verified on
-staging 2026-11-05 (T30–T35; see "Phase 3 as built"); not in production. Each phase ends
+staging 2026-11-05 (T30–T35; see "Phase 3 as built"); shared agents run sandboxed
+since 2026-11-06 (see "Shared agents run sandboxed"); not in production. Each phase ends
 with acceptance criteria checked on staging before the next starts.
 
 ## Goal
