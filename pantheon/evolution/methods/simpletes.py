@@ -418,6 +418,9 @@ class SimpleTES(BaseMethod):
     """C chains x K candidates per step, commit best-of-K to the chain that produced them."""
 
     name = "simpletes"
+    variator_cls = UpstreamCompletionVariator
+    """The operator class `default_variator` builds; a subclass method that owns prompt
+    changes names its own subclass here instead of re-listing the constructor arguments."""
 
     def __init__(
         self,
@@ -649,7 +652,7 @@ class SimpleTES(BaseMethod):
         # max_tokens matches upstream's default (EngineConfig.max_tokens = 32768). Left unset,
         # the gateway's own output cap decides whether a 43KB program can even be emitted whole,
         # and that decision then wears the algorithm's name.
-        return UpstreamCompletionVariator(model=model, timeout=timeout,
+        return self.variator_cls(model=model, timeout=timeout,
                                           target_file=target_file,
                                           score_key=self.score_key,
                                           max_tokens=kw.get("max_output_tokens") or 32768,

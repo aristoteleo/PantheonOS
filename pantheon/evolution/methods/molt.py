@@ -46,6 +46,15 @@ only once its chain beats the echoed score; the worker prompt also asks for no s
 since a redesign that fails visibly is fixed by its next turns (first programs scoring 0 grew into
 the run's best 7 times).
 
+Prompts. Ordinary chain steps use SimpleTES's generation prompt unchanged. A planned direction is
+written with Molt's own (DIRECTION): every program shown carries its branch id and role (target,
+donor, or -- for a redesign -- an input/output reference, the shortest program that scored, so the
+incumbent is neither copied nor available as a fallback), the attempts the planner cites are
+quoted with their rejection reasons, and nothing asks for "a higher score". A chain a redesign
+opened gets its design, its probation status and its recent results (with rejection reasons) on
+top of SimpleTES's prompt, whose "prioritize novel approaches" closing is replaced by "keep
+developing this design".
+
 Every intervention, sprout and decision carries the attempt count it happened at, and `lineage()`
 says which intervention the run's best descends from (run_bench writes it into summary.json).
 
@@ -66,7 +75,7 @@ from ..core.genome import CodeGenome
 from ..core.individual import Individual
 from ..core.method import EvolveContext
 from ..core.work import Create, Failure, Measurement, PromptContext
-from .simpletes import SimpleTES, score_of
+from .simpletes import SimpleTES, UpstreamCompletionVariator, score_of
 
 logger = logging.getLogger(__name__)
 
@@ -188,14 +197,79 @@ Candidate directions:
 {candidates}
 """
 
-WORKER = """{objective}
+# The prompt a planned direction is written with. Not SimpleTES's generation template: that one
+# shows unlabeled "inspirations" to learn from and asks for "an improved solution with higher
+# score", which contradicts a redesign (write a different algorithm, whose first version usually
+# scores lower) and leaves the branch ids the planner's task names (91 % of directions) pointing at
+# nothing. Here every program carries its id and its role, the attempts the planner cites are
+# quoted, and a redesign sees an input/output reference instead of the incumbent to copy.
+DIRECTION = """Task: {objective}
 
-=== INTERVENTION DIRECTION (a planned experiment; implement exactly this) ===
-Type: {type}
-{where}
+=== YOUR ASSIGNMENT: one planned experiment ({type}) ===
+{assignment}
 Task: {task}
-Mechanism hypothesis: {hypothesis}
+Mechanism hypothesis: {hypothesis}{extra}
 Constraints: {constraints}
+
+=== PROGRAMS (each labeled with its branch id and its role) ===
+{programs}{evidence}
+=== OUTPUT RULES (must follow exactly) ===
+1) Only the code between `{start}` and `{end}` is extracted.
+2) The final program is reconstructed as EXACT_PREFIX + your block + EXACT_SUFFIX.
+3) Keep the marker lines exactly as written.
+4) Return one {block_word} that includes both EVOLVE-BLOCK markers.
+
+EXACT_PREFIX (kept unchanged):
+```{tag}
+{prefix}
+```
+
+EXACT_SUFFIX (kept unchanged):
+```{tag}
+{suffix}
+```
+
+{closing}
+"""
+
+REDESIGN_ASSIGNMENT = (
+    "Write a COMPLETE NEW PROGRAM implementing the design below, from scratch. It replaces the "
+    "current program {target} (score {target_score}), whose code is deliberately not shown: the "
+    "point is a different algorithm, not an edit of that one. The program shown below is only an "
+    "input/output reference -- reuse its parsing, output and helpers, not its method.")
+REDESIGN_CLOSING = (
+    "Write the new design end to end. Its first version may score below the current best -- it "
+    "gets its own chain and several refinement steps to grow, and it is judged after them. Do NOT "
+    "fall back to another method (the reference's or the current program's) when your design "
+    "fails on an input: the fallback would answer in its place, the program would score exactly "
+    "like that method, and the failure of the new design would be hidden. Let a failure show, so "
+    "the next steps can fix it. Respect the time limit on every input.")
+EDIT_ASSIGNMENT = (
+    "Edit the TARGET program below. DONOR programs, if any, carry the mechanism to take over.")
+EDIT_CLOSING = "Implement exactly this experiment on the TARGET program."
+
+# Added to SimpleTES's prompt for a chain a redesign opened: without it the chain's next steps see
+# only code and scores, and a repair can quietly swap the new design back for an old one.
+DESIGN_BRIEF = """=== THIS CHAIN'S DESIGN ===
+This chain was opened to develop one specific design (a redesign planned at a stall):
+Design: {task}
+Why it could win: {hypothesis}
+{status}
+Keep developing THIS design: fix what fails (read the rejection reasons below), then improve it. Do
+not replace it with a different algorithm and do not add a fallback to another method.
+Recent results in this chain:
+{recent}
+"""
+
+# replaces SimpleTES's closing strategy ("prioritize NOVEL approaches ... higher score") on a chain
+# a redesign opened, which would otherwise pull every step away from the design it is developing
+DESIGN_STRATEGY = """
+=== GENERATION STRATEGY ===
+- Keep this chain's design (see THIS CHAIN'S DESIGN above): fix its failures first, then improve it
+- Use the reference solutions for this design's details, not to switch to another algorithm
+- Avoid the listed failure patterns
+
+Generate the next version of this design:
 """
 
 BASE, SPROUT, ESTABLISHED, RETIRED = "base", "sprout", "established", "retired"
@@ -251,6 +325,7 @@ class Molt(SimpleTES):
     """SimpleTES + stall-triggered redesigns that grow in protected chains under a probation."""
 
     name = "molt"
+    variator_cls = None    # set below MoltVariator: planned directions and sprout chains
 
     def __init__(self, *, planners: int = 4, directions_per_planner: int = 2,
                  min_redesign: int = 1, stall_evals: int = 12, progress_rel: float = 0.002,
@@ -421,12 +496,16 @@ class Molt(SimpleTES):
                 self.sprouts[c]["shed_at"] = self.attempts
             logger.info(f"molt: shed chain {c} (best {bests[c]})")
 
-    def _echo_of(self, ctx: EvolveContext, s: float, target_id: str) -> Optional[str]:
-        """What a redesign's score is an exact copy of: its reference program or a seed."""
-        tgt = ctx.store.get(target_id)
-        ts = score_of(tgt, self.score_key) if tgt is not None else None
-        if ts is not None and not _differs(s, ts):
-            return f"its reference program {target_id}"
+    def _echo_of(self, ctx: EvolveContext, s: float, target_id: str,
+                 reference_id: Optional[str] = None) -> Optional[str]:
+        """What a redesign's score is an exact copy of: the program it replaces, the I/O
+        reference it was shown, or a seed."""
+        for pid, what in ((target_id, "the program it replaces"),
+                          (reference_id, "its input/output reference")):
+            ind = ctx.store.get(pid) if pid else None
+            v = score_of(ind, self.score_key) if ind is not None else None
+            if v is not None and not _differs(s, v):
+                return f"{what} {pid}"
         for i in ctx.store.of_kind(self.kind):
             if not i.parent_ids:
                 ss = score_of(i, self.score_key)
@@ -542,6 +621,35 @@ class Molt(SimpleTES):
                 e["chains"].append(c)
         return live
 
+    def _attempt_line(self, ctx: EvolveContext, ind: Individual, chars: int = 200) -> str:
+        """One attempt as planners and workers read it. A rejected program scores 0 with the
+        reason in `invalid_reason` (e.g. "7/150 cases rejected -- case 4: TLE"); reading only
+        `error` showed every rejection as a bare "invalid"."""
+        s = score_of(ind, self.score_key)
+        ps = [score_of(ctx.store.get(p), self.score_key) if ctx.store.get(p) else None
+              for p in ind.parent_ids]
+        ps = [p for p in ps if p is not None]
+        gain = (s - max(ps)) if (s is not None and ps) else None
+        m = ind.metrics() or {}
+        why = m.get("invalid_reason") or m.get("error") or ("invalid" if s is None else "")
+        err = f" rejected: {str(why)[:chars]}".replace("\n", " ") if why else ""
+        return (f"- attempt {ind.id} <- {list(ind.parent_ids)[:3]}: score="
+                f"{'fail' if s is None else round(s, 6)}"
+                f"{'' if gain is None else f' gain={gain:+.6f}'}{err}")
+
+    def _io_reference(self, ctx: EvolveContext) -> Optional[Individual]:
+        """The shortest program that scored -- usually the seed: the input/output format and
+        helpers without a polished method to copy or fall back to."""
+        best = None
+        for i in ctx.store.of_kind(self.kind):
+            s = score_of(i, self.score_key)
+            if s is None or s <= 0:
+                continue
+            n = len(self._code(i))
+            if best is None or n < best[0] or (n == best[0] and i.created_at < best[1].created_at):
+                best = (n, i)
+        return best[1] if best else None
+
     def _views(self, ctx: EvolveContext):
         live = self._live(ctx)
         ranked = sorted((e for e in live.values() if e["score"] is not None),
@@ -555,20 +663,8 @@ class Molt(SimpleTES):
             f"chains={e['chains']} parents={e['parents'][:3]}"
             + (" [GLOBAL BEST]" if ranked and e["id"] == ranked[0]["id"] else "")
             for e in sorted(shown.values(), key=lambda e: -(e["score"] or -1e18)))
-        attempts = []
-        for ind in self._measured(ctx)[-3 * self.attempts_shown:]:
-            s = score_of(ind, self.score_key)
-            ps = [score_of(ctx.store.get(p), self.score_key) if ctx.store.get(p) else None
-                  for p in ind.parent_ids]
-            ps = [p for p in ps if p is not None]
-            gain = (s - max(ps)) if (s is not None and ps) else None
-            err = ""
-            if s is None:
-                m = ind.metrics() or {}
-                err = " error=" + str(m.get("error") or "invalid")[:160].replace("\n", " ")
-            attempts.append(f"- attempt {ind.id} <- {list(ind.parent_ids)[:3]}: score="
-                            f"{'fail' if s is None else round(s, 6)}"
-                            f"{'' if gain is None else f' gain={gain:+.6f}'}{err}")
+        attempts = [self._attempt_line(ctx, ind)
+                    for ind in self._measured(ctx)[-3 * self.attempts_shown:]]
         codes, seen = [], set()
         for e in ranked:
             ind = ctx.store.get(e["id"])
@@ -653,27 +749,35 @@ class Molt(SimpleTES):
             return None
         ts = score_of(tgt, self.score_key)
         if d.get("type") == "redesign":
-            parents = [tgt]
-            where = (f"Write a COMPLETE NEW PROGRAM implementing this design from scratch. The "
-                     f"reference program (branch {tgt.id}, score {ts}) only shows the input/output "
-                     f"format and helpers you may reuse; do not keep its overall algorithm. Do NOT "
-                     f"fall back to the reference's method when your design fails on an input: a "
-                     f"fallback answers in its place, the program then scores exactly like the "
-                     f"reference, and the failure of the new design is hidden. Let it fail "
-                     f"visibly so the next attempts can fix it.")
+            ref = self._io_reference(ctx) or tgt
+            d["reference"] = ref.id
+            lineage, shown = [tgt.id], [ref]
+            roles = {ref.id: "I/O REFERENCE (format and helpers only)"}
         else:
-            donors = [ctx.store.get(x) for x in d.get("donor_branch_ids") or []]
-            parents = [tgt] + [x for x in donors if x is not None]
-            where = (f"Edit the program whose score is {ts} (branch {tgt.id}); the other reference "
-                     f"programs are donors to take a mechanism from.")
-        instr = WORKER.format(objective=ctx.objective, type=d.get("type"), where=where,
-                              task=d.get("task"), hypothesis=d.get("mechanism_hypothesis"),
-                              constraints="; ".join(map(str, d.get("constraints") or [])) or "none")
-        return Create(kind=self.kind, parent_ids=[p.id for p in parents], k=1,
-                      context=PromptContext(instruction=instr, parents=parents, history="",
+            donors = [x for x in (ctx.store.get(i) for i in d.get("donor_branch_ids") or [])
+                      if x is not None and x.id != tgt.id]
+            shown = [tgt] + donors
+            lineage = [x.id for x in shown]
+            roles = {tgt.id: "TARGET (edit this one)", **{x.id: "DONOR" for x in donors}}
+        evidence = []
+        for a in d.get("evidence_attempt_ids") or []:
+            ind = ctx.store.get(str(a))
+            if ind is not None:
+                evidence.append(self._attempt_line(ctx, ind, chars=400))
+        fc = d.get("frontier_case") if isinstance(d.get("frontier_case"), dict) else {}
+        prompt = {"type": d.get("type"), "task": d.get("task"),
+                  "hypothesis": d.get("mechanism_hypothesis"),
+                  "constraints": "; ".join(map(str, d.get("constraints") or [])) or "none",
+                  "target": tgt.id, "target_score": ts, "roles": roles, "evidence": evidence,
+                  "required_gain": fc.get("required_gain"), "why": fc.get("why_plausible"),
+                  "falsifier": d.get("falsifier")}
+        # parent_ids keep the lineage (a redesign descends from the program it replaces); the
+        # prompt's parents are the programs actually shown
+        return Create(kind=self.kind, parent_ids=lineage, k=1,
+                      context=PromptContext(instruction=ctx.objective, parents=shown, history="",
                                             failures={}),
                       meta={"molt_intervention": d["intervention"], "molt_direction": d["id"],
-                            "molt_type": d.get("type")})
+                            "molt_type": d.get("type"), "molt_prompt": prompt})
 
     def _close_direction(self, ctx: EvolveContext, batch_id: str,
                          child: Optional[Individual], produced: bool = True) -> None:
@@ -696,9 +800,10 @@ class Molt(SimpleTES):
                 self.chains[c].append(child.id)
                 self.sprouts[c] = {"intervention": d["intervention"], "direction": d["id"],
                                    "task": d.get("task"), "old": d.get("frontier"),
+                                   "hypothesis": d.get("mechanism_hypothesis"),
                                    "fate": "probation", "opened_at": self.attempts}
                 entry["chain"] = c
-                echo = self._echo_of(ctx, s, d["target_branch_id"])
+                echo = self._echo_of(ctx, s, d["target_branch_id"], d.get("reference"))
                 if echo is not None:
                     self.sprouts[c]["echo"] = s
                     entry["echo"] = echo
@@ -748,8 +853,27 @@ class Molt(SimpleTES):
                     {"direction": d["id"], "type": d.get("type"), "child": None,
                      "score": None, "skipped": "target gone"})
         if len(items) < n:
-            items += await SimpleTES.ask(self, ctx, n - len(items))
+            for it in await SimpleTES.ask(self, ctx, n - len(items)):
+                c = (it.meta or {}).get("chain")
+                if c in self.sprouts:
+                    it.meta["molt_design"] = self._design_brief(ctx, c)
+                items.append(it)
         return items
+
+    def _design_brief(self, ctx: EvolveContext, c: int) -> Dict[str, Any]:
+        sp = self.sprouts[c]
+        recent = sorted((i for i in (ctx.store.get(x) for x in self.chains[c]) if i is not None),
+                        key=lambda i: i.created_at)[-4:]
+        if self.role.get(c) == SPROUT:
+            status = (f"Status: on probation, turn {self._turns(c)} of {self.probation_turns}; it "
+                      f"must reach within {self.probation_margin:.0%} of {sp.get('old')} to stay.")
+        else:
+            status = "Status: graduated -- an established design of this search."
+        if sp.get("echo") is not None:
+            status += (f" Its first program scored exactly {sp['echo']} -- the new design never "
+                       f"ran and a fallback answered; make the design itself work.")
+        return {"task": sp.get("task"), "hypothesis": sp.get("hypothesis"), "status": status,
+                "recent": [self._attempt_line(ctx, i, chars=400) for i in recent]}
 
     async def on_measured(self, ctx: EvolveContext, ind: Individual, m: Measurement) -> None:
         self._sync_stall(ctx)
@@ -813,3 +937,59 @@ class Molt(SimpleTES):
         # in the store already
         self.open_dirs = {}
         self._turned = set()
+
+
+class MoltVariator(UpstreamCompletionVariator):
+    """SimpleTES's operator for ordinary chain steps; Molt's own prompt for a planned direction
+    (DIRECTION) and a design brief on top of SimpleTES's prompt for a chain a redesign opened."""
+
+    def build_block_prompt(self, ctx: EvolveContext, item: Create, path: str, eb) -> str:
+        meta = item.meta or {}
+        if "molt_prompt" in meta:
+            return self._direction_prompt(ctx, item, path, eb, meta["molt_prompt"])
+        base = super().build_block_prompt(ctx, item, path, eb)
+        brief = meta.get("molt_design")
+        if not brief:
+            return base
+        text = DESIGN_BRIEF.format(task=brief.get("task"), hypothesis=brief.get("hypothesis"),
+                                   status=brief.get("status"),
+                                   recent="\n".join(brief.get("recent") or []) or "(none yet)")
+        head, sep, rest = base.partition("\n\nGeneration instruction")
+        out = head + "\n\n" + text + sep + rest if sep else text + "\n" + base
+        strategy = out.rfind("\n=== GENERATION STRATEGY ===")
+        return (out[:strategy] + DESIGN_STRATEGY) if strategy >= 0 else out
+
+    def _direction_prompt(self, ctx, item, path, eb, p) -> str:
+        lang_name, tag = self._lang(path)
+        blocks = []
+        for ind in item.context.parents:
+            src = ind.genome.files.get(path) if isinstance(ind.genome, CodeGenome) else None
+            m = ind.metrics() or {}
+            why = m.get("invalid_reason")
+            blocks.append(f"--- [{p['roles'].get(ind.id, 'REFERENCE')}] branch {ind.id}, score "
+                          f"{m.get(self.score_key)}{f' (rejected: {why})' if why else ''} ---\n"
+                          f"```{tag}\n{src or ind.genome.render()}\n```\n")
+        redesign = p.get("type") == "redesign"
+        extra = ""
+        if p.get("required_gain") is not None or p.get("why"):
+            extra += (f"\nGain needed over the program it starts from to beat the current "
+                      f"best: {p.get('required_gain')}. The planner's case: {p.get('why')}")
+        if p.get("falsifier"):
+            extra += f"\nWhat would falsify it: {p['falsifier']}"
+        evidence = ""
+        if p.get("evidence"):
+            evidence = ("\n=== ATTEMPTS THE PLANNER CITES ===\n" + "\n".join(p["evidence"]) + "\n")
+        assignment = (REDESIGN_ASSIGNMENT.format(target=p.get("target"),
+                                                 target_score=p.get("target_score"))
+                      if redesign else EDIT_ASSIGNMENT)
+        return DIRECTION.format(
+            objective=item.context.instruction or ctx.objective, type=p.get("type"),
+            assignment=assignment, task=p.get("task"), hypothesis=p.get("hypothesis"),
+            extra=extra, constraints=p.get("constraints"), programs="\n".join(blocks),
+            evidence=evidence, start=eb.start_line, end=eb.end_line,
+            block_word=f"{lang_name} code block" if lang_name else "code block", tag=tag,
+            prefix=eb.prefix.rstrip("\n"), suffix=eb.suffix.rstrip("\n"),
+            closing=REDESIGN_CLOSING if redesign else EDIT_CLOSING)
+
+
+Molt.variator_cls = MoltVariator

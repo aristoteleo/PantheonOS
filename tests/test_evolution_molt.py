@@ -9,7 +9,7 @@ import asyncio
 import json
 
 from pantheon.evolution.core import Budget, EvolveContext, Individual, Measurement, Store, TextGenome
-from pantheon.evolution.core.work import Failure
+from pantheon.evolution.core.work import Create, Failure, PromptContext
 from pantheon.evolution.methods.molt import ESTABLISHED, RETIRED, SPROUT, Molt
 
 
@@ -347,3 +347,98 @@ def test_records_carry_when_they_happened_and_lineage_names_the_winning_interven
     assert rep["best_score"] == 1.5
     assert {"chain": sp, "origin": "redesign", "intervention": 0}.items() <= rep["best_chains"][0].items()
     assert rep["interventions"][0]["sprouts"][0]["fate"] == "graduated"
+
+
+# ---- the prompts a planned direction and a sprout chain are written with ----------------
+
+def _code(body):
+    from pantheon.evolution.core import CodeGenome
+    return CodeGenome(files={"main.cpp": f"#include <x>\n// EVOLVE-BLOCK-START\n{body}\n"
+                                         f"// EVOLVE-BLOCK-END\nint main(){{}}\n"})
+
+
+def _prompt_world():
+    """A seed (short), a polished champion, a donor, one rejected attempt; a Molt over them."""
+    s = Store()
+    seed = s.add(Individual(genome=_code("int a;"), kind="code"))
+    champ = s.add(Individual(genome=_code("int champion_algorithm_" + "x" * 400 + ";"),
+                             kind="code", parent_ids=[seed.id]))
+    donor = s.add(Individual(genome=_code("int donor_trick;"), kind="code", parent_ids=[seed.id]))
+    bad = s.add(Individual(genome=_code("int broken;"), kind="code", parent_ids=[champ.id]))
+    for ind, v, why in ((seed, 1.0, None), (champ, 2.0, None), (donor, 1.5, None),
+                        (bad, 0.0, "7/150 cases rejected -- case 4: TLE")):
+        mt = {"combined_score": v, **({"invalid_reason": why} if why else {})}
+        ind.measurements.append(Measurement(individual_id=ind.id, metrics=mt))
+    m = Molt(num_chains=2, k_candidates=2, num_inspirations=2, planners=1, seed=0)
+    c = ctx_with(s)
+    asyncio.run(m.start(c, [seed]))
+    m.chains[0] = [seed.id, champ.id, donor.id, bad.id]
+    return m, c, seed, champ, donor, bad
+
+
+def _render(m, c, item):
+    from pantheon.evolution.variators.completion import EvolveBlock
+    v = m.default_variator(target_file="main.cpp")
+    eb = EvolveBlock(item.context.parents[0].genome.files["main.cpp"])
+    return v.build_block_prompt(c, item, "main.cpp", eb)
+
+
+def test_molt_builds_its_own_operator():
+    from pantheon.evolution.methods.molt import MoltVariator
+    m = Molt(num_chains=2, k_candidates=2, num_inspirations=2, seed=0)
+    assert isinstance(m.default_variator(), MoltVariator)
+
+
+def test_a_redesign_prompt_shows_an_io_reference_not_the_incumbent():
+    m, c, seed, champ, donor, bad = _prompt_world()
+    d = {"id": "i0/planner_0/direction_00", "intervention": 0, "type": "redesign",
+         "target_branch_id": champ.id, "task": f"Write a complete replacement of {champ.id}",
+         "mechanism_hypothesis": "h", "evidence_attempt_ids": [bad.id],
+         "frontier_case": {"required_gain": 0.1, "why_plausible": "because"}}
+    it = m._direction_item(c, d)
+    assert it.parent_ids == [champ.id], "lineage: the redesign descends from what it replaces"
+    assert [p.id for p in it.context.parents] == [seed.id], "shown: the shortest valid program"
+    text = _render(m, c, it)
+    assert f"[I/O REFERENCE (format and helpers only)] branch {seed.id}" in text
+    assert "champion_algorithm_" not in text, "the incumbent's code must not be shown"
+    assert champ.id in text and "COMPLETE NEW PROGRAM" in text
+    assert "higher score" not in text and "Learn from these" not in text
+    assert "7/150 cases rejected -- case 4: TLE" in text, "cited attempts are quoted"
+    assert "0.1" in text and "because" in text
+    assert "EVOLVE-BLOCK-START" in text and "EXACT_PREFIX" in text
+
+
+def test_an_edit_prompt_labels_target_and_donor_by_id():
+    m, c, seed, champ, donor, bad = _prompt_world()
+    d = {"id": "i0/planner_0/direction_01", "intervention": 0, "type": "integration",
+         "target_branch_id": champ.id, "donor_branch_ids": [donor.id],
+         "task": f"Port {donor.id}'s trick into {champ.id}", "mechanism_hypothesis": "h"}
+    text = _render(m, c, m._direction_item(c, d))
+    assert f"[TARGET (edit this one)] branch {champ.id}" in text
+    assert f"[DONOR] branch {donor.id}" in text
+    assert "Implement exactly this experiment on the TARGET program." in text
+
+
+def test_a_sprout_chain_prompt_carries_its_design_and_rejections():
+    m, c, seed, champ, donor, bad = _prompt_world()
+    sp = m._new_chain()
+    m.chains[sp] = [bad.id]
+    m.sprouts[sp] = {"task": "skeleton-and-repair solver", "hypothesis": "keeps more zeros",
+                     "old": 2.0, "fate": "probation", "echo": None}
+    brief = m._design_brief(c, sp)
+    it = Create(kind="code", parent_ids=[bad.id], k=2,
+                context=PromptContext(instruction="toy", parents=[bad], history="", failures={}),
+                meta={"chain": sp, "molt_design": brief})
+    text = _render(m, c, it)
+    assert text.index("THIS CHAIN'S DESIGN") < text.index("Generation instruction")
+    assert "skeleton-and-repair solver" in text and "turn 1 of 5" in text
+    assert "rejected: 7/150 cases rejected -- case 4: TLE" in text
+    assert "[SAMPLED INSPIRATIONS]" in text, "the rest is SimpleTES's prompt"
+    assert "Prioritize NOVEL" not in text and "higher score" not in text
+    assert text.rstrip().endswith("Generate the next version of this design:")
+
+
+def test_planners_see_why_an_attempt_was_rejected():
+    m, c, seed, champ, donor, bad = _prompt_world()
+    attempts = m._views(c)[3]
+    assert any("rejected: 7/150 cases rejected" in a for a in attempts)
