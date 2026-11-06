@@ -491,24 +491,37 @@ terminal resume for runtimes with one).
     sessions live, and where the node looks for sessions; the clean
     arguments below keep their settings, hooks and plugins off) and
     Windows' system folders; then what the runtime needs (`IS_SANDBOX` for
-    Claude Code as root, Gemini's trust variable), the user's own variables
-    for that agent from Coding Agents settings except credentials and
-    variables that load code (`PANTHEON_*`, `FLEET_KEY`, `NATS_*`, any
-    name with `PLUGIN`, `NODE_OPTIONS`, `BASH_ENV`, `ENV`, `ZDOTDIR`,
-    `CLAUDE_ENV_FILE`, `PROMPT_COMMAND`, `LD_PRELOAD`, `LD_LIBRARY_PATH`,
-    `DYLD_*`, `PYTHONSTARTUP`, `PERL5OPT`, `RUBYOPT`, `GIT_CONFIG_GLOBAL`,
-    `SSH_AUTH_SOCK`), and, on PantheonOS models, the model proxy's
-    variables. So the turn never gets the node's PantheonOS key
-    (`PANTHEON_KEY`, which Coding Agents gives its own turns for the
-    `pantheon` command), a Fleet or Hub credential, the ssh agent or the
-    plugin folders the node was started with (`CLAUDE_CODE_PLUGIN_DIRS`,
-    whose plugins' hooks Claude Code loads even with no setting sources).
-    The only credential in it is the model key: the user's LiteLLM virtual
-    key, which the model proxy accepts for model calls on the user's
-    PantheonOS budget and refuses for its management routes (keys, users,
-    budgets, spend logs, configuration), and which the Hub and the
-    controller never accept (they take a `pbk_` platform key or a signed
-    token). The turn is not told that the `pantheon` command is signed in.
+    Claude Code as root, Gemini's trust variable) and, on PantheonOS
+    models, the turn's own model token and the node's gateway (below).
+    None of the user's own variables for the agent (Coding Agents
+    settings) pass, and none of the user's own arguments for it (from the
+    sixth Phase 3 check: a deny-list of variables missed too many that load
+    code, change a program's setup or carry a credential, and `--settings`
+    or `--plugin-dir` loaded hooks again). So the turn never gets the
+    node's PantheonOS key (`PANTHEON_KEY`, which Coding Agents gives its
+    own turns for the `pantheon` command), a Fleet or Hub credential, the
+    ssh agent or the plugin folders the node was started with
+    (`CLAUDE_CODE_PLUGIN_DIRS`, whose plugins' hooks Claude Code loads even
+    with no setting sources). The turn is not told that the `pantheon`
+    command is signed in.
+  * **The turn's model token** (from the sixth Phase 3 check). A turn on
+    PantheonOS models never holds the user's model key (the user's LiteLLM
+    virtual key, which never expires and carries the user's whole monthly
+    budget). It gets a token of its own (`ptk_…`, 24 random bytes) for the
+    node's gateway on `127.0.0.1` (the one Model Services routes already
+    use), as `ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_BASE_URL` for Claude Code and
+    `PANTHEON_LLM_API_KEY` with the gateway as the provider's base URL for
+    Codex, OpenCode and Pi. The gateway passes the turn's model calls
+    (`/v1/messages`, `/v1/messages/count_tokens`, `/v1/responses`,
+    `/v1/chat/completions`, `/v1/models`) on to the platform's proxy with
+    the node's key, so they bill the user's budget as before, and answers
+    anything else "good only for model calls". The node makes the token
+    when the turn starts and revokes it the moment the turn's runtime
+    exits (at most 12 hours after it was made, should the end never be
+    seen); from then on every call with it, the model call included, is
+    refused (401). Nothing the gateway serves makes or extends a token,
+    and the proxy, the Hub and the controller do not know it. A Model
+    Services route's token in a Team Chat turn is revoked with it.
   * A person who leaves or is removed takes with them everything that
     would run later for them: their reminders and every reminder set in a
     turn that worked for them (recurring ones too), queued messages that
@@ -531,7 +544,12 @@ terminal resume for runtimes with one).
     that session or group, and every process it saw as the turn's
     descendant (checked each second) that is still the same process, so
     `nohup … &` loops do not live on into later turns.
-* **What Team Chat cannot prevent** (said in the T35 dialog and here): a
+* **What Team Chat cannot prevent** (the whole of it here; the T35 dialog
+  says the gist: the agent can read anything its computer's user can and
+  change or run things there, without a sandbox, the keys saved on that
+  computer included, so whoever copies them can act as the owner and
+  spend the owner's model budget, also after being removed; a turn's own
+  model access ends with the turn; it reads its channels): a
   shared agent runs as its computer's user. Whatever that user can do, a
   person who may use the agent can ask it to do, in its turn: read any file
   the user can read, including other agents' folders, `.team/` inboxes and
@@ -544,19 +562,24 @@ terminal resume for runtimes with one).
   answers it no command through the agent's inbox: a command needs a
   process of the running turn to vouch for it, with the digest of the
   request it made, and each request is answered once (see "Turn-bound
-  commands"). The turn's environment holds no PantheonOS key either, only
-  the model key on PantheonOS models (below). But the turn, and anything
+  commands"). The turn's environment holds no PantheonOS key and no model
+  key either, only the turn's model token, which ends with the turn. But the turn, and anything
   it starts, runs **as the computer's user, without a sandbox** (Team Chat
   sends `auto: true`; whether shared agents must run sandboxed is an open
   product decision): it can read every file that user can, including the
   node's own credentials, such as the Coding Agents `settings.json` with
-  the node's PantheonOS key (`access.key`), the `pantheon` command's saved
-  sign-in, the runtimes' sign-ins and the node binary and its state folder.
-  With the node's PantheonOS key, a process can do whatever that key
-  allows, which includes connecting to the owner's Team Chat as the owner
-  (`workload-identity`, then `workload-connect`): on a computer the owner
+  the node's PantheonOS key (`access.key`) and the owner's model key
+  (`platform.key`; on a Workspace, the node's own environment holds it),
+  the `pantheon` command's saved sign-in, the runtimes' sign-ins and the
+  node binary and its state folder. With the node's PantheonOS key, a
+  process can do whatever that key allows, which includes connecting to
+  the owner's Team Chat as the owner (`workload-identity`, then
+  `workload-connect`); with the model key, anyone it reaches can spend the
+  owner's whole model budget from anywhere, after the turn and after they
+  are removed, until the owner's key is changed: on a computer the owner
   also uses, a shared agent's turn is not separated from the owner's
-  account. What it can still do, as the same user: read the answers the turn's own
+  account. The T35 dialog says so ("That includes the keys saved on that
+  computer, such as its PantheonOS sign-in and your model key"). What it can still do, as the same user: read the answers the turn's own
   commands get (the `.reply` files), or write a false one first, and
   anything the agent writes; make the turn's own commands fail (remove or
   swap their request files: refused, never answered as its own); change
@@ -589,8 +612,10 @@ terminal resume for runtimes with one).
     check: a hook the agent wrote into its own folder in one person's turn
     ran in the owner's later turns). This holds when the installed version
     has those flags (checked on Claude Code 2.1.319 and Codex 0.166 with
-    hooks planted in the folder: none ran); Coding Agents' own turns are
-    unchanged. Still loaded: the user's global instructions
+    hooks planted in the folder: none ran); the user's own arguments for
+    the agent in Coding Agents settings are left out of Team Chat turns
+    (they could add `--settings`, `--plugin-dir`, `-c` or `--profile`);
+    Coding Agents' own turns are unchanged. Still loaded: the user's global instructions
     (`~/.codex/AGENTS.md`), skills in the user's folders, Codex's own
     built-in tools, the folder's `AGENTS.md` for Codex, the whole setup of
     other runtimes (Gemini, OpenCode, Pi, Cursor: their folder settings and
@@ -2436,6 +2461,52 @@ proxy's own checks on model routes for a user key were not probed further
 (it applies to every user's key, in Workspaces too, not only Team Chat).
 Workspace nodes get the new node with the agents image built from
 `6905ce43` (pinned in the Hub and prewarmed).
+
+### Fixes after the sixth Phase 3 check (2026-11-06)
+
+The sixth independent check (staging, 2026-11-06) found: (1, medium) every
+Team Chat turn on PantheonOS models carried the owner's model key, the
+owner's LiteLLM virtual key (`sk-…`, no expiry, never rotated, its budget
+the owner's whole monthly one), so anyone who may use a shared agent could
+copy it out of the turn and spend that budget from anywhere, outside Team
+Chat's turn limits and after being removed; (2, low) the per-agent variable
+filter was a deny-list and let through many variables that load code,
+change a program's setup or carry a credential (`PYTHONPATH`, `NODE_PATH`,
+`GIT_SSH_COMMAND`, `GIT_CONFIG_*`, `npm_config_*`, `JAVA_TOOL_OPTIONS`,
+`LD_AUDIT`, `XDG_CONFIG_HOME`, `CLAUDE_CODE_SHELL_PREFIX`, `OTEL_*`,
+`HTTPS_PROXY`, `HOME`, `*_TOKEN`, …); (3, low) the user's per-agent
+arguments were added to Team Chat turns, and `--settings FILE` or
+`--plugin-dir DIR` ran hooks despite `--setting-sources ""`; (4, low) the
+look-alike names "Ρantheon" (Greek Rho), "Pantheοn" (Greek omicron),
+"Ѕupport" (Cyrillic), "Ꮲantheon" (Cherokee) and the handles `help-desk`,
+`help_desk`, `sys-admin`, `super-user`, `official-pantheon`,
+`the-pantheon`, `xpantheon` were accepted; (5) the doc said the T35 dialog
+states the limits, which it did not. Tests:
+`apps/coding_agents/team_p3check6_test.go`
+(`TestATeamTurnsModelTokenEndsWithTheTurn`,
+`TestATurnModelTokenIsGoodOnlyForModelCallsUntilRevoked`,
+`TestATeamTurnGetsNoneOfTheUsersVariables`,
+`TestATeamTurnGetsNoneOfTheUsersArguments`) and
+`os/internal/hosted/teamchat_p3check6_test.go`
+(`TestLookAlikeNamesAndSeparatedHandlesAreRefused`,
+`TestNamesAndHandlesShareOneRule`); the UI's `phase3.test.ts` checks the
+T35 text. Each fails with its fix reverted (11 reverts).
+
+| Finding | Fix |
+|---|---|
+| 1. (medium) The owner's model key in every turn | **Design choice: a per-turn token for the node's gateway** (option c of three). The turn gets `ptk_…`, made when it starts, good only on its node's gateway (`127.0.0.1`, the one Model Services routes already use) and only for model calls, which the gateway passes on to the platform's proxy with the node's key (so they bill the owner's budget as before); the node revokes it the moment the turn's runtime exits (12 hours at most), after which every call with it, the model call included, gets 401; nothing the gateway serves makes or extends a token (see "The turn's model token"). **Why not short-lived LiteLLM keys (a):** budgets are on the key, not the LiteLLM user. The Hub makes one key per user with `/key/generate` and `max_budget` (the user's whole budget, `budget_duration: 1mo`), changes it with `/key/update`, and reads spend from that key's `/key/info`; there is no LiteLLM user row with a budget (`/user/info` for the owner answers 404). A second key under the same `user_id` would have a budget of its own and spend the Hub never reads, so a per-turn key needs the budget moved onto the LiteLLM user for every user, the Hub's spend sync changed and a Hub route to mint keys (the node's own key cannot: "Only proxy admin") — a platform migration for every user, not a Team Chat fix. **Why not a Hub or controller proxy (b):** neither holds the owner's model key today (it lives on the node, from the desktop or the Workspace's environment), so either would need the key sent to it and every model call of every turn routed through it. **What (c) does not close:** turns run unsandboxed as the computer's user (an open product decision), so a turn can still read the key the node keeps on disk (Coding Agents `settings.json` `platform.key`, or the Workspace node's environment) and that key still works anywhere. The doc ("What Team Chat cannot prevent") and the T35 dialog now say so; once shared agents run in a sandbox that keeps the node's files out of reach, the token is the only model credential a turn can see. |
+| 2. (low) The per-agent variable deny-list | No per-agent variable reaches a Team Chat turn (the default is none; no variable is marked safe). The turn's environment is the computer basics (an allow-list of the node's), what the runtime needs and the turn's model token. Coding Agents' own turns keep the user's variables. |
+| 3. (low) Per-agent arguments reopened settings and hooks | The user's arguments for the agent are not added to Team Chat turns at all (Claude Code's `--settings`, `--plugin-dir`, Codex's `-c`, `--profile`, `--config` and anything else); Team Chat adds only its own (`teamCleanArgs`). The clean arguments now also apply when the turn's `.team` folder could not be set up. Coding Agents' own turns keep them. |
+| 4. (low) Look-alike names and separated handles | A name's skeleton folds every character the Unicode confusables table (UTS #39, `confusables.txt` 2026-08-06; the 1,786 entries that read as ASCII letters or digits, embedded as `teamchat_confusables.go`) reads as Latin letters or digits, so "Ρantheon", "Pantheοn", "Ѕupport", "Ꮲantheon" and the all-Greek "ΒΟΤ" read as the reserved words they look like; and a word of a name may not mix alphabets (Latin, Greek, Cyrillic, Cherokee, Armenian, Coptic, Lisu, Canadian syllabics, Georgian): "A word of a name may not mix alphabets…". Names in one alphabet ("Иван Петров", "Σοφία", "Jürgen") stay free. Handles: `-` and `_` are left out before the reserved words are checked (`help-desk` is `helpdesk`), a handle that holds `pantheon` anywhere is reserved, and each word of a handle follows the names' rule (`weize-owner`, `super_admin`), so a name and a handle with the same words are reserved alike. |
+| 5. Doc | "What Team Chat cannot prevent" says what the dialog says and what only the doc says. The T35 dialog (`sharedReach`) now adds: "That includes the keys saved on that computer, such as its PantheonOS sign-in and your model key: whoever copies them can act as you and spend your model budget, also after you remove them. The model access Team Chat gives each turn ends with the turn; the saved keys do not." |
+
+Platform follow-up (not Team Chat, not changed): any user's LiteLLM key can
+use the proxy's provider pass-through routes (`/openai/v1/files`,
+`/openai/v1/vector_stores`, `/anthropic/v1/files`, …), which reach the
+platform's provider accounts; a turn's token cannot (the gateway passes on
+model calls only).
+
+<!-- STAGING-VERIFICATION -->
 
 ## Out of scope
 
