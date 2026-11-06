@@ -25,6 +25,7 @@ The prompt rework (8feac841) is being checked by a separate A/B (`molt` vs `molt
 | `molt_periodic` | the stall trigger: plan at attempt 20, then every 65 attempts, stalled or not | does intervening *when stuck* matter, or just intervening? |
 | `simpletes` | everything: plain SimpleTES (2 chains) | the base method |
 | `simpletes4` | everything, with 4 chains | is Molt's gain just more chains? |
+| `molt_overlap` | nothing removed; a stall plans even while sprouts are on probation (at most 4 on probation) | added 11-06: Molt's probation gate cut interventions to ~3 per 200 evaluations on AHC024 (the earlier arm: ~7 per 160) -- does planning more often recover the jumps? |
 
 Sizing of the controls, measured on the Molt cmp runs (AHC058/024/046, 18 runs): interventions start
 at attempt ~20 (18-26 per task) and are ~65 attempts apart (mean 65, median 68); runs end with 4-5
@@ -66,3 +67,4 @@ pooled comparison, and not below it on any task.
 
 - Estimated LLM spend ~$250-300 (Molt runs cost ~$2.5 per 400 evaluations at this model's prices).
 - 2026-11-06: arms and specs prepared; launched with this commit.
+- 2026-11-06: `molt_overlap` added (15 more runs, same servers and seeds).

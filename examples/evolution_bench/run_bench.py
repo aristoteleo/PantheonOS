@@ -34,7 +34,8 @@ TASKS = HERE / "tasks"
 
 
 MOLT_ABLATIONS = {"molt_noredesign": {"redesign": False}, "molt_noprotect": {"protect": False},
-                  "molt_noprobation": {"probation": False}, "molt_periodic": {"trigger": "periodic"}}
+                  "molt_noprobation": {"probation": False}, "molt_periodic": {"trigger": "periodic"},
+                  "molt_overlap": {"plan_during_probation": True}}
 
 
 def build_method(name: str, seed: int, judge=None, norm: str = "minmax", sched=None,
@@ -435,7 +436,7 @@ if __name__ == "__main__":
     p.add_argument("--task", required=True)
     p.add_argument("--method", default="agent_map_elites",
                    choices=["agent_map_elites", "map_elites", "simpletes", "idea_code", "annealed",
-                            "pantheon_evo", "hypothesis_bandit", "lab_notebook", "molt", "molt_noredesign", "molt_noprotect", "molt_noprobation", "molt_periodic", "simpletes4"])
+                            "pantheon_evo", "hypothesis_bandit", "lab_notebook", "molt", "molt_noredesign", "molt_noprotect", "molt_noprobation", "molt_periodic", "simpletes4", "molt_overlap"])
     p.add_argument("--iterations", type=int, default=40)
     p.add_argument("--model", default="openai/gpt-5.6-luna")
     p.add_argument("--eval-server", default=os.environ.get("EVAL_SERVER_URL", ""),

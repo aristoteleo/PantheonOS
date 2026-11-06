@@ -335,13 +335,17 @@ class Molt(SimpleTES):
                  catalog_size: int = 24, attempts_shown: int = 40, code_shown: int = 3,
                  tried_shown: int = 20, redesign: bool = True, protect: bool = True,
                  probation: bool = True, trigger: str = "stall", period: int = 65,
-                 period_first: int = 20, **kw):
+                 period_first: int = 20, plan_during_probation: bool = False,
+                 max_sprouts: int = 4, **kw):
         """The last six are ablations; their defaults are Molt. `redesign=False`: planners get
         RSI-top's two types only. `protect=False`: a redesign's program joins its target's
         chains like an edit instead of opening a sprout. `probation=False`: every sprout is kept
         at once, never judged, and no chain is shed. `trigger="periodic"`: plan at attempt
         `period_first` and then every `period` attempts, stalled or not (the defaults match
-        Molt's measured spacing on AHC058/024/046: first at ~20, then every ~65)."""
+        Molt's measured spacing on AHC058/024/046: first at ~20, then every ~65).
+        `plan_during_probation=True`: a stall plans even while sprouts are on probation, as long
+        as fewer than `max_sprouts` are -- by default a sprout on probation blocks planning, which
+        on AHC024 cut interventions to ~3 per 200 evaluations against ~7 per 160 without it."""
         super().__init__(**kw)
         self.planners = planners
         self.directions_per_planner = directions_per_planner
@@ -360,9 +364,12 @@ class Molt(SimpleTES):
             raise ValueError(f"trigger must be 'stall' or 'periodic', not {trigger!r}")
         self.use_redesign, self.protect, self.use_probation = redesign, protect, probation
         self.trigger, self.period, self.period_first = trigger, period, period_first
+        self.plan_during_probation, self.max_sprouts = plan_during_probation, max(1, max_sprouts)
         off = [n for n, on in (("noredesign", redesign), ("noprotect", protect),
                                ("noprobation", probation), ("periodic", trigger == "stall"))
                if not on]
+        if plan_during_probation:
+            off.append("overlap")
         if off:
             self.name = "molt-" + "-".join(off)
 
@@ -868,7 +875,9 @@ class Molt(SimpleTES):
     async def ask(self, ctx: EvolveContext, n: int) -> List[Create]:
         self._sync_stall(ctx)
         self._review_sprouts(ctx)
-        in_probation = bool(self._active((SPROUT,)))
+        on_probation = len(self._active((SPROUT,)))
+        in_probation = (on_probation >= self.max_sprouts if self.plan_during_probation
+                        else on_probation > 0)
         if self.trigger == "stall":
             due = (self.since or 0) >= self.stall_evals
         else:
