@@ -449,7 +449,12 @@ account in a browser starts on the chat page; when its `/api/chatroom` answers
 `app_deployment`, the page replaces its URL with the same root URL without the
 hash route and loads it again (`openAgentPageInstead`, which replaces
 `openDesktopInstead`): the URL stays `/` (or `/c/<id>`), no redirect, one extra
-load once per account and browser. A legacy answer remembers `chat`; the Agent
+load once per account and browser. While it waits for that answer the chat page
+is not drawn (`holdChatPage`: `#app` hidden until the answer is legacy, the page
+goes to one of its own routes such as `#/login`, or 3 s at most), and the entry
+applies the theme before choosing (`main.ts`), so the first visit shows the
+page's background in the right theme and then the Agent page, not a dark fade
+and the chat page's chrome. A legacy answer remembers `chat`; the Agent
 page told by its connection that the account is legacy switches back the same
 way. The chat page's other routes (`#/login`, `#/admin`, …) stay the chat page
 for everyone. No nginx or ingress change: `location /` already falls back to
@@ -463,14 +468,26 @@ again every 4 s while starting, five failed reads before `absent`, following thi
 browser's first setup), shown through `PackagedApp` (app id `agent`, bound with
 `appInstance`), so the Agent App's own frontend, versioned with its release. The
 desktop's launcher (`AgentEntry.vue`) uses the same lookup and opens a window
-with the binding. A deployment account with no Agent yet is set up as the
-desktop does (`autoSetUpAgent`); a stopped one shows **Start Agent**.
+with the binding. The view follows the Agent App's own entry in the deployment
+(`agentView`), not the deployment's readiness: its intent `stopped` (Fleet's
+per-App Stop, or the whole deployment stopped) is **stopped**; intent `running`
+with a ready instance is **ready**, without one **starting** (or **stopped** with
+the reason while an App needs the owner's attention); a deployment without an
+Agent App, or no deployment, is **absent**. **Start Agent** (`startAgent`)
+starts just the Agent App when the owner stopped it alone, and every App when
+the whole deployment is stopped. A deployment account with no Agent yet is set
+up as the desktop does (`autoSetUpAgent`). The page's buttons use the page's
+own tokens (`styles/tokens.css`; a test checks every colour variable the page
+components and `PackagedApp` read). A page left on stopped does not notice a
+start made elsewhere (Fleet, the desktop) until it is reloaded.
 
 **URL.** The page opens on the URL's chat (`initialState.chatId`); the Agent's
 `setState({chatId})` reaches the page as its durable `savedState.chatId` (its
 manifest's `persistState`) and is written by `PageHost` with the new `pageUrl`
 option: `/c/<id>` at the root (`/` for no chat), `?chat=<id>` on
-`/app/pkg:agent`. History is replaced, not pushed, as on every App page. The
+`/app/pkg:agent`. History is replaced, not pushed, as on every App page: Back
+leaves Pantheon rather than returning to the previous chat. This is kept on
+purpose (a chat switch is not a navigation the browser should replay). The
 chat shown is passed back as `savedState`, so a reconnecting frame opens on it.
 
 **Restart and upgrade.** An App page now holds a lease on its App's instance
@@ -494,7 +511,13 @@ which only page hosts send; the Agent frontend (`agent/hostFiles.ts`) then
 registers a host file opener, so files the Agent links (`openFileSmart`: links in
 answers, chips, output files) open as side-panel tabs, a relative path being the
 Workspace's as on the desktop; a refused open falls back to the chat's own
-preview. A desktop window is unchanged (no `fileOpening`, Apps launch windows).
+preview. The desktop host grants `fileOpening` too (since frontend #36): a file
+linked in the desktop's Agent window opens as a viewer window
+(`openLinkedFile` → `DesktopHost.open`), as it did before the Agent became a
+packaged App; other Apps still launch windows. Where no host takes a file (an
+older desktop, a type no App opens), the chat opens it in the clicked surface's
+own panel (`useOpenFile`): the Agent window has its own panel state, and a file
+tab opened only in the page store stayed out of sight there.
 The top bar of the Agent page has **Desktop** (`/desktop.html`, kept at narrow
 widths) instead of Share and Open on desktop.
 
