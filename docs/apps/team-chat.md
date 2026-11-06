@@ -369,7 +369,9 @@ pantheon-team search <query> [--in CH] [--from @h]                (Phase 2)
 The node's coding-agents service serves the script's requests as it serves
 `pantheon-link` (same inbox rules, limits per turn: 200 requests), adding the
 agent's identity; the controller service checks the agent's rights (member of
-the channel, its own messages).
+the channel, its own messages). Every request belongs to the running turn and
+carries that turn's credential (see "Turn-bound commands" under "Privacy and
+permissions"); one without it is refused.
 
 ### Watching and stopping
 
@@ -397,6 +399,68 @@ terminal resume for runtimes with one).
   agents.
 * **Owner views** (read-only): an agent's folder (through the Files service),
   its agent-to-agent DMs, its reminders.
+* **Turn-bound commands** (from the second Phase 3 check). An agent acts only
+  inside a turn, and only for the one person that turn works for:
+  * When a turn starts, the controller makes a turn id and an unguessable
+    credential (32 random bytes) and records who the turn **works for**: the
+    person whose message started it, or the agent's owner for a turn the
+    owner (or nobody: an agent's own reminder) started. The credential is
+    dropped when the turn ends (finished, failed or stopped).
+  * The node gives the credential to the turn's processes only in their
+    environment (`PANTHEON_TEAM_TURN`), never in a file. `pantheon-team`
+    puts it in each request; the node refuses a request whose credential is
+    not the running turn's, and the controller refuses any command whose
+    turn id and credential are not the agent's running turn's. There is no
+    fallback: outside a turn an agent's command does nothing (no "last
+    turn's view").
+  * A turn works for one person. It takes only queued messages that work for
+    the same person; a message from anyone else (the owner's during a
+    member's turn, or the reverse) starts a turn of its own after this one.
+    `inbox` mid-turn follows the same rule.
+  * What a turn makes carries its person and is checked against them: its
+    messages (an @mention or DM wakes only agents that person may use), its
+    edits (an edit re-wakes the agents the message woke only when that
+    person may use them; an agent edits only messages in conversations that
+    person sees), its reminders (set in Alice's turn, a reminder works for
+    Alice, also when Team Chat posts it while the agent is stopped or busy;
+    in a member's turn `--for` names only that member or the agent), its
+    tasks (claim, state and assign only tasks in conversations that person
+    sees; assign only to agents that person may use) and `remind list` /
+    `remind cancel` (in a member's turn, only reminders set in that
+    member's turns or for them, or tied to a conversation they see).
+  * A Team Chat turn runs in a session (and process group) of its own on its
+    computer. When its agent exits, the node ends every process still in
+    that session or group, and every process it saw as the turn's
+    descendant (checked each second) that is still the same process, so
+    `nohup … &` loops do not live on into later turns.
+* **What Team Chat cannot prevent** (said in the T35 dialog and here): a
+  shared agent runs as its computer's user. Whatever that user can do, a
+  person who may use the agent can ask it to do, in its turn: read any file
+  the user can read, including other agents' folders, `.team/` inboxes and
+  the agent's own `MEMORY.md` and session (so what one person told it can
+  come back for another person if the model repeats it); start programs
+  that escape the turn (a process that leaves the turn's session and its
+  descendants within a second, or one started by another service such as
+  `launchd`, `cron` or `systemd`, outlives the turn); and, while a later
+  turn runs, a process that survived could read that turn's credential from
+  the computer (another process's environment, or a request file before the
+  node removes it) and act as that turn. The credential stops a process
+  left from an earlier turn from using Team Chat by itself; it does not make
+  a shared agent on a person's own computer a boundary. The Workspace or a
+  computer of its own is the safe home for a shared agent.
+* **Admin powers** (from the second Phase 3 check). An admin: does what a
+  member does; renames, archives, changes the topic, the members, privacy
+  and wake mode of channels that are not the owner's (#general and the
+  channels the owner made are the owner's); adds people and agents they may
+  use to any channel they are in; starts, stops and stops the turn of agents
+  they may use; invites people and removes members (not admins or the
+  owner). An admin may not: make one of the owner's channels private or
+  public; change which messages wake agents in #general or the owner's
+  channels; rename or archive the owner's channels (the simplest rule: the
+  owner's channels are the owner's to shape); take the owner, or an agent of
+  the owner's they may not use themselves, out of any of the owner's
+  channels; retry a failed turn, reset or delete an agent, change agents or
+  the space's settings, or watch a turn.
 
 ## Interface
 
@@ -1431,7 +1495,9 @@ first Phase 3 check"): controller `f25093d8`, hub `15128fe`, frontend
   space." there.
 * **Roles.** Owner: everything (as Phase 2). Admin: what a member does, plus
   rename, archive and change the members of any channel they can see (never
-  taking the owner out), start, stop and stop the turn of agents they may
+  taking the owner out; since the second check, not the owner's channels'
+  privacy, wake mode, name or archive, nor the owner's agents they may not
+  use: see "Admin powers"), start, stop and stop the turn of agents they may
   use, invite people and remove members (not admins or the owner). Retrying
   a failed turn and resetting an agent's session are the owner's. Member: post, edit and
   delete their own messages, create channels (public or private), change the
@@ -1464,8 +1530,9 @@ first Phase 3 check"): controller `f25093d8`, hub `15128fe`, frontend
   says "Writer was not asked: only @weize can use Writer." An agent's
   messages stay visible to everyone in the conversation, whoever may use it.
 * **No relay around access.** A turn works for the person whose message
-  started it (`behalf`: the newest person's message among its events; a
-  reminder's person; an agent's message carries its turn's). An agent's
+  started it (since the second check exactly one person, `works_for`: see
+  "Turn-bound commands"; a reminder's person; an agent's message carries its
+  turn's). An agent's
   message wakes another agent only when that person may use it; otherwise the
   agent's post answer says who was not woken and why. The same holds for
   reading: such a turn's `read`, `search`, `channels`, `tasks`, `inbox` and
