@@ -48,4 +48,3 @@ func sandboxAvailable() map[string]any {
 	kind, why := codingagents.SandboxKind()
 	return map[string]any{"kind": kind, "why": why, "runtimes": []string{"claude", "codex"}, "os": runtime.GOOS}
 }
-
