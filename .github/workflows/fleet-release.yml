@@ -153,7 +153,7 @@ jobs:
   build-macos-app:
     name: Build macOS app bundles
     needs: validate
-    runs-on: macos-14
+    runs-on: macos-15
     outputs:
       notarized: ${{ steps.bundles.outputs.notarized }}
     steps:
