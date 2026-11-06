@@ -631,6 +631,13 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 		}
 		return fail(reason, fix, transient)
 	}
+	sandboxed := agent.sandboxed()
+	if sandboxed && !codingagents.SandboxRuntimes[agent.Runtime] {
+		// Refused, never run without the sandbox (docs/apps/team-chat.md,
+		// "Shared agents run sandboxed").
+		return fail(runtimeLabel(agent.Runtime)+" can't run in Team Chat's sandbox (only Claude Code and Codex can)",
+			"Switch the agent to Claude Code or Codex, or turn the sandbox off in the agent's settings.", false)
+	}
 	setup, err := t.Nodes.Call(ctx, fl.fid, agent.NodeID, "team_setup", map[string]any{"folder": agent.Folder,
 		"agent_md": brief}, 30*time.Second)
 	if err != nil {
@@ -639,6 +646,18 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 	if setup["success"] != true {
 		reason, fix, transient := explain(&agent, node, str(setup["error"]))
 		return fail(reason, fix, transient)
+	}
+	if sandboxed {
+		box, known := setup["sandbox"].(map[string]any)
+		switch {
+		case !known:
+			// A node from before the sandbox would ignore it: refused.
+			return fail("PantheonOS on "+nodeLabel(node, agent.NodeID)+" is too old to run shared agents in a sandbox",
+				"Update PantheonOS on "+nodeLabel(node, agent.NodeID)+", or turn the sandbox off in the agent's settings.", false)
+		case str(box["kind"]) == "":
+			return fail("this computer can't run shared agents in a sandbox ("+str(box["why"])+")",
+				"The owner can turn the sandbox off in the agent's settings.", false)
+		}
 	}
 	var saved []string
 	for _, f := range files {
@@ -655,7 +674,7 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 	args := map[string]any{"prompt": prompt, "cwd": agent.Folder, "auto": true, "origin": "team-chat",
 		"model": agent.Model, "effort": agent.Effort,
 		"team": map[string]any{"mid": mid, "token": t.agentToken(fl.fid, mid), "handle": agent.Handle, "name": agent.Name,
-			"note": teamNote(&agent), "turn": turnID, "cred": turnCred}}
+			"note": teamNote(&agent), "turn": turnID, "cred": turnCred, "sandbox": sandboxed}}
 	if agent.Session != "" {
 		args["conversation_id"] = agent.Session
 	} else {
@@ -1033,6 +1052,10 @@ func explainKnown(m *tcMember, n TeamNode, errText string) (reason, fix string, 
 		return false
 	}
 	switch {
+	case strings.Contains(errText, codingagents.SandboxRefusal):
+		// The node refused to run the turn without its sandbox: its words.
+		_, why, _ := strings.Cut(errText, codingagents.SandboxRefusal)
+		return strings.TrimSuffix(strings.TrimSpace(why), "."), "", false, true
 	case appNotReady(errText):
 		return "your Workspace is still getting " + label + " ready", "It answers by itself once it is ready.", true, true
 	case has("budget", "insufficient", "quota", "credit", "billing", "payment required") || tcBudgetErrRE.MatchString(errText):

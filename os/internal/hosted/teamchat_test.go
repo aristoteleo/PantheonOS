@@ -33,6 +33,7 @@ type fakeAgents struct {
 	seen    map[string]time.Time // last heartbeat
 	resume  string               // agent_send refuses to resume a session with this error
 	sendErr string               // agent_send refuses every turn with this error
+	sandbox string               // team_setup's sandbox: "" seatbelt, "none" (no sandbox), "old" (a node without it)
 	prompts []string
 	sends   []map[string]any
 	reply   func(prompt string) (text, errText string)
@@ -88,7 +89,14 @@ func (f *fakeAgents) Call(_ context.Context, _ string, node, method string, args
 		if strings.HasPrefix(folder, "/") {
 			folder = path.Clean(folder)
 		}
-		return map[string]any{"success": true, "folder": folder, "home": folder == "/home/me", "root": folder == "/"}, nil
+		out := map[string]any{"success": true, "folder": folder, "home": folder == "/home/me", "root": folder == "/"}
+		switch f.sandbox {
+		case "":
+			out["sandbox"] = map[string]any{"kind": "seatbelt", "why": ""}
+		case "none":
+			out["sandbox"] = map[string]any{"kind": "", "why": "no sandbox on this system"}
+		}
+		return out, nil
 	case "team_file_put":
 		f.files[str(args["name"])] += int64(len(str(args["data"])))
 		return map[string]any{"success": true}, nil

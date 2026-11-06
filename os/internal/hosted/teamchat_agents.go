@@ -305,6 +305,22 @@ func (t *TeamChat) agentUpdate(ctx context.Context, fid, mid string, fields map[
 				return nil, &ArgumentError{"access is only_me, everyone or listed"}
 			}
 			next.Access = s
+		case "sandbox":
+			// On by default for shared agents; off only with the owner's
+			// confirmation of sandboxOffText (agent_update is the owner's).
+			switch s {
+			case "on":
+				next.SandboxOff = nil
+			case "off":
+				if confirm, _ := fields["sandbox_confirm"].(string); confirm != sandboxOffText {
+					return nil, &ArgumentError{"Turning the sandbox off needs your confirmation: " + sandboxOffText}
+				}
+				next.SandboxOff = &tcSandboxOff{At: t.stamp(), By: tcOwner, Text: sandboxOffText}
+			default:
+				return nil, &ArgumentError{"sandbox is on or off"}
+			}
+		case "sandbox_confirm":
+			// Read with sandbox.
 		case "access_list":
 			list, _ := v.([]any)
 			next.AccessList = nil

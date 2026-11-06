@@ -391,6 +391,10 @@ type tcMember struct {
 	Access     string       `json:"access,omitempty"` // only_me | everyone | listed
 	AccessList []string     `json:"access_list,omitempty"`
 	Listen     string       `json:"listen,omitempty"` // mention | all
+	// SandboxOff: the owner turned the sandbox off for this shared agent,
+	// confirming the words shown (docs/apps/team-chat.md, "Shared agents
+	// run sandboxed"). Unset, a shared agent's turns run sandboxed.
+	SandboxOff *tcSandboxOff `json:"sandbox_off,omitempty"`
 	CreatedBy  string       `json:"created_by,omitempty"`
 	State      string       `json:"state,omitempty"` // running | stopped
 	Attention  *tcAttention `json:"attention,omitempty"`
@@ -418,6 +422,25 @@ type tcMember struct {
 }
 
 func (m *tcMember) agent() bool { return m.Kind == "agent" }
+
+// tcSandboxOff records the owner's confirmation that turned a shared
+// agent's sandbox off: when, by whom (only the owner can) and the words
+// they confirmed.
+type tcSandboxOff struct {
+	At   string `json:"at"`
+	By   string `json:"by"`
+	Text string `json:"text"`
+}
+
+// sandboxOffText is what the owner confirms to turn a shared agent's
+// sandbox off; agent_update takes it back as sandbox_confirm, word for word.
+const sandboxOffText = "People who can use this agent can then run any command as you on this computer, read your files, and use your PantheonOS account."
+
+// sandboxed: the agent's Team Chat turns run in the OS sandbox: it is
+// shared (anything but Only me) and its owner did not turn the sandbox off.
+func (m *tcMember) sandboxed() bool {
+	return m.Access != "" && m.Access != "only_me" && m.SandboxOff == nil
+}
 
 type tcConv struct {
 	CID        string   `json:"cid"`
