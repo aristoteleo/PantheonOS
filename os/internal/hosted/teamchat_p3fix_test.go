@@ -245,15 +245,18 @@ func TestANameCannotMimicAnotherMember(t *testing.T) {
 }
 
 // An admin starts, stops and stops a turn of agents they may use, and is
-// answered without the agent's folder, computer or turns; a session reset is
-// the owner's.
+// answered without the agent's folder, computer or turns; Retry and a
+// session reset are the owner's.
 func TestAnAdminsAgentControlIsRedactedAndResetIsTheOwners(t *testing.T) {
 	s := newSharedSpace(t)
 	h, b := s.h, s.b
 	if e := refusedAs(t, h, b, carol, "agent_control", map[string]any{"mid": s.shared, "action": "reset_session"}); !strings.Contains(e, "Only the space owner can reset an agent's session") {
 		t.Fatal(e)
 	}
-	for _, action := range []string{"stop", "start", "retry"} {
+	if e := refusedAs(t, h, b, carol, "agent_control", map[string]any{"mid": s.shared, "action": "retry"}); !strings.Contains(e, "Only the space owner can retry") {
+		t.Fatal(e)
+	}
+	for _, action := range []string{"stop", "start"} {
 		out := callAs(t, h, b, carol, "agent_control", map[string]any{"mid": s.shared, "action": action})
 		a, _ := out["agent"].(map[string]any)
 		if a == nil || out["status"] == nil {

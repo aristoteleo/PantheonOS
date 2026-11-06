@@ -524,12 +524,17 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 				return nil, nil
 			}
 			switch a.Action {
-			case "start", "stop", "stop_turn", "retry":
+			case "start", "stop", "stop_turn":
 			default:
-				// A session reset loses the agent's conversation: the owner's.
+				// Retry spends the owner's budget on what the owner was told to
+				// fix, and a session reset loses the agent's conversation: the
+				// owner's.
 				what := strings.ReplaceAll(a.Action, "_", " ") + " an agent"
-				if a.Action == "reset_session" {
+				switch a.Action {
+				case "reset_session":
 					what = "reset an agent's session"
+				case "retry":
+					what = "retry an agent's failed turn"
 				}
 				return nil, &ArgumentError{"Only the space owner can " + what + "."}
 			}
