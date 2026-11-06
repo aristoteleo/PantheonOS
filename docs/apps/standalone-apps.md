@@ -478,8 +478,9 @@ starts just the Agent App when the owner stopped it alone, and every App when
 the whole deployment is stopped. A deployment account with no Agent yet is set
 up as the desktop does (`autoSetUpAgent`). The page's buttons use the page's
 own tokens (`styles/tokens.css`; a test checks every colour variable the page
-components and `PackagedApp` read). A page left on stopped does not notice a
-start made elsewhere (Fleet, the desktop) until it is reloaded.
+components and `PackagedApp` read). The Agent page reads a stopped Agent again
+every 15 s (`stoppedPollMs`), so a start made in Fleet or on the desktop brings
+it back there too; the desktop launcher reads it only when opened or started.
 
 **URL.** The page opens on the URL's chat (`initialState.chatId`); the Agent's
 `setState({chatId})` reaches the page as its durable `savedState.chatId` (its
@@ -521,10 +522,12 @@ tab opened only in the page store stayed out of sight there.
 The top bar of the Agent page has **Desktop** (`/desktop.html`, kept at narrow
 widths) instead of Share and Open on desktop.
 
-**Releases.** Frontend (UI `codex/agent-app-extraction`) and Agent App 0.9.111
-(the SDK and the Agent frontend's file opener; runtime `c576bc22`); no
-controller or Hub code change. An older Agent release keeps working on the new
-frontend: its SDK ignores `fileOpening`, so its files open in its own preview.
+**Releases.** Frontend (UI `codex/agent-app-extraction`; #37 `ea04fc1b` after
+the first check) and Agent App 0.9.111 (0.9.112 after the first check: the
+chat's file panel and translations). 0.9.111 brought the SDK's `openFile` and
+the Agent frontend's file opener (runtime `c576bc22`); no controller or Hub code
+change. An older Agent release keeps working on the new frontend: its SDK
+ignores `fileOpening`, so its files open in its own preview.
 
 **Staging verification (2026-11-06,** frontend `4224bdd5`, Agent App 0.9.111,
 accounts acct3 and acct4**).**
@@ -548,6 +551,32 @@ accounts acct3 and acct4**).**
   previous UI commit. vue-tsc passes; the touched suites pass except seven
   failures in `AppNodePicker.test.ts` and `desktop/App.test.ts` that fail the
   same way before the change.
+- Fixes after the first independent check (frontend #37 `ea04fc1b`, Agent
+  App 0.9.112 on acct3 and acct4, hub pinned to 0.9.112): with only the Agent
+  App stopped (Fleet's per-App Stop), the page showed "Starting your Agent…"
+  forever (the lookup read the deployment's readiness); Start Agent and "Set up
+  my Agent" were near-invisible (`--action`/`--accent`, undefined on App pages);
+  the retry button read `common.retry`; a file linked in the desktop's Agent
+  window had no visible effect (the window's own panel stayed collapsed, and the
+  desktop host did not take files); the first visit faded to dark and flashed the
+  chat page. Verified live on acct4: Agent App alone stopped → stopped view in
+  12 s, also after a reload, Start Agent visible (dark on light, light on dark),
+  one revision change (just the Agent App), Agent back in 14 s on the same
+  `/c/<id>`; whole deployment stopped → stopped view, Start Agent from the
+  desktop launcher brought every App back; the desktop launcher shows "The Agent
+  is stopped" with Start Agent in both cases; release switch 0.9.111 → 0.9.112
+  with the page open: no reload, same URL; `/c/<unknown id>` → "Could not load
+  this conversation" with **Retry**; a pointer click on `p2_demo.py` in the
+  desktop's Agent window opened a Text Viewer window with the file; on the
+  Agent page the same link still opens a side-panel tab; a fresh browser's first
+  visit keeps `#app` hidden on the light background (no dark fade, no chat-page
+  text) until the in-place reload to the Agent page. Tests: lookup by the Agent
+  App's state (Agent alone stopped, whole deployment stopped, starting, absent,
+  stopped polling), page colour tokens, translation keys, desktop file opening,
+  the surface's own panel, the first-visit hold; all new ones fail without their
+  fix. vue-tsc passes; no new failures in the touched suites compared with
+  `4224bdd5` (one timing test in `agent-canvas/linkRoute.test.ts` failed once
+  under load and passes alone).
 - Also: `/desktop.html` and its Agent window unchanged; first contentful paint
   of `/c/<id>` 96 ms on a warm cache; light and dark themes correct (top bar and
   Agent frame); Phase 1 pages (`/app/coding-agents`, `/app/agent-canvas`) work.
