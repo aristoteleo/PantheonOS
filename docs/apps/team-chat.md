@@ -368,10 +368,11 @@ pantheon-team search <query> [--in CH] [--from @h]                (Phase 2)
 
 The node's coding-agents service serves the script's requests as it serves
 `pantheon-link` (same inbox rules, limits per turn: 200 requests), adding the
-agent's identity; the controller service checks the agent's rights (member of
-the channel, its own messages). Every request belongs to the running turn and
-carries that turn's credential (see "Turn-bound commands" under "Privacy and
-permissions"); one without it is refused.
+agent's identity and the running turn's id and credential; the controller
+service checks the agent's rights (member of the channel, its own messages).
+Every request belongs to the running turn: a process of that turn must vouch
+for it (see "Turn-bound commands" under "Privacy and permissions"); any other
+is refused.
 
 ### Watching and stopping
 
@@ -389,10 +390,13 @@ terminal resume for runtimes with one).
   (default), *Everyone in this space*, *Listed people*. Without access a
   person cannot DM, mention-wake or add the agent; it is shown greyed with
   its owner.
-* **Files:** an agent works with its computer's files, and can read whatever
-  its computer's user can read, whatever its runtime (Codex's
-  `workspace-write` sandbox stops writes outside the folder, and only when
-  web access is off; it does not stop reads). A shared agent's folder may not
+* **Files:** an agent works with its computer's files, and can read and
+  change whatever its computer's user can, whatever its runtime: Team Chat
+  runs every turn with `auto` on, so Codex runs with
+  `--dangerously-bypass-approvals-and-sandbox` (no sandbox) and Claude Code
+  with `--dangerously-skip-permissions` (no permission prompts); nothing
+  keeps a turn to its folder. (Whether shared agents should run sandboxed
+  is an open product decision.) A shared agent's folder may not
   be a home directory, a folder that holds home folders (`/Users`, `/home`,
   `/root`, …) or `/`; the create dialog says what the agent can reach on that
   computer and recommends the Workspace or a dedicated machine for shared
@@ -406,13 +410,15 @@ terminal resume for runtimes with one).
     person whose message started it, or the agent's owner for a turn the
     owner (or nobody: an agent's own reminder) started. The credential is
     dropped when the turn ends (finished, failed or stopped).
-  * The node gives the credential to the turn's processes only in their
-    environment (`PANTHEON_TEAM_TURN`), never in a file. `pantheon-team`
-    puts it in each request; the node refuses a request whose credential is
-    not the running turn's, and the controller refuses any command whose
-    turn id and credential are not the agent's running turn's. There is no
-    fallback: outside a turn an agent's command does nothing (no "last
-    turn's view").
+  * The credential stays in the node (from the fourth Phase 3 check): the
+    node sends it to the controller with each request a process of the
+    running turn vouched for, and the controller refuses any command whose
+    turn id and credential are not the agent's running turn's. It is never
+    in the turn's environment (the node removes `PANTHEON_TEAM_TURN`, which
+    carried it before, even when inherited), in its arguments or in a file,
+    so a process of the turn, or one that escaped it, has no credential to
+    read. There is no fallback: outside a turn an agent's command does
+    nothing (no "last turn's view").
   * A turn works for one person. It takes only queued messages that work for
     the same person; a message from anyone else (the owner's during a
     member's turn, or the reverse) starts a turn of its own after this one.
@@ -432,24 +438,41 @@ terminal resume for runtimes with one).
     context. The input says whom the turn works for, and the brief (turn
     input, the turn's note, AGENT.md) says only that person's requests count.
   * A command is answered only when a **process of the running turn vouches
-    for it** (from the third Phase 3 check). `pantheon-team` writes its
-    request into the agent's `.team/` inbox (a file: the transport works
-    inside the runtimes' sandboxes, which may not allow sockets), then
-    `exec`s a waiting process named `pantheon-team-wait` whose arguments
-    carry the request's id and its SHA-256. The node answers a request only
-    when the turn's credential matches *and* some process of the turn (the
-    agent's process, its session or process group, or a descendant) has
-    exactly those arguments (macOS: `KERN_PROCARGS2`; Linux:
-    `/proc/<pid>/cmdline`). A process that escaped (fork, `setsid`, fork:
-    reparented to `launchd`/init, in a session of its own) cannot vouch,
-    even with a stolen credential, and cannot change a vouched request (the
-    digest would not match); a request written by hand inside the turn is
-    refused too. When the `pantheon-team` script no longer is the one the
+    for it** (from the third Phase 3 check; the transport as rebuilt after
+    the fourth). `pantheon-team` builds the request in its own memory (the
+    `op:`, `arg:`, `opt:` and `file:` lines, a blank line, the text) and
+    computes its SHA-256 from those same bytes (`printf … | sha256sum`, a
+    pipe between two of the turn's processes), never from a file. Then it
+    writes the request into the agent's `.team/` inbox as a new file
+    (`set -C`: no file of that name may exist; a file, because the
+    transport must work inside runtimes' sandboxes, which may not allow
+    sockets) and `exec`s a waiting process named `pantheon-team-wait` whose
+    arguments carry the inbox, the request's id and that SHA-256. The node
+    reads the file and answers it only when some process of the turn (the
+    agent's process, its session or process group, or a descendant; still
+    the same process, by its start time, after the check) has exactly those
+    arguments (macOS: `KERN_PROCARGS2`; Linux: `/proc/<pid>/cmdline`) and
+    the SHA-256 of what it read is that one. So a file swapped into the
+    inbox, or rewritten, at any moment (before or after it is moved into
+    place) is refused: the digest is of what the turn's process meant to
+    send. A process that escaped (fork, `setsid`, fork: reparented to
+    `launchd`/init, in a session of its own) cannot vouch. Every request is
+    vouched for, whatever its size; a request larger than 36 KB (32 KB of
+    text and a 4 KB header) is refused before anything else, and one whose
+    header has a line other than one `op:` and any `arg:`, `opt:`, `file:`
+    is refused. When the `pantheon-team` script no longer is the one the
     node wrote for the turn, Team Chat is off for the rest of that turn.
-    The peer of a file has no pid, so a socket's peer-pid check
-    (`LOCAL_PEERPID`, `SO_PEERCRED`) does not apply; the vouching process
-    is the file transport's equivalent. Windows nodes (no `sh` tool for
-    agents) keep the credential alone.
+    What vouching does not stop: any process *inside* the turn can vouch
+    (it can start a process with those arguments), so it binds a command to
+    the running turn, not to the `pantheon-team` script; a command the
+    turn's model runs by hand is the turn's command. The peer of a file
+    has no pid, so a socket's peer-pid check (`LOCAL_PEERPID`,
+    `SO_PEERCRED`) does not apply; the vouching process is the file
+    transport's equivalent. (Reading the request from the vouching
+    process's environment instead was tried: macOS does not show another
+    process's environment when that process is a platform binary such as
+    `/bin/sh`.) Nodes that cannot read another process's arguments
+    (Windows, whose agents have no `sh` tool) answer no Team Chat command.
   * A person who leaves or is removed takes with them everything that
     would run later for them: their reminders and every reminder set in a
     turn that worked for them (recurring ones too), queued messages that
@@ -480,14 +503,17 @@ terminal resume for runtimes with one).
   come back for another person if the model repeats it); start programs
   that escape the turn (a process that leaves the turn's session and its
   descendants within a second, or one started by another service such as
-  `launchd`, `cron` or `systemd`, outlives the turn). Such a process can
-  still read a later turn's credential (another process's environment is
-  readable by the same user), but cannot use it: a command needs a process
-  of the running turn to vouch for it (see "Turn-bound commands"). What it
-  can still do, as the same user: read the answers the turn's own commands
-  get (the `.reply` files) and anything the agent writes; change what the
-  turn runs (the `pantheon-team` script between two of its commands, the
-  runtime's files, the user's shell setup, programs on the `PATH`), or, where
+  `launchd`, `cron` or `systemd`, outlives the turn). Such a process finds
+  no credential to steal (it stays in the node) and cannot use Team Chat
+  by itself: a command needs a process of the running turn to vouch for it,
+  with the digest of the request it made (see "Turn-bound commands"). What
+  it can still do, as the same user: read the answers the turn's own
+  commands get (the `.reply` files), or write a false one first, and
+  anything the agent writes; make the turn's own commands fail (remove or
+  swap their request files: refused, never answered as its own); change
+  what the turn runs (the `pantheon-team` script between two of its
+  commands, the runtime's files, the user's shell setup, programs on the
+  `PATH`, files in the agent's folder it reads, below), or, where
   the system allows it, attach to or inject into the turn's processes
   (`ptrace`, a debugger); and act through the agent's other channels (its
   computer's own services, the network). The credential and the vouching
@@ -499,14 +525,34 @@ terminal resume for runtimes with one).
     `~/.claude` (hooks, plugins, MCP servers), and so on, so people who may
     use a shared agent could reach them. Team Chat turns start Codex with
     `--ignore-user-config` (no `config.toml`: no plugins, MCP servers or
-    hooks from it; the sign-in in `CODEX_HOME` still works) and Claude Code
-    with `--setting-sources project,local --strict-mcp-config` (no user
-    settings, hooks or plugins, no MCP servers), when the installed version
-    has those flags; Coding Agents' own turns are unchanged. Still loaded:
-    the user's global instructions (`~/.codex/AGENTS.md`,
-    `~/.claude/CLAUDE.md`), skills, Codex's own built-in tools, and the
-    whole setup of other runtimes (Gemini, OpenCode, Pi, Cursor), and the
-    sign-in itself. An older runtime without the flags loads everything.
+    hooks from it; the sign-in in `CODEX_HOME` still works; and as a
+    folder's trust is kept there, the folder's own `.codex/config.toml` is
+    not loaded either) and `--disable hooks` (no hooks from anywhere, also
+    a `.codex/hooks.json` in the folder), and Claude Code with
+    `--setting-sources "" --strict-mcp-config`: no settings file at all,
+    neither the user's nor the folder's `.claude/settings.json` and
+    `.claude/settings.local.json` (so none of their hooks, plugins,
+    permissions, `env`, helpers or status line), no MCP servers, and no
+    `CLAUDE.md` or `.claude/skills` of the folder (from the fourth Phase 3
+    check: a hook the agent wrote into its own folder in one person's turn
+    ran in the owner's later turns). This holds when the installed version
+    has those flags (checked on Claude Code 2.1.319 and Codex 0.166 with
+    hooks planted in the folder: none ran); Coding Agents' own turns are
+    unchanged. Still loaded: the user's global instructions
+    (`~/.codex/AGENTS.md`), skills in the user's folders, Codex's own
+    built-in tools, the folder's `AGENTS.md` for Codex, the whole setup of
+    other runtimes (Gemini, OpenCode, Pi, Cursor: their folder settings and
+    hooks too), and the sign-in itself. An older runtime without the flags
+    loads everything.
+  * **The agent's folder carries over between turns and people.** What an
+    agent writes in its folder in one person's turn is there in every later
+    turn, for anyone: `MEMORY.md` and `notes/`, the `AGENTS.md` Codex reads
+    as instructions, scripts it later runs, files it reads. A person who
+    gets the agent to write instructions or a script there can steer later
+    turns, the owner's included. Team Chat keeps the runtimes' own settings
+    and hooks out (above) and the agent's brief says only the turn's
+    person's requests count, but the folder is shared state, like its one
+    memory: read what a shared agent's folder holds before trusting it.
   * **People's messages still steer a turn.** A turn takes asks only from
     its person, but it sees other people's messages as context (in its
     input, `read`, `search`); a message can still talk the model into
@@ -699,8 +745,9 @@ Criteria:
 * T35 Making an agent shared refuses a home-directory or `/` folder (and a
   folder that holds home folders), and the dialog states plainly what the
   agent can reach on its computer. (Folder confinement is not promised: a
-  shared agent can read whatever its computer's user can read, whatever the
-  runtime; Codex's sandbox only stops writes outside the folder.)
+  shared agent can read and change whatever its computer's user can,
+  whatever the runtime; Team Chat runs its turns without the runtime's
+  sandbox or permission prompts.)
 
 ## Phase 1 backend as built (2026-11-04)
 
@@ -1757,8 +1804,9 @@ rev}` when they were removed from the space.
   Everyone in this space / Listed people (people of the space). For a shared
   choice they say: "People you share Coder with can ask it to read anything
   <computer>'s user can read, whatever its runtime, not only its folder, and
-  to change or run things there. Codex's sandbox, when on, only stops writes
-  outside the folder, not reads. It also reads the channels it is in,
+  to change or run things there. Team Chat runs its turns without the
+  runtime's sandbox or permission prompts, so nothing keeps it to its
+  folder. It also reads the channels it is in,
   remembers what people tell it, and can repeat either to others. Your
   Workspace or a computer of its own is safer for a shared agent." (after the
   first check; the first wording wrongly said only Codex keeps to its
