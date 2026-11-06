@@ -1995,8 +1995,8 @@ haiku through OpenRouter, Only me); no browser):
   worked.
 * **Released node.** After the swap to the released `staging.12` binary, a
   Coder turn used `pantheon-team read` and posted.
-* Spend: the owner's key $5.0424 → $5.2990 over 11 Coder turns (Writer's two
-  wakes at the start skipped); Alice and Bob $0.00.
+* Spend: the owner's key $5.0424 → $5.2990 over 10 Coder turns and two Writer turns (Writer's two
+  wakes at the start, both skipped); Alice and Bob $0.00.
 
 The Hub's own check that an invite link is newer than a removal (`created_at`
 against the removal time) still compares times; a link made in the same
