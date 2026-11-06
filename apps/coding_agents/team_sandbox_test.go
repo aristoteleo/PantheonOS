@@ -50,6 +50,9 @@ gw="$ANTHROPIC_BASE_URL"
 tok="$ANTHROPIC_AUTH_TOKEN$PANTHEON_LLM_API_KEY"
 c=$(curl -s -m 5 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $tok" "$gw/v1/models")
 say "gateway $c"
+if [ -x /bin/zsh ]; then h=$(/bin/zsh -c 'cat <<EOF
+heredoc
+EOF' 2>&1); say "zsh $h"; else say "zsh heredoc"; fi
 t=$("$PWD/.team/pantheon-team" members 2>&1)
 say "team $t"
 say "home $HOME"
@@ -128,7 +131,7 @@ func TestASharedAgentsTurnRunsInTheSandbox(t *testing.T) {
 	for agent, got := range probes {
 		for _, want := range []string{"denied list users", "denied list other", "denied stat secret", "denied write outside",
 			"denied write team script", "ok folder", "denied signal outside", "denied keychain list", "denied keychain item",
-			"gateway 200", "team TEAM-OK"} {
+			"gateway 200", "team TEAM-OK", "zsh heredoc"} {
 			if !strings.Contains(got, want+"\n") {
 				t.Errorf("%s: want %q:\n%s", agent, want, got)
 			}

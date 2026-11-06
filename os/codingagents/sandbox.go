@@ -123,12 +123,14 @@ func profilePath(p string) bool {
 
 // Env is the turn's environment in its sandbox: its own home, the
 // runtimes' config homes and temp folders in it (never the user's: they
-// hold the user's own sign-ins).
+// hold the user's own sign-ins). zsh writes here-documents under
+// TMPPREFIX (/tmp/zsh by default), not TMPDIR: pantheon-team's
+// `- <<'EOF'` needs it inside the sandbox.
 func (s Sandbox) Env(env []string) []string {
 	home, tmp := s.Home(), s.Tmp()
 	return mergeEnv(env, "HOME="+home, "CLAUDE_CONFIG_DIR="+filepath.Join(home, ".claude"),
 		"CODEX_HOME="+filepath.Join(home, ".codex"), "TMPDIR="+tmp+"/", "TMP="+tmp, "TEMP="+tmp,
-		"CLAUDE_CODE_TMPDIR="+tmp, "XDG_CONFIG_HOME="+filepath.Join(home, ".config"),
+		"CLAUDE_CODE_TMPDIR="+tmp, "TMPPREFIX="+filepath.Join(tmp, "zsh"), "XDG_CONFIG_HOME="+filepath.Join(home, ".config"),
 		"XDG_CACHE_HOME="+filepath.Join(home, ".cache"), "XDG_DATA_HOME="+filepath.Join(home, ".local", "share"))
 }
 
