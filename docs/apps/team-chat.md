@@ -387,10 +387,14 @@ terminal resume for runtimes with one).
   (default), *Everyone in this space*, *Listed people*. Without access a
   person cannot DM, mention-wake or add the agent; it is shown greyed with
   its owner.
-* **Files:** an agent works with its computer's files. A shared agent's folder
-  may not be a home directory or `/`; the create dialog says what the agent
-  can reach on that computer and recommends the Workspace or a dedicated
-  machine for shared agents.
+* **Files:** an agent works with its computer's files, and can read whatever
+  its computer's user can read, whatever its runtime (Codex's
+  `workspace-write` sandbox stops writes outside the folder, and only when
+  web access is off; it does not stop reads). A shared agent's folder may not
+  be a home directory, a folder that holds home folders (`/Users`, `/home`,
+  `/root`, …) or `/`; the create dialog says what the agent can reach on that
+  computer and recommends the Workspace or a dedicated machine for shared
+  agents.
 * **Owner views** (read-only): an agent's folder (through the Files service),
   its agent-to-agent DMs, its reminders.
 
@@ -553,10 +557,11 @@ Criteria:
   state live; each has their own Activity and notifications.
 * T34 Removing a member revokes their grant within one request; they keep
   nothing but what they downloaded.
-* T35 Making an agent shared refuses a home-directory or `/` folder, and the
-  dialog states plainly what the agent can reach on its computer. (Hard
-  folder confinement is not promised: runtimes other than Codex's sandbox
-  can read what the node's user can.)
+* T35 Making an agent shared refuses a home-directory or `/` folder (and a
+  folder that holds home folders), and the dialog states plainly what the
+  agent can reach on its computer. (Folder confinement is not promised: a
+  shared agent can read whatever its computer's user can read, whatever the
+  runtime; Codex's sandbox only stops writes outside the folder.)
 
 ## Phase 1 backend as built (2026-11-04)
 
@@ -1407,8 +1412,10 @@ models:
 
 Status: built and verified on staging 2026-11-05 (T30–T35, see "Staging
 verification" below): controller `2a8975fa`, hub `ea2eda2`
-(`space_members`, migrated on staging only), frontend `f570c28a`. No node
-release and no new agents image. Not in production.
+(`space_members`, migrated on staging only), frontend `f570c28a`; fixed
+after the first independent check on 2026-11-06 (see "Fixes after the
+first Phase 3 check"): controller `f25093d8`, hub `15128fe`, frontend
+`ac426461`. No node release and no new agents image. Not in production.
 
 ### Decisions where the design left a choice
 
@@ -1423,9 +1430,10 @@ release and no new agents image. Not in production.
   who joins is added to `#general`, and Team Chat posts "@alice joined the
   space." there.
 * **Roles.** Owner: everything (as Phase 2). Admin: what a member does, plus
-  rename, archive and change the members of any channel they can see, start,
-  stop, stop the turn of and reset the session of agents they may use, invite
-  people and remove members (not admins or the owner). Member: post, edit and
+  rename, archive and change the members of any channel they can see (never
+  taking the owner out), start, stop and stop the turn of agents they may
+  use, invite people and remove members (not admins or the owner). Retrying
+  a failed turn and resetting an agent's session are the owner's. Member: post, edit and
   delete their own messages, create channels (public or private), change the
   channels they created, join public channels, add people and agents they may
   use to channels they are in, tasks in the conversations they see, use the
@@ -1435,13 +1443,17 @@ release and no new agents image. Not in production.
   owner's computers). Phase 3 agents all belong to the owner.
 * **Who sees what.** A person sees: public channels, the conversations they
   are in, and the DMs of the agents they own (an agent DM is also the
-  agent's owner's). So a private channel is invisible to everyone not in it,
-  the owner too, and a DM between two people is theirs only. Unread counts,
+  agent's owner's). The owner also sees every channel of their space,
+  private ones they are not in included (listed as not a member, nothing
+  unread until they join; they may join, read, archive and manage them). So
+  a private channel is invisible to everyone not in it but the owner, and a
+  DM between two people is theirs only. Unread counts,
   Activity, notifications and Mark all read cover the conversations a person
   is in (and their agents' DMs); a public channel they have not joined is
   listed with nothing unread until they join it. Search, Files, Tasks and
-  every message read cover what the person sees. An agent sees what it did
-  (its conversations and public channels).
+  every message read cover what the person sees. An agent sees its
+  conversations and public channels; while its turn works for people other
+  than its owner, only what they see too (see "No relay around access").
 * **Who may use an agent.** *Only me*: its owner only. *Everyone in this
   space*: every person. *Listed people*: its owner and the people in
   `access_list` (person ids). Without it a person cannot DM the agent, add it
@@ -1455,7 +1467,14 @@ release and no new agents image. Not in production.
   started it (`behalf`: the newest person's message among its events; a
   reminder's person; an agent's message carries its turn's). An agent's
   message wakes another agent only when that person may use it; otherwise the
-  agent's post answer says who was not woken and why.
+  agent's post answer says who was not woken and why. The same holds for
+  reading: such a turn's `read`, `search`, `channels`, `tasks`, `inbox` and
+  its input ("Since you last looked") cover only what every person it works
+  for sees, and a turn takes only the queued asks that fit one audience (the
+  rest wait for a later turn). The owner's turns keep the agent's whole view.
+  The agent's own memory (its session, `MEMORY.md`) is not split by person:
+  people who DM a shared agent are told that its owner reads the DM and that
+  it may remember what they say.
 * **Billing.** Turns run on the owner's computers with the owner's keys
   (Phase 3 agents are the owner's), so a member's question bills the owner's
   budget; nothing of the member's is used.
@@ -1466,7 +1485,10 @@ release and no new agents image. Not in production.
   agents answer on the owner's budget), no Workspace, no computer. An
   account that exists signs in and joins; a link with no sign-ups left still
   lets an account join. A link is per space; revoking it stops new joins, not
-  the people who joined.
+  the people who joined. A link works only while whoever made it is still
+  the space's owner or an admin (an admin's links are revoked when they are
+  made a member, removed or leave), and the owner lists and may revoke every
+  invite into their space, whoever made it.
 * **Removing.** Owner (or an admin, for a member) removes a person in Space
   settings → People; a person may leave a space themselves. The Hub deletes
   the membership, the controller drops that person's live grants at once and
@@ -1552,8 +1574,9 @@ rev}` when they were removed from the space.
   conversation (if open: a note, then #general).
 * **Roles.** Members and admins see no New agent, Computers, agent Folder or
   Settings, Full reset or Delete, space name, time zone or limits, Watch, and
-  no first run. Admins keep Controls (Start/Stop, Stop turn, Reset session)
-  and Stop/Retry on the working line for agents they may use; channel
+  no first run. Admins keep Controls (Start/Stop, Stop turn) and Stop on the
+  working line for agents they may use (Retry, the fix and Reset session are
+  the owner's); channel
   settings are the owner's, admins' and the channel maker's (others can leave
   and add people and usable agents).
 * **Access.** An agent the person may not use is greyed in the rail, the
@@ -1584,12 +1607,15 @@ rev}` when they were removed from the space.
   Open `/app/team-chat?space=<id>`; it starts no Workspace.
 * **Shared agents (T35).** New agent and the agent's Settings offer Only me /
   Everyone in this space / Listed people (people of the space). For a shared
-  choice they say: "People you share Writer with can ask it to read, change
-  or run anything the computer's user can reach on <computer>, not only its
-  folder. Only Codex keeps to its folder. It also reads the channels it is in
-  and can repeat what it read there. Your Workspace or a computer of its own
-  is safer for a shared agent."; New agent refuses a shared agent in a home
-  folder or `/` before asking the service. Status reasons that say "your
+  choice they say: "People you share Coder with can ask it to read anything
+  <computer>'s user can read, whatever its runtime, not only its folder, and
+  to change or run things there. Codex's sandbox, when on, only stops writes
+  outside the folder, not reads. It also reads the channels it is in,
+  remembers what people tell it, and can repeat either to others. Your
+  Workspace or a computer of its own is safer for a shared agent." (after the
+  first check; the first wording wrongly said only Codex keeps to its
+  folder); New agent and Settings refuse a shared agent in a home folder, a
+  folder that holds home folders or `/` before asking the service. Status reasons that say "your
   Workspace" read "<owner>'s Workspace" for anyone but the owner.
 * **Tests.** `phase3.test.ts` (access and its words, unread only where one
   is, conv gone, removed, Seen by, not-woken note, member's channels, the
@@ -1646,8 +1672,8 @@ argument), so the hosted binding's revision did not move.
   tasks made by agents or by people who left), not for everyone who sees it.
 * Watch is the owner's (it reads the owner's computers); admins see the
   working line and may stop a turn.
-* A failure line's Retry is shown to the owner, and to an admin for an agent
-  they may use.
+* A failure line's fix and Retry are the owner's; anyone else reads
+  "Coder couldn't answer right now." (changed after the first check).
 * Admin invites say the agents, computers and budget are the owner's.
 
 ### Tests (Phase 3)
@@ -1742,6 +1768,81 @@ space switcher offers "Your space" to an account that has no Team Chat of its
 own yet (choosing it says Team Chat is not running); the Shared links list
 names a space invite "Their own". The staging model proxy's lost OpenRouter
 model list (above) is not Team Chat's and was not changed.
+
+### Fixes after the first Phase 3 check (2026-11-06)
+
+The first independent check (staging, 2026-11-05) found two access-control
+holes that let an admin take power from the owner, a shared agent reading
+DMs for whoever asked, a false claim about Codex in the T35 dialog, and
+smaller leaks. Each is fixed with a test that failed before the fix
+(`os/internal/hosted/teamchat_p3fix_test.go`, hub
+`tests/test_team_chat_spaces.py`, UI `phase3check.test.ts`, `spaces.test.ts`,
+`ShareDialog.test.ts`) and retested on staging through the UI and with the
+member's or admin's own grant.
+
+| Finding | Fix |
+|---|---|
+| An admin could make the owner's channel private without the owner and lock them out; a private channel whose people were all removed was invisible and could not be archived | The owner sees every channel of their space (`visible`); private ones they are not in are listed as not a member, readable, joinable (`conv_join` of a private channel is allowed to the owner), archivable. Nobody but the owner takes the owner out of a conversation (`conv_update` members, `conv_leave {mid: owner}`: "The space owner stays in #x: only they can leave it."). |
+| An admin's invite links kept working after the admin was demoted or removed; the owner could not see or revoke them | Hub: a space invite works only while its maker is still owner or admin (checked at summary, register and join: "withdrawn", 410), and demoting, removing or the leaving of an admin revokes their live links into the space. `GET /api/app-invites` and `/api/app-links` list, for the owner, every invite into their space with `made_by`; `DELETE` on both works for the owner. |
+| A shared agent read any DM it was in for whoever asked | While an agent's turn works for people other than its owner (`behalf`), `visible` for that agent also requires every one of them to see the conversation: `read`, `search`, `channels`, `join`, `tasks`, `remind --about`, reply targets and the turn input's "Since you last looked" follow it ("Not shown: … is not a conversation the person this turn works for can see"). A turn takes only queued asks that fit one audience (`turnEvents`), and `inbox` hands over only what fits the running turn; the rest waits. A request outside a turn uses the last turn's people. |
+| People DMing a shared agent were not told its owner reads the DM | The DM, New direct message and the agent's profile say "Weize owns Coder and can read this conversation. Coder may remember what you tell it." |
+| The T35 dialog said Codex keeps to its folder | The dialog and this doc say what is true (above). Shared folders also refuse `/Users`, `/home`, `/var/home`, `/root`, `/var/root`, `C:\Users`, … and any parent of the computer's home (asked of the computer: `team_setup` check of `~`); `agent_create` checks a shared agent's folder on the computer before it writes anything there. |
+| A member could take the owner's name ("Weize") | `me_update` refuses a name or handle whose skeleton (case, spacing, punctuation, accents, look-alike letters folded) equals any other member's name or handle, or is one letter off the owner's or an admin's: "That name is too close to @weize (Weize). Choose another." A person who joins with such an account name goes by their handle. |
+| An admin's `agent_control` answer carried folder, `node_id`, turns | For anyone but the owner it is the agent as they see it. Retry (it spends the owner's budget on what the owner was told to fix) and `reset_session` are the owner's. |
+| Avatars could be any URL | Only `data:image/(png|jpeg|gif|webp);base64,…` or none; anything stored before is left out of what browsers get. |
+| Members saw the owner's account username, the Mac's hostname, the owner's account id (Workspace node name), usage counts | For anyone but the owner: agents' `node_name` and status `computer` are "Weize's Mac" / "Weize's Workspace" / "Weize's computer" (`node_os` is kept for this); the owner's `prev_handles` are left out; no `usage` in `space_get` or `space` events; Hub spaces list without `owner_username`, members list with account usernames for the owner only. |
+| Failure lines told members to fix the owner's budget | Anyone but the owner gets "Coder couldn't answer right now." without `action`, and agent statuses without `fix` and with that reason. |
+| Join and remove lines kept the old handle, in the warning style | They carry `about` (the person) and `action` (`joined`, `left`, `removed`); the page names the person by their handle now (older lines by an earlier handle) in the neutral style. |
+| Invitee UX | No "Your space" for someone without a space of their own (a separate "Create your own space…" leads to the first run only when chosen); Share… for a member says at once that only owners and admins invite; Shared links names a space invite "Team Chat space invite" (with "Made by" for an admin's); People shows the handle as chat does; the removed screen names the space after a reload. |
+
+Staging verification (2026-11-06, controller `85bd63a5` then `f25093d8`,
+hub `15128fe`, frontend `3701e06c` then `ac426461`; the owner and two
+members, Alice and Bob; one headless Chromium):
+
+* Owner: the rail listed `#p3v-alice-ch` (left over by the check: private,
+  its people removed) as "You're not in #p3v-alice-ch (private). Join it to
+  write here."; the owner archived it. Bob as admin: `conv_update {private,
+  members: [bob]}` and `conv_leave {mid: owner}` refused; `conv_update
+  {private: true}` kept the owner in.
+* Bob as admin made two links; the owner listed both with `made_by` and
+  revoked one; after Bob was made a member, an existing account's `join` of
+  the other answered 410. Bob, admin again, made a link; after his removal it
+  answered 410 too. Bob's `agent_control` start and stop answers had no
+  folder, `node_id` or turns; reset (and, after the second deploy, retry)
+  were refused.
+* Alice told Coder (shared, Codex on `openrouter/deepseek/deepseek-v4-flash-0731`)
+  a code word in a DM; Bob asked Coder in `#general` to paste `read
+  @p3v-alice` and a search. In Bob's turn the tool answered "Not shown: DM
+  with @p3v-alice is not a conversation the person this turn works for can
+  see". Coder still knew the word from its own session and had written it to
+  its `MEMORY.md` in Alice's turn, and declined on its own: the agent's
+  memory is not split by person (see "Left").
+* Alice: "Weize", "W e i z e", "Wéize!", the handle `weize_` and "Coder"
+  refused; `javascript:` and `https://` avatars refused; `space_get` had no
+  usage, no owner earlier handles, "Weize's Mac" / "Weize's Workspace" and no
+  hostname or account id; the Hub spaces list had no `owner_username`. With
+  the owner's key over its maximum, Alice's ask gave her "Coder couldn't
+  answer right now." and a calm line; the owner read the budget fix with
+  Retry. The DM with Coder showed the owner-reads note; Share… said at once
+  that only owners and admins invite; the switcher had Team and "Create your
+  own space…", no "Your space"; Bob's removed screen named Team after a
+  reload; People showed "Alice @p3v-alice".
+* T35: the dialog shows the new words; through the service a shared agent
+  at `/Users`, `/Users/`, `/Users/weizexu/..`, `/private/../Users`, `/home`,
+  `/root`, `/var/root`, `/Users/weizexu` and `~` was refused, Writer moved
+  to `/Users` refused, a folder of its own accepted.
+* Billing: the test node now runs Codex and Claude Code on PantheonOS models
+  (`model_source = pantheon` in its own Coding Agents folder, never the
+  Mac's own sign-ins); the owner's key moved $4.6248 → $4.7897 over Coder's
+  four turns (deepseek), the members' stayed $0.
+
+**Left.** A shared agent's own memory (its runtime session and the
+`MEMORY.md` it keeps) is not split by person: what one person tells it can
+come back in another person's turn if the model chooses to repeat it. The
+DM note and the T35 dialog say so; per-person sessions would close it. A
+shared folder is checked as the computer resolves the path (`..`, `~`) but
+not through symlinks. An owner without a display name is still named by
+their account username (as the invite page names them).
 
 ## Out of scope
 
