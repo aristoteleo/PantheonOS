@@ -2506,7 +2506,69 @@ use the proxy's provider pass-through routes (`/openai/v1/files`,
 platform's provider accounts; a turn's token cannot (the gateway passes on
 model calls only).
 
-<!-- STAGING-VERIFICATION -->
+Staging verification (2026-11-06; controller build of `3d6bb7e6`, node
+release `fleet-v0.5.1-staging.16` (`3d6bb7e6`, its released macOS binary on
+the test Mac node, PantheonOS models), frontend #29, Hub unchanged
+`767986d`; the owner's own turns; Coder (Codex,
+`openrouter/deepseek/deepseek-v4-flash-0731`) and Writer (Claude Code,
+`openrouter/anthropic/claude-haiku-5.5`); the test node's Coding Agents
+settings gave both agents the check's variables (`PYTHONPATH`,
+`NODE_PATH`, `GIT_SSH_COMMAND`, `GIT_CONFIG_*`, `npm_config_userconfig`,
+`JAVA_TOOL_OPTIONS`, `XDG_CONFIG_HOME`, `CLAUDE_CODE_SHELL_PREFIX`,
+`OTEL_EXPORTER_OTLP_ENDPOINT`, `HTTPS_PROXY`, a `*_GITHUB_TOKEN`, a plain
+one) and arguments (Claude Code `--settings FILE --plugin-dir DIR`, both
+with hooks that touch a marker file; Codex `-c notify=[…]`)):
+
+* **1, the turn's model credential.** The check's `keyprobe.py`, extended
+  to keep the credential it reads and probe again once the runtime exits,
+  read each running runtime's environment (`ps -E`). Writer's had
+  `ANTHROPIC_AUTH_TOKEN` (a `ptk_` token, not `sk-`), `ANTHROPIC_BASE_URL`
+  (`http://127.0.0.1:<port>`) and the `ANTHROPIC_*_MODEL` names; Coder's
+  `PANTHEON_LLM_API_KEY` (`ptk_`) and the gateway as `base_url` in its
+  arguments. During Coder's turn the token made a model call at the
+  gateway (`/v1/chat/completions` 200, billed to the owner's key) and
+  `/v1/models` 200; `/key/generate`, `/key/update`, `/key/regenerate`,
+  `/user/update`, `/openai/v1/files`, `/v1/files` at the gateway answered
+  404 ("good only for model calls"); at the proxy, the Hub, the
+  controller and the App gateway every route the check probes refused it
+  (401, 403 or 404; LiteLLM: "LiteLLM Virtual Key expected"). From the
+  first call after the runtime exited (+0.00 s) every gateway call with
+  it, `/v1/chat/completions` included, answered 401, as did the proxy.
+  Writer's turn ended within seven seconds (below), before the probe's
+  first gateway call: those calls already got 401.
+* **2 and 3, variables and arguments.** Neither runtime got any of the
+  user's variables (environment: only the basics, the model token and
+  the gateway), nor the user's arguments (Writer: `--setting-sources ""
+  --strict-mcp-config`, no `--settings`, no `--plugin-dir`; Coder:
+  `--ignore-user-config --disable hooks`, no `notify`); no marker file was
+  made.
+* **4, names.** The owner's `me_update` with "Ρantheon", "Pantheοn",
+  "Ѕupport", "Ꮲantheon", "Gοrdon" (mixed alphabets), "ΒΟΤ", "Official
+  Pantheon", "The Pantheon", "XPantheon", "Help Desk", "Sys Admin",
+  "Super User" and the handles `help-desk`, `help_desk`, `sys-admin`,
+  `super-user`, `official-pantheon`, `the-pantheon`, `xpantheon`,
+  `xpantheonx`, `weize-owner`: all refused.
+* **5, T35.** The deployed bundle holds the new `sharedReach` text.
+* **Coding Agents turns.** A normal Claude Code turn (`agent_send`) still
+  had `PANTHEON_KEY`, its note about the `pantheon` command, the user's
+  variables (with the test settings, its `HTTPS_PROXY` sent it nowhere)
+  and, once the settings were restored, the user's model key straight to
+  the proxy.
+* **Not verified end to end: a turn's answer.** Staging's model providers
+  had run out of credit during this check: the platform's OpenRouter
+  account refused even a 5,000-token DeepSeek request ("in-flight budget
+  exhausted", then "Insufficient credits"), OpenAI answered "no credits
+  remaining" and Gemini "API key not valid". So Writer's and Coder's
+  turns, and the normal Coding Agents turn, all ended with that 402 from
+  OpenRouter, which reached them through the gateway (for the Team Chat
+  turns) or the proxy (for the normal turn): the runtimes' requests went
+  through the gateway with their token and came back with the provider's
+  answer. A turn that answers in full waits for the providers' credit;
+  the unit tests cover the full path with a local proxy. Spend: the
+  owner's key $7.3156 → $7.3161 (the gateway's own probe calls and small
+  direct checks; the turns cost nothing, refused by the provider); members
+  $0; four agent runs (Writer 1, Coder 1, two Coding Agents turns).
+
 
 ## Out of scope
 
