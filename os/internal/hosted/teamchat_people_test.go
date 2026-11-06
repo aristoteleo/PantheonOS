@@ -692,6 +692,9 @@ func TestGrantIDsAndPersonIDsAreStable(t *testing.T) {
 func TestQueuedAsksOfPeopleWhoLostAccessAreDropped(t *testing.T) {
 	s := newSharedSpace(t)
 	h, b, tc := s.h, s.b, s.tc
+	// Writer's turn from the setup (the owner's DM) counts turns too: let
+	// it end first (on a slow machine it can start late).
+	quiet(t, tc, s.writer)
 	call(t, h, b, "agent_control", map[string]any{"mid": s.shared, "action": "stop"})
 	callAs(t, h, b, alice, "post", map[string]any{"cid": "general", "text": "@shared please look at this"})
 	fl, _ := tc.lockFleet(context.Background(), fleetID)
