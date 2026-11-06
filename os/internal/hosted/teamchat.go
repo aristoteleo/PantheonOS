@@ -383,21 +383,21 @@ type tcMember struct {
 	Effort  string `json:"effort,omitempty"`
 	NodeID  string `json:"node_id,omitempty"`
 	// The node's name and kind as last seen, for when it is offline.
-	NodeName   string       `json:"node_name,omitempty"`
-	NodeKind   string       `json:"node_kind,omitempty"`
-	NodeOS     string       `json:"node_os,omitempty"`
-	Folder     string       `json:"folder,omitempty"`
-	Session    string       `json:"session_conversation_id,omitempty"`
-	Access     string       `json:"access,omitempty"` // only_me | everyone | listed
-	AccessList []string     `json:"access_list,omitempty"`
-	Listen     string       `json:"listen,omitempty"` // mention | all
+	NodeName   string   `json:"node_name,omitempty"`
+	NodeKind   string   `json:"node_kind,omitempty"`
+	NodeOS     string   `json:"node_os,omitempty"`
+	Folder     string   `json:"folder,omitempty"`
+	Session    string   `json:"session_conversation_id,omitempty"`
+	Access     string   `json:"access,omitempty"` // only_me | everyone | listed
+	AccessList []string `json:"access_list,omitempty"`
+	Listen     string   `json:"listen,omitempty"` // mention | all
 	// SandboxOff: the owner turned the sandbox off for this shared agent,
 	// confirming the words shown (docs/apps/team-chat.md, "Shared agents
 	// run sandboxed"). Unset, a shared agent's turns run sandboxed.
 	SandboxOff *tcSandboxOff `json:"sandbox_off,omitempty"`
-	CreatedBy  string       `json:"created_by,omitempty"`
-	State      string       `json:"state,omitempty"` // running | stopped
-	Attention  *tcAttention `json:"attention,omitempty"`
+	CreatedBy  string        `json:"created_by,omitempty"`
+	State      string        `json:"state,omitempty"` // running | stopped
+	Attention  *tcAttention  `json:"attention,omitempty"`
 	// Turns started in the last day (unix seconds), for the guards.
 	Turns []int64 `json:"turns,omitempty"`
 	// Its turns' [start, end] (unix seconds) in the last hour, for the
