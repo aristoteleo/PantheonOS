@@ -4,7 +4,9 @@ Status: Phase 1 built and on staging (2026-11-03): `app.html`, the App host
 interface (DesktopHost, PageHost), the intent router and side panel, canonical
 links on both surfaces, per-App state (`app_state_get`/`app_state_put`) with
 Coding Agents and Agent Canvas moved to it. Open decisions 1–4 and 8 taken as
-recommended below. Phases 2 and 3 are not built.
+recommended below. Phase 2 (the Pantheon Agent at `/`, A1–A5) built and on
+staging (2026-11-06), decision 5 taken: see "Phase 2 as built". Phase 3 is not
+built.
 
 The owner opens one of their own Apps (Coding Agents, Agent Canvas, Files, a
 Store App, the Pantheon Agent) as a page of its own, signed in to their own
@@ -432,6 +434,100 @@ the sign-in page, which is the safe direction.
 - A2 A restart or upgrade shows starting and reconnects without a reload.
 - A3 A file the Agent links opens in the panel; "Open App" opens `/app/<id>`.
 - A4 A legacy user still gets `ChatView`. A5 Tests as S9.
+
+### Phase 2 as built (2026-11-06)
+
+**What `/` draws.** index.html's entry (`ui/src/main.ts`) loads one of two
+surfaces, each with its own styles: the **Agent page** (`standalone/rootPage.ts`:
+`PageApp` with `root`, an App page of `pkg:agent`) or the **chat page**
+(`legacyMain.ts`: `ChatView`, hash routes). The Agent page is drawn for a root
+chat URL (`/`, `/index.html`, `/c/<chat id>`, with no hash route other than `#/`
+or `#/service/…`) when this browser knows the signed-in account is a deployment
+account (`rootSurface.ts`, localStorage `pantheon.rootSurface`, per user id). The
+Hub says so only in `/api/chatroom` (`app_deployment`), so the first visit of an
+account in a browser starts on the chat page; when its `/api/chatroom` answers
+`app_deployment`, the page replaces its URL with the same root URL without the
+hash route and loads it again (`openAgentPageInstead`, which replaces
+`openDesktopInstead`): the URL stays `/` (or `/c/<id>`), no redirect, one extra
+load once per account and browser. A legacy answer remembers `chat`; the Agent
+page told by its connection that the account is legacy switches back the same
+way. The chat page's other routes (`#/login`, `#/admin`, …) stay the chat page
+for everyone. No nginx or ingress change: `location /` already falls back to
+index.html for `/c/<id>`, and both staging hosts route `/` to the frontend.
+
+**The Agent page.** `AppPage` with `agentPage` (the root, `/app/pkg:agent`,
+`/app/agent`) mounts `standalone/AgentSurface.vue` in place of a registry App:
+the owner's deployment instance found by `createAgentLookup()`
+(`network/agentSetup.ts`: `looking | ready | starting | stopped | absent`, read
+again every 4 s while starting, five failed reads before `absent`, following this
+browser's first setup), shown through `PackagedApp` (app id `agent`, bound with
+`appInstance`), so the Agent App's own frontend, versioned with its release. The
+desktop's launcher (`AgentEntry.vue`) uses the same lookup and opens a window
+with the binding. A deployment account with no Agent yet is set up as the
+desktop does (`autoSetUpAgent`); a stopped one shows **Start Agent**.
+
+**URL.** The page opens on the URL's chat (`initialState.chatId`); the Agent's
+`setState({chatId})` reaches the page as its durable `savedState.chatId` (its
+manifest's `persistState`) and is written by `PageHost` with the new `pageUrl`
+option: `/c/<id>` at the root (`/` for no chat), `?chat=<id>` on
+`/app/pkg:agent`. History is replaced, not pushed, as on every App page. The
+chat shown is passed back as `savedState`, so a reconnecting frame opens on it.
+
+**Restart and upgrade.** An App page now holds a lease on its App's instance
+(`retainAppWindow`, as `WindowFrame` does; before, a page never learned that its
+instance ended). A failed renewal reads the node; `PackagedApp` then follows the
+deployment to the next instance ("This App was updated or restarted.
+Reconnecting…" → "Starting on your workspace…" → the Agent), no reload; it also
+reads the next instance's manifest from its node when the Workspace's Desktop App
+restarts with the same release change. A backend stopped for good
+(`PackagedWindowHost.backendStopped`) makes the page show its stopped state and
+open the next instance once it runs. A crash of the Agent process alone keeps
+its instance and is not visible at all.
+
+**Opening Apps and files.** On a page, `PackagedApp` routes a packaged App's
+navigation through `PageHost` (`shell/appNavigation.ts` `navigateOnPage`):
+`openApp` opens the App's own page `/app/<id>` in a tab (intent `page: true`;
+an App whose page is Phase 3 shows its Send to desktop there), never a desktop
+window. The App SDK (`app-host.html`, both copies) has `apps.openFile(path,
+name)` and `apps.canOpenFiles`, granted by the boot capability `fileOpening: 1`,
+which only page hosts send; the Agent frontend (`agent/hostFiles.ts`) then
+registers a host file opener, so files the Agent links (`openFileSmart`: links in
+answers, chips, output files) open as side-panel tabs, a relative path being the
+Workspace's as on the desktop; a refused open falls back to the chat's own
+preview. A desktop window is unchanged (no `fileOpening`, Apps launch windows).
+The top bar of the Agent page has **Desktop** (`/desktop.html`, kept at narrow
+widths) instead of Share and Open on desktop.
+
+**Releases.** Frontend (UI `codex/agent-app-extraction`) and Agent App 0.9.111
+(the SDK and the Agent frontend's file opener; runtime `c576bc22`); no
+controller or Hub code change. An older Agent release keeps working on the new
+frontend: its SDK ignores `fileOpening`, so its files open in its own preview.
+
+**Staging verification (2026-11-06,** frontend `4224bdd5`, Agent App 0.9.111,
+accounts acct3 and acct4**).**
+
+- A1: a fresh browser at `/`: chat page for ~0.5 s, then the same URL loaded
+  again as the Agent page (navigation type `reload`, URL `/`); later visits draw
+  it directly. Switching chats writes `/c/<id>` about 150 ms after the click;
+  reloading `/c/<id>` shows that chat. `/` and `/c/<id>` serve index.html on
+  both staging hosts.
+- A2: release switches 0.9.111 → 0.9.110 → 0.9.111 with the page open:
+  Reconnecting… → Starting… → the Agent in 31–35 s, no reload (a page marker
+  survived), same URL.
+- A3: the Agent's answer linking `p2_demo.py` opened it as a Text Viewer tab in
+  the side panel; Fleet in the Agent's sidebar opened `/app/fleet` in a new tab.
+- A4: a legacy (`test` role) account at `/` gets `ChatView` (`#/`), nothing
+  remembered.
+- A5: vitest for the lookup, root surface choice and switching, routing
+  (`page`), `pageUrl`, page navigation and the SDK's `openFile`, the Agent's file
+  opener, `AgentSurface` (URL sync, restart following, stopped) and
+  `PackagedApp` (page host, upgrade race, `backendStopped`); all fail at the
+  previous UI commit. vue-tsc passes; the touched suites pass except seven
+  failures in `AppNodePicker.test.ts` and `desktop/App.test.ts` that fail the
+  same way before the change.
+- Also: `/desktop.html` and its Agent window unchanged; first contentful paint
+  of `/c/<id>` 96 ms on a warm cache; light and dark themes correct (top bar and
+  Agent frame); Phase 1 pages (`/app/coding-agents`, `/app/agent-canvas`) work.
 
 **Phase 3 — the other Apps, packaged intents, visitors, installable**
 (≈ 6 days, + ½–2 days for manifests).
