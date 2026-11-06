@@ -1481,7 +1481,8 @@ after the first independent check on 2026-11-06 (see "Fixes after the
 first Phase 3 check"): controller `f25093d8`, hub `15128fe`, frontend
 `ac426461`; fixed after the second check on 2026-11-06 (see "Fixes after the
 second Phase 3 check"): controller `8f252aac`, hub `767986d`, frontend
-`1bb09915`, node release `fleet-v0.5.1-staging.12`. Not in production.
+`1bb09915`, node release `fleet-v0.5.1-staging.12` and agents image `sha-8f252aa`
+(the Workspace node). Not in production.
 
 ### Decisions where the design left a choice
 
