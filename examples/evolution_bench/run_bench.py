@@ -57,6 +57,12 @@ def build_method(name: str, seed: int, judge=None, norm: str = "minmax", sched=N
                                 feature_bins=6, exploration_ratio=0.2, num_inspirations=2,
                                 migration_interval=8, function_weight=1.0, llm_weight=0.0,
                                 seed=seed)
+    if name == "molt":
+        # SimpleTES's settings above, plus stall-triggered redesigns on probation chains
+        # (methods/molt.py)
+        from pantheon.evolution.methods import Molt
+        return Molt(num_chains=2, k_candidates=2, num_inspirations=2,
+                    selector=(ln_opts or {}).get("tes_selector") or "rpucg", seed=seed)
     if name == "simpletes":
         return SimpleTES(num_chains=2, k_candidates=2, num_inspirations=2,
                          selector=(ln_opts or {}).get("tes_selector") or "rpucg", seed=seed)
@@ -202,11 +208,22 @@ async def main(a) -> None:
                 break
 
     live_store = Store()
+    # Consecutive items the model returned nothing for. A long run of them is not search, it is
+    # the gateway down (2026-11-06: the account ran dry and every arm burned ~3,700 items on
+    # "generate: not produced" before ending as if finished). Stopping keeps the checkpoint from
+    # the moment it began, so the arm continues with --resume once the gateway is back.
+    gen_streak = 0
+    aborted = None
+
     def on_event(kind: str, data: dict) -> None:
+        nonlocal gen_streak
         if kind == "failed":
             k = f'{data.get("stage")}: {data.get("reason")}'
             fails[k] = fails.get(k, 0) + 1
+            gen_streak = gen_streak + 1 if data.get("stage") == "generate" else 0
             return
+        if kind == "measured":
+            gen_streak = 0
         if kind == "seeded":
             _capture_seed(live_store)
             return
@@ -292,20 +309,25 @@ async def main(a) -> None:
     from pantheon.evolution.variators.usage import eval_snapshot as _ev, snapshot as _llm
 
     def _over_budget() -> bool:
+        nonlocal aborted
+        if a.max_generate_failures and gen_streak >= a.max_generate_failures:
+            aborted = (f"{gen_streak} consecutive items produced no program "
+                       f"(last failures: {sorted(fails.items(), key=lambda x: -x[1])[:3]})")
+            return True
         lu = _llm()
         if a.max_llm_calls and lu["calls"] >= a.max_llm_calls:
             return True
         if a.max_llm_tokens and (lu["prompt_tokens"] + lu["completion_tokens"]
                                  ) >= a.max_llm_tokens:
             return True
+        if a.max_llm_usd and lu["cost_usd"] >= a.max_llm_usd:
+            return True
         ev = _ev()
         if a.max_eval_calls and (ev["calls"] - ev["calls_harness"]) >= a.max_eval_calls:
             return True
         return False
 
-    budget = Budget(max_items=a.iterations,
-                    stop_when=(_over_budget if (a.max_llm_calls or a.max_eval_calls
-                                                or a.max_llm_tokens) else None))
+    budget = Budget(max_items=a.iterations, stop_when=_over_budget)
     history[:0] = prev_hist
     drift[:0] = prev_drift
     res = await evolve(method=method, variator=variator,
@@ -372,6 +394,11 @@ async def main(a) -> None:
                # rows restored on --resume count as run: a resumed arm that ends at once on its
                # restored budget is finished, not empty
                "items_run": res.items_run + len(prev_hist), "failures": res.failures,
+               "aborted": aborted,
+               # a method that keeps its own account of the run (Molt: interventions, the chains
+               # they opened, where the best came from) reports it here
+               "method_report": (method.lineage(res.store) if hasattr(method, "lineage")
+                                 else None),
                "best_combined_score": best_score, "seed_combined_score": seed_score,
                "best_child_combined_score": best_child_score,
                "seed_remeasures": max(0, len(seed_ms) - 1),
@@ -383,6 +410,10 @@ async def main(a) -> None:
                "history": history},
               open(out / "summary.json", "w"), indent=1)
     print(f"-> {out}/summary.json")
+    if aborted:
+        # not a finished arm: fail the job so the scheduler and the sweep scripts see it
+        print(f"ABORTED: {aborted}; continue with --resume", flush=True)
+        sys.exit(3)
 
 
 if __name__ == "__main__":
@@ -390,11 +421,16 @@ if __name__ == "__main__":
     p.add_argument("--task", required=True)
     p.add_argument("--method", default="agent_map_elites",
                    choices=["agent_map_elites", "map_elites", "simpletes", "idea_code", "annealed",
-                            "pantheon_evo", "hypothesis_bandit", "lab_notebook"])
+                            "pantheon_evo", "hypothesis_bandit", "lab_notebook", "molt"])
     p.add_argument("--iterations", type=int, default=40)
     p.add_argument("--model", default="openai/gpt-5.6-luna")
     p.add_argument("--eval-server", default=os.environ.get("EVAL_SERVER_URL", ""),
                    help="URL of the shared evaluation server; empty = evaluate locally")
+    p.add_argument("--max-llm-usd", type=float, default=None,
+                   help="stop once the booked LLM spend (gateway-reported cost) reaches this many dollars")
+    p.add_argument("--max-generate-failures", type=int, default=40,
+                   help="stop (exit 3, resumable) after this many consecutive items that produced "
+                        "no program -- the gateway is down, not the search; 0 = never")
     p.add_argument("--max-llm-calls", type=int, default=None,
                    help="stop issuing items once the run's LLM-call ledger reaches this; the "
                         "spend-parity budget for cross-method comparison")
