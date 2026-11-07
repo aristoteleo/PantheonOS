@@ -194,3 +194,46 @@ async def test_browser_keys_wait_for_shared_input_lock_off_engine_loop(engine, m
         engine._native_input_lock.release()
     assert await task == 1
     assert called_from[0] != owner_thread
+
+
+@pytest.mark.asyncio
+async def test_late_tab_observer_closes_its_chromium_and_launches_again(engine, tmp_path, monkeypatch):
+    """Check 5: the first page open after a Workspace resume failed with "chromium unavailable: The native
+    browser tab observer is unavailable" (sticky until the instance restarted), and the launched Chromium's
+    blank window was left on the desktop with "Restore pages?"."""
+    from pantheonos.appkit.builtin.desktop import browser as browser_module
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    engine._acquire_profile_lock = Mock()
+    engine._clear_stale_locks = Mock()
+    engine._write_policies = Mock()
+    engine._ensure_xvfb = AsyncMock(return_value=":99")
+    engine._evict_volume_caches = Mock()
+    engine._prepare_native_tabs_extension = Mock(return_value=tmp_path / "ext")
+    engine._park_keeper = AsyncMock()
+    engine._spawn = Mock(side_effect=lambda coro: coro.close())
+    engine._ensure_xpra = AsyncMock()
+    contexts, launches = [], []
+
+    async def launch(**kw):
+        launches.append(kw)
+        ctx = NS(close=AsyncMock(), on=Mock(), add_init_script=AsyncMock(), pages=[])
+        contexts.append(ctx)
+        return ctx
+    engine._pw = NS(chromium=NS(launch_persistent_context=launch))
+    waits = []
+
+    async def observer(*, wait=True, timeout_ms=5000):
+        waits.append(timeout_ms)
+        if len(waits) == 1:
+            raise RuntimeError("The native browser tab observer is unavailable")
+        return NS(url="chrome-extension://x/native-tabs.js")
+    engine._native_tabs_worker = observer
+
+    await engine._launch_browser()
+    assert len(contexts) == 2
+    contexts[0].close.assert_awaited()          # no stray blank window
+    contexts[1].close.assert_not_awaited()
+    assert engine._context is contexts[1]
+    assert engine._launch_error is None         # not sticky
+    assert waits == [browser_module.OBSERVER_LAUNCH_WAIT_MS] * 2
+    assert all("--hide-crash-restore-bubble" in kw["args"] for kw in launches)

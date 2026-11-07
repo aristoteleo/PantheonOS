@@ -77,6 +77,19 @@ class BrowserProfileInUse(RuntimeError):
     """Another owner, or an owner we cannot safely exclude, holds a profile."""
 
 
+class BrowserObserverLate(RuntimeError):
+    """Chromium started, but its tab observer extension did not come up in time.
+
+    A moment, not a state: right after a Workspace resumes, the boot storm and
+    the profile on its network volume can hold the extension's service worker
+    back. The launch is closed (its blank window with it) and tried again.
+    """
+
+
+#: How long a launch waits for the tab observer to come up (ms).
+OBSERVER_LAUNCH_WAIT_MS = 30_000
+
+
 #: Browser `KeyboardEvent.code` -> X keysym name. Position, not meaning: the
 #: display's keymap decides what the key produces, so shift/altgr behave the
 #: way they do on a real keyboard.
@@ -943,6 +956,13 @@ class BrowserEngine:
             # A competing owner is not a broken installation and may exit;
             # do not make this a sticky error or retry by deleting its locks.
             raise
+        except BrowserObserverLate as e:
+            # Not sticky: the first page open after a resume failed with
+            # "chromium unavailable: The native browser tab observer is
+            # unavailable" while Try again worked.
+            logger.warning("browser: {}; launching again", e)
+            await self._launch_browser_once()
+            return
         except Exception as e:
             # Restart overlap: the OLD sandbox's Chromium can still hold the
             # volume profile's ProcessSingleton while this one boots. That is
@@ -1079,6 +1099,10 @@ class BrowserEngine:
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
                 "--disable-blink-features=AutomationControlled",
+                # A sandbox paused mid-session leaves the profile marked as
+                # crashed: Chromium would ask "Restore pages?" over the
+                # first window shown after a resume.
+                "--hide-crash-restore-bubble",
                 # 1x, matched end-to-end: the xpra iframe presents the
                 # framebuffer 1:1 — every scaling trick between them
                 # (transform:scale broke the client's canvas painting,
@@ -1110,7 +1134,18 @@ class BrowserEngine:
         ctx.on("close",
                lambda: self._context_died() if self._context is ctx else None)
         if extension:
-            await self._native_tabs_worker()
+            try:
+                await self._native_tabs_worker(timeout_ms=OBSERVER_LAUNCH_WAIT_MS)
+            except Exception as error:
+                # Its Chromium goes too: left running, its blank window showed on
+                # the desktop as a stray "about:blank" window.
+                try:
+                    await ctx.close()
+                except Exception:
+                    pass
+                if self._context is ctx:
+                    self._context_died()
+                raise BrowserObserverLate(str(error)) from error
         # Warm the xpra shadow so the first stage_page doesn't wait on
         # its startup; a missing binary makes this a cheap no-op.
         self._spawn(self._ensure_xpra())
@@ -1170,7 +1205,7 @@ class BrowserEngine:
         self._native_tabs_worker_url = f"chrome-extension://{extension_id}/native-tabs.js"
         return directory
 
-    async def _native_tabs_worker(self, *, wait: bool = True):
+    async def _native_tabs_worker(self, *, wait: bool = True, timeout_ms: int = 5000):
         if self._context is None or not self._native_tabs_worker_url:
             raise RuntimeError("The native browser tab observer is unavailable")
         expected = self._native_tabs_worker_url
@@ -1183,7 +1218,7 @@ class BrowserEngine:
             raise RuntimeError("The native browser tab observer is unavailable")
         try:
             return await self._context.wait_for_event(
-                "serviceworker", predicate=lambda worker: worker.url == expected, timeout=5000)
+                "serviceworker", predicate=lambda worker: worker.url == expected, timeout=timeout_ms)
         except Exception as error:
             raise RuntimeError("The native browser tab observer is unavailable") from error
 
