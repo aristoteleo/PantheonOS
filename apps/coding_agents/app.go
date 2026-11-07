@@ -532,6 +532,9 @@ func (a *App) send(p SendArgs) map[string]any {
 		// environment"). The note about the pantheon command, signed in by
 		// that key, does not apply.
 		env, note = codingagents.TeamEnv(c.Agent, teamModel, platformModels), ""
+		// The Pantheon Agent's turn is the pantheon command reaching the
+		// owner's Agent: it signs in with the node's key, or cannot start.
+		env = codingagents.SetEnv(env, codingagents.TeamSignIn(r.settings, c.Agent)...)
 	}
 	env = withDefaults(env, agent.Headless.Env)
 	box, trouble := a.linkBoxLocked(c)

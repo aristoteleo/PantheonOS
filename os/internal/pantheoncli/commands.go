@@ -138,7 +138,11 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return exit.code
 	}
 	if err != nil {
-		if r.json {
+		if r.json && args[0] == "agent" && len(p.positional) > 0 && p.positional[0] == "chat" {
+			// A turn's failure before it starts (not signed in) is its
+			// error line (agentturn.go).
+			_ = json.NewEncoder(stdout).Encode(TurnLine{Type: "error", Error: err.Error()})
+		} else if r.json {
 			_ = json.NewEncoder(stdout).Encode(map[string]any{"success": false, "error": err.Error()})
 		} else {
 			fmt.Fprintln(stderr, "pantheon:", err)

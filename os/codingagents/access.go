@@ -37,6 +37,25 @@ func AccessEnv(s Settings, l Launch) []string {
 	return env
 }
 
+// TeamSignIn is what a Team Chat turn of the Pantheon Agent adds to TeamEnv
+// to sign in: the node's key and Hub. The Pantheon Agent runs in the cloud
+// (the owner's Agent App) and `pantheon agent chat --json` is how the turn
+// reaches it, so without the key the command cannot start at all. Its
+// process is the command alone: the Agent's own commands run in the node's
+// Shell App, not under it, so the key reaches none of them through the
+// environment (docs/apps/team-chat.md, "Fixes after the Standalone Apps
+// sixth check"). Nothing for any other runtime, or without a key.
+func TeamSignIn(s Settings, agentID string) []string {
+	if agentID != PantheonAgent || s.Access.Key == "" {
+		return nil
+	}
+	env := []string{"PANTHEON_KEY=" + s.Access.Key, "PANTHEON_CLIENT=coding-agent/" + agentID}
+	if s.Access.HubURL != "" {
+		env = append(env, "PANTHEON_HUB_URL="+s.Access.HubURL)
+	}
+	return env
+}
+
 // Note is what PantheonOS tells an agent about the environment it runs in;
 // nothing for the Pantheon Agent, which knows it.
 func Note(s Settings, l Launch) string {

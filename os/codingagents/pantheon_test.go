@@ -152,6 +152,16 @@ func TestPantheonLines(t *testing.T) {
 		e.Error != "Could not start Pantheon Agent: not signed in: run pantheon login" {
 		t.Errorf("start error %+v", e)
 	}
+	// A pantheon command that says its failure as any --json command does
+	// (the Workspace's staging.17 said "not signed in" so, and the turn
+	// showed only "exited: exit status 1").
+	if e := parse(`{"error":"not signed in: run pantheon login","success":false}`); e.Type != "done" ||
+		e.Error != "Could not start Pantheon Agent: not signed in: run pantheon login" {
+		t.Errorf("generic start error %+v", e)
+	}
+	if out := p.Parse([]byte(`{"success":true}`)); len(out) != 0 {
+		t.Errorf("a success line is not an event: %+v", out)
+	}
 }
 
 // A turn's arguments: the chat to resume, the node and folder it works in,

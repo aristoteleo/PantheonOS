@@ -89,6 +89,14 @@ func (p *pantheonParser) Parse(line []byte) []Event {
 	case "error":
 		return []Event{{Type: "done", Error: "Could not start Pantheon Agent: " +
 			firstNonEmpty(str(m["error"]), "the pantheon command failed")}}
+	case "":
+		// A pantheon command from before its turn lines said a failure
+		// before the turn as any --json command does ({"success": false,
+		// "error": …}), e.g. "not signed in": the reason, not a bare exit.
+		if m["success"] == false {
+			return []Event{{Type: "done", Error: "Could not start Pantheon Agent: " +
+				firstNonEmpty(str(m["error"]), "the pantheon command failed")}}
+		}
 	}
 	return nil
 }

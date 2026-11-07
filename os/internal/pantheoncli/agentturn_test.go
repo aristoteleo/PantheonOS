@@ -246,6 +246,23 @@ func TestAgentTurnThatCannotStart(t *testing.T) {
 	}
 }
 
+// Not signed in: the turn's error line says so (Coding Agents shows the
+// reason, not a bare "exit status 1"); other --json commands keep their
+// {"success": false} answer.
+func TestAgentTurnNotSignedIn(t *testing.T) {
+	t.Setenv("PANTHEON_CLI_HOME", t.TempDir())
+	t.Setenv("PANTHEON_KEY", "")
+	t.Setenv("PANTHEON_HUB_URL", "")
+	out, _, code := runWithStdin("hi", "agent", "chat", "--json", "--node", "n_ws")
+	got := turnLines(t, out)
+	if code != 1 || len(got) != 1 || got[0].Type != "error" || got[0].Error != "not signed in: run pantheon login" {
+		t.Fatalf("%d %s", code, out)
+	}
+	if out, _, code := runWithStdin("", "nodes", "--json"); code != 1 || !strings.Contains(out, `"success":false`) {
+		t.Fatalf("another command: %d %s", code, out)
+	}
+}
+
 // Stopping the command stops the Agent's turn.
 func TestAgentTurnStopsTheAgentWhenStopped(t *testing.T) {
 	f := newFakeAgent(t)
