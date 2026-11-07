@@ -3223,6 +3223,130 @@ only.
 * The Agent's shell does not start in the agent's folder, so the first
   `cat AGENT.md` of a session may miss it; the agent finds it by its path.
 
+### Fixes after the first PA check (2026-11-07)
+
+**H1: after a Workspace restart a Pantheon Agent conversation stayed
+broken.** *Cause.* An Agent conversation's shell is a resource session of
+the Workspace's Shell App, which the controller's dependency allocator
+holds for the conversation (its logical owner) in a journal
+(`os/internal/hosted/sessions.go`). The session records the exact Shell App
+instance it was made on (node, instance, revision, generation). A Workspace
+restart, or a pause and resume, starts a new generation of the Shell App, so
+the session ended with the old one: maintenance marked it terminal
+(`provider_unavailable`), and every later binding of the conversation was
+refused ("resource-session operation belongs to a different recipe" while
+the plan named the new generation, "original resource session is
+unavailable" once the plan was current). The Agent turned each refusal into
+"shell is not available yet" and the model answered without its tools. A
+new conversation has another owner, and Reset session another instance:
+that is why only they worked.
+*Fix.*
+* The allocator gives the owner a new session in place of one whose Shell
+  App ended (or that the Shell App ended itself, expired or lost), in the
+  same journal: a new lease (`replaced` counts them) on the Shell App that
+  runs now. The old session is never asked for again. A plan naming a
+  generation that no longer runs makes nothing; a released session (the
+  owner retires) is not replaced. Retirement releases the session that runs
+  now.
+* The Agent binds again when its grant's Shell App is gone. An instance's
+  first attempt still re-reads its allocation (a restarted Agent); when that
+  allocation lost its session, the next attempt follows at once and is the
+  process's own operation, never one an earlier process made.
+* Before the model runs, a run on the Agent's own node gets its
+  conversation's shell ready: a probe that is safe to repeat (`cd` into the
+  conversation's working directory, or `true`) through the shell binding,
+  binding again and waiting while the Workspace starts, up to 120 s. When it
+  never answers the run does not start; it ends with "Your Workspace is still
+  starting, so this conversation's shell is not ready yet (App "shell" is not
+  ready (starting))". Team Chat reads that as the Workspace still starting:
+  the agent's messages wait and are answered by themselves once it is ready
+  (the existing wait for the Agent App, with the owner asked after 10
+  minutes); its attention line says "your Workspace is still starting
+  (Pantheon Agent's shell is not ready yet)". A plain Agent chat (`/`, the
+  desktop, the terminal) whose shell was bound before is checked the same
+  way, so a binding to a Shell App that ended is replaced before the model
+  runs; one whose shell was never bound binds it on its first command, as
+  before, so a turn without commands does not wait for the Workspace.
+
+**M1: a turn failed "already running; queued" when an Agent background task
+finished.** *Cause.* A finished background task starts the Agent's own
+follow-up run in the conversation. The Team Chat turn's message arrived
+while it ran and the Agent queued it into that run (the message queue for a
+busy conversation); the turn ended at once as failed, its lease closed, and
+the queued message was answered later by the follow-up run, outside any
+turn, so its `pantheon team post` was refused.
+*Fix (the turn waits for the other run, then runs its own).*
+* A lease the turn's process opened is *starting* until the conversation's
+  run for that turn starts. The Agent never queues a Team Chat turn's
+  message into another run: while the conversation runs something else it
+  answers `{"busy": true}` and nothing joins that run. A background task's
+  notification is not the turn's message.
+* `pantheon agent chat --json` with `--team-tool` waits until the
+  conversation runs nothing (it asks every 2 s, up to 5 minutes), reads the
+  conversation's events from that moment (the other run's events are not
+  the turn's), and sends the message; a busy answer sends it again after the
+  next wait. Stopped while it waits, the turn ends stopped without stopping
+  the other run. Still busy after 5 minutes, it ends with "This conversation
+  is still busy with earlier work (…); the message was not sent", which Team
+  Chat shows as the cause: "its conversation was still busy with earlier
+  work (such as the follow-up of a background task it started), so this
+  message did not get a turn of its own. Press Retry when that work has
+  finished." (The events wait for the retry, as for any failed turn.)
+* The lease counts for a command only once the turn's run started: a
+  command the other run starts while the turn waits is not the turn's
+  (`pantheon team` refuses it).
+* With an Agent App from before this fix (it still queues), the turn's
+  error says the message was queued into another run, and Team Chat shows
+  the same cause.
+
+**M2: a Pantheon agent never found its folder.** *Cause.* The node starts
+the turn with `--node <Workspace> --workdir <folder>`, but the Agent kept a
+working directory only for another node: on its own node (the Workspace)
+the folder was dropped, the shell stayed where the Shell App starts
+(`/workspace/default_workspace`), and nothing told the agent where its
+folder is. Relative `MEMORY.md` went to the owner's default workspace.
+*Fix.*
+* The Agent keeps the conversation's working directory on its own node
+  too. Each run's shell preparation (H1) is `cd -- <folder>`, so every turn's
+  shell starts in the agent's folder, as Claude Code's and Codex's do; a
+  relative file path of the file tools leads into the folder; the
+  environment note says "Working directory: <folder> (each turn your shell
+  starts there; relative paths lead there)".
+* The Pantheon Agent's turn input says "Your folder is <folder>: your
+  commands start there; your role is in <folder>/AGENT.md; keep what you
+  must remember in <folder>/MEMORY.md (not in another folder)", and a fresh
+  session "first read <folder>/AGENT.md and <folder>/MEMORY.md"; its turn's
+  note names the folder. Other runtimes run in their folder and are told as
+  before.
+
+**Low.**
+* The live line of a shell command shows the command where it has no plain
+  words: `Waiting: sleep 90`, `Running: <command>` (its first line, at most
+  60 characters; tokens and `…KEY=`/`…TOKEN=` values are left out), for
+  every runtime. Commands with plain words (reading a file, tests, `pantheon
+  team …`) keep them.
+* The PA2 task left open in acct4 was closed (staging, below).
+
+**Tests.** `os/internal/hosted/hosted_test.go`
+(`TestAllocatorGivesAnOwnerANewSessionAfterItsShellRestarted`: two
+restarts, before and after maintenance noticed, each a new session and
+lease, no old lease asked for again, an old plan refused, retirement
+releases), `teamchat_pantheon_tools_test.go` (the folder in the turn input
+and note; a Workspace still starting waits; both busy errors explained),
+`teamchat_test.go` (`TestLiveLinesArePlainWords`: commands shown, secrets
+left out), `os/internal/pantheoncli/team_test.go`
+(`TestATeamChatTurnWaitsForItsConversationsOtherRun`: busy, wait, its own
+events, sent again; still busy: the cause, never queued; the channel
+closed), `tests/test_pantheon_agent_turn_recovery.py` (bound again and
+waited for after a restart; a shell that does not come back is reported; an
+instance's lost allocation replaced within the call; a run says the
+Workspace is starting instead of running the model; the shell starts in the
+folder on the Agent's own node and not when it works on another node;
+relative paths lead into the folder; a turn's message is never queued into
+another run, a notification is not the turn's, a plain message is still
+queued), `tests/test_team_turns.py` (a command started before the turn's
+run is not the turn's). Each fails with its fix reverted (17 reverts).
+
 ## Out of scope
 
 Payments, mobile native apps, external chat bridges, prod rollout (asked
