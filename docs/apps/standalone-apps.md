@@ -740,7 +740,9 @@ Chromium needs none for installing.
 `66d01e9d`); Hub `58d8e2e` (no migration). After the first check: frontend
 #41 (`2c943953`) and Hub `d233195` (no migration). No Agent App, agents image,
 controller or node change: the App SDK's `apps.open` and `apps.openFile` were
-already in Agent App 0.9.112's app host.
+already in Agent App 0.9.112's app host. After the second check: frontend #42
+(`9eef7734`) and #43 (`96523eb6`), Agent App 0.9.113 (its frontend writes the
+chat at once); Hub, agents image, controller and node unchanged.
 
 **Staging verification (2026-11-06, frontend #39–#40, hub `58d8e2e`, account
 acct4).**
@@ -878,6 +880,130 @@ Verified on staging (frontend #41, both hosts `index-CmE7wNAw.js`,
 - No regression: `/`, `/desktop.html`, `/app/coding-agents`, `/app/team-chat`,
   `/app/terminal`, `/app/files` (first paint 40–92 ms), the shared link above.
 
+#### Fixes after the second check (2026-11-07)
+
+The second independent check found two Medium problems (one older than this
+phase) and a few small ones. Fixed in frontend #42–#43 (UI `9eef7734`,
+`af45f938`, `96523eb6`) and Agent App 0.9.113 (its frontend; runtime
+unchanged); Hub unchanged (`d233195`), agents image, controller and node
+unchanged.
+
+1. **Open on desktop from a Browser page opened a dead window** ("No bound
+   Browser page"). `desktopView()` sends the page's plain view args, and the
+   instance binding is not one of them, so the desktop window had a page id
+   and no binding: the legacy path, whose page list never had that page. Now
+   the Browser's hand-over carries the page id with the binding of the
+   Browser instance holding it, the page's current URL and `recover_missing`:
+   the window attaches to the same Chromium page; a page gone by then opens
+   fresh at that URL (once; then the window's own rules). The page marks that
+   Chromium page as handed over, so no later Browser page reclaims it.
+   The other Apps' Open on desktop carry what their windows need as plain
+   args: Terminal its `ptySession`/`ptyNodeId`/`nodeId` (the window attaches
+   the same PTY session), Coding Agents `nodeId`/`conversationId`, Team Chat
+   its conversation and thread args, Jupyter and Files the file or folder,
+   Fleet its tab and node. Only the Browser and Office bind an instance in
+   their view; Office opens its session by id through the deployment's
+   instance (not testable on staging: no document server).
+2. **`/c/<id>` named the previous chat right after a switch** (older than this
+   phase). Not a stale write: the Agent's chat write (`setState({chatId})`)
+   went through the App SDK's 150 ms commit debounce before the page could
+   write `/c/<id>`, so the URL read right after a click (Check 2's reads)
+   still named the chat before. The Agent now writes its chat at once
+   (`debounceMs: 0`, as the Notebook does for its file); the URL follows in
+   about 15 ms (one frame-to-page message), measured live, against about
+   180 ms before.
+3. **A Browser page on a paused Workspace stayed on "desktop is not running
+   yet"**. That answer means the Workspace's desktop is still starting: the
+   page now keeps connecting and asks again every 5 s (up to 5 minutes), and
+   opens its page by itself once the desktop answers. The page id reaches the
+   URL when the page is bound (8 s after "Connecting to Browser…" in the
+   retest); the 90 s seen in the check was the second page creation after a
+   manual Try again, which no longer happens.
+4. **A file in a packaged App's own storage** showed the data server's
+   internal paths and a Retry. It now says "This file is in the App's own
+   storage, which viewers can't open yet." with no Retry (and no retry on
+   activation). Reading it is deferred, see the owner's decision below.
+5. **Signed in, `/app/pkg:<store name>` moved to the App id only sometimes.**
+   The move depended on which answered first (the Store listing, the
+   registry, an App resolved under the Store name). It now depends only on
+   what is installed: it moves unless a package is installed under that very
+   id, waits only until the account's App index is known, keeps the query and
+   the hash, and a busy Store (429) is asked again instead of read as
+   "unlisted".
+6. **"It is in front in your desktop tab" when it was not.** The open desktop
+   tab now answers twice: at once that it is there (so no second desktop tab
+   opens), then whether it really shows the window. A window of an App that
+   tab does not know (installed after it loaded) makes it read its Apps again
+   first. The page says "in front" only on that confirmation, within 8 s;
+   otherwise "Your open desktop tab has not shown it yet. If it does not
+   appear there, reload that tab."
+7. A Browser page gives its claim on the Browser instance back on `pagehide`
+   (and takes it again if the browser restores the page from its
+   back-forward cache). Best effort, and not effective on a closed tab yet:
+   the release goes through the Fleet App's gateway (a deployment read, a
+   connection, then the call), which does not leave before the page is gone.
+   Measured live, the instance still stopped about 6 minutes after its last
+   tab closed (the claim's 5-minute expiry, then 60 s). Releasing on close
+   would take a single request the browser sends while unloading
+   (`fetch` with `keepalive` to an endpoint ready beforehand); left for later.
+
+**Owner's decision (2026-11-06).** Letting viewers read a packaged App's
+private data folder is deferred until an App needs it; until then the viewer
+says so plainly (item 4). An App should link files in the user's workspace,
+or share them for visitors under `share.paths`.
+
+Tests (each fails without its change, checked by reverting each source
+file): `BrowserApp.handover.test.ts` (the desktop window attaches through the
+binding, recovers a gone page at the current URL, a window of its own still
+asks; a page whose desktop is starting opens by itself),
+`rootChatUrl.sync.test.ts` (switches A→B→A and reads `/c/<id>` 10 ms after
+each switch, through the shipped App SDK, the real PackagedApp bridge, the
+Agent page's mapping and the page host's URL writer),
+`PackagedApp.test.ts` and `appStorageFile.test.ts` (plain message, no
+Retry), `appIdentity.test.ts` (the move), `desktopTab.test.ts` and
+`pageHost.test.ts` (shown only when confirmed), `pageLeases.test.ts` (a
+handed-over page is never reclaimed), `useStreamBackend.test.ts` (claim given
+back on pagehide, a desktop window keeps its own). vue-tsc passes; the wide
+vitest run (`src/desktop src/views src/components src/stores src/composables
+src/agent`) fails the same 20 tests in 12 files as at `2c943953`; the Hub
+is unchanged and its suite fails the same tests as at `d233195`.
+
+Verified on staging (frontend #42 then #43, both hosts `index-BpDBoEDz.js`,
+`desktop-C4hf-o5A.js`, `app-CIvzmfE0.js`; Agent App 0.9.113 on acct3 and
+acct4; acct4), each item reproduced first on #41 / 0.9.112:
+
+- Browser: `/app/browser?open=https://example.com/` → Open on desktop with
+  the desktop open: "It is in front in your desktop tab" (confirmed in
+  0.6–0.9 s), and the desktop window streamed the same Chromium page (same
+  `page_id`, the Browser instance's binding). A window handed a page id the
+  instance no longer held (`deadbeef0001`) opened a fresh page at its URL
+  (`https://example.org/`) by itself. On #43 the window's `recover_missing`
+  is cleared once attached.
+- `/c/<id>`: from `/c/<A>`, switching B, A, B, A: the URL named the chat shown
+  14–18 ms after each click (before: about 180 ms, and a read right after the
+  click named the previous chat).
+- Paused Workspace: `/app/browser?open=…` showed only progress ("Preparing
+  the selected backend node…", "Starting backend…", "Connecting to
+  Browser…"), no error and no Try again; the page id reached the URL 125 s
+  after the load (8 s after "Connecting to Browser…"); before, "desktop is
+  not running yet" stayed for 4 minutes until Try again.
+- Hello Files page: its `demo.fasta` and `notes.md` tabs say "This file is in
+  the App's own storage, which viewers can't open yet.", with no Retry and no
+  internal path.
+- Signed in, `/app/pkg:pantheon-msa?x=1#h` ended at `/app/pkg:msa?x=1#h` in 6
+  of 6 loads (3 in fresh browser contexts, about 0.5 s), manifest link
+  `/api/public-apps/msa/manifest.webmanifest`; signed out 3 of 3, the same.
+- Open on desktop's message: not reproduced before the fix (Game of Life moved
+  to Trash and installed again from the desktop Store window after that
+  desktop tab loaded, then Open on desktop from its page: the window showed);
+  the honest message is covered by the tests above.
+- No regression: `/` and `/c/<id>` (first paint 64–252 ms), `/desktop.html`
+  and its windows, a desktop Browser window, `/app/browser`,
+  `/app/coding-agents`, `/app/team-chat`, `/app/terminal`, `/app/files`
+  (44–88 ms), and a Mine link of Hello Files with MSA Viewer (an anonymous
+  visitor opened `demo.fasta` in an MSA Viewer tab; revoked, "This link was
+  withdrawn").
+
 ## Open decisions
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and
@@ -902,3 +1028,6 @@ Verified on staging (frontend #41, both hosts `index-CmE7wNAw.js`,
 8. **App class from the manifest, or an explicit flag on every App?** Derived
    (backend, `fs`, `placement.requires`), with `standalone.access: "account"`
    to tighten only; no flag can make an App with a backend `public`.
+9. **Viewers reading a packaged App's private data folder?** Deferred until
+   an App needs it (owner's decision, 2026-11-06); the viewer says the file
+   is in the App's own storage (see "Fixes after the second check").
