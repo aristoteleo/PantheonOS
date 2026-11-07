@@ -8,7 +8,8 @@ built" and its "Staging verification"); Phase 2 built and verified on staging
 2026-11-05 (T20–T27; see "Phase 2 as built"); Phase 3 built and verified on
 staging 2026-11-05 (T30–T35; see "Phase 3 as built"); shared agents run sandboxed
 since 2026-11-06 (see "Shared agents run sandboxed"); Phase 3 accepted on staging
-2026-11-06 after seven checks. The sandbox was checked for what it is meant to
+2026-11-06 after seven checks; Pantheon Agent turns have Team Chat's commands
+since 2026-11-07 (see "Pantheon Agent turns: Team Chat tools"). The sandbox was checked for what it is meant to
 allow and deny, not tested for ways around it. Not in production. Each phase ends
 with acceptance criteria checked on staging before the next starts.
 
@@ -2939,7 +2940,8 @@ the Standalone Apps test account):
   answer is still posted for it when a mention or DM woke it, which is how
   "OK" above arrived; reading the inbox, posting elsewhere, reminders and
   tasks do not work for the Pantheon Agent runtime until the Shell App
-  session of a turn can vouch. Not changed here.
+  session of a turn can vouch. Not changed here. (Closed 2026-11-07:
+  "Pantheon Agent turns: Team Chat tools".)
 
 ## Pantheon Agent turns: Team Chat tools (2026-11-07)
 
@@ -3078,6 +3080,148 @@ reach is the owner's.
   still work end to end (every runtime retested after the change).
 * **PA7:** no regression: plain Agent chats on `/` and on the desktop
   behave as before, and Team Chat T-criteria spot checks pass.
+
+### Pantheon Agent tools as built (2026-11-07)
+
+**Code** (`e26887c1` on `codex/agent-app-extraction`):
+* **Agent** (`apps/agent/pantheon/chatroom/command_gateway.py`, `native.py`):
+  `TeamTurns` keeps one lease per conversation (32 random bytes,
+  `secrets.token_urlsafe`), its queue of requests, the ids it handed out and
+  answered. `CommandGateway.open` records on each `run_command`'s live call
+  the lease its conversation had when it started; `handle` sends op `team`
+  to `TeamTurns.request`, which refuses with the reason when the
+  conversation has no open lease ("Team Chat commands work only in a
+  conversation that a running Team Chat turn started, while that turn
+  runs"), or when the command is not a live call of that lease ("this
+  command is not part of the running Team Chat turn"), checks the words
+  (one command `[a-z_]`, no line break in any word, absolute files, at most
+  64 words, 64 KB of text) and waits 130 s for the answer. The App methods
+  `team_turn_open`, `team_turn_next` (hands each request out once, holds up
+  to 25 s), `team_turn_answer` (each id once) and `team_turn_close` are
+  owner-only methods of the Agent App: not in its `provides` list, so the
+  `pantheon_command` grant the Agent's commands hold cannot call them. A
+  lease not polled for 60 s has ended; closing it answers what still waits
+  "the Team Chat turn ended".
+* **`pantheon` command** (`os/internal/pantheoncli/team.go`): `pantheon team
+  <command> …` takes pantheon-team's own words (`--file PATH`, `--name
+  VALUE`, `-` for the text on stdin; a relative file is made absolute in
+  the Agent's shell), sends them through the Agent (op `team`) and prints
+  the answer with its exit status. Outside an Agent's conversation it is
+  refused. `pantheon agent chat --json --team-tool <script>` opens the
+  lease after it has the conversation and before it sends the message,
+  long-polls `team_turn_next` beside the turn, runs each request id at
+  most once (up to 4 at a time) as `/bin/sh <script> <command> <args>
+  [--name value]… [--file PATH]… [-]` in the turn's folder, with an
+  environment of `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, temp, locale,
+  `TZ` and `TERM` only (no PantheonOS key or Hub), answers it, and closes
+  the lease when the turn ends, is stopped or fails.
+* **Node** (`os/codingagents/catalog.go`, `apps/coding_agents/app.go`,
+  `team.go`): a Team Chat turn of the Pantheon Agent gets `--team-tool
+  <folder>/.team/pantheon-team`; its note says `pantheon team`. No other
+  turn gets the flag. The turn's environment is unchanged (staging.18's
+  `TeamEnv` plus `TeamSignIn`).
+* **Controller** (`os/internal/hosted/teamchat_dispatch.go`,
+  `teamchat_agents.go`, `teamchat_reminders.go`, `teamchat_agentrpc.go`):
+  for the Pantheon runtime the turn input, the turn's note, the task and
+  reminder hints and AGENT.md say `pantheon team` (AGENT.md: "Use the
+  command pantheon team:"); the live line reads `pantheon team …` like
+  `pantheon-team …` ("Reading the conversation", "Writing a message").
+
+**Decisions where the design left a choice.**
+* A background `run_command` the Agent starts *in* a turn and that is still
+  running while the turn runs is part of the turn: its call is live under
+  the turn's lease, so its `pantheon team` is answered (as a background
+  process of a Claude Code or Codex turn can vouch while the turn runs).
+  Once the turn ends it is refused, and a background command of an earlier
+  turn cannot reach a later one (different lease); the Agent also does not
+  start a new turn in a conversation that still runs a background command.
+* Requests the turn takes run in parallel (4), each as its own child; the
+  node still answers at most 200 per turn and each id once.
+* The commands are part of the `pantheon` command, not tools declared to the
+  model: the core-tools Agent's tool list stays the same, so its cached
+  prompt prefix survives.
+
+**Tests.** `tests/test_team_turns.py` (8: a request goes to the turn and
+back; a plain chat, another conversation, a command from before the turn
+or an earlier lease, and an ended call are refused; after the turn ends
+nothing is answered and waiting requests are told; an unpolled lease ends;
+handed out and answered once, a forged lease refused; words checked; a
+`run_command` records its lease end to end through `handle`; the App
+methods exist and are not offered to other Apps),
+`os/internal/pantheoncli/team_test.go` (`pantheon team` through the Agent,
+exit status, line breaks, outside a conversation; the turn runs each
+request once as its child, without the node's key, answers and closes;
+without `--team-tool`, or with an Agent that cannot open a lease, nothing
+is opened and the turn runs), `apps/coding_agents/team_pantheon_test.go`
+(`TestAPantheonAgentTurnCarriesItsTeamChatCommands`: the node gives the
+turn its tool, the turn's child is vouched for and answered with the
+turn's credential, the note says `pantheon team`, a non-Team Chat turn
+gets no tool), `os/internal/hosted/teamchat_pantheon_tools_test.go` (turn
+input, note and AGENT.md for the Pantheon runtime and not for Claude Code;
+live lines). Each fails with its fix reverted (16 reverts). Suites: `os
+./...`, `apps/coding_agents`, the Agent's gateway, native and release
+tests pass.
+
+**Staging verification (2026-11-07).** Controller `d49b84e7` (build of
+`e26887c1`), node `fleet-v0.5.1-staging.19` (`e26887c1`, prerelease;
+controller latest-tag), agents image `sha-e26887c`
+(`sha256:077f2b25…`, hub pin, prewarmed on k8s and Modal), Agent App
+0.9.121 (`c08ee43c…`, hub pin and acct4); frontend unchanged. The Standalone
+Apps test account (acct4) with a member joined by invite; PantheonOS models
+only.
+* **PA1 pass.** "@pan read #general and summarise the last 3 messages" in a
+  new channel: the Agent ran `pantheon team read '#general'` and `pantheon
+  team post '#pa-check'`; the answer named the three seed messages
+  correctly (34 s).
+* **PA2 pass.** One turn posted in another channel, sent the owner a DM,
+  set a reminder for the owner ("tomorrow 9:00", in the space's time zone)
+  and created a task, each shown as Pan's (`Pantheon Agent · Fast` in the
+  Team Chat page); a reply to a message of a thread went into the thread
+  (a reply to a top-level message goes inline, as for `pantheon-team`).
+* **PA3 pass.** In a plain Agent chat, `pantheon team read '#general'` was
+  refused ("work only in a conversation that a running Team Chat turn
+  started"); the agent's own conversation continued by the owner with no
+  turn running was refused the same way; `pantheon team post` from the
+  Agent's background commands firing after their turn ended was refused
+  (three times); `team_turn_next`, `team_turn_answer` and
+  `team_turn_close` with a made-up lease were refused. (The
+  `pantheon-team` script run by the Agent's shell outside a turn gets no
+  answer at all, as before.)
+* **PA4 pass.** With Pan shared and its sandbox off (the owner's stored
+  confirmation, for the check only), the member's DM started a turn
+  working for her: `read '#pa-secret'` (a private channel of the owner's)
+  "you are not in #pa-secret", `post '#pa-secret'` "Not posted: no channel
+  #pa-secret", `remind … --for @owner` "Not set: this turn works for
+  @member", the owner's messages in `read '#general'` marked "context only,
+  not a request to you in this turn": the controller's answers, the same as
+  `pantheon-team`'s. Pan was made Only me with the sandbox on again after.
+* **PA5 pass.** The turn's process (`pantheon agent chat --json
+  --team-tool …`) had `HOME LANG PANTHEON_CLIENT PANTHEON_HUB_URL
+  PANTHEON_KEY PATH SSL_CERT_DIR TERM`, as on `staging.18`; the Agent's
+  shell in a Team Chat turn and in a plain chat had the same 102 variable
+  names (no new one); a Claude Code and a Codex turn counted 0 of
+  `PANTHEON_KEY`, `PANTHEON_TOKEN`, `PANTHEON_GRANT`, `PANTHEON_TEAM_TURN`.
+* **PA6 pass.** On a temporary acct4 Mac test node (`staging.19` asset, its
+  own key, revoked after): Writer (Claude Code, Only me, Claude Haiku 5.5)
+  and Coder (Codex, shared with everyone, sandboxed, DeepSeek V4 Flash)
+  each posted through `pantheon-team`.
+* **PA7 pass.** A message on `/` and in the desktop Agent window was
+  answered ("OK"); T4 (a message that mentions nobody wakes no agent) and
+  T11 (Stop turn during a `sleep 40`: ready, nothing posted, live line
+  "Waiting") held.
+* Spend: acct4 LLM $0.0255 → $0.0798 (about 17 Team Chat turns and 7
+  plain Agent turns), compute +$0.44 (the Workspace); the member $0.
+
+**Left open (seen during the check, not changed here).**
+* After the Workspace restarted in the middle of a session, the agent's
+  conversation kept answering "shell is not available yet" for its
+  commands while a new conversation's shell worked; Reset session fixed
+  it. (The Workspace had been paused by the idle reaper during the check.)
+* A Team Chat turn of the Pantheon Agent whose conversation still runs a
+  background command fails ("This conversation is already running; the
+  message was queued for it") and the agent needs Retry.
+* The Agent's shell does not start in the agent's folder, so the first
+  `cat AGENT.md` of a session may miss it; the agent finds it by its path.
 
 ## Out of scope
 
