@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from pantheonos.appkit.portable import execution_package, portable_backend, stream_backend
@@ -87,3 +87,40 @@ async def test_created_stream_page_returns_the_published_desktop_revision(tmp_pa
     retry = await service.desktop_stream_call('browser', bound, 'browser_ui_page', {}, wid)
     assert retry['binding'] == saved
     service._publish_desktop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_a_page_reattaches_through_the_browser_instance_after_a_reload(tmp_path):
+    """An App page (`/app/browser?page_id=`) keeps the page id in its URL, not
+    the binding, and its Agent toolset holds no page list after a reload or a
+    restart. The page asks the Browser App's instance (desktop_stream_call with
+    the instance binding, no window), which still holds the Chromium page; a
+    page the instance does not hold is an exact "no such" answer, which the
+    page replaces with a fresh one (BrowserApp.vue)."""
+    from tests.test_browser_window_creation import Engine
+    engine = Engine()
+    node = DesktopToolSet()
+    node._browser_engine = lambda: engine
+    node._prewarm_browser = Mock()
+    bound = {'node_id': 'ws', 'instance_id': 'browser-1', 'revision': 'digest', 'generation': 1}
+
+    async def call(app_id, binding, method, args, timeout):
+        assert (app_id, binding) == ('browser', bound)
+        return {'success': True, 'result': await getattr(node, method)(**args)}
+
+    def agent():
+        service = DesktopToolSet()
+        service._fleet_binding = object()
+        service._app_placement = lambda: SimpleNamespace(call=call)
+        return service
+
+    opened = await agent().desktop_stream_call('browser', bound, 'browser_ui_page', {'url': 'https://example.com/'})
+    assert opened['success'] and engine.created == [opened['page_id']]
+    # A fresh Agent toolset, as after a reload: the bare page id is unknown to it...
+    fresh = agent()
+    assert 'No bound Browser page' in (await fresh.browser_ui_page(page_id=opened['page_id']))['error']
+    # ...and the instance binding reaches the same Chromium page, creating none.
+    again = await fresh.desktop_stream_call('browser', bound, 'browser_ui_page', {'page_id': opened['page_id']})
+    assert again['success'] and again['page_id'] == opened['page_id'] and engine.created == [opened['page_id']]
+    gone = await fresh.desktop_stream_call('browser', bound, 'browser_ui_page', {'page_id': 'gone'})
+    assert not gone['success'] and 'no such page: gone' in gone['error']
