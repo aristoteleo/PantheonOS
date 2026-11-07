@@ -2870,6 +2870,77 @@ itself. With the sandbox off, everything in "What Team Chat cannot
 prevent" holds as before.
 
 
+### Fixes after the Standalone Apps sixth check (2026-11-07)
+
+**Regression.** A new Team Chat agent on the Pantheon Agent runtime never
+answered: every turn showed "Pantheon Agent stopped unexpectedly on your
+Workspace", and Coding Agents showed "Pantheon Agent exited: exit status 1"
+(Workspace on node `fleet-v0.5.1-staging.17`; Fast and Default models,
+Retry and Reset session alike). The turn ended 26 ms after it started.
+
+**Cause.** The fix for the fifth Phase 3 check (`c8b1a185`, node
+`staging.15`, 2026-11-06) made every Team Chat turn start from an
+allow-listed environment without `PANTHEON_KEY`. That is right for Claude
+Code, Codex and the other runtimes, which reach the model through the
+turn's own token. But a Pantheon Agent turn *is* the `pantheon agent chat
+--json` command reaching the owner's Agent App, and that command signs in
+with the node's key: without it, it stopped before the turn with
+`{"error":"not signed in: run pantheon login","success":false}` and exit 1.
+Coding Agents read only `{"type":"error"}` lines from it, so the reason
+was dropped and the user saw a bare exit status. Every check after the
+fifth ran Claude Code and Codex agents, so nothing exercised the Pantheon
+Agent runtime until the Standalone Apps sixth check. None of the changes of
+2026-11-07 (frontend #41 to #47, Agent App 0.9.112 to 0.9.119, `43eb6da9`,
+LiteLLM, provider credit, the sandbox) was involved: the same command
+answered at once on the Workspace when given the node's key.
+
+**Fix** (`ad115b16`, node `fleet-v0.5.1-staging.18`).
+* A Pantheon Agent turn gets the node's key and Hub again
+  (`codingagents.TeamSignIn`: `PANTHEON_KEY`, `PANTHEON_HUB_URL`,
+  `PANTHEON_CLIENT`), on top of `TeamEnv`. Only that runtime: Claude Code,
+  Codex, Gemini, OpenCode and Pi turns still get no PantheonOS key. The
+  turn's process is the `pantheon` command alone; the Agent's own commands
+  run in the node's Shell App, not under it, so the key does not reach
+  them through the environment. A same-user process can still read it
+  from the command's environment, as it can from the Coding Agents
+  `settings.json` ("What Team Chat cannot prevent"). The Pantheon Agent is
+  still refused for shared agents with the sandbox on.
+* `pantheon agent chat --json` says a failure before the turn as its
+  `{"type":"error"}` line ("not signed in: run pantheon login"), and Coding
+  Agents also reads the older `{"success":false,"error":…}` form: the user
+  sees "Could not start Pantheon Agent: …", not "exit status 1".
+* Tests: `apps/coding_agents/team_pantheon_test.go`
+  (`TestATeamTurnOfThePantheonAgentSignsIn`, a `pantheon` that refuses
+  without the key, as the real one does; `TestTeamSignInIsThePantheonAgentsOnly`),
+  `os/codingagents/pantheon_test.go` (`TestPantheonLines`, the generic
+  error line), `os/internal/pantheoncli/agentturn_test.go`
+  (`TestAgentTurnNotSignedIn`). Each fails with its fix reverted.
+
+Staging verification (2026-11-07; node `fleet-v0.5.1-staging.18` on the
+Workspace through the agents image `sha-ad115b1`
+(`sha256:c7418883…`, pinned in the Hub and prewarmed), Agent App 0.9.120,
+the Standalone Apps test account):
+
+* Before the fix, on the Workspace (`staging.17`): the turn's command
+  without the key printed `{"error":"not signed in: run pantheon login",
+  "success":false}` and exited 1; the same command with the node's key
+  answered "OK" at once (`openrouter/openai/gpt-6-luna`, the Fast tier).
+* After: a new Pantheon Agent (Workspace, Fast) in a new channel,
+  "@assistant Reply with just: OK" → "OK" posted 15 s later (`runtime
+  pantheon`). A shared Codex agent (access everyone, PantheonOS model
+  `openrouter/deepseek/deepseek-v4-flash-0731`, on a macOS test computer
+  of the same account) answered "OK" in 7 s; its turn ran sandboxed and
+  posted through `pantheon-team post`.
+* **Left open.** The Pantheon Agent's own `pantheon-team` commands are
+  refused ("not part of the agent's running Team Chat turn"): the Agent
+  runs them through the node's Shell App, whose processes are not under
+  the turn's `pantheon` command, so no process of the turn can vouch for
+  them ("Turn-bound commands", since the second Phase 3 check). Its final
+  answer is still posted for it when a mention or DM woke it, which is how
+  "OK" above arrived; reading the inbox, posting elsewhere, reminders and
+  tasks do not work for the Pantheon Agent runtime until the Shell App
+  session of a turn can vouch. Not changed here.
+
 ## Out of scope
 
 Payments, mobile native apps, external chat bridges, prod rollout (asked
