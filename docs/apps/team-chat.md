@@ -2941,6 +2941,144 @@ the Standalone Apps test account):
   tasks do not work for the Pantheon Agent runtime until the Shell App
   session of a turn can vouch. Not changed here.
 
+## Pantheon Agent turns: Team Chat tools (2026-11-07)
+
+**Decision (the owner's, option A, 2026-11-07).** A Pantheon Agent turn
+gets the Team Chat commands Claude Code and Codex turns have through
+`pantheon-team`, over the turn's own connection: the turn's
+`pantheon agent chat --json` process carries its conversation's requests
+and runs them as its own. No credential is handed to the Agent, the
+Workspace Shell App or the turn, and the security model of "Turn-bound
+commands" is unchanged.
+
+**The gap.** A Pantheon Agent turn is the `pantheon agent chat --json`
+command on the agent's node, which reaches the owner's Agent App. The Agent
+runs its commands through the node's Shell App, whose processes are not
+under the turn's process, so a `pantheon-team` it runs has no process of
+the turn to vouch for it and is refused ("Fixes after the Standalone Apps
+sixth check"). Only its final answer was posted for it.
+
+**Channel.**
+
+1. **The node starts the turn with its tool.** For a Team Chat turn of the
+   Pantheon Agent the node adds `--team-tool <folder>/.team/pantheon-team`
+   to `pantheon agent chat --json` (the turn's own `pantheon-team`, written
+   for this turn, in the folder the node prepared). The command is the
+   turn's process, in a session of its own, as before.
+2. **The turn opens its conversation's Team Chat channel in the Agent.**
+   Before it sends the message, the command calls the Agent App's
+   `team_turn_open(chat_id)`, which makes a lease (32 random bytes) for that
+   conversation and ends any earlier one of it. The lease exists only in
+   the Agent's memory and the turn process's memory: never in an
+   environment, an argument or a file. The Agent App's methods take the
+   owner's grant (the command signs in with the node's key, as every
+   Pantheon Agent turn does since `staging.18`).
+3. **The Agent asks with the `pantheon` command.** The Agent's model runs
+   `pantheon team <command> …` in `run_command`, the way it reaches
+   everything beyond its core tools (docs/os/pantheon-cli.md). That command
+   has what every `pantheon` command the Agent runs has had (the Agent
+   App's endpoint, a grant that allows only its `pantheon_command` method,
+   and a token for this conversation, agent and tool call), and nothing
+   new. It sends `{op: "team", params: {command, args, opts, files, text}}`
+   to `pantheon_command`. The Agent accepts it only when
+   * the token's `run_command` is still running (a live call of the
+     gateway, not a background command whose call has ended),
+   * its conversation has an open lease, and
+   * that `run_command` started while this lease was open (the live call
+     records the lease it started under).
+   Otherwise it answers with the reason, and nothing leaves the Agent. An
+   accepted request gets an id of the Agent's own (random) and waits in
+   the lease's queue; the command waits up to 130 s for its answer.
+4. **The turn's process runs it as `pantheon-team`.** The turn's command
+   long-polls `team_turn_next(chat_id, lease)`, which hands each request
+   out once. For each it runs the turn's `pantheon-team` script as its own
+   child (`/bin/sh <script> <command> <args>… [--name value]… [--file
+   PATH]… [-]`, the text on stdin, with a small environment: no PantheonOS
+   key, no Hub URL). That child is a process of the turn: it writes the
+   request into the turn's inbox and `exec`s `pantheon-team-wait` with the
+   request's id and SHA-256, so the node answers it exactly as it answers
+   Claude Code's and Codex's (the turn's id and credential added by the
+   node, the controller's checks, each request id once, the 200-request
+   limit). The command sends the exit status and output back with
+   `team_turn_answer(chat_id, lease, id, code, text)`; each id is run at
+   most once by the command and answered at most once by the Agent.
+5. **When the turn ends** (its done line, a stop, a failure) the command
+   calls `team_turn_close`; queued and waiting requests are answered "the
+   Team Chat turn ended". A lease not polled for 60 s ends by itself (a
+   killed command).
+
+The Team Chat side is enforced where it always was: the node answers only
+a request a process of the running turn vouched for, and the controller
+checks the turn's person, space and agent. The lease only decides which of
+the Agent's conversations may hand requests to the turn's process. A
+forged answer to `team_turn_answer` (only the owner's grant can call it)
+changes what the Agent reads, not what Team Chat does.
+
+Why not the conversation's event stream: every viewer of the conversation
+reads that stream by cursor (the browser too), so a request on it would be
+seen by every reader and would need its own de-duplication; a queue the
+Agent hands out once, to the one lease holder, is stricter.
+
+**Scope.**
+* The commands work only in a conversation whose Team Chat turn's process
+  opened a lease for it, and only while that turn runs. A plain Agent chat
+  (on `/`, the desktop, the terminal), another conversation of the owner's
+  Agent, a command from an earlier turn or one started before this turn
+  (`--detach`, a background command), and anything after the turn ends,
+  are refused by the Agent with the reason; if a request reached the node
+  anyway, the node refuses it as before.
+* `pantheon team` is not in `pantheon --help` or the guide: it is told to
+  the agent only by its Team Chat turn (the turn input, the turn's note and
+  AGENT.md say `pantheon team` for this runtime).
+* A request is bound to the turn's person, space and agent exactly as
+  `pantheon-team` is: the node adds the turn's id and credential, the
+  controller decides who the turn works for, and nothing in the request
+  names a person, a space or an agent. The Agent cannot choose them.
+
+**Commands.** The same as `pantheon-team`, with the same arguments and the
+same checks (they are the controller's): `inbox`, `read <'#channel'|@handle|
+message id> [--before ID] [--limit N]`, `post '#channel' [--file PATH]… -`,
+`reply <message id> [--file PATH]… -`, `dm @handle -`, `members`,
+`channels`, `join '#channel'`, `edit <message id> -`, `skip [reason]`, `task
+create|claim|state|assign|list …`, `remind <when> [--for …] [--tz …] [--every
+…] - | list | cancel ID | help`, `search <words> [--in '#channel'] [--from
+@h]`. The text goes on stdin after `-`, as for `pantheon-team`. A relative
+`--file` path is made absolute in the Agent's command, on the node where
+the Agent works (the turn's node: the turn sets the conversation's node to
+its own). A word with a line break is refused before it is sent.
+
+**Shared agents.** The Pantheon Agent stays refused for a shared agent with
+the sandbox on (controller and node), and this design does not change
+that. A Pantheon Agent turn drives the owner's Agent App, with the owner's
+Apps, Workspace and nodes, and its commands run in the owner's Shell App;
+no OS sandbox applies to them, and the turn's process holds the node's key.
+A shared agent would let other people steer all of that. With the sandbox
+off (the owner's stored confirmation), what "What Team Chat cannot prevent"
+says for an unsandboxed shared agent holds, and more: the Agent's whole
+reach is the owner's.
+
+**Acceptance criteria (staging).**
+* **PA1:** in a Team Chat channel, a Pantheon Agent asked to "read #general
+  and summarise the last 3 messages" reads them with a tool (`pantheon team
+  read`), and its answer is correct.
+* **PA2:** a Pantheon Agent asked to post in another channel, reply in a
+  thread, DM a person, set a reminder and create a task does each one; each
+  result shows in Team Chat as posted by that agent.
+* **PA3:** the same requests made outside a running turn, or from another
+  conversation of the owner's Agent that no Team Chat turn started, are
+  refused: a plain Agent chat that runs them, a command started before the
+  turn, and a later replay of a request id.
+* **PA4:** a turn working for person X cannot act as person Y, and cannot
+  reach a space or channel X cannot reach; permissions match
+  `pantheon-team`.
+* **PA5:** no new credential appears in the environment of the Agent, the
+  Shell App or the turn; the existing checks still pass (no `PANTHEON_KEY`
+  for the Claude Code and Codex runtimes, the allow-listed environment).
+* **PA6:** Claude Code and Codex agents, a shared sandboxed one included,
+  still work end to end (every runtime retested after the change).
+* **PA7:** no regression: plain Agent chats on `/` and on the desktop
+  behave as before, and Team Chat T-criteria spot checks pass.
+
 ## Out of scope
 
 Payments, mobile native apps, external chat bridges, prod rollout (asked
