@@ -745,7 +745,20 @@ already in Agent App 0.9.112's app host. After the second check: frontend #42
 chat at once); Hub, agents image, controller and node unchanged. After the
 third check: frontend #44 (`e1d70b54`) and Agent App 0.9.114 (the Agent's
 frontend and the runtime's App SDK); Hub, agents image, controller and node
+unchanged. After the fourth check: frontend #45 (`5e616a5c`) and #46
+(`9aadd0ce`), Agent App 0.9.115-0.9.118 (0.9.118 live: the Agent's frontend,
+and its manifest persists `drafts`); Hub, agents image, controller and node
 unchanged.
+
+Open on desktop, as built after the fourth check: a window showing the same
+thing is used (Terminal, Coding Agents, Office, Browser, by what they show);
+a file or URL page uses the window showing that file; Team Chat's open window
+takes the page's view and follows it, and is said to be in front only once it
+reports showing that view; every other App's open window (Fleet, Settings,
+Model Services, LLM Playground, Store, Google Workspace, Agent Canvas,
+packaged Apps) comes forward as the person left it, args untouched, and the
+toast says so ("as you left it there; this page's view was not moved into
+it"). With none open, a new window opens on the page's view.
 
 **Staging verification (2026-11-06, frontend #39–#40, hub `58d8e2e`, account
 acct4).**
@@ -1115,6 +1128,126 @@ Verified on staging (frontend #44, both hosts `index-C3U_VbOS.js`,
   itself is timing-bound and covered by the test above.
 - No regression: `/desktop.html` and its windows, `/app/team-chat` → Open on
   desktop (in front), `/app/terminal` on the agent computer, `/c/<id>`.
+
+#### Fixes after the fourth check (2026-11-07)
+
+The fourth independent check found two Medium problems and four Low ones.
+Fixed in frontend #45 (UI `ecf2c78d`…`5e616a5c`) and #46 (`9aadd0ce`), and
+Agent App 0.9.115-0.9.118 (the Agent's frontend; 0.9.118 also its manifest,
+runtime `fd4000a5`). Hub, agents image, controller and node unchanged.
+
+1. **M1: Team Chat's Open on desktop said "in front" while the open window
+   kept its old view.** Open on desktop wrote the page's view into the front
+   Team Chat window's args (a desktop reload then showed it), but Team Chat
+   read its address only when it opened, and "in front" checked only that
+   the window existed. Now Team Chat follows its args: a change it did not
+   write itself (it remembers the address it last wrote) is opened as an
+   address (a conversation with its thread, Activity, Tasks, Search with its
+   words, an agent profile; a thread or panel the new view has not is
+   closed), and the wrapper switches space when `space` changes. It reports
+   the view it shows (`host/shownView.ts`), and the desktop tab answers
+   "shown" for Team Chat only once that reported view carries the handed-over
+   `space`, `conv`, `thread`, `agent`, `view` and `q` (`desktopShows`), the
+   same check Terminal uses on its args. The other Apps that reuse their front
+   window read their view args only when the window opens; rather than teach
+   each to follow, Open on desktop now brings their open window forward
+   unchanged (`reuse: 'front'`, args not laid over, so a later desktop reload
+   does not change it either) and says it is shown "as you left it". A page
+   with no window of that App open still gets a new window on its view.
+2. **M2: the Agent page reloaded itself when the Workspace joined.** Joining
+   the Workspace bumps the workspace epoch, and `PackagedApp` re-prepared every
+   App frame on an epoch bump ("Resolving installation…", then "Connecting to
+   n_…"), though the Agent runs on its own computer and its instance had not
+   changed. Now an epoch bump first asks the App's node about the bound
+   instance: still `ready` (or `recovered`) with the same App, release and
+   generation on the same node, the frame (ready or initializing) is kept;
+   replaced, stopped, or not readable, it reloads as before. Safety net:
+   unsent drafts are kept per chat (`chatDrafts.ts`): a switch keeps each
+   chat's draft with it (the input used to carry text into the next chat), a
+   sent message clears it. The Agent's frame gets an origin per connection, so
+   its own storage does not outlive a reload: the Agent hands its drafts to its
+   host as durable state (`drafts`, now in its manifest's `persistState` with
+   `chatId`), the Agent page keeps them in the tab's `sessionStorage` and gives
+   them back to a frame loaded again. (A desktop Agent window keeps them in its
+   window args, like `chatId`.)
+3. **L1: the previous chat's suggestions flashed under the next chat, and a
+   chat switched back to showed none.** The suggestion list left with its
+   transition after a switch, and the chat-switch watcher closed the
+   suggestions after the id had changed, i.e. the next chat's. Suggestions are
+   now kept per chat (`chatSuggestions.ts`): the list is keyed by the chat
+   shown (removed at once), a switch closes nothing, not being eligible yet (a
+   chat still loading) hides them instead of dropping them, and a revert drops
+   them only once the message they follow was seen in that chat's list and is
+   gone (a chat read again after a switch may show it under another id).
+4. **L2: `/app/coding-agents?node=<the Agent's computer>` showed the Workspace
+   but kept `node=`.** The page keeps naming a chosen computer while another
+   stands in for it, for a computer that is away. A computer the Fleet lists
+   that cannot run coding agents (a `pod`, a delegated node, one online
+   without the runtime) is no such choice: the computer shown is the view and
+   the URL (so Open on desktop uses the Workspace window already there).
+5. **L3: the Share dialog's row said "not opened yet" after the visit.**
+   Visits are recorded for Mine links (`POST /api/app-shares/<id>/visit`;
+   the list counts visitors); the dialog read the list only when it opened.
+   It now reads it again when the tab comes back to the front and every 20 s
+   while shown.
+6. **L4: four 404s on each cold load of `/`.** Two were the page asking the
+   Store for `pkg:agent` (its name and icon), which is the deployment's own
+   App: it is now named from the built-in registry. One was the Agent's
+   welcome mark, a CSS `url()` into `public/` that the build leaves as
+   `/public/pantheon.png`, which the Agent's origin does not serve: it is a
+   bundled asset now. The fourth, `/package/demo.json` on the Agent's origin,
+   is `PackagedApp`'s probe for a bundled demo (a 404 means none); it is
+   asked only when the frame has no starting state (`/` with no chat and no
+   drafts), and is left as is. On a cold load with the Workspace paused the
+   console also shows 409s from `POST /api/fleet/apps/connect`: a side panel
+   Text Viewer tab (Workspace-hosted) retrying until the Workspace is up.
+
+Check 3's M2 (`/c/<id>` naming the previous chat, first root session only):
+its kept script (`check3/sw.py`) reads `location.href` through `evaluate`,
+which is not affected by the stale `page.url` found in check 4; the first
+session's script was not kept, so whether it read `page.url` cannot be
+confirmed. It was not reproduced since (fix 3, check 4).
+
+Tests (each fails without its change, checked by reverting the source file):
+`TeamChatApp.test.ts` (a window follows Tasks, a conversation, a thread;
+its own navigation is not followed back; the view reported),
+`sendToDesktop.test.ts` (`front` keeps the window's args and says so; Team
+Chat's expected view travels), `PackagedApp.epoch.test.ts` (the frame is kept
+for the same instance; reloaded for a new generation, release, a stopped or
+unreadable one), `ChatInput.drafts.test.ts`, `chatDrafts.test.ts`,
+`AgentSurface.test.ts` (drafts kept across a remount, cleared when sent),
+`chatSuggestions.test.ts`, `ChatConversation.suggestions.test.ts`,
+`CodingAgentsApp.away.test.ts`, `ShareDialog.test.ts` (counts read again),
+`appIdentity.test.ts`, `WelcomeScreen.assets.test.ts`; pytest
+`test_agent_release.py` (persistState). vue-tsc passes; the wide vitest run
+fails the same 20 tests in 12 files as before.
+
+Verified on staging (frontend #45/#46, both hosts; Agent App 0.9.115-0.9.118
+on acct3 and acct4; acct4):
+
+- Team Chat: page on #general, Open on desktop: window on #general; page on
+  Tasks (`?view=tasks`), Open on desktop: "in front" in 0.3 s and the same
+  window showed Tasks; page on #general again: the window went back to
+  #general; one Team Chat window throughout.
+- Fleet: Open on desktop with no Fleet window: a new one, "in front"; again:
+  "Its window is in front in your desktop tab, as you left it there; this
+  page's view was not moved into it."
+- Cold load of `/` in a fresh browser context with the Workspace paused: the
+  Agent was usable at 4-7 s, a draft typed into a chat; the Workspace joined
+  at 59 s (#45) and 117 s (#46): no reload (the frame stayed, its text never
+  went to "Resolving installation…"), the draft stayed, `/c/<id>` kept; a page
+  reload then showed the draft again (0.9.118). Drafts in two chats survived
+  a reload, each in its own chat.
+- Suggestions: after a reply, a switch showed none of them under the other
+  chat from the first sample (40 ms), and the chat switched back to showed its
+  own again, twice (0.9.117).
+- `/app/coding-agents?node=<agent computer>` → `?node=<Workspace>`, Workspace
+  shown; Open on desktop twice: one Coding Agents window.
+- Share dialog: a Mine link (Hello Files with MSA Viewer) made, visited by an
+  anonymous visitor: the open dialog's row went to "opened by 1 person" without
+  reopening it; revoked: the visitor sees "This link was withdrawn".
+- Cold load of `/`: no request to `/api/store/packages/agent` or
+  `/public/pantheon.png`; a reload of `/c/<id>` had no 4xx at all.
 
 ## Open decisions
 
