@@ -28,6 +28,7 @@ var valueFlags = map[string]bool{
 	"node": true, "version": true, "job": true, "query": true, "kind": true, "out": true,
 	"repository": true, "profile": true, "team": true, "resume": true,
 	"agent": true, "cwd": true, "conversation": true, "model": true, "chat": true, "workdir": true,
+	"team-tool": true,
 }
 
 func parse(words []string, stdin io.Reader) (*parsed, error) {

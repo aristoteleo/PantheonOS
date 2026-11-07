@@ -576,6 +576,18 @@ func (t *TeamChat) agentLive(fl *tcFleet, mid string) (any, error) {
 // the space's people and agents (roster). The node replaces {{TEAM}} with
 // the path of the agent's tool.
 func agentBrief(m *tcMember, roster string) string {
+	brief := agentBriefText(m, roster)
+	if m.Runtime == codingagents.PantheonAgent {
+		// Its commands run outside the turn: `pantheon team`, which the
+		// turn's own process carries (docs/apps/team-chat.md, "Pantheon
+		// Agent turns: Team Chat tools").
+		brief = strings.ReplaceAll(brief, "Use the tool {{TEAM}} (run it with sh):", "Use the command {{TEAM}}:")
+		brief = strings.ReplaceAll(brief, "{{TEAM}}", "pantheon team")
+	}
+	return brief
+}
+
+func agentBriefText(m *tcMember, roster string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s (@%s)\n\n", m.Name, m.Handle)
 	if m.Description != "" {

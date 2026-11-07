@@ -19,7 +19,7 @@ import (
 func IsCommand(name string) bool {
 	switch name {
 	case "login", "logout", "whoami", "apps", "dev", "desktop", "browser", "nodes", "run", "transfer", "task",
-		"agent", "skills", "jobs", "coding-agent":
+		"agent", "skills", "jobs", "coding-agent", "team":
 		return true
 	}
 	return false
@@ -109,6 +109,11 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, Usage)
 		return 2
+	}
+	if args[0] == "team" {
+		// A Team Chat command of a Pantheon Agent turn's conversation
+		// (team.go): pantheon-team's own words, not key=value arguments.
+		return teamMain(args[1:], stdin, stdout, stderr)
 	}
 	p, err := parse(args[1:], stdin)
 	if err != nil {

@@ -22,6 +22,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/aristoteleo/pantheonos/os/codingagents"
 )
 
 const (
@@ -79,6 +81,8 @@ type teamBox struct {
 	answered map[string]string
 	handled  int
 	off      bool
+	// agent is the turn's runtime (catalog id).
+	agent string
 }
 
 func (b *teamBox) close() {
@@ -147,7 +151,7 @@ func (a *App) teamBoxFor(folder string, tt TeamTurn) (*teamBox, string) {
 
 // teamNote is the turn's setting that tells the agent about its tool.
 func teamNote(b *teamBox) string {
-	cmd := shellArg(b.script)
+	cmd := teamCommandFor(b)
 	if note := strings.TrimSpace(b.team.Note); note != "" {
 		return strings.ReplaceAll(note, "{{TEAM}}", cmd)
 	}
@@ -168,6 +172,20 @@ func teamNote(b *teamBox) string {
 		"when a person asks for one now, do it (Team Chat's limits bound it). " +
 		"Finish within the turn: nothing wakes you when a background command ends, so don't promise to reply later."
 }
+
+// teamCommandFor is how the turn's agent runs its Team Chat commands: the
+// pantheon-team script in its folder, or for the Pantheon Agent, whose
+// commands run outside the turn, `pantheon team`, which its turn's process
+// carries (docs/apps/team-chat.md, "Pantheon Agent turns: Team Chat tools").
+func teamCommandFor(b *teamBox) string {
+	if b.agent == codingagents.PantheonAgent {
+		return teamPantheonCommand
+	}
+	return shellArg(b.script)
+}
+
+// teamPantheonCommand is the Pantheon Agent's Team Chat command.
+const teamPantheonCommand = "pantheon team"
 
 // teamScriptFor is the pantheon-team script for one inbox. A request is a
 // file: "op: <command>", "arg: …", "opt: name=value" and "file: <path>"

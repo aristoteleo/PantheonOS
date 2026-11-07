@@ -551,6 +551,7 @@ func (a *App) send(p SendArgs) map[string]any {
 	if p.Team != nil {
 		var why string
 		if team, why = a.teamBoxFor(c.Cwd, *p.Team); team != nil {
+			team.agent = c.Agent
 			system = strings.TrimSpace(system + "\n\n" + teamNote(team))
 		} else {
 			system = strings.TrimSpace(system + "\n\nTeam Chat cannot be reached this turn: " + why + ".")
@@ -601,6 +602,12 @@ func (a *App) send(p SendArgs) map[string]any {
 		model = codingagents.SubscriptionModel(model)
 	}
 	t := codingagents.Turn{Prompt: agentPrompt, Session: c.Session, Model: model, Cwd: c.Cwd, Auto: c.Auto, Node: a.NodeID}
+	if team != nil && c.Agent == codingagents.PantheonAgent {
+		// The Pantheon Agent's commands run in the Agent's Shell App, not
+		// under this turn: the turn's own process runs them as pantheon-team
+		// (docs/apps/team-chat.md, "Pantheon Agent turns: Team Chat tools").
+		t.TeamTool = team.script
+	}
 	canvas.apply(&t)
 	if box != nil && agent.Headless.Canvas.ShellSandbox {
 		// Its sandbox writes only in the turn's folders: the link folder's

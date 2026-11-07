@@ -448,7 +448,7 @@ func (t *TeamChat) agentInbox(ctx context.Context, fl *tcFleet, m *tcMember, tr 
 		} else {
 			b.WriteString(indent(shownText(fl, msg)))
 			if tk := taskFor(fl, msg); tk != nil {
-				b.WriteString(indent(taskNote(fl, tk, m.MID, teamScript(m.Folder))))
+				b.WriteString(indent(taskNote(fl, tk, m.MID, teamTool(m))))
 			}
 		}
 		for _, f := range msg.Files {

@@ -952,7 +952,7 @@ func (t *TeamChat) remindTarget(ctx context.Context, fl *tcFleet, m *tcMember, w
 // remindWhere tells the agent how to post a person's reminder.
 func (t *TeamChat) remindWhere(fl *tcFleet, m *tcMember, w tcWake) string {
 	who := "@" + fl.members[w.For].Handle
-	script := teamScript(m.Folder)
+	script := teamTool(m)
 	cmd := fmt.Sprintf("%s dm %s - <<'EOF' … EOF", script, who)
 	where := "in your DM with " + who
 	if c := fl.convs[w.CID]; c != nil && !c.Archived {

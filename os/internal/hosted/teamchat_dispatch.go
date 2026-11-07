@@ -1281,10 +1281,10 @@ var shellWords = []struct {
 	re   *regexp.Regexp
 	line string
 }{
-	{regexp.MustCompile(`pantheon-team['"]?\s+inbox`), "Checking new messages"},
-	{regexp.MustCompile(`pantheon-team['"]?\s+(post|reply|dm|edit)`), "Writing a message"},
-	{regexp.MustCompile(`pantheon-team['"]?\s+(read|members|channels)`), "Reading the conversation"},
-	{regexp.MustCompile(`pantheon-team['"]?\s+skip`), "Deciding not to reply"},
+	{regexp.MustCompile(`pantheon[- ]team['"]?\s+inbox`), "Checking new messages"},
+	{regexp.MustCompile(`pantheon[- ]team['"]?\s+(post|reply|dm|edit)`), "Writing a message"},
+	{regexp.MustCompile(`pantheon[- ]team['"]?\s+(read|members|channels)`), "Reading the conversation"},
+	{regexp.MustCompile(`pantheon[- ]team['"]?\s+skip`), "Deciding not to reply"},
 	{regexp.MustCompile(`\b(pytest|go test|npm (run )?test|cargo test|jest|vitest|unittest)\b`), "Running tests"},
 	{regexp.MustCompile(`\b(pip3?|npm|yarn|pnpm|uv|brew|apt(-get)?|cargo) (install|add)\b`), "Installing packages"},
 	{regexp.MustCompile(`\b(go build|make|npm run build|cargo build|tsc)\b`), "Building"},
@@ -1578,7 +1578,7 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 		worksFor = ownerOf(m)
 	}
 	var b strings.Builder
-	script := teamScript(m.Folder)
+	script := teamTool(m)
 	who := "@" + m.Handle + " (" + m.Name
 	if m.Description != "" {
 		who += ": " + firstLineOf(m.Description)
@@ -1790,6 +1790,9 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 // turn ({{TEAM}} becomes the agent's tool there).
 func teamNote(m *tcMember) string {
 	cmd := "{{TEAM}}"
+	if m.Runtime == codingagents.PantheonAgent {
+		cmd = teamTool(m)
+	}
 	return "You are " + m.Name + " (@" + m.Handle + "), an agent member of a Team Chat space in PantheonOS. Your role, " +
 		"who is a person and who is an agent, and how to work are in AGENT.md in your folder; keep what you must remember in MEMORY.md. " +
 		"Talk to the team only with " + cmd + ": `" + cmd + " inbox` (new messages; check it between steps), " +
@@ -1825,6 +1828,18 @@ const (
 		"(in the space's time zone; never work it out or guess it, and never chain the confirmation in the same command). " +
 		"Reply in the person's language, the language of their message. Never show a reminder's id to people (they say \"cancel the reminder\")."
 )
+
+// teamTool is how an agent runs its Team Chat commands in a turn: the
+// pantheon-team script in its folder, or for the Pantheon Agent, whose
+// commands run outside the turn, `pantheon team`, which the turn's own
+// process carries (docs/apps/team-chat.md, "Pantheon Agent turns: Team Chat
+// tools").
+func teamTool(m *tcMember) string {
+	if m.Runtime == codingagents.PantheonAgent {
+		return "pantheon team"
+	}
+	return teamScript(m.Folder)
+}
 
 func teamScript(folder string) string {
 	sep := "/"
@@ -2107,7 +2122,7 @@ func (t *TeamChat) remAbout(ctx context.Context, fl *tcFleet, m *tcMember, e tcW
 	}
 	b.WriteString(indent(indent(text)))
 	if tk := taskFor(fl, msg); tk != nil {
-		b.WriteString(indent(taskNote(fl, tk, m.MID, teamScript(m.Folder))))
+		b.WriteString(indent(taskNote(fl, tk, m.MID, teamTool(m))))
 	}
 	return b.String()
 }

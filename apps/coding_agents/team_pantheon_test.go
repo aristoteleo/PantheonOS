@@ -10,8 +10,10 @@ package codingagentsapp
 // only as "Pantheon Agent exited: exit status 1").
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/aristoteleo/pantheonos/os/codingagents"
@@ -87,4 +89,93 @@ func TestTeamSignInIsThePantheonAgentsOnly(t *testing.T) {
 	if env := codingagents.TeamSignIn(codingagents.Settings{}, codingagents.PantheonAgent); env != nil {
 		t.Errorf("no key: %v", env)
 	}
+}
+
+// pantheonTeamTurn is a Pantheon Agent turn as `pantheon agent chat --json
+// --team-tool` runs it: a request of the Agent's conversation (`pantheon
+// team post …` in the Agent's Shell App, outside this turn) is run by the
+// turn's own process as the turn's pantheon-team, its child.
+const pantheonTeamTurn = `tool=""; prev=""
+for a in "$@"; do [ "$prev" = "--team-tool" ] && tool=$a; prev=$a; done
+echo '{"type":"chat","chat_id":"chat-1"}'
+if [ -n "$tool" ]; then
+  out=$(printf 'hello from pan\n' | env -i PATH="$PATH" HOME="$HOME" /bin/sh "$tool" post '#general' - 2>&1)
+  echo "CHILD $? $out" >> "$(dirname "$0")/calls.txt"
+fi
+echo '{"type":"text","text":"Done."}'
+echo '{"type":"done","chat_id":"chat-1","status":"finished","model":"acme/star-1"}'
+`
+
+// The Pantheon Agent's Team Chat commands (docs/apps/team-chat.md, "Pantheon
+// Agent turns: Team Chat tools"): the node gives its turn the turn's
+// pantheon-team (--team-tool) and tells the Agent to use `pantheon team`;
+// what the turn's process runs with that tool is a process of the turn, so
+// the node answers it with the turn's credential.
+func TestAPantheonAgentTurnCarriesItsTeamChatCommands(t *testing.T) {
+	record := fakeAgent(t, "pantheon", pantheonTeamTurn)
+	a := NewApp(nil, "", t.TempDir())
+	t.Cleanup(a.Close)
+	a.NodeID = "n_ws"
+	var mu sync.Mutex
+	var got []map[string]any
+	a.teamCaller = func(req map[string]any) (map[string]any, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		got = append(got, req)
+		return map[string]any{"code": float64(0), "text": "Posted in #general."}, nil
+	}
+	signIn(t, a)
+	folder := filepath.Join(t.TempDir(), "pan")
+	if r := teamSetup(folder, "brief", "", false); r["success"] != true {
+		t.Fatal(r)
+	}
+	res := a.send(SendArgs{Agent: codingagents.PantheonAgent, Cwd: folder, Prompt: "[Team Chat] read #general",
+		Model: "low", Auto: true, Origin: "team-chat",
+		Team: &TeamTurn{MID: "a1", Token: "tok", Handle: "pan", Name: "Pan", Turn: "t1", Cred: "c1"}})
+	if res["success"] != true {
+		t.Fatal(res)
+	}
+	waitIdle(t, a, res["conversation_id"].(string))
+	calls := readText(t, record)
+	script := filepath.Join(folder, ".team", "pantheon-team")
+	if !strings.Contains(calls, "--team-tool "+script) {
+		t.Fatalf("the turn was not given its tool:\n%s", calls)
+	}
+	if !strings.Contains(calls, "CHILD 0 Posted in #general.") {
+		t.Fatalf("the turn's own pantheon-team was not answered:\n%s", calls)
+	}
+	mu.Lock()
+	if len(got) != 1 || got[0]["op"] != "post" || got[0]["turn"] != "t1" || got[0]["cred"] != "c1" ||
+		got[0]["text"] != "hello from pan\n" || mustJSONText(got[0]["args"]) != `["#general"]` {
+		t.Fatalf("requests %v", got)
+	}
+	mu.Unlock()
+	// The Agent is told `pantheon team`, not the script it cannot vouch for.
+	if !strings.Contains(calls, "Talk to the team only with pantheon team: `pantheon team inbox`") ||
+		strings.Contains(calls, "only with '"+script) {
+		t.Fatalf("the turn's note:\n%s", calls)
+	}
+
+	// A Pantheon Agent turn that is not Team Chat's (Coding Agents, the
+	// Agent Canvas) gets no tool.
+	plain := a.send(SendArgs{Agent: codingagents.PantheonAgent, Cwd: folder, Prompt: "hello", Model: "low"})
+	if plain["success"] != true {
+		t.Fatal(plain)
+	}
+	waitIdle(t, a, plain["conversation_id"].(string))
+	lines := strings.Split(readText(t, record), "\n")
+	var last string
+	for _, l := range lines {
+		if strings.HasPrefix(l, "ARGS ") {
+			last = l
+		}
+	}
+	if strings.Contains(last, "--team-tool") {
+		t.Fatalf("a turn outside Team Chat got the tool: %s", last)
+	}
+}
+
+func mustJSONText(v any) string {
+	b, _ := json.Marshal(v)
+	return string(b)
 }

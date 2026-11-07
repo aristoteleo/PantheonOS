@@ -32,6 +32,51 @@ class NativeAgentApplication(ConfiguredAgentApplication):
         except Exception as error:
             return {'success': False, 'error': f'{type(error).__name__}: {error}'}
 
+    # Team Chat turns (docs/apps/team-chat.md, "Pantheon Agent turns"): the
+    # turn's `pantheon agent chat --json` process opens its conversation,
+    # runs the `pantheon team` requests of that conversation's commands as
+    # its own pantheon-team, and answers them. The owner's grant only.
+
+    def _team_turns(self):
+        gateway = getattr(self, 'command_gateway', None)
+        if gateway is None:
+            raise PermissionError('This Agent does not accept pantheon commands, so Team Chat commands cannot reach it')
+        return gateway.team
+
+    @tool(exclude=True)
+    async def team_turn_open(self, chat_id: str) -> dict:
+        """Open a Team Chat turn of a conversation; returns its lease."""
+        try:
+            return {'success': True, 'lease': self._team_turns().open(chat_id)}
+        except (PermissionError, ValueError) as error:
+            return {'success': False, 'error': str(error)}
+
+    @tool(exclude=True)
+    async def team_turn_next(self, chat_id: str, lease: str, wait: float = 20) -> dict:
+        """The turn's requests not handed out yet, each once (waits up to wait s)."""
+        try:
+            return {'success': True, 'requests': await self._team_turns().next(chat_id, lease, wait)}
+        except (PermissionError, ValueError) as error:
+            return {'success': False, 'error': str(error), 'closed': True}
+
+    @tool(exclude=True)
+    async def team_turn_answer(self, chat_id: str, lease: str, request_id: str, code: int, text: str) -> dict:
+        """Answer one request of the turn (once)."""
+        try:
+            self._team_turns().answer(chat_id, lease, request_id, code, text)
+            return {'success': True}
+        except (PermissionError, ValueError) as error:
+            return {'success': False, 'error': str(error)}
+
+    @tool(exclude=True)
+    async def team_turn_close(self, chat_id: str, lease: str) -> dict:
+        """End the turn: what still waits is answered that it ended."""
+        try:
+            self._team_turns().close(chat_id, lease)
+            return {'success': True}
+        except (PermissionError, ValueError) as error:
+            return {'success': False, 'error': str(error)}
+
     @tool(exclude=True)
     async def agent_terminal_frontend(self, offset: int = 0) -> dict:
         """This release's terminal chat, for `pantheon agent chat`

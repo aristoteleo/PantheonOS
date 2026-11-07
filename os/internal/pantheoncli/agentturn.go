@@ -210,6 +210,19 @@ func (r *runner) runTurn(line func(TurnLine)) error {
 		return errors.New("the Agent returned an invalid event position")
 	}
 	t := &agentTurnState{r: r, b: b, chatID: chatID, cursor: position.Cursor, line: line}
+	// A Team Chat turn (--team-tool, from the node): the conversation's
+	// `pantheon team` commands come to this process, which runs them as the
+	// turn's own pantheon-team (team.go).
+	dir := r.p.flags["workdir"]
+	if dir == "" {
+		dir, _ = os.Getwd()
+	}
+	if team := t.openTeam(ctx, r.p.flags["team-tool"], dir); team != nil {
+		teamCtx, stopTeam := context.WithCancel(ctx)
+		served := make(chan struct{})
+		go func() { defer close(served); team.serve(teamCtx) }()
+		defer func() { stopTeam(); <-served; team.close() }()
+	}
 	t.follow(ctx, message)
 	return nil
 }

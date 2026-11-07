@@ -139,6 +139,10 @@ type Turn struct {
 	// Node is the PantheonOS node the turn runs on, for an agent that works
 	// on a node it is told (the Pantheon Agent).
 	Node string
+	// TeamTool is a Team Chat turn's pantheon-team, for an agent whose own
+	// process carries its Team Chat commands (the Pantheon Agent:
+	// docs/apps/team-chat.md, "Pantheon Agent turns: Team Chat tools").
+	TeamTool string
 }
 
 // claudeWebTools are Claude Code's web tools, denied when research is off.
@@ -180,6 +184,11 @@ var Catalog = []Agent{
 				}
 				if t.Model != "" {
 					a = append(a, "--model", t.Model)
+				}
+				if t.TeamTool != "" {
+					// The turn's process runs the conversation's
+					// `pantheon team` commands as this tool.
+					a = append(a, "--team-tool", t.TeamTool)
 				}
 				return a
 			},

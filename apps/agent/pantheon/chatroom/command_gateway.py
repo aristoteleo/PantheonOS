@@ -15,6 +15,7 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 import secrets
 import time
 from dataclasses import dataclass, field
@@ -41,6 +42,10 @@ class LiveCall:
     interrupt: bool = False
     shown: int = 0
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # The Team Chat turn lease its conversation had when this command
+    # started ('' for none): a command answers `pantheon team` only under
+    # that same lease (docs/apps/team-chat.md, "Pantheon Agent turns").
+    team_lease: str = ''
 
 
 @dataclass
@@ -83,6 +88,8 @@ class CommandGateway:
         self._secret = secrets.token_bytes(32)
         self._live: dict[str, LiveCall] = {}
         self._runs: dict[str, AgentRun] = {}
+        # Team Chat turns of this Agent's conversations, by chat id.
+        self.team = TeamTurns()
 
     # ---- tokens ----
 
@@ -126,7 +133,8 @@ class CommandGateway:
             # The command says why instead of asking to sign in.
             return {'PANTHEON_UNAVAILABLE': f'The Agent could not give this command access: {exc}'[:500]}
         self._live[tool_call_id] = LiveCall(agent, chat_id, tool_call_id, get_current_run_context(),
-                                            dict(context_variables or {}))
+                                            dict(context_variables or {}),
+                                            team_lease=self.team.current(chat_id))
         return {'PANTHEON_ENDPOINT': credential.endpoint, 'PANTHEON_GRANT': credential.key,
                 'PANTHEON_TOKEN': self.mint(chat_id=chat_id, agent=agent.name, tool_call_id=tool_call_id)}
 
@@ -154,6 +162,9 @@ class CommandGateway:
         agent = live.agent if live else await self._agent(claims)
         if request['op'].startswith('agent.'):
             return await self._agent_op(claims, agent, live, request['op'], params)
+        if request['op'] == 'team':
+            # Team Chat, through the conversation's running Team Chat turn.
+            return await self.team.request(claims['chat'], live, params)
         result, shown = await execute(agent, request['op'], params, live)
         if live and shown is not None:
             await self._show(live, *shown, result)
@@ -473,3 +484,174 @@ async def execute(agent, op: str, params: dict, live: LiveCall | None):
             live.interrupt = True
         return result, ('task__notify_user', p)
     raise ValueError(f'Unknown request {op!r}')
+
+
+# ---- Team Chat turns (docs/apps/team-chat.md, "Pantheon Agent turns") ----
+
+#: A lease nobody polled for this long has ended (its turn's process is gone).
+TEAM_LEASE_IDLE = 60
+#: How long `pantheon team` waits for the turn to answer one request.
+TEAM_REQUEST_WAIT = 130
+#: The longest one team_turn_next call holds.
+TEAM_POLL_MAX = 25
+#: Requests waiting for the turn at once.
+TEAM_QUEUE_MAX = 16
+#: A request's text, at most (the node refuses more than 32 KB of text).
+TEAM_TEXT_MAX = 64 << 10
+TEAM_WORDS_MAX = 64
+
+TEAM_NO_TURN = ('pantheon team: refused: Team Chat commands work only in a conversation that a running Team Chat '
+                'turn started, while that turn runs.')
+TEAM_NOT_THIS_TURN = ('pantheon team: refused: this command is not part of the running Team Chat turn (it started '
+                      'before the turn, or it runs in the background after its call ended).')
+TEAM_ENDED = 'pantheon team: the Team Chat turn ended before it answered; nothing more is sent in this turn.'
+
+_TEAM_COMMAND = re.compile(r'[a-z_]{1,32}')
+_TEAM_OPT = re.compile(r'[a-z][a-z_-]{0,31}')
+
+
+@dataclass
+class TeamLease:
+    """One running Team Chat turn of a conversation, as its process opened it."""
+    lease: str
+    chat_id: str
+    polled: float = field(default_factory=time.monotonic)
+    closed: bool = False
+    queue: list = field(default_factory=list)
+    waiting: dict = field(default_factory=dict)
+    handed: set = field(default_factory=set)
+    answered: set = field(default_factory=set)
+    wake: asyncio.Event = field(default_factory=asyncio.Event)
+
+    def alive(self) -> bool:
+        return not self.closed and time.monotonic() - self.polled < TEAM_LEASE_IDLE
+
+    def end(self) -> None:
+        self.closed = True
+        self.queue.clear()
+        for future in self.waiting.values():
+            if not future.done():
+                future.set_result((1, TEAM_ENDED))
+        self.wake.set()
+
+
+def _team_words(params: dict) -> dict:
+    """A `pantheon team` request as the turn's pantheon-team takes it, or
+    ValueError: one command, words without line breaks, absolute files."""
+    command = params.get('command')
+    if not isinstance(command, str) or not _TEAM_COMMAND.fullmatch(command):
+        raise ValueError('pantheon team: name a command (inbox, read, post, reply, dm, members, channels, join, '
+                         'edit, skip, task, remind, search)')
+    args, opts, files = params.get('args') or [], params.get('opts') or {}, params.get('files') or []
+    text = params.get('text')
+    if (not isinstance(args, list) or not isinstance(opts, dict) or not isinstance(files, list)
+            or len(args) + len(opts) + len(files) > TEAM_WORDS_MAX):
+        raise ValueError('pantheon team: an invalid request')
+    words = [*args, *opts.values(), *files]
+    if any(not isinstance(w, str) or '\n' in w or '\r' in w or '\0' in w for w in words):
+        raise ValueError('pantheon team: a word of the command has a line break; put text on stdin (-)')
+    if any(not isinstance(k, str) or not _TEAM_OPT.fullmatch(k) or k == 'file' for k in opts):
+        raise ValueError('pantheon team: an invalid option')
+    if any(not f.startswith('/') for f in files):
+        raise ValueError('pantheon team: --file takes a path on the node where the Agent works')
+    if text is not None and (not isinstance(text, str) or len(text.encode()) > TEAM_TEXT_MAX):
+        raise ValueError('pantheon team: a message is at most 32 KB; attach longer text with --file')
+    return {'command': command, 'args': list(args), 'opts': dict(opts), 'files': list(files), 'text': text}
+
+
+class TeamTurns:
+    """The conversations a running Team Chat turn opened (its `pantheon agent
+    chat --json` process), and the `pantheon team` requests waiting for it.
+
+    The turn's process holds the lease and runs each request as its own
+    pantheon-team, which the node answers only for a process of the running
+    turn. The lease lives only here and in that process's memory."""
+
+    def __init__(self):
+        self._turns: dict[str, TeamLease] = {}
+
+    def _get(self, chat_id: str, lease: str) -> TeamLease:
+        turn = self._turns.get(chat_id)
+        if (turn is None or not isinstance(lease, str) or not hmac.compare_digest(turn.lease, lease)
+                or not turn.alive()):
+            raise PermissionError('This Team Chat turn is not open in this conversation (it ended, or another '
+                                  'turn opened it)')
+        return turn
+
+    def current(self, chat_id: str) -> str:
+        """The open lease of a conversation, or ''."""
+        turn = self._turns.get(chat_id)
+        return turn.lease if turn is not None and turn.alive() else ''
+
+    def open(self, chat_id: str) -> str:
+        if not isinstance(chat_id, str) or not 1 <= len(chat_id) <= 256:
+            raise ValueError('Supply an Agent conversation identity')
+        earlier = self._turns.pop(chat_id, None)
+        if earlier is not None:
+            earlier.end()
+        for other in [c for c, t in self._turns.items() if not t.alive()]:
+            self._turns.pop(other).end()
+        turn = TeamLease(secrets.token_urlsafe(32), chat_id)
+        self._turns[chat_id] = turn
+        return turn.lease
+
+    def close(self, chat_id: str, lease: str) -> None:
+        turn = self._get(chat_id, lease)
+        self._turns.pop(chat_id, None)
+        turn.end()
+
+    async def next(self, chat_id: str, lease: str, wait: float = 0) -> list[dict]:
+        """The requests not handed out yet (each one once), waiting up to
+        wait seconds for one."""
+        turn = self._get(chat_id, lease)
+        turn.polled = time.monotonic()
+        if not turn.queue and wait > 0:
+            turn.wake.clear()
+            try:
+                await asyncio.wait_for(turn.wake.wait(), timeout=min(float(wait), TEAM_POLL_MAX))
+            except asyncio.TimeoutError:
+                pass
+            turn = self._get(chat_id, lease)
+            turn.polled = time.monotonic()
+        out, turn.queue = turn.queue, []
+        turn.handed.update(r['id'] for r in out)
+        return out
+
+    def answer(self, chat_id: str, lease: str, request_id: str, code: int, text: str) -> None:
+        turn = self._get(chat_id, lease)
+        turn.polled = time.monotonic()
+        if request_id in turn.answered:
+            raise ValueError('This request was answered already')
+        future = turn.waiting.get(request_id)
+        if request_id not in turn.handed or future is None:
+            raise ValueError('No request of this turn has that id')
+        turn.answered.add(request_id)
+        if not future.done():
+            future.set_result((int(code), str(text)[:TEAM_TEXT_MAX]))
+
+    async def request(self, chat_id: str, live: LiveCall | None, params: dict) -> dict:
+        """A `pantheon team` request of a command of the conversation: to the
+        running turn, once, and its answer back."""
+        turn = self._turns.get(chat_id)
+        if turn is None or not turn.alive():
+            raise PermissionError(TEAM_NO_TURN)
+        if live is None or live.chat_id != chat_id or not hmac.compare_digest(live.team_lease or '-', turn.lease):
+            raise PermissionError(TEAM_NOT_THIS_TURN)
+        request = _team_words(params if isinstance(params, dict) else {})
+        if len(turn.queue) + len(turn.waiting) >= TEAM_QUEUE_MAX:
+            raise PermissionError('pantheon team: too many Team Chat requests wait at once; wait for their answers')
+        request['id'] = secrets.token_hex(12)
+        future = asyncio.get_running_loop().create_future()
+        turn.waiting[request['id']] = future
+        turn.queue.append(request)
+        turn.wake.set()
+        try:
+            code, text = await asyncio.wait_for(asyncio.shield(future), timeout=TEAM_REQUEST_WAIT)
+        except asyncio.TimeoutError:
+            code, text = 1, (f'pantheon team: no answer from the Team Chat turn within {TEAM_REQUEST_WAIT} s; '
+                             "check with 'read' before sending again.")
+        finally:
+            turn.waiting.pop(request['id'], None)
+            if request in turn.queue:
+                turn.queue.remove(request)
+        return {'code': code, 'output': text}
