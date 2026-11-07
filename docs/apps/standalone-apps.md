@@ -6,8 +6,10 @@ links on both surfaces, per-App state (`app_state_get`/`app_state_put`) with
 Coding Agents and Agent Canvas moved to it. Open decisions 1–4 and 8 taken as
 recommended below. Phase 2 (the Pantheon Agent at `/`, A1–A5) built, decision 5
 taken, and signed off on 2026-11-06: see "Phase 2 as built". Phase 3 (P1–P5 and
-the Phase 2 follow-ups) built and on staging (2026-11-06), decisions 6 and 7
-taken: see "Phase 3 as built".
+the Phase 2 follow-ups) built, decisions 6 and 7 taken, and signed off on
+staging on 2026-11-07 after six checks (frontend #47, Agent App 0.9.119): see
+"Phase 3 as built". Viewers reading a packaged App's private data folder is
+deferred by the owner (decision 9). Not in production.
 
 The owner opens one of their own Apps (Coding Agents, Agent Canvas, Files, a
 Store App, the Pantheon Agent) as a page of its own, signed in to their own
