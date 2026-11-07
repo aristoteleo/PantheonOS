@@ -632,10 +632,19 @@ test, it does what it did before), and keeps the desktop's behaviour there:
 - Office: the `?open=` document, its session in the URL, close back to Office's
   home; "Continue in background" is not offered on a page.
 - Google Workspace: files open in the Browser's page (`/app/browser?open=<url>`).
-- Browser: on a page it asks the node for a Chromium page with no desktop window
-  (`page_id` in the URL, so a reload attaches to it); Chromium's own dialogs
-  (file chooser, print) are offered with **Send to desktop**. Closing the tab
-  leaves that Chromium page open on the node.
+- Browser: on a page it asks the Browser App's instance for a Chromium page
+  with no desktop window (`page_id` in the URL). A reload, or the same link in
+  a new tab, asks that instance again for the page by its id (the URL keeps the
+  id, not the instance binding, so a page never takes the desktop's legacy
+  path through the Agent's own page list); a page the instance no longer holds
+  is replaced by a fresh one at the page's `open` URL. Chromium's own dialogs
+  (file chooser, print) are offered with **Send to desktop**. A page cannot
+  tell a reload from a closed tab, so it never closes its Chromium page on the
+  way out: while it shows the page it renews a note of it in the browser
+  (`browser/pageLeases.ts`, every minute), and the next Browser page started
+  in that browser closes those nobody showed for 10 minutes, on their own
+  instance (pages only; desktop windows and the Agent's pages are not
+  touched).
 - `desktop-only` Apps (`xwindow`, `agent-view`, native-stream Apps such as
   QuPath) show **Send to desktop** and **Open desktop**.
 
@@ -674,7 +683,9 @@ refused with that sentence).
 the App's public Store version (`GET /api/public-apps/<ref>`: Store id, name or
 installed App id) and, when it answers, runs its frontend from
 `/api/public-apps/files/<package id>/<version>/…` in the sandboxed app host
-(`allow-scripts` only) with its state in the browser, under a bar that offers
+(`allow-scripts allow-downloads`, as a packaged App's frame on the desktop:
+an App may hand its visitor a file it made, and a download from an opaque
+origin reaches nothing else) with its state in the browser, under a bar that offers
 sign-in (the URL is kept); otherwise, or until the Hub answers, the sign-in page
 (nothing flashes). A signed-in person who has not installed a public App gets,
 next to the install offer, **Use it in this browser** (the same frontend; its
@@ -703,7 +714,9 @@ plain list (`standalone/installable.ts`, tested against `registry.ts`), with
 `location ^~ /app/` and every other `/app/…` URL is still `app.html`. Packaged
 Apps (decision 7, done: about half a day): the page links
 `/api/public-apps/<ref>/manifest.webmanifest`, from the App's public Store
-listing (any class; scope `/app/pkg:<ref>`, its release icon); a package not in
+listing (any class; `id`, `start_url` and scope `/app/pkg:<App id>`, the
+manifest id, whichever ref asked, so a Store name and the App id are one
+install; its release icon); a package not in
 the public Store has no manifest and is not installable. No service worker:
 Chromium needs none for installing.
 
@@ -724,7 +737,8 @@ Chromium needs none for installing.
    error); the desktop launcher shares it.
 
 **Releases.** Frontend #38–#40 (UI `codex/agent-app-extraction`, #40 =
-`66d01e9d`); Hub `58d8e2e` (no migration). No Agent App, agents image,
+`66d01e9d`); Hub `58d8e2e` (no migration). After the first check: frontend
+#41 (`2c943953`) and Hub `d233195` (no migration). No Agent App, agents image,
 controller or node change: the App SDK's `apps.open` and `apps.openFile` were
 already in Agent App 0.9.112's app host.
 
@@ -742,7 +756,9 @@ acct4).**
   and ran a cell (42); `/app/xwindow` offers Send to desktop. Office reached
   "Office editing is not configured on this server yet", the same as an Office
   window on the desktop (staging has no document server).
-- P2: Hello Files on its page opened `notes.md` and `demo.fasta` as side-panel
+- P2 (corrected after the first check: the tabs opened, but their viewers
+  could not read the files, see "Fixes after the first check"): Hello Files on
+  its page opened `notes.md` and `demo.fasta` as side-panel
   tabs (kept after a reload) and Fleet as `/app/fleet` in a tab; in a desktop
   window it opened `notes.md` as a viewer window and Fleet as a window, the same
   Fleet window again on a second click. Game of Life and MSA Viewer ran from
@@ -772,10 +788,95 @@ acct4).**
   before (AppNodePicker, `desktop/App.test`, `registry.packaged`, StoreApp,
   appCapabilities). Hub tests for the public routes, viewers and manifest.
 
-Left as it is: a Browser page closed leaves its Chromium page on the node;
+Left as it is: a Browser page closed keeps its Chromium page on the node until
+another Browser page is started in that browser (10 minutes or more later);
 Terminal's other nodes' sessions and the Store's navigation are not in the URL;
 a signed-in person's public App keeps its state in the browser; packaged Apps not
 in the public Store are not installable; viewers must not declare `caps.fs`.
+
+#### Fixes after the first check (2026-11-07)
+
+The first independent check found one Medium problem and a few small ones.
+Fixed in frontend #41 (UI `2c943953`) and Hub `d233195`; no Agent App, agents
+image, controller or node change (the Browser App's instance already attached
+a page by its id).
+
+1. **A Browser page failed after a reload** ("No bound Browser page"). The
+   page's URL kept `page_id` but not the instance binding, so a reload took the
+   desktop's legacy path (a page id with no binding) and asked the Agent's own
+   page list, which never had it. Meanwhile nothing retained the Browser
+   instance, which stops 60 s after its last window, taking its Chromium pages
+   with it. Now a page always goes through the Browser App's instance (it is
+   retained, and asked for the page by id); a page the instance no longer
+   holds (an exact "no such" answer) is replaced at once by a fresh one at the
+   page's `open` URL. Closed pages are let go after 10 minutes as described
+   under P1 (Browser). The two Chromium pages the check left were gone with
+   the instance (it stopped 60 s after the check's tabs, and the Workspace was
+   paused).
+2. **A packaged App's own files cannot be read by viewers** (Hello Files'
+   `demo.fasta` on the page and on the desktop: "outside the LiveView data
+   server roots"). Not fixed: an App with a backend runs as its own instance,
+   whose workspace is its private data folder
+   (`…/fleet-node/apps/<deployment>/data/<instance>/workspace`). Viewers read a
+   path through the Desktop App's data server, whose roots are the user's
+   workspace, the Desktop App's own folder and the App catalogs, never another
+   instance's data folder. Serving the App's folder would take either a root
+   per installed App on the Desktop's server (wider than the App's own folder
+   for every viewer) or reading through the App's own `fs` scope (only for
+   Apps that declare `caps.fs`, text only today, and handing the viewer the
+   file's content instead of a path, on both surfaces). Until then an App
+   should link files in the user's workspace (relative paths are the
+   Workspace's), or share them for visitors under `share.paths`. The P2
+   verification below is corrected: the tabs opened, their viewers could not
+   read the files.
+3. A hosted link's (and a signed-out public App's) bridge `win` request, such
+   as `openImage`, is answered at once with "Not available in a shared App"
+   (signed out: "Sign in to use this from your own account"), instead of
+   waiting for its timeout.
+4. **Open on desktop** from a page opened with `?open=` carries that file (or
+   the Browser's URL) into the desktop window, using a window already showing
+   that file, else a new one (the App's front window is reused only when the
+   page shows no file).
+5. One install identity: the App's own id (its manifest id). Signed in,
+   `/app/pkg:pantheon-msa` already went on at `/app/pkg:msa`; signed out the
+   page now moves there too once the Hub names the App (query and hash kept,
+   manifest link replaced), and the Hub's Web App manifest uses the App id for
+   `id`, `start_url` and scope whichever ref asked. The public App frame keeps
+   `allow-downloads` (see P3a). The `xwindow` page is titled **Sandbox Window**.
+
+Tests (each fails without its change): vitest `BrowserApp.reload.test.ts` (the
+real `useStreamBackend`, only the network edge faked: the Agent's toolset
+answers "No bound Browser page" for a bare id, the Browser instance behind
+`desktop_stream_call` holds the page or not), `pageLeases.test.ts`,
+`HostedAppPage.test.ts` and `publicApp.test.ts` (`win`), `PageTopBar.test.ts`
+(Open on desktop with `?open=`), `installable.test.ts` (one manifest link
+after the move; the `xwindow` name), `publicApp.test.ts` (canonical path);
+Hub `test_public_apps.py` (manifest id by package id, name and App id);
+pytest `test_stream_fleet.py` (a fresh Agent toolset reattaches through the
+instance binding, routed to a real node toolset). vue-tsc passes; the wide
+vitest run (`src/desktop src/views src/components src/stores src/composables`)
+fails the same 20 tests in 12 files as at `66d01e9d`; the Hub suite fails the
+same tests as at `58d8e2e`.
+
+Verified on staging (frontend #41, both hosts `index-CmE7wNAw.js`,
+`desktop-B48bR4lW.js`, `app-DXRge41t.js`; Hub `d233195`; acct4):
+
+- `/app/browser?open=https://example.com/`: a reload of a page whose instance
+  had stopped opened a fresh page at the URL; reloading again, and the same
+  link in a new tab, attached to the same page (`page_id` unchanged, Chromium
+  streaming). A page's note aged past 10 minutes and its tab closed: the next
+  Browser page closed its Chromium page (its link then opened a fresh one).
+- A Mine link of Hello Files with MSA Viewer: `win` `openImage` answered in
+  0 ms with the refusal; the visitor still opened `demo.fasta` in an MSA
+  Viewer tab and was refused `app.json`; revoked, "This link was withdrawn".
+- `/app/pkg:text-viewer?open=<p3_demo.ipynb>` → Open on desktop: a Text Viewer
+  window showing `p3_demo.ipynb`.
+- `/app/pkg:pantheon-msa` signed out and signed in both end at `/app/pkg:msa`
+  with manifest `/api/public-apps/msa/manifest.webmanifest`, whose `id` is
+  `/app/pkg:msa` (also asked as `pantheon-msa`); `/app/xwindow` is titled
+  Sandbox Window.
+- No regression: `/`, `/desktop.html`, `/app/coding-agents`, `/app/team-chat`,
+  `/app/terminal`, `/app/files` (first paint 40–92 ms), the shared link above.
 
 ## Open decisions
 
