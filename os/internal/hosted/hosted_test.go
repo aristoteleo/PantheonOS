@@ -381,3 +381,142 @@ func TestAllocatorBindsRetiresAndMaintainsAnAgentsSessions(t *testing.T) {
 		t.Fatalf("a stopped consumer kept its grant: %d", len(grants.revoked))
 	}
 }
+
+// After the Workspace restarts (a new generation of its Shell App), an
+// owner's session ended with the old one; the owner's next binding gets a new
+// session on the Shell App that runs now instead of failing for good
+// (docs/apps/team-chat.md, "Fixes after the first PA check", H1). The old
+// session is never asked for again.
+func TestAllocatorGivesAnOwnerANewSessionAfterItsShellRestarted(t *testing.T) {
+	policies := `{"values": {"dependency_binding": {"protocol": 1, "policies": {"agent": {
+	 "consumer": {"$app": "agent", "late": true},
+	 "bindings": {
+	  "shell": {"app_id": "shell", "provider": {"$app": "shell", "late": true, "component": "backend", "port": "http"},
+	            "methods": {"run_command": {"arguments": ["command"], "bound": {}}},
+	            "resource": {"kind": "shell", "arguments": {"run_command": "shell_id"}}}}}}}}}`
+	store := storeWith(t, map[string]deployments.AppSpec{
+		"allocator": {Hosted: "dependency-binding", Scope: "allocator", Intent: deployments.Running, Config: map[string]json.RawMessage{"backend": json.RawMessage(policies)}},
+		"agent":     {Package: "agent", Scope: "agent", Intent: deployments.Running},
+		"shell":     {Package: "shell", Scope: "shell", Intent: deployments.Running},
+	})
+	var mu sync.Mutex
+	shellGen := 2
+	setGen := func(gen int) {
+		mu.Lock()
+		shellGen = gen
+		mu.Unlock()
+		d, _ := store.Get(fleetID, "general-team")
+		if err := store.SetStatus(fleetID, "general-team", d.Revision, deployments.Status{Apps: map[string]deployments.AppStatus{
+			"agent": {NodeID: "brain", InstanceID: "i-agent", Revision: revAgent, Generation: 3, State: "ready"},
+			"shell": {NodeID: "sandbox", InstanceID: "i-shell", Revision: revShell, Generation: int64(gen), State: "ready"},
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setGen(2)
+	// The provider's sessions, by lease: each lease is one session; a new
+	// generation has none of the old one's.
+	sessions := map[string]string{}
+	var asked []string
+	bus := &fakeBus{}
+	bus.handle = func(node string, p map[string]any) map[string]any {
+		mu.Lock()
+		defer mu.Unlock()
+		switch p["method"] {
+		case "status":
+			instances := map[string]any{}
+			if node == "brain" {
+				instances["i-agent"] = map[string]any{"digest": revAgent, "generation": 3, "state": "ready", "app_id": "agent"}
+			} else {
+				instances["i-shell"] = map[string]any{"digest": revShell, "generation": shellGen, "state": "ready", "app_id": "shell"}
+			}
+			return map[string]any{"node_id": node, "owner": fleetID, "instances": instances}
+		case "app_manifest":
+			raw := agentManifest
+			if p["revision"] == revShell {
+				raw = shellManifest
+			}
+			var m any
+			_ = json.Unmarshal([]byte(raw), &m)
+			return map[string]any{"protocol": 1, "revision": p["revision"], "manifest": m}
+		case "invoke":
+			payload := p["payload"].(map[string]any)
+			args := payload["args"].(map[string]any)
+			lease := args["lease_id"].(string)
+			asked = append(asked, fmt.Sprintf("%v %s gen%v", payload["method"], lease[:8], p["generation"]))
+			if int(p["generation"].(float64)) != shellGen {
+				return map[string]any{"error": "instance generation changed"}
+			}
+			state := "active"
+			id, ok := sessions[lease]
+			switch {
+			case payload["method"] == "resource_session_acquire" && !ok:
+				id = fmt.Sprintf("sess-%d", len(sessions)+1)
+				sessions[lease] = id
+			case !ok:
+				state = "lost"
+			case payload["method"] == "resource_session_release":
+				state = "released"
+			}
+			return map[string]any{"response": map[string]any{"success": true, "result": map[string]any{
+				"owner_ref": args["owner_ref"], "lease_id": lease, "kind": "shell", "session_id": id,
+				"state": state, "expires": time.Now().Add(15 * time.Minute).Unix()}}}
+		}
+		return map[string]any{"error": "unexpected"}
+	}
+	grants := &fakeGrants{byOp: map[string]map[string]any{}, revoked: map[string]bool{}}
+	alloc := &Allocator{Bus: bus, Store: store, Grants: grants, Root: t.TempDir()}
+	h := NewHost(store)
+	h.Register("dependency-binding", alloc)
+	allocator, _ := Binding(fleetID, "general-team", "allocator", "dependency-binding")
+	bound := func(op string) (int, string) {
+		status, _ := rpc(t, h, allocator, "bind_dependencies", map[string]any{"policy_id": "agent", "owner_ref": "conv-1",
+			"operation_id": op, "aliases": []string{"shell"}})
+		if status != http.StatusOK {
+			return status, ""
+		}
+		grants.mu.Lock()
+		defer grants.mu.Unlock()
+		q := grants.issued[len(grants.issued)-1]
+		return status, string(q.Methods["run_command"].Bound["shell_id"])
+	}
+	if status, session := bound("op-1"); status != http.StatusOK || session != `"sess-1"` {
+		t.Fatalf("first binding: %d %s", status, session)
+	}
+	// The Workspace restarts before maintenance noticed: the Agent binds again.
+	setGen(5)
+	if status, session := bound("op-2"); status != http.StatusOK || session != `"sess-2"` {
+		t.Fatalf("after the restart the owner got no new session: %d %s (%v)", status, session, asked)
+	}
+	// And again after maintenance marked the session ended.
+	setGen(8)
+	alloc.MaintainOnce(context.Background(), fleetID)
+	if status, session := bound("op-3"); status != http.StatusOK || session != `"sess-3"` {
+		t.Fatalf("after a second restart: %d %s (%v)", status, session, asked)
+	}
+	// Each replacement has a lease of its own; an old lease is never asked
+	// for again on a newer generation.
+	leases := map[string]bool{}
+	for _, a := range asked {
+		f := strings.Fields(a)
+		if f[0] == "resource_session_acquire" {
+			if leases[f[1]] {
+				t.Fatalf("a lease was acquired twice: %v", asked)
+			}
+			leases[f[1]] = true
+		}
+	}
+	if len(leases) != 3 {
+		t.Fatalf("want 3 sessions, got %v", asked)
+	}
+	// The binding of a provider that no longer runs (a plan made before the
+	// restart, op-1 again) does not make a session on it.
+	if status, _ := bound("op-1"); status == http.StatusOK {
+		t.Fatal("an old binding was revived")
+	}
+	// Retiring the owner releases the session that runs now.
+	status, out := rpc(t, h, allocator, "retire_dependencies", map[string]any{"policy_id": "agent", "owner_ref": "conv-1"})
+	if status != http.StatusOK || out["result"].(map[string]any)["state"] != "retired" {
+		t.Fatalf("retire: %d %v", status, out)
+	}
+}

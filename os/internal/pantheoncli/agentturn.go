@@ -77,6 +77,17 @@ const (
 	turnPoll      = 250 * time.Millisecond
 )
 
+// A Team Chat turn whose conversation runs another run waits for it this
+// long, looking every turnBusyPoll (variables for tests).
+var (
+	turnBusyWait = 5 * time.Minute
+	turnBusyPoll = 2 * time.Second
+)
+
+// turnBusy is a Team Chat turn whose conversation stayed busy.
+const turnBusy = "This conversation is still busy with earlier work (a run that is not this Team Chat turn, such as the " +
+	"follow-up of a background task); the message was not sent. Retry when that work has finished."
+
 // turnMessage is the message of a --json turn.
 func (r *runner) turnMessage() (string, error) {
 	pos := r.p.positional
@@ -222,8 +233,85 @@ func (r *runner) runTurn(line func(TurnLine)) error {
 		served := make(chan struct{})
 		go func() { defer close(served); team.serve(teamCtx) }()
 		defer func() { stopTeam(); <-served; team.close() }()
+		t.team = true
 	}
-	t.follow(ctx, message)
+	t.run(ctx, message)
+	return nil
+}
+
+// run sends the message and follows its turn. A Team Chat turn's message is
+// that turn's own run of the conversation, never one queued into another
+// run (the follow-up of a background task the Agent started, the owner's own
+// message), which would answer it outside the turn (docs/apps/team-chat.md,
+// "Fixes after the first PA check", M1): the turn waits for that run to end,
+// up to turnBusyWait, and sends its message then. The Agent tells it the
+// conversation is busy instead of queueing the message.
+func (t *agentTurnState) run(ctx context.Context, message string) {
+	deadline := time.Now().Add(turnBusyWait)
+	for {
+		if t.team {
+			idle := t.waitIdle(ctx, deadline)
+			switch {
+			case ctx.Err() != nil:
+				// Stopped before its run started: the conversation's other
+				// run is not this turn's to stop.
+				t.end("stopped", "")
+				return
+			case !idle:
+				t.end("error", turnBusy)
+				return
+			}
+			// Its events from now on: another run's are not this turn's.
+			if err := t.position(ctx); err != nil {
+				t.end("error", err.Error())
+				return
+			}
+		}
+		if !t.follow(ctx, message) {
+			return
+		}
+		if !t.team {
+			t.end("error", turnBusy)
+			return
+		}
+	}
+}
+
+// waitIdle waits until the conversation runs nothing (true), up to the
+// deadline (false). An Agent that cannot tell counts as idle.
+func (t *agentTurnState) waitIdle(ctx context.Context, deadline time.Time) bool {
+	for {
+		running, err := t.running(ctx)
+		if err != nil || !running {
+			return ctx.Err() == nil
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(turnBusyPoll):
+		}
+	}
+}
+
+// position starts reading the conversation's events from now.
+func (t *agentTurnState) position(ctx context.Context) error {
+	result, err := t.r.s.Call(ctx, t.b, "get_agent_event_cursor", map[string]any{"chat_id": t.chatID}, 60*time.Second)
+	if err == nil {
+		err = failed(result)
+	}
+	if err != nil {
+		return err
+	}
+	var position struct {
+		Cursor json.RawMessage `json:"cursor"`
+	}
+	if json.Unmarshal(result, &position) != nil {
+		return errors.New("the Agent returned an invalid event position")
+	}
+	t.cursor, t.pending, t.fragments = position.Cursor, "", nil
 	return nil
 }
 
@@ -233,6 +321,8 @@ type agentTurnState struct {
 	chatID string
 	cursor json.RawMessage
 	line   func(TurnLine)
+	// team: a Team Chat turn (it opened its conversation's channel).
+	team bool
 	// The event being put together from its fragments.
 	pending   string
 	fragments []string
@@ -248,7 +338,10 @@ type sent struct {
 
 // follow sends the message and turns the Agent's events into lines until
 // the turn ends: its chat_finished event, or the end of the call that runs it.
-func (t *agentTurnState) follow(ctx context.Context, message string) {
+// True, with no line written for the turn's end, when the Agent answered
+// that the conversation is busy with another run (a Team Chat turn's
+// message, which the Agent does not queue).
+func (t *agentTurnState) follow(ctx context.Context, message string) bool {
 	callCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan sent, 1)
@@ -264,7 +357,7 @@ func (t *agentTurnState) follow(ctx context.Context, message string) {
 		if ctx.Err() != nil {
 			t.stop()
 			t.end("stopped", "")
-			return
+			return false
 		}
 		settled := answer != nil
 		if !settled {
@@ -272,20 +365,29 @@ func (t *agentTurnState) follow(ctx context.Context, message string) {
 			case s := <-done:
 				switch {
 				case s.err == nil:
+					var busy struct {
+						Busy bool `json:"busy"`
+					}
+					if json.Unmarshal(s.result, &busy) == nil && busy.Busy {
+						return true
+					}
 					if err := failed(s.result); err != nil {
 						t.end("error", err.Error())
-						return
+						return false
 					}
 					var queued struct {
 						Queued bool `json:"queued"`
 					}
 					if json.Unmarshal(s.result, &queued) == nil && queued.Queued {
-						t.end("error", "This conversation is already running; the message was queued for it")
-						return
+						// (An Agent from before Team Chat turns waited for
+						// the conversation's other run.)
+						t.end("error", "This conversation is already running other work (such as the follow-up of a "+
+							"background task); the message was queued into that run, not answered in a turn of its own")
+						return false
 					}
 				case errors.As(s.err, new(*RPCError)):
 					t.end("error", s.err.Error())
-					return
+					return false
 				default:
 					gone = true
 				}
@@ -299,12 +401,12 @@ func (t *agentTurnState) follow(ctx context.Context, message string) {
 				continue
 			}
 			t.end("error", "reading the Agent's events: "+err.Error())
-			return
+			return false
 		}
 		for _, ev := range events {
 			if status, text, ok := t.translate(ev); ok {
 				t.end(status, text)
-				return
+				return false
 			}
 		}
 		if len(events) > 0 {
@@ -314,13 +416,13 @@ func (t *agentTurnState) follow(ctx context.Context, message string) {
 		// last events may have raced its answer.
 		if settled && !gone && !more {
 			t.end("finished", "")
-			return
+			return false
 		}
 		if gone && time.Since(quiet) > turnIdleCheck {
 			quiet = time.Now()
 			if running, err := t.running(ctx); err == nil && !running {
 				t.end("finished", "")
-				return
+				return false
 			}
 		}
 		if !more {

@@ -1205,6 +1205,12 @@ class Agent:
                     routed = await route(self, prefixed_name, args, str(node), str(workdir))
                     if routed is not None:
                         return routed
+                path = args.get("file_path")
+                if (workdir and isinstance(path, str) and path and not path.startswith(("/", "~"))
+                        and ":" not in path[:3]):
+                    # On the Agent's own node too, a relative path leads
+                    # into the conversation's working directory.
+                    args = {**args, "file_path": str(workdir).rstrip("/") + "/" + path}
         # Prepare context_variables if needed
         args = self._prepare_context_variables(
             prefixed_name, args, context_variables, tool_call_id

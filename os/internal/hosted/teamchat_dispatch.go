@@ -1056,6 +1056,14 @@ func explainKnown(m *tcMember, n TeamNode, errText string) (reason, fix string, 
 		// The node refused to run the turn without its sandbox: its words.
 		_, why, _ := strings.Cut(errText, codingagents.SandboxRefusal)
 		return strings.TrimSuffix(strings.TrimSpace(why), "."), "", false, true
+	case has("still busy with earlier work", "already running; the message was queued", "queued into that run"):
+		// Its conversation ran something else (the follow-up of a background
+		// task it started, the owner's own message) for too long.
+		return "its conversation was still busy with earlier work (such as the follow-up of a background task it started), " +
+				"so this message did not get a turn of its own",
+			"Press Retry when that work has finished.", true, true
+	case appNotReady(errText) && has("shell is not ready"):
+		return "your Workspace is still starting (" + label + "'s shell is not ready yet)", "It answers by itself once it is ready.", true, true
 	case appNotReady(errText):
 		return "your Workspace is still getting " + label + " ready", "It answers by itself once it is ready.", true, true
 	case has("budget", "insufficient", "quota", "credit", "billing", "payment required") || tcBudgetErrRE.MatchString(errText):
@@ -1309,6 +1317,10 @@ func shellLine(cmd string) string {
 	}
 	for _, w := range shellWords {
 		if w.re.MatchString(cmd) {
+			if w.line == "Waiting" {
+				// What it waits on is the command itself.
+				return "Waiting: " + shownCommand(cmd)
+			}
 			return w.line
 		}
 	}
@@ -1318,7 +1330,24 @@ func shellLine(cmd string) string {
 	if m := runRE.FindStringSubmatch(cmd); m != nil {
 		return "Running " + baseName(m[3])
 	}
+	if shown := shownCommand(cmd); shown != "" {
+		// No plain words for it: the command, as it starts.
+		return "Running: " + shown
+	}
 	return "Running a command"
+}
+
+var (
+	secretWordRE   = regexp.MustCompile(`\b(pbk_|ptk_|sk-|eyJ)[A-Za-z0-9_.\-]+`)
+	secretAssignRE = regexp.MustCompile(`(?i)\b([A-Za-z_]*(key|token|secret|password|passwd|credential)[A-Za-z_]*)=("[^"]*"|'[^']*'|\S+)`)
+)
+
+// shownCommand is the start of a command line for a live line: its first
+// line, clipped, without what looks like a secret.
+func shownCommand(cmd string) string {
+	cmd = secretWordRE.ReplaceAllString(cmd, "…")
+	cmd = secretAssignRE.ReplaceAllString(cmd, "$1=…")
+	return clipText(cmd, 60)
 }
 
 func baseName(p string) string {
@@ -1585,8 +1614,19 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 	}
 	fmt.Fprintf(&b, "[Team Chat] You are %s).\n", who+"")
 	b.WriteString(nowLine(t.clock(), spaceLoc(fl)))
+	folder := pantheonFolder(m)
+	if folder != "" {
+		// The Pantheon Agent works from the Agent App, not in its folder like
+		// Claude Code and Codex: it is told where the folder is.
+		fmt.Fprintf(&b, "Your folder is %s: your commands start there; your role is in %s/AGENT.md; keep what you must "+
+			"remember in %s/MEMORY.md (not in another folder).\n", folder, folder, folder)
+	}
 	if m.Session == "" {
-		b.WriteString("This is a fresh session: first read AGENT.md and MEMORY.md in your folder.\n")
+		if folder != "" {
+			fmt.Fprintf(&b, "This is a fresh session: first read %s/AGENT.md and %s/MEMORY.md.\n", folder, folder)
+		} else {
+			b.WriteString("This is a fresh session: first read AGENT.md and MEMORY.md in your folder.\n")
+		}
 	}
 	var people []string
 	for _, mid := range sortedKeys(fl.members) {
@@ -1793,8 +1833,12 @@ func teamNote(m *tcMember) string {
 	if m.Runtime == codingagents.PantheonAgent {
 		cmd = teamTool(m)
 	}
+	where := "in your folder"
+	if folder := pantheonFolder(m); folder != "" {
+		where = "in your folder " + folder
+	}
 	return "You are " + m.Name + " (@" + m.Handle + "), an agent member of a Team Chat space in PantheonOS. Your role, " +
-		"who is a person and who is an agent, and how to work are in AGENT.md in your folder; keep what you must remember in MEMORY.md. " +
+		"who is a person and who is an agent, and how to work are in AGENT.md " + where + "; keep what you must remember in MEMORY.md. " +
 		"Talk to the team only with " + cmd + ": `" + cmd + " inbox` (new messages; check it between steps), " +
 		"`reply <message id> - <<'EOF'` (inline, or in the message's thread), `post '#channel' - <<'EOF'`, " +
 		"`dm @handle - <<'EOF'`, `read <'#channel'|@handle|message id>`, `members`, `channels`, `join <'#channel'>`, " +
@@ -1828,6 +1872,16 @@ const (
 		"(in the space's time zone; never work it out or guess it, and never chain the confirmation in the same command). " +
 		"Reply in the person's language, the language of their message. Never show a reminder's id to people (they say \"cancel the reminder\")."
 )
+
+// pantheonFolder is the folder a Pantheon Agent is told (it works from the
+// Agent App, so its folder is not where it starts by itself); "" for other
+// runtimes, which run in their folder.
+func pantheonFolder(m *tcMember) string {
+	if m.Runtime != codingagents.PantheonAgent {
+		return ""
+	}
+	return strings.TrimRight(m.Folder, "/")
+}
 
 // teamTool is how an agent runs its Team Chat commands in a turn: the
 // pantheon-team script in its folder, or for the Pantheon Agent, whose

@@ -58,6 +58,15 @@ DEFAULT_TOOLSETS = []
 _BG_NOTIFICATION_MARKER = "<bg_task_notification>"
 
 
+#: How long a run waits for its conversation's shell (the Workspace starting).
+SHELL_READY_SECONDS = 120
+#: What a run says instead of running the model without its tools. Team Chat
+#: reads `App "…" is not ready (` as a Workspace still starting: the messages
+#: wait and are answered once it is ready.
+WORKSPACE_STARTING = ('Your Workspace is still starting, so this conversation\'s shell is not ready yet '
+                      '(App "shell" is not ready (starting)); nothing was sent to the model. Try again in a minute.')
+
+
 def _is_internal_notification(message: list[dict]) -> bool:
     """True if a chat() message is an internal auto-chat notification rather
     than a real user message (so the message queue can skip enqueuing it)."""
@@ -988,7 +997,8 @@ class AgentRuntime(AgentLifetime, ToolSet):
                 return message
             node = next((n for n in await list_nodes(agent) if n.get("node_id") == node_id), {"node_id": node_id})
             memory.set_metadata("announced_node", announce)
-            return with_note(message, describe_node(node, default=node_id == default, workdir=chat_workdir or workdir))
+            return with_note(message, describe_node(node, default=node_id == default, workdir=chat_workdir or workdir,
+                                                    starts=bool(chat_workdir)))
         except Exception as e:
             logger.debug(f"No environment note for {chat_id}: {e}")
             return message
@@ -1017,7 +1027,8 @@ class AgentRuntime(AgentLifetime, ToolSet):
     @tool
     async def set_chat_node(self, chat_id: str, node_id: str = "", workdir: str = "") -> dict:
         """Switch the conversation's working node ("" = back to the default),
-        optionally with a working directory there (another node only)."""
+        optionally with a working directory there: where its commands start
+        and relative paths lead (a Team Chat agent's folder)."""
         try:
             team = await self.get_team_for_chat(chat_id)
             agent = team.team_agents[0]
@@ -1030,7 +1041,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
                     return {"success": False, "error": "That node is not one of your nodes."}
             chosen = None if not node_id or node_id == default else node_id
             memory.set_metadata("chat_node", chosen)
-            memory.set_metadata("chat_workdir", (workdir or None) if chosen else None)
+            memory.set_metadata("chat_workdir", workdir or None)
             await run_func(self.memory_manager.save_one, chat_id)
             return {"success": True, "node_id": chosen or default}
         except Exception as e:
@@ -2368,6 +2379,44 @@ class AgentRuntime(AgentLifetime, ToolSet):
         except Exception:
             return None
 
+    async def _prepare_shell(self, chat_id: str, memory) -> str | None:
+        """Get the conversation's shell ready for a run on the Agent's own
+        node: bound (again, after a Workspace restart) and in the
+        conversation's working directory (a Team Chat or Canvas turn's
+        folder). None when ready (or when there is
+        nothing to prepare); the reason to give instead of running the model
+        without its tools when the Workspace is still starting after
+        SHELL_READY_SECONDS."""
+        extra = memory.extra_data or {}
+        if extra.get("chat_node"):
+            return None  # it works on another node; the Workspace is not its place
+        try:
+            team = await self.get_team_for_chat(chat_id)
+            agent = team.team_agents[0]
+        except Exception:
+            return None
+        shell = getattr(agent, "providers", {}).get("shell")
+        if not callable(getattr(shell, "ready", None)):
+            return None
+        workdir = extra.get("chat_workdir") or ""
+        if not workdir and not getattr(shell, "is_bound", False):
+            # A plain chat whose shell was never bound binds it on its first
+            # command, as before: a turn that needs no command does not wait
+            # for the Workspace. One that was bound may be bound to a Shell
+            # App that ended (a Workspace restart): it is checked.
+            return None
+        import shlex
+        command = f"cd -- {shlex.quote(workdir)}" if workdir else "true"
+        try:
+            await shell.ready("run_command", {"command": command, "timeout": 15}, timeout=SHELL_READY_SECONDS)
+        except Exception as error:
+            from pantheonos.appkit.dependency_client import DependencyCallError
+            if isinstance(error, DependencyCallError):
+                logger.warning(f"Chat {chat_id}: the shell is not ready: {error}")
+                return WORKSPACE_STARTING
+            logger.warning(f"Chat {chat_id}: preparing the shell failed: {error}")
+        return None
+
     def _setup_bg_auto_notify(self, chat_id: str, team):
         """Wire bg task completion to auto-trigger a new chat turn.
 
@@ -2661,6 +2710,21 @@ class AgentRuntime(AgentLifetime, ToolSet):
             if chat_id in self.threads:
                 return self.threads[chat_id].message_sub_agent(sub_agent, message, profile)
 
+        # A Team Chat turn's message (docs/apps/team-chat.md, "Fixes after the
+        # first PA check"): the turn's process opened the conversation and the
+        # message is that turn's own run, never one queued into another run of
+        # the conversation (a background task's follow-up, the owner's own
+        # message), which would answer it outside the turn. The turn is told
+        # the conversation is busy; it waits for that run to end and sends
+        # its message again.
+        team_turns = getattr(getattr(self, "command_gateway", None), "team", None)
+        team_turn = (not sub_agent and team_turns is not None and not _is_internal_notification(message)
+                     and team_turns.starting(chat_id))
+        if team_turn and chat_id in self.threads:
+            from .command_gateway import TEAM_BUSY
+            logger.info(f"Chat {chat_id}: busy; the Team Chat turn's message waits for its run to end")
+            return {"success": False, "busy": True, "message": TEAM_BUSY}
+
         if chat_id in self.threads:
             # Internal auto-chat notifications (e.g. background-task completion)
             # are already handled by the ephemeral drain_notifications path in
@@ -2682,6 +2746,13 @@ class AgentRuntime(AgentLifetime, ToolSet):
             memory = await run_func(self.memory_manager.get_memory, chat_id, True)
         except KeyError:
             return {"success": False, "message": f"Chat '{chat_id}' not found"}
+        if not sub_agent:
+            # The conversation's shell, ready before the model runs (after a
+            # Workspace restart it is bound again), and in the conversation's
+            # working directory on its own node (a Team Chat agent's folder).
+            starting = await self._prepare_shell(chat_id, memory)
+            if starting:
+                return {"success": False, "message": starting}
         memory.update_metadata({
             "running": True,
             "last_activity_date": datetime.now(timezone.utc).isoformat(),
@@ -2774,13 +2845,14 @@ class AgentRuntime(AgentLifetime, ToolSet):
         context_variables = context_variables or {}
         context_variables["chat_id"] = chat_id
         # The conversation's working node (docs/agent/agent-core.md); its note reaches
-        # the model when the node is first known or changes.
+        # the model when the node is first known or changes. Its working
+        # directory goes with it, on the Agent's own node too.
         chat_node = (memory.extra_data or {}).get("chat_node")
         if chat_node:
             context_variables["chat_node"] = chat_node
-            chat_workdir = (memory.extra_data or {}).get("chat_workdir")
-            if chat_workdir:
-                context_variables["chat_workdir"] = chat_workdir
+        chat_workdir = (memory.extra_data or {}).get("chat_workdir")
+        if chat_workdir:
+            context_variables["chat_workdir"] = chat_workdir
         if not sub_agent:
             message = await self._with_environment_note(chat_id, memory, message, project_dir)
             # What the user said to sub-agents directly since the lead's last turn.
@@ -2799,7 +2871,14 @@ class AgentRuntime(AgentLifetime, ToolSet):
             agent_for=lambda context: self._sub_agent_for(chat_id, context),
         )
 
+        if team_turn and chat_id in self.threads:
+            # Another run started while this one got ready: never two runs.
+            from .command_gateway import TEAM_BUSY
+            return {"success": False, "busy": True, "message": TEAM_BUSY}
         self.threads[chat_id] = thread
+        if team_turn:
+            # From now on the conversation's commands are the turn's.
+            team_turns.start(chat_id)
 
         # Wire the steer queue so the running agent loop can pull in user
         # messages that arrive mid-run (message queue feature). Attach to every

@@ -505,6 +505,11 @@ TEAM_NO_TURN = ('pantheon team: refused: Team Chat commands work only in a conve
 TEAM_NOT_THIS_TURN = ('pantheon team: refused: this command is not part of the running Team Chat turn (it started '
                       'before the turn, or it runs in the background after its call ended).')
 TEAM_ENDED = 'pantheon team: the Team Chat turn ended before it answered; nothing more is sent in this turn.'
+#: A Team Chat turn's message while another run of its conversation goes on
+#: (the follow-up of a background task, a message of the owner's): not queued
+#: into that run; the turn waits for it to end and sends the message again.
+TEAM_BUSY = ('This conversation is still busy with earlier work (a run that is not this Team Chat turn, such as the '
+             'follow-up of a background task); the message was not sent. Retry when that work has finished.')
 
 _TEAM_COMMAND = re.compile(r'[a-z_]{1,32}')
 _TEAM_OPT = re.compile(r'[a-z][a-z_-]{0,31}')
@@ -517,6 +522,9 @@ class TeamLease:
     chat_id: str
     polled: float = field(default_factory=time.monotonic)
     closed: bool = False
+    # The turn's own run has started (the conversation's message of this
+    # turn); until then no command is the turn's.
+    started: bool = False
     queue: list = field(default_factory=list)
     waiting: dict = field(default_factory=dict)
     handed: set = field(default_factory=set)
@@ -579,9 +587,23 @@ class TeamTurns:
         return turn
 
     def current(self, chat_id: str) -> str:
-        """The open lease of a conversation, or ''."""
+        """The lease of the conversation's Team Chat turn whose run has
+        started, or '': a command started before that run (another run of the
+        conversation, while the turn waits for it to end) is not the turn's."""
         turn = self._turns.get(chat_id)
-        return turn.lease if turn is not None and turn.alive() else ''
+        return turn.lease if turn is not None and turn.alive() and turn.started else ''
+
+    def starting(self, chat_id: str) -> bool:
+        """A Team Chat turn opened the conversation and has not started its
+        run yet: the conversation's next message is that turn's."""
+        turn = self._turns.get(chat_id)
+        return turn is not None and turn.alive() and not turn.started
+
+    def start(self, chat_id: str) -> None:
+        """The turn's run starts: its commands are the turn's from now on."""
+        turn = self._turns.get(chat_id)
+        if turn is not None and turn.alive():
+            turn.started = True
 
     def open(self, chat_id: str) -> str:
         if not isinstance(chat_id, str) or not 1 <= len(chat_id) <= 256:

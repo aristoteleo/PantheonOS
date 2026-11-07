@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"time"
 )
 
@@ -33,6 +34,9 @@ type sessionRecord struct {
 	Phase    string          `json:"phase"` // acquiring, active, releasing, terminal
 	Receipt  *sessionReceipt `json:"receipt"`
 	Reason   string          `json:"reason,omitempty"`
+	// Replaced counts the sessions this owner's session took the place of
+	// (each after its provider ended); its lease is the replacement's own.
+	Replaced int `json:"replaced,omitempty"`
 }
 
 func sessionKey(consumer identity, operation string) string {
@@ -140,6 +144,13 @@ func (a *Allocator) sessionPath(fleet string, consumer identity, operation strin
 }
 
 // acquire holds (or observes) the session for one logical owner and alias.
+//
+// A session whose provider ended (the Workspace restarted or was paused and
+// resumed: a new generation of its Shell App) is never revived. When the
+// owner's session is over that way, or the provider ended the session itself
+// (expired, lost), the owner gets a new session in its place: a new lease on
+// the provider that runs now, in the same journal (record.Replaced counts
+// them). Its grants bind the new session; the old one stays ended.
 func (a *Allocator) acquire(ctx context.Context, fleet string, recipe sessionRecipe) (*sessionRecord, error) {
 	path, err := a.sessionPath(fleet, recipe.Consumer, recipe.OperationID)
 	if err != nil {
@@ -152,53 +163,58 @@ func (a *Allocator) acquire(ctx context.Context, fleet string, recipe sessionRec
 	if err != nil {
 		return nil, err
 	}
+	key := filepath.Base(path[:len(path)-len(".json")])
 	if exists {
 		want, _ := json.Marshal(recipe)
 		have, _ := json.Marshal(record.Recipe)
 		if string(want) != string(have) {
-			return nil, fmt.Errorf("resource-session operation belongs to a different recipe")
+			// Only the provider may differ: the plan names the provider that
+			// runs now, the journal the one the session was made on.
+			if !sameOwnerSession(record.Recipe, recipe) {
+				return nil, fmt.Errorf("resource-session operation belongs to a different recipe")
+			}
+			if record.Phase != "terminal" {
+				state, err := a.lifecycleStatus(ctx, fleet, record.Recipe.Provider.NodeID)
+				if err != nil {
+					return nil, err
+				}
+				if current, err := providerCurrent(&record, state); err != nil || current {
+					return nil, fmt.Errorf("resource-session operation belongs to a different recipe")
+				}
+				// Its provider ended: the session ended with it.
+				record.Phase, record.Reason = "terminal", "provider_unavailable"
+				if err := writeJournal(path, record); err != nil {
+					return nil, err
+				}
+			}
+		}
+		if record.Phase == "terminal" {
+			if record.Reason != "provider_unavailable" && record.Receipt != nil && record.Receipt.State == "released" {
+				// Released: its owner retires; nothing takes its place.
+				return &record, nil
+			}
+			next, err := a.newSession(ctx, fleet, recipe, key, record.Replaced+1)
+			if err != nil {
+				return nil, err
+			}
+			record = *next
+			if err := writeJournal(path, record); err != nil {
+				return nil, err
+			}
 		}
 	} else {
 		if len(journals(filepath.Dir(path))) >= 4096 {
 			return nil, fmt.Errorf("resource-session journal is full")
 		}
-		state, err := a.lifecycleStatus(ctx, fleet, recipe.Consumer.NodeID)
+		next, err := a.newSession(ctx, fleet, recipe, key, 0)
 		if err != nil {
 			return nil, err
 		}
-		key := filepath.Base(path[:len(path)-len(".json")])
-		record = sessionRecord{Protocol: 1, Recipe: recipe, Owner: fleet, LeaseID: leaseID(fleet, key), Phase: "acquiring"}
-		if consumerState(&record, state) != "active" {
-			return nil, fmt.Errorf("resource session requires a live consumer")
-		}
-		manifest, err := a.installedManifest(ctx, fleet, recipe.Provider)
-		if err != nil {
-			return nil, err
-		}
-		if manifest["id"] != recipe.AppID || num(manifest["apiVersion"]) != 2 {
-			return nil, fmt.Errorf("resource session requires the declared provider App")
-		}
-		methods := map[string]rule{}
-		for _, name := range []string{"resource_session_acquire", "resource_session_get", "resource_session_renew", "resource_session_release"} {
-			args := []string{"owner_ref", "lease_id"}
-			switch name {
-			case "resource_session_acquire":
-				args = append(args, "kind", "ttl_seconds")
-			case "resource_session_renew":
-				args = append(args, "ttl_seconds")
-			}
-			methods[name] = rule{Arguments: args, Bound: map[string]json.RawMessage{}}
-		}
-		if err := checkMethods([]any{"resource-session@1"}, manifest, methods); err != nil {
-			return nil, err
-		}
+		record = *next
 		// Write intent before the first provider mutation.
 		if err := writeJournal(path, record); err != nil {
 			return nil, err
 		}
-	}
-	if record.Phase == "terminal" {
-		return &record, nil
 	}
 	state, err := a.lifecycleStatus(ctx, fleet, recipe.Consumer.NodeID)
 	if err != nil {
@@ -225,6 +241,65 @@ func (a *Allocator) acquire(ctx context.Context, fleet string, recipe sessionRec
 		return nil, err
 	}
 	return &record, writeJournal(path, record)
+}
+
+// sameOwnerSession: two recipes of one owner's session that differ at most in
+// their provider instance.
+func sameOwnerSession(a, b sessionRecipe) bool {
+	a.Provider, b.Provider = identity{}, identity{}
+	x, _ := json.Marshal(a)
+	y, _ := json.Marshal(b)
+	return string(x) == string(y)
+}
+
+// newSession is the record of an owner's session not acquired yet: the
+// consumer must run, the provider must run as the recipe names it and be the
+// declared App. replaced > 0 is a session made in place of an ended one: its
+// own lease.
+func (a *Allocator) newSession(ctx context.Context, fleet string, recipe sessionRecipe, key string, replaced int) (*sessionRecord, error) {
+	state, err := a.lifecycleStatus(ctx, fleet, recipe.Consumer.NodeID)
+	if err != nil {
+		return nil, err
+	}
+	lease := leaseID(fleet, key)
+	if replaced > 0 {
+		lease = leaseID(fleet, key+"#"+strconv.Itoa(replaced))
+	}
+	record := sessionRecord{Protocol: 1, Recipe: recipe, Owner: fleet, LeaseID: lease, Phase: "acquiring", Replaced: replaced}
+	if consumerState(&record, state) != "active" {
+		return nil, fmt.Errorf("resource session requires a live consumer")
+	}
+	if replaced > 0 {
+		providerState, err := a.lifecycleStatus(ctx, fleet, recipe.Provider.NodeID)
+		if err != nil {
+			return nil, err
+		}
+		if ok, err := providerCurrent(&record, providerState); err != nil || !ok {
+			return nil, fmt.Errorf("original provider is unavailable; no replacement session was created")
+		}
+	}
+	manifest, err := a.installedManifest(ctx, fleet, recipe.Provider)
+	if err != nil {
+		return nil, err
+	}
+	if manifest["id"] != recipe.AppID || num(manifest["apiVersion"]) != 2 {
+		return nil, fmt.Errorf("resource session requires the declared provider App")
+	}
+	methods := map[string]rule{}
+	for _, name := range []string{"resource_session_acquire", "resource_session_get", "resource_session_renew", "resource_session_release"} {
+		args := []string{"owner_ref", "lease_id"}
+		switch name {
+		case "resource_session_acquire":
+			args = append(args, "kind", "ttl_seconds")
+		case "resource_session_renew":
+			args = append(args, "ttl_seconds")
+		}
+		methods[name] = rule{Arguments: args, Bound: map[string]json.RawMessage{}}
+	}
+	if err := checkMethods([]any{"resource-session@1"}, manifest, methods); err != nil {
+		return nil, err
+	}
+	return &record, nil
 }
 
 // release ends one session (idempotently); a missing journal was never acquired.

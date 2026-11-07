@@ -136,6 +136,11 @@ async def test_a_run_command_records_its_turns_lease_and_pantheon_team_goes_thro
         await server
         return {"success": True, "output": "ok"}
     gateway._live.clear()
+    # Opened, but the turn's run has not started (another run of the
+    # conversation still goes on): its commands are not the turn's.
+    await gateway.open(agent, {"chat_id": "c1"}, "t-early")
+    assert gateway._live["t-early"].team_lease == ""
+    gateway.team.start("c1")
     env = await gateway.open(agent, {"chat_id": "c1"}, "t1")
     assert gateway._live["t1"].team_lease == lease
     await run_command("pantheon team read '#general'", env)

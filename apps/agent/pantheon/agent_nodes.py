@@ -78,7 +78,7 @@ async def list_nodes(agent) -> list[dict]:
     return nodes
 
 
-def describe_node(node: dict, *, default: bool, workdir: str | None = None) -> str:
+def describe_node(node: dict, *, default: bool, workdir: str | None = None, starts: bool = False) -> str:
     """The environment note the model reads when its node is set or changes."""
     name = node.get("name") or node.get("node_id")
     os_name = node.get("os") or "unknown OS"
@@ -86,7 +86,8 @@ def describe_node(node: dict, *, default: bool, workdir: str | None = None) -> s
     lines = [f"Your files and commands are on node {name} ({node.get('node_id')}): {os_name}, {shell} shell."]
     if default:
         if workdir:
-            lines.append(f"Working directory: {workdir}.")
+            lines.append(f"Working directory: {workdir} (each turn your shell starts there; relative paths lead there)."
+                         if starts else f"Working directory: {workdir}.")
     else:
         if workdir:
             lines.append(f"Working directory: {workdir} (relative paths and commands start there).")

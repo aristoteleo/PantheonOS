@@ -236,3 +236,79 @@ func readFile(t *testing.T, p string) string {
 }
 
 func itoa(n int) string { return strings.TrimSpace(strings.ReplaceAll(mustJSON(n), `"`, "")) }
+
+// A Team Chat turn whose conversation runs another run (the follow-up of a
+// background task the Agent started) is not queued into that run: the Agent
+// says busy, the turn waits for the run to end and sends its message again,
+// reading only its own run's events (docs/apps/team-chat.md, "Fixes after
+// the first PA check", M1).
+func TestATeamChatTurnWaitsForItsConversationsOtherRun(t *testing.T) {
+	defer func(w, p time.Duration) { turnBusyWait, turnBusyPoll = w, p }(turnBusyWait, turnBusyPoll)
+	turnBusyPoll = 10 * time.Millisecond
+	for _, stays := range []bool{false, true} {
+		turnBusyWait = 5 * time.Second
+		if stays {
+			turnBusyWait = 200 * time.Millisecond
+		}
+		f := newFakeAgent(t)
+		var mu sync.Mutex
+		chats, lists, cursors := 0, 0, 0
+		sent := make(chan struct{})
+		f.handle("create_chat", func(map[string]any) any { return map[string]any{"chat_id": "c1"} })
+		f.handle("get_agent_event_cursor", func(map[string]any) any {
+			mu.Lock()
+			defer mu.Unlock()
+			cursors++
+			return map[string]any{"cursor": map[string]any{"epoch": "x", "sequence": 0}}
+		})
+		f.handle("team_turn_open", func(map[string]any) any { return map[string]any{"success": true, "lease": "L1"} })
+		f.handle("team_turn_next", func(map[string]any) any {
+			time.Sleep(20 * time.Millisecond)
+			return map[string]any{"success": true, "requests": []any{}}
+		})
+		f.handle("list_chats", func(map[string]any) any {
+			mu.Lock()
+			defer mu.Unlock()
+			lists++
+			// Idle when the turn starts; then the other run, until it ends.
+			running := chats >= 1 && (stays || lists < 5)
+			return map[string]any{"chats": []map[string]any{{"id": "c1", "running": running}}}
+		})
+		f.handle("chat", func(map[string]any) any {
+			mu.Lock()
+			chats++
+			n := chats
+			mu.Unlock()
+			if n == 1 {
+				// The follow-up of a background task started just before.
+				return map[string]any{"success": false, "busy": true, "message": "busy"}
+			}
+			close(sent)
+			return map[string]any{"chat_id": "c1", "response": "Done."}
+		})
+		f.stream([]map[string]any{
+			step(map[string]any{"role": "assistant", "content": "Answer.", "model": "m"}),
+			{"type": "chat_finished", "data": map[string]any{"type": "chat_finished"}}}, sent)
+		out, errOut, code := runWithStdin("[Team Chat] hi", "agent", "chat", "--json", "--team-tool", "/nowhere/pantheon-team")
+		lines := turnLines(t, out)
+		done := lines[len(lines)-1]
+		mu.Lock()
+		if !stays {
+			if code != 0 || done.Type != "done" || done.Status != "finished" || chats != 2 || cursors < 3 ||
+				!strings.Contains(out, `"text":"Answer."`) {
+				t.Fatalf("chats=%d cursors=%d %d %s %s", chats, cursors, code, out, errOut)
+			}
+		} else if done.Status != "error" || !strings.Contains(done.Error, "still busy with earlier work") || chats != 1 ||
+			strings.Contains(out, "queued") {
+			t.Fatalf("stays busy: chats=%d %s", chats, out)
+		}
+		mu.Unlock()
+		closed := false
+		for _, m := range f.called() {
+			closed = closed || m == "team_turn_close"
+		}
+		if !closed {
+			t.Fatalf("the conversation's channel was not closed: %v", f.called())
+		}
+	}
+}

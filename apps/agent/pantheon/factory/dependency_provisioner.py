@@ -9,6 +9,7 @@ ScopedDependencyBindings directly. The composition owns capability shutdown.
 import asyncio
 import re
 import secrets
+import time
 
 from pantheonos.appkit.dependency_assembly import _copy, _grant, _identity, CONFIGURATION_BYTES
 from pantheonos.appkit.dependency_client import DependencyCallError, DependencyClient
@@ -142,7 +143,14 @@ class DependencyInstanceProvisioner:
 
     async def _allocate(self, name, owner_ref, attempt, profile=None, operation=None):
         profile = profile or self._profiles['toolsets'][name]
-        operation_id = f'{operation}-{attempt}' if operation else f'{owner_ref}-{self._process}-{attempt}'
+        # An instance's first attempt re-reads its allocation (a restarted
+        # Agent, a retried turn); a later one is this process's own, so it
+        # never lands on an allocation an earlier process made and lost (its
+        # session replaced after a Workspace restart).
+        if operation:
+            operation_id = f'{operation}-{attempt}' if attempt == 1 else f'{operation}-{self._process}-{attempt}'
+        else:
+            operation_id = f'{owner_ref}-{self._process}-{attempt}'
         value = await self._capability.bind(owner_ref=owner_ref, operation_id=operation_id,
                                            aliases=[profile['alias']])
         if (not isinstance(value, dict) or set(value) != {'protocol', 'owner_ref', 'operation_id', 'consumer', 'bindings'}
@@ -188,19 +196,45 @@ class AllocatedToolProvider(DependencyToolProvider):
             self._check_open()
             if self._bound is None:
                 # Each attempt is a new allocator operation: a lost grant is
-                # never revived, the allocator issues a fresh one.
-                self._attempt += 1
-                try:
-                    self._bound = await self._provisioner._allocate(self.toolset_name, self._owner_ref,
-                                                                    self._attempt, self._profile, self._operation)
-                except DependencyCallError as error:
-                    # Nothing ran: the provider App is not up (typically the
-                    # workspace node still starting). Say so to the model.
-                    raise DependencyCallError(
-                        f'{self.toolset_name} is not available yet; the computer that runs it may still be '
-                        'starting. Nothing was executed. Try again shortly, or continue without it.',
-                        status=error.status, outcome_unknown=False) from error
+                # never revived, the allocator issues a fresh one. The first
+                # attempt may re-read an allocation whose session was
+                # replaced since (a Workspace restart): the next one is new.
+                for tries in (1, 2):
+                    self._attempt += 1
+                    try:
+                        self._bound = await self._provisioner._allocate(self.toolset_name, self._owner_ref,
+                                                                        self._attempt, self._profile, self._operation)
+                        break
+                    except DependencyCallError as error:
+                        if tries == 1 and self._attempt == 1:
+                            continue
+                        # Nothing ran: the provider App is not up (typically the
+                        # workspace node still starting). Say so to the model.
+                        raise DependencyCallError(
+                            f'{self.toolset_name} is not available yet; the computer that runs it may still be '
+                            'starting. Nothing was executed. Try again shortly, or continue without it.',
+                            status=error.status, outcome_unknown=False) from error
             return self._bound
+
+    async def ready(self, name, args, *, timeout: float, every: float = 3.0):
+        """Call a tool whose call may be repeated safely (a probe such as
+        `cd DIR`) until it answers: binding again when the provider ended
+        (a Workspace restart), waiting while it starts, up to timeout s. The
+        last DependencyCallError when it never answers."""
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                return await self.call_tool(name, args)
+            except DependencyCallError:
+                self._check_open()
+                if time.monotonic() >= deadline:
+                    raise
+                await asyncio.sleep(max(0.0, min(every, deadline - time.monotonic())))
+
+    @property
+    def is_bound(self) -> bool:
+        """Bound to a provider instance (which may have ended since)."""
+        return self._bound is not None
 
     async def bound_node(self):
         """The node the provider instance runs on (binding it if needed)."""

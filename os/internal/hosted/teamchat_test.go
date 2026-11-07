@@ -1299,7 +1299,9 @@ func TestLiveLinesArePlainWords(t *testing.T) {
 		"cd /tmp && go test ./...":                              "Running tests",
 		"sleep 25; '/a/.team/pantheon-team' inbox":              "Checking new messages",
 		"python3 /tmp/run.py --x":                               "Running run.py",
-		"echo $((1+2)) | tr -d x":                               "Running a command",
+		"echo $((1+2)) | tr -d x":                               "Running: echo $((1+2)) | tr -d x",
+		"sleep 90":                                              "Waiting: sleep 90",
+		"API_TOKEN=abc123 ./deploy --key sk-livesecret":         "Running: API_TOKEN=… ./deploy --key …",
 	} {
 		if got := toolLine(codingagents.Event{Kind: codingagents.KindShell, Input: in}); got != want {
 			t.Errorf("%q: %q, want %q", in, got, want)
