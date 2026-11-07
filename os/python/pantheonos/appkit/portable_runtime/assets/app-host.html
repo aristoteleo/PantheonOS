@@ -254,6 +254,16 @@
       const commit = (nextState, { debounceMs = 150 } = {}) => {
         state = nextState
         const rendered = fireState('emit')
+        // `debounceMs: 0` is the App saying its host must hear this now (the
+        // Agent's chat, which an App page writes into its URL): posted once its
+        // render is done, with no timer (a frame's timers can be throttled or
+        // pushed back by a later debounced commit) and not held for a change
+        // in progress, which still publishes its own result afterwards.
+        if (debounceMs === 0) {
+          if (emitTimer) { clearTimeout(emitTimer); emitTimer = null }
+          rendered.then(() => post({ t: 'state', state }), () => {})
+          return
+        }
         // A requested mutation publishes once, after all of its renders.
         if (activeChange) return
         if (emitTimer) clearTimeout(emitTimer)

@@ -176,3 +176,16 @@ def test_fleet_filesystem_declaration_requires_authenticated_rpc():
     with pytest.raises(ValueError, match='requires Fleet RPC'):
         ManagedExecution(fs_transport='fleet')
     assert ManagedExecution(fs_transport='fleet', rpc_transport='fleet').fs_transport == 'fleet'
+
+
+def test_runtime_app_host_posts_an_immediate_commit_at_once():
+    """An App's `setState(..., {debounceMs: 0})` (the Agent's chat, which an App
+    page writes into `/c/<id>`) is posted once rendered: no timer, not held for
+    a change in progress. Same SDK as the UI's public/app-host.html."""
+    from pathlib import Path
+    html = (Path(__file__).resolve().parents[1] / 'os/python/pantheonos/appkit/portable_runtime/assets/app-host.html').read_text()
+    commit = html[html.index('const commit = (nextState'):]
+    commit = commit[:commit.index('async function applyStateMessage')]
+    immediate = commit[commit.index('if (debounceMs === 0)'):]
+    assert immediate.index("post({ t: 'state', state })") < immediate.index('return')
+    assert commit.index('if (debounceMs === 0)') < commit.index('if (activeChange) return')
