@@ -742,7 +742,10 @@ Chromium needs none for installing.
 controller or node change: the App SDK's `apps.open` and `apps.openFile` were
 already in Agent App 0.9.112's app host. After the second check: frontend #42
 (`9eef7734`) and #43 (`96523eb6`), Agent App 0.9.113 (its frontend writes the
-chat at once); Hub, agents image, controller and node unchanged.
+chat at once); Hub, agents image, controller and node unchanged. After the
+third check: frontend #44 (`e1d70b54`) and Agent App 0.9.114 (the Agent's
+frontend and the runtime's App SDK); Hub, agents image, controller and node
+unchanged.
 
 **Staging verification (2026-11-06, frontend #39–#40, hub `58d8e2e`, account
 acct4).**
@@ -789,6 +792,13 @@ acct4).**
   their change. vue-tsc passes; the touched suites fail only where they failed
   before (AppNodePicker, `desktop/App.test`, `registry.packaged`, StoreApp,
   appCapabilities). Hub tests for the public routes, viewers and manifest.
+
+Open on desktop (after the third check): the window used is one showing the
+page's very thing (a Terminal's shell on its computer, a coding agent's
+conversation, an Office session, a Browser's Chromium page), else a new one;
+the page says "in front" only once that window shows what was handed over. A
+Browser page handed to a desktop window is that window's from then on: the
+page stops showing it.
 
 Left as it is: a Browser page closed keeps its Chromium page on the node until
 another Browser page is started in that browser (10 minutes or more later);
@@ -1003,6 +1013,108 @@ acct4; acct4), each item reproduced first on #41 / 0.9.112:
   (44–88 ms), and a Mine link of Hello Files with MSA Viewer (an anonymous
   visitor opened `demo.fasta` in an MSA Viewer tab; revoked, "This link was
   withdrawn").
+
+#### Fixes after the third check (2026-11-07)
+
+The third independent check found two Medium problems and four Low ones.
+Fixed in frontend #44 (UI `2fd74b80`, `d8fad372`, `e1d70b54`) and Agent App
+0.9.114 (its frontend and the runtime's App SDK, runtime `b12231b1`); Hub,
+agents image, controller and node unchanged.
+
+1. **Terminal's Open on desktop came up on the wrong shell.** A Terminal page
+   on the Workspace has no `nodeId` in its URL (the Workspace is the empty
+   node), and Open on desktop reused the Terminal's front window with the
+   page's args laid over the window's own: the window kept its own `nodeId`
+   (the agent computer) and showed that computer's shell. Now Open on desktop
+   names the thing the page shows and uses only a window showing that very
+   thing, else a new one (`pageHost.ts` `desktopReuse`, `HAND_OVER`):
+   Terminal by `nodeId`, `ptySession` and `ptyNodeId` (an absent value is the
+   Workspace), Coding Agents by node and conversation, Office by its session,
+   the Browser by its Chromium page. Apps whose front window is reused (Team
+   Chat) get every view key of theirs, empty where the page has none, so the
+   window keeps nothing of its own view. The other Apps that reuse the front
+   window (Fleet, Settings, Model Services, LLM Playground, Store, Google
+   Workspace, Agent Canvas) read their view args when the window opens; for
+   them the window comes forward as the person left it (unchanged).
+   "In front" is now confirmed against what was handed over: the page sends
+   the window's expected args with its focus request, and the desktop tab
+   answers "shown" only once that window's args carry them (within 6 s), not
+   merely once a window of that id exists.
+2. **`/c/<id>` named the previous chat (intermittent).** Not reproduced: on
+   #43 / 0.9.113, a cold load of `/` on a paused Workspace (as in the check)
+   and 14 switches over 2.5 minutes moved the URL 50-60 ms after each click;
+   on #44 / 0.9.114 the same (below). A cached older Agent frontend is ruled
+   out: the instance serves `/package/` from a folder per release (named by
+   the release's hash, which is in the file's ETag) with `private, no-cache`,
+   there is no service worker, and the App SDK's page is loaded under a URL
+   unique to each view. What can still hold the write is in the frame: the
+   SDK posted even an immediate commit (`debounceMs: 0`) from a timer, which
+   a later debounced commit cleared and replaced with its own 150 ms, and
+   posted nothing while a change from the host (an action, a state message)
+   was being applied, until that change finished; both fit "corrected itself
+   while idle". The SDK (both copies: the UI's `public/app-host.html` and the
+   runtime's) now posts an immediate commit as soon as its render is done,
+   with no timer and not held by a change in progress. The instance's
+   frontend entry is also loaded as `index.js?v=<release>`, so even a stale
+   copy held by a browser or a proxy cannot stand in for a newer release.
+3. **L1: a Browser page and its desktop window fought over one Chromium
+   page's size.** The handed-over page is the desktop window's now: the page
+   tab stops streaming it at once (and after a reload in that browser) and
+   says "This page is open in a Browser window on your desktop now. That
+   window sets its size, so it is not shown here too.", with **Show it on the
+   desktop** and **Open a new page here** (a fresh Chromium page at the
+   current URL). Another tab already showing the same page is not told.
+4. **L2: Open on desktop twice from one Browser page made two windows.** The
+   window showing that Chromium page is used again (item 1, by `page_id`).
+5. **L3: one chat's suggestions under another.** Suggestions are fetched a
+   few seconds after a reply ends; a switch meanwhile put them under the next
+   chat. They are now kept with the chat they were made for
+   (`chatSuggestions.ts`): fetched for a chat no longer shown, they are
+   dropped, and only the chat on screen's are shown.
+6. **L4: CORS error to the Hub's `/api/users/me/quotas` from the Agent App's
+   origin.** The chat input asked the Hub for quotas from the Agent App's
+   frame, which has no Hub session (the call could only fail). The Agent App
+   does not ask: its model service enforces the budget, as the conversation's
+   own check already said. The Hub's CORS list is unchanged.
+
+Tests (each fails without its change, checked by reverting each source file
+to `96523eb6`): `sendToDesktop.test.ts` (a Workspace Terminal page opens a
+window on its own shell, the same shell again reuses it, a Browser page twice
+is one window, Team Chat's whole view), `desktopTab.test.ts` (the expected
+args travel, a window on another shell is not "shown"), `pageLeases.test.ts`
+(the page lets a handed-over page go, also after a reload),
+`appHostImmediate.test.ts` (the shipped SDK posts an immediate commit with no
+timer, past a later commit and during a running action) and pytest
+`test_portable_app.py` (the runtime's copy), `chatSuggestions.test.ts`,
+`ChatInput.agentApp.test.ts`, `versionedEntry.test.ts`. vue-tsc passes; the
+wide vitest run (`src/desktop src/views src/components src/stores
+src/composables src/agent`) fails the same 20 tests in 12 files as at
+`96523eb6`.
+
+Verified on staging (frontend #44, both hosts `index-C3U_VbOS.js`,
+`app-5XTn5IVx.js`; Agent App 0.9.114 on acct3 and acct4; acct4):
+
+- Terminal: a Terminal window open on the agent computer (shell with
+  `FIX3-AGENT-1`); `/app/terminal?ptySession=<id>` on the Workspace (no
+  `nodeId`, as in the check), marker typed, Open on desktop: a new Terminal
+  window on the Workspace showing that shell (`root@modal`, markers 43 and
+  44), "in front" confirmed in 0.3 s; Open on desktop again brought the same
+  window forward (no new one).
+- Browser: `/app/browser?open=https://example.com/` → Open on desktop: the
+  desktop window streamed the page (confirmed in 0.8 s) and the page tab
+  showed the note instead of the stream; **Show it on the desktop** and Open
+  on desktop again: still one Browser window; the page tab reloaded: the note
+  again, and the desktop window kept Chromium's toolbar at its own size.
+- `/c/<id>`: a cold load of `/` (fresh browser context, Agent page ready after
+  the Workspace start), 14 switches 3 s apart: the URL named the chat shown
+  50-60 ms after each click, the first click from `/` included; the frame
+  loaded `index.js?v=<release hash>` and the SDK with the immediate post; no
+  CORS error in the console (L4).
+- Suggestions: after a reply in one chat and a switch, the other chat showed
+  none of them; the first chat's (about its "OK") stayed under it. The race
+  itself is timing-bound and covered by the test above.
+- No regression: `/desktop.html` and its windows, `/app/team-chat` → Open on
+  desktop (in front), `/app/terminal` on the agent computer, `/c/<id>`.
 
 ## Open decisions
 
