@@ -748,7 +748,9 @@ frontend and the runtime's App SDK); Hub, agents image, controller and node
 unchanged. After the fourth check: frontend #45 (`5e616a5c`) and #46
 (`9aadd0ce`), Agent App 0.9.115-0.9.118 (0.9.118 live: the Agent's frontend,
 and its manifest persists `drafts`); Hub, agents image, controller and node
-unchanged.
+unchanged. After the fifth check: frontend #47 (`cba6981e`) and Agent App
+0.9.119 (the Agent's frontend, and the Desktop's Browser launch, runtime
+`43eb6da9`); Hub, agents image, controller and node unchanged.
 
 Open on desktop, as built after the fourth check: a window showing the same
 thing is used (Terminal, Coding Agents, Office, Browser, by what they show);
@@ -758,7 +760,19 @@ reports showing that view; every other App's open window (Fleet, Settings,
 Model Services, LLM Playground, Store, Google Workspace, Agent Canvas,
 packaged Apps) comes forward as the person left it, args untouched, and the
 toast says so ("as you left it there; this page's view was not moved into
-it"). With none open, a new window opens on the page's view.
+it"). With none open, a new window opens on the page's view. A Team Chat
+window tells its own writes of its args from a view handed over by a number
+it writes with each (`teamChatWrite`), so the desktop session's echo of an
+earlier write is not followed (after the fifth check). A Browser page offers
+Open on desktop once it has its Chromium page.
+
+Cold load of the Agent page (`/`), measured: with the Agent's computer up,
+the Agent is usable at 4-7 s. With the Workspace paused, the Agent's computer
+is down too and the Agent waits for it: usable at 30-35 s, and up to 160 s
+right after an Agent App release (the Agent waited for its old computer).
+Meanwhile the page says "Waiting for your Workspace to start" (the controller
+reports the Agent as waiting for its node), then "Starting your Agent on your
+Workspace".
 
 **Staging verification (2026-11-06, frontend #39–#40, hub `58d8e2e`, account
 acct4).**
@@ -1248,6 +1262,109 @@ on acct3 and acct4; acct4):
   reopening it; revoked: the visitor sees "This link was withdrawn".
 - Cold load of `/`: no request to `/api/store/packages/agent` or
   `/public/pantheon.png`; a reload of `/c/<id>` had no 4xx at all.
+
+#### Fixes after the fifth check (2026-11-07)
+
+The fifth independent check found one High problem, one Medium and five Low
+ones. Fixed in frontend #47 (UI `6493c78b`…`cba6981e`) and Agent App 0.9.119
+(the Agent's frontend; the Desktop's Browser launch, runtime `43eb6da9`). Hub,
+agents image, controller and node unchanged.
+
+1. **H1: a desktop Team Chat window went back to Tasks, Activity or Search when
+   a conversation was opened from there** (every time, also in a new window;
+   introduced by fix 4's args watcher). Two causes. A desktop window's args
+   go to the desktop session as JSON, which drops an `undefined` value: the
+   window cleared `view` locally, the session kept `view: tasks`, and its
+   echo put Tasks back. The desktop host now sends a cleared key as `null`.
+   And Team Chat compared incoming args with the address it last wrote only;
+   one move makes several writes (the panel closed, then the conversation
+   opened), and the echo of an earlier write, arriving after a later one, was
+   taken for a view handed over. Each write of a desktop window now carries a
+   number (`teamChatWrite`, left out of a page's URL); args that come back
+   with a number this window wrote, naming the address it wrote with it, are
+   its own. Open on desktop changes the address and leaves the number, so a
+   view handed over is still followed.
+2. **M1: a sent message came back as the chat's draft after a reload.** The
+   App SDK merges a state patch key by key, so a chat left out of the Agent's
+   `drafts` kept its old draft in the host's state (and in the page's tab
+   storage, or a desktop window's args). The Agent now sends a chat whose
+   draft is gone (sent, or cleared by hand) as `null`, and the Agent page keeps
+   only real drafts (`agentPageDrafts.ts`).
+3. **L1: the doc's "usable at 4-7 s" holds only while the Agent's computer is
+   up.** Measured numbers are under "Phase 3 as built". While the Agent waits
+   for its computer, the page now says "Waiting for your Workspace to start —
+   your Agent opens once it is up" instead of "Starting your Agent".
+4. **L2: Open on desktop on a Browser page before it had its Chromium page
+   made empty Browser windows, one per click.** The button is disabled
+   ("Wait until the page has opened") until the page has its page and
+   instance. The first Browser page after a Workspace resume failed with
+   "chromium unavailable: The native browser tab observer is unavailable",
+   and a blank "about:blank" Chromium window with "Restore pages?" stayed on
+   the desktop: Chromium was launched, but its tab-observer extension took
+   longer than the 5 s the launch waited (a resume's boot storm, a profile on
+   the network volume); the launch failed for good (a sticky error until the
+   instance restarted) and left its Chromium running and unparked. The launch
+   now waits up to 30 s, and if the observer is still late it closes that
+   Chromium and launches once more instead of failing for good. Chromium runs
+   with `--hide-crash-restore-bubble` (a paused sandbox leaves the profile
+   marked as crashed).
+5. **L3: `/app/coding-agents?node=<the Agent's computer>` said "Agents on
+   n_6c22171e… can use PantheonOS".** The note names the computer by its name,
+   "your Workspace", or "this computer"; never its id.
+6. **L4: after a revoke, a visitor tab already open went blank.** The visitor
+   page reads the link again while the App is shown (when the tab comes back
+   to the front, and every 20 s) and shows why it closed ("This link was
+   withdrawn by the person who shared it").
+7. **L5: in one 40 ms sample, the next chat's suggestions showed under the
+   previous chat's messages.** Suggestions are shown only once the message
+   list has rendered that chat's own messages (`chatSuggestions.ts`
+   `rendered`, set after the DOM update).
+
+Tests (each fails without its change, checked by reverting the source):
+`TeamChatApp.test.ts` (the real windows store and desktop host, with a
+session that keeps args as JSON and echoes each write late: Tasks, Activity
+or Search to #general or another channel, 6 moves, no bounce; a hand-over of
+Tasks, a conversation and a thread still followed, and the window's own move
+after it kept; fails without the `null` or without the write numbers),
+`agentDrafts.sync.test.ts` (the chat input's drafts through the shipped App
+SDK and `PackagedApp` to the Agent page's tab storage and to a desktop
+window's args: sent and hand-cleared drafts gone after a reload, a new one
+kept), `chatSuggestions.test.ts`, `ChatConversation.suggestions.test.ts`,
+`computerWords.test.ts`, `HostedAppPage.test.ts` (withdrawn without a
+reload), `PageTopBar.test.ts` (Browser hand-over waits for its page),
+`AgentSurface.test.ts` and `agentSetup.waits.test.ts` (the waiting text);
+pytest `test_browser_profile_ownership.py` (a late observer closes its
+Chromium, launches again, no sticky error, the restore flag). vue-tsc passes;
+the wide vitest run fails the same 20 tests in 12 files as before.
+
+Verified on staging (frontend #47, Agent App 0.9.119 on acct4, acct4):
+
+- H1: a Team Chat window opened from the desktop icon: Tasks, Activity and
+  Search, each to #general and to #c5check, three rounds (18 moves), sampled
+  every 80 ms for 2.5 s: no bounce. A desktop reload showed the last
+  conversation (the session holds no stale `view`). Hand-over from the page:
+  Tasks, #general, Activity and #c5check each shown by the same window, "in
+  front" at 0.3-1.1 s; the window's own move afterwards stayed. A thread
+  hand-over was not tried live (a channel has no message box until an agent
+  exists); the round-trip test covers it.
+- M1 on `/`: a message sent, then a reload: input empty, no kept draft; a
+  draft cleared by hand (Meta+A, Backspace), then a reload: empty; a draft
+  typed, then a reload: back. The same three in a desktop Agent window with
+  desktop reloads.
+- L1: cold load of `/` with the Workspace paused, right after the 0.9.119
+  roll: "Waiting for your Workspace to start" at 3-19 s, "Starting your Agent"
+  until 32 s, usable at 35 s.
+- L2: the first `/app/browser?open=https://example.com/` after the resume
+  opened without an error; Open on desktop was disabled for 23 s until the page
+  was bound (two clicks then made no window); once bound, one Browser window
+  on example.com, "in front", no "Restore pages?".
+- L3: `/app/coding-agents?node=<agent computer>` showed the Workspace, no raw
+  id on the page (the note itself shows once per computer and had been shown
+  in check 5).
+- L4: a Mine link of Hello Files opened by an anonymous visitor, then revoked:
+  the open tab showed "This link was withdrawn…" 2 s later, no reload.
+- L5: after a reply, 8 switches between two chats sampled every 10 ms: no
+  suggestion shown under the other chat's messages.
 
 ## Open decisions
 
