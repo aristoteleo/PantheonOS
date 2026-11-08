@@ -9,7 +9,8 @@ built" and its "Staging verification"); Phase 2 built and verified on staging
 staging 2026-11-05 (T30–T35; see "Phase 3 as built"); shared agents run sandboxed
 since 2026-11-06 (see "Shared agents run sandboxed"); Phase 3 accepted on staging
 2026-11-06 after seven checks; Pantheon Agent turns have Team Chat's commands
-since 2026-11-07 (see "Pantheon Agent turns: Team Chat tools"). The sandbox was checked for what it is meant to
+since 2026-11-07, accepted on staging 2026-11-08 after three checks (PA1–PA7;
+see "Pantheon Agent turns: Team Chat tools"). The sandbox was checked for what it is meant to
 allow and deny, not tested for ways around it. Not in production. Each phase ends
 with acceptance criteria checked on staging before the next starts.
 
