@@ -3383,6 +3383,81 @@ same Agent `chat` method as the terminal chat that was retested. Session
 journals still grow by one per conversation (and now keep one file per
 conversation across restarts, no longer one per restart).
 
+### Fixes after the second PA check (2026-11-08)
+
+**Medium: a message waiting for a paused or restarting Workspace showed
+nothing.** *Cause.* While an agent's computer is away its status was only
+`offline` with a reason; the status named no message, so the channel showed
+nothing under the mention (only the rail's dot and its hover "Offline"). The
+reason for a Workspace was always "Your Workspace is paused": the controller
+sees only that the Workspace's node is away, not whether the Hub paused it
+or is starting it again (a restart, a resume), so during a restart it said
+paused.
+*Fix.*
+* An offline agent with messages waiting has `cid`, `root` and `since` of
+  the last one in its status (as while its Agent App starts), for every
+  runtime. The page shows the state under that message (in a thread, under
+  its root) until the agent's turn starts.
+* The controller's reason for a Workspace that is away is "Your Workspace
+  is not running (paused, or starting again)": never "paused" when it may be
+  starting.
+* The owner's page asks the Hub which it is (`GET /api/chatroom/pod-status`,
+  a read that starts nothing) every 10 s while an agent on their Workspace is
+  offline: the sandbox released or the Workspace node paused is *paused*; a
+  Workspace that runs (its node not joined yet) is *starting*; one the Hub
+  stopped while idle is starting on an open desktop (whose heartbeat starts
+  it) and paused on a page that holds the Workspace back (a standalone Team
+  Chat page).
+* Under the message: "Your Workspace is paused — resume it to get an answer
+  from Pax." with **Resume** (the owner), "Waiting for your Workspace to
+  start — Pax will answer when it is up.", for a member "Waiting for Weize's
+  Workspace — Pax will answer when it is up.", and for another computer
+  "Waiting for Weizes MacBook Pro to come online — Wren will answer when it
+  is back." The rule stays: a mention never starts a paused Workspace.
+  Resume is the page's existing way to bring the Workspace back: a paused
+  Workspace node is restarted (the Hub's wake path out of a node pause),
+  then a page that holds the Workspace back starts it (as an App page does
+  for a link on the Workspace), a desktop that is offline connects, and an
+  open desktop asks for its sandbox.
+* The rail's hover, the agent's profile and a DM's header say the same
+  ("Pax: Offline · Your Workspace is paused").
+
+**Low: the busy wait read "Starting".** *Cause.* A Pantheon Agent turn that
+waits for its conversation's other run (up to 5 minutes, "Fixes after the
+first PA check", M1) wrote nothing while it waited, so the live line kept
+the turn's first word, "Starting".
+*Fix.* `pantheon agent chat --json --team-tool` writes `{"type":"wait",
+"status":"busy"}` when it starts waiting and `{"type":"wait",
+"status":"done"}` when its own run starts (`docs/os/pantheon-cli.md`); the
+node passes them on as `wait` events; Team Chat's live line reads "Waiting
+for Pax to finish earlier work…", then "Starting" again until the first
+step.
+
+**Low: some commands showed raw text.** `pantheon team task|search|remind|
+join` (and pantheon-team's) had no plain words, so the live line showed the
+command. Now: "Creating a task", "Taking a task", "Updating a task",
+"Assigning a task", "Looking at tasks", "Setting a reminder", "Looking at
+reminders", "Cancelling a reminder", "Searching messages", "Joining #x".
+
+**Low.** The task "Prepare the demo slides." left in review in acct4 by
+the first PA check was closed.
+
+**Tests.** `os/internal/hosted/teamchat_pacheck2_test.go` (a mention in a
+thread for an agent on an away Workspace: offline, the thread's root and
+`since` in its status, the reason never "paused"; a Mac agent the same;
+both answered and the state gone once back; the wait events as the live
+line; the words for each command, both spellings),
+`os/internal/pantheoncli/team_test.go`
+(`TestATeamChatTurnSaysItWaitsForEarlierWork`: busy then done before the
+turn's text; a turn that never waits says neither),
+`os/codingagents/pantheon_test.go` (`TestPantheonTurnWaitLines`), UI
+`src/desktop/apps/team-chat/pacheck2.test.ts` (the words for each case;
+paused or starting from the Hub's pod status, held or not; under the
+message for the owner with Resume, starting, gone when the turn starts; a
+member and a Mac agent without Resume; the page asks the Hub only while an
+agent is away and resumes through the page). Each fails with its fix
+reverted (10 Go, 9 UI reverts).
+
 ## Out of scope
 
 Payments, mobile native apps, external chat bridges, prod rollout (asked
