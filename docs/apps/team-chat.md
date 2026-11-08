@@ -3347,6 +3347,42 @@ another run, a notification is not the turn's, a plain message is still
 queued), `tests/test_team_turns.py` (a command started before the turn's
 run is not the turn's). Each fails with its fix reverted (17 reverts).
 
+**Staging verification (2026-11-08).** Controller `6719b5a5` (build of
+`0c97c70e`), node `fleet-v0.5.1-staging.20` (`0c97c70e`, prerelease;
+controller latest-tag), agents image `sha-cb0376b` (`sha256:523f0735…`, hub
+pin, prewarmed on k8s and Modal), Agent App 0.9.122 (`1c261f72…`, hub pin
+and acct4); frontend unchanged. acct4, PantheonOS models only.
+* **M2 pass.** A new Pantheon agent asked to run `pwd`, read the first line
+  of its AGENT.md and remember a code word: `/workspace/agents/pia`, `# Pia
+  (@pia)`, and the word went into `/workspace/agents/pia/MEMORY.md`; nothing
+  new in `/workspace/default_workspace`.
+* **H1 pass.** After a pause and resume of the Workspace (Shell App
+  generation 130 → 133), the agent's same session ran `ls` in its folder and
+  replied in 27 s (the allocator journal: the session replaced once, on
+  generation 133; no "different recipe" in the controller log). A plain
+  Agent chat from before the pause continued with `--chat` and ran its
+  command.
+* **M1 pass.** The agent started a background task whose follow-up run
+  lasted 52 s (16:46:25–16:47:17); an @mention at 16:46:51 waited for it and
+  then ran as its own turn (its message a separate run after the follow-up,
+  answer posted in the channel). The follow-up run's own `pantheon team
+  reply` was refused ("not part of the running Team Chat turn").
+* **Low pass.** A lone `sleep 25` showed "Waiting: sleep 25" as the live line.
+* **PA1–PA3 pass.** `pantheon team read '#general'` summarised correctly,
+  posted in #general and DMed the owner; in a plain chat `pantheon team read`
+  was refused. **PA6 pass.** On a temporary acct4 Mac test node
+  (`staging.20` asset, its own key, revoked after) a Claude Code agent (Claude
+  Haiku 5.5, Only me) and a Codex agent (DeepSeek V4 Flash, everyone) each
+  posted in #general through `pantheon-team`.
+* Spend: acct4 $9.75 → $19.71 (LLM $0.1423 → $0.1716; compute +$9.79, nearly
+  all of it the Workspace left running about 20 hours between the deploy and
+  the retest).
+
+**Left open.** The `/` page itself was not driven in a browser; it uses the
+same Agent `chat` method as the terminal chat that was retested. Session
+journals still grow by one per conversation (and now keep one file per
+conversation across restarts, no longer one per restart).
+
 ## Out of scope
 
 Payments, mobile native apps, external chat bridges, prod rollout (asked
