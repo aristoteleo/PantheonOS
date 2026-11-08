@@ -3458,6 +3458,36 @@ member and a Mac agent without Resume; the page asks the Hub only while an
 agent is away and resumes through the page). Each fails with its fix
 reverted (10 Go, 9 UI reverts).
 
+**Staging verification (2026-11-08).** Controller `67999c60` (build of
+`16aefb5b`), node `fleet-v0.5.1-staging.21` (`16aefb5b`, prerelease;
+controller latest-tag), agents image `sha-16aefb5` (`sha256:c25e8694…`, hub
+pin, prewarmed on k8s and Modal), Agent App 0.9.122 (unchanged), frontend
+#49 (UI `d554d084`). acct4, PantheonOS models only, the standalone Team
+Chat page in a browser.
+* **Paused.** With the Workspace paused, an @mention showed "Your Workspace
+  is paused — resume it to get an answer from Pax. · Resume" under it and
+  "Pax: Offline · Your Workspace is paused" on the rail; the controller's
+  reason was "Your Workspace is not running (paused, or starting again)";
+  the Workspace stayed paused. **Resume** under the message changed it to
+  "Waiting for your Workspace to start — Pax will answer when it is up.";
+  the turn started 24 s later, the state went and Pax answered.
+* **Restart.** A mention right after a Workspace restart showed "Waiting for
+  your Workspace to start — Pax will answer when it is up." (rail "Your
+  Workspace is starting") until its turn started 37 s later.
+* **Busy wait.** A mention during the follow-up run of Pax's background task
+  read "Waiting for Pax to finish earlier work…" for the minute it waited,
+  then "Starting" and the answer.
+* **Words.** The live line read "Creating a task", "Searching messages",
+  "Setting a reminder" and "Joining #pf2-two".
+* **Other runtimes.** On a temporary acct4 Mac test node (`staging.21`, its
+  own key, revoked after) a Claude Code agent and a Codex agent posted
+  through `pantheon-team`; with the node stopped, a mention of the Claude
+  agent showed "Waiting for acct4-pafix2 to come online — Wren will answer
+  when it is back." and was answered when the node came back. (The
+  dispatcher once tried a turn while the node was still listed, for a few
+  seconds "Wren is working · Acct4-pafix2 is offline; waiting for it".)
+* Spend: acct4 $20.25 → $20.62 (LLM $0.33 → $0.44; compute +$0.25).
+
 ## Out of scope
 
 Payments, mobile native apps, external chat bridges, prod rollout (asked
