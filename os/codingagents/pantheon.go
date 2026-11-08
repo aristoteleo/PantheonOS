@@ -8,7 +8,7 @@ import (
 
 // The Pantheon Agent's turn as the pantheon command reports it
 // (docs/os/pantheon-cli.md, "One turn as JSON lines"): chat, text,
-// tool_call, tool_result, done, or one error line when the turn could not
+// tool_call, tool_result, wait, done, or one error line when the turn could not
 // start. Its tools are App tools (file_manager__read_file,
 // shell__run_command, …); the rest of PantheonOS it reaches through the
 // pantheon command in run_command, whose own calls come as calls inside that
@@ -77,6 +77,10 @@ func (p *pantheonParser) Parse(line []byte) []Event {
 			}
 		}
 		return []Event{e}
+	case "wait":
+		// A Team Chat turn waits for its conversation's other run ("busy")
+		// before its own starts ("done").
+		return []Event{{Type: "wait", Status: str(m["status"])}}
 	case "done":
 		u := obj(m["usage"])
 		e := Event{Type: "done", Model: str(m["model"]), InputTokens: num(u["input_tokens"]),

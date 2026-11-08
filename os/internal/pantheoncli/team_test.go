@@ -312,3 +312,63 @@ func TestATeamChatTurnWaitsForItsConversationsOtherRun(t *testing.T) {
 		}
 	}
 }
+
+// While a Team Chat turn waits for its conversation's other run it says so
+// ("wait" "busy"), and says when its own run starts ("wait" "done"), so Team
+// Chat shows the agent finishing earlier work, not starting
+// (docs/apps/team-chat.md, "Fixes after the second PA check"). A turn that
+// never waits says neither.
+func TestATeamChatTurnSaysItWaitsForEarlierWork(t *testing.T) {
+	defer func(w, p time.Duration) { turnBusyWait, turnBusyPoll = w, p }(turnBusyWait, turnBusyPoll)
+	turnBusyPoll, turnBusyWait = 10*time.Millisecond, 5*time.Second
+	for _, busyFirst := range []bool{true, false} {
+		f := newFakeAgent(t)
+		var mu sync.Mutex
+		lists := 0
+		sent := make(chan struct{})
+		f.handle("create_chat", func(map[string]any) any { return map[string]any{"chat_id": "c1"} })
+		f.handle("get_agent_event_cursor", func(map[string]any) any {
+			return map[string]any{"cursor": map[string]any{"epoch": "x", "sequence": 0}}
+		})
+		f.handle("team_turn_open", func(map[string]any) any { return map[string]any{"success": true, "lease": "L1"} })
+		f.handle("team_turn_next", func(map[string]any) any {
+			time.Sleep(20 * time.Millisecond)
+			return map[string]any{"success": true, "requests": []any{}}
+		})
+		f.handle("list_chats", func(map[string]any) any {
+			mu.Lock()
+			defer mu.Unlock()
+			lists++
+			return map[string]any{"chats": []map[string]any{{"id": "c1", "running": busyFirst && lists < 4}}}
+		})
+		f.handle("chat", func(map[string]any) any {
+			close(sent)
+			return map[string]any{"chat_id": "c1", "response": "Done."}
+		})
+		f.stream([]map[string]any{
+			step(map[string]any{"role": "assistant", "content": "Answer.", "model": "m"}),
+			{"type": "chat_finished", "data": map[string]any{"type": "chat_finished"}}}, sent)
+		out, errOut, code := runWithStdin("[Team Chat] hi", "agent", "chat", "--json", "--team-tool", "/nowhere/pantheon-team")
+		if code != 0 {
+			t.Fatalf("%d %s %s", code, out, errOut)
+		}
+		var waits []string
+		textAt, doneAt := -1, -1
+		for i, l := range turnLines(t, out) {
+			switch l.Type {
+			case "wait":
+				waits = append(waits, l.Status)
+				doneAt = i
+			case "text":
+				textAt = i
+			}
+		}
+		if busyFirst {
+			if strings.Join(waits, ",") != "busy,done" || doneAt > textAt {
+				t.Fatalf("waits %v (done at %d, text at %d): %s", waits, doneAt, textAt, out)
+			}
+		} else if len(waits) != 0 {
+			t.Fatalf("a turn that never waited: %v", waits)
+		}
+	}
+}

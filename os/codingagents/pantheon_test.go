@@ -208,3 +208,15 @@ func TestTheNoteNamesTheCommandsThatMatter(t *testing.T) {
 		t.Error("a note without access")
 	}
 }
+
+// A Team Chat turn's wait for its conversation's other run is an event of
+// its own, which Team Chat shows as the agent finishing earlier work.
+func TestPantheonTurnWaitLines(t *testing.T) {
+	p := &pantheonParser{}
+	for _, status := range []string{"busy", "done"} {
+		got := p.Parse([]byte(`{"type":"wait","status":"` + status + `"}`))
+		if len(got) != 1 || got[0].Type != "wait" || got[0].Status != status {
+			t.Fatalf("%s: %+v", status, got)
+		}
+	}
+}

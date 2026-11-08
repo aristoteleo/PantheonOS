@@ -143,7 +143,11 @@ func (t *TeamChat) statusOf(fl *tcFleet, m *tcMember) map[string]any {
 	out["computer"] = nodeLabel(node, m.NodeID)
 	offline := capFirst(nodeLabel(node, m.NodeID)) + " is offline"
 	if node.Kind == "sandbox" {
-		offline = "Your Workspace is paused"
+		// The Hub pauses, restarts and resumes a Workspace; the controller
+		// sees only that its node is away, not which of them it is. The
+		// owner's page asks the Hub (docs/apps/team-chat.md, "Fixes after
+		// the second PA check").
+		offline = WorkspaceAway
 	}
 	switch {
 	case m.State == "stopped":
@@ -159,6 +163,12 @@ func (t *TeamChat) statusOf(fl *tcFleet, m *tcMember) map[string]any {
 		}
 	case known && !node.Online:
 		out["state"], out["reason"] = "offline", offline
+		if q := fl.queues[m.MID]; len(q) > 0 {
+			// Messages wait for it: the page says so under the one that
+			// woke it last (as while its Agent App starts).
+			cause := q[len(q)-1]
+			out["cid"], out["root"], out["since"] = cause.CID, cause.Root, cause.At
+		}
 	case m.Attention != nil:
 		out["state"], out["reason"], out["fix"] = "attention", m.Attention.Reason, m.Attention.Fix
 	case l.paused != "":
@@ -183,6 +193,10 @@ func (t *TeamChat) statusOf(fl *tcFleet, m *tcMember) map[string]any {
 	}
 	return out
 }
+
+// WorkspaceAway is an agent's status while its Workspace's node is away: the
+// Workspace is paused, or starting (a restart, a resume).
+const WorkspaceAway = "Your Workspace is not running (paused, or starting again)"
 
 // nodeLabel names a node for people: "your Workspace", the computer's own
 // name ("Weizes-MacBook-Pro.local" reads "Weizes MacBook Pro"), never its id.
@@ -1241,6 +1255,17 @@ func (t *TeamChat) watch(ctx context.Context, fl *tcFleet, mid string) {
 				if line := toolLine(e); line != "" && line != l.line {
 					l.line, changed = line, true
 				}
+			case "wait":
+				// The turn waits for its conversation's earlier work (the
+				// Pantheon Agent: a run that is not this turn's) before its
+				// own run starts.
+				line := "Starting"
+				if e.Status == "busy" {
+					line = "Waiting for " + m.Name + " to finish earlier work…"
+				}
+				if line != l.line {
+					l.line, changed = line, true
+				}
 			case "done":
 				done = &e
 			}
@@ -1293,6 +1318,16 @@ var shellWords = []struct {
 	{regexp.MustCompile(`pantheon[- ]team['"]?\s+(post|reply|dm|edit)`), "Writing a message"},
 	{regexp.MustCompile(`pantheon[- ]team['"]?\s+(read|members|channels)`), "Reading the conversation"},
 	{regexp.MustCompile(`pantheon[- ]team['"]?\s+skip`), "Deciding not to reply"},
+	{regexp.MustCompile(`pantheon[- ]team['"]?\s+task\s+create\b`), "Creating a task"},
+	{regexp.MustCompile(`pantheon[- ]team['"]?\s+task\s+claim\b`), "Taking a task"},
+	{regexp.MustCompile(`pantheon[- ]team['"]?\s+task\s+assign\b`), "Assigning a task"},
+	{regexp.MustCompile(`pantheon[- ]team['"]?\s+task\s+state\b`), "Updating a task"},
+	{regexp.MustCompile(`pantheon[- ]team['"]?\s+task\b`), "Looking at tasks"},
+	{regexp.MustCompile(`pantheon[- ]team['"]?\s+remind\s+list\b`), "Looking at reminders"},
+	{regexp.MustCompile(`pantheon[- ]team['"]?\s+remind\s+cancel\b`), "Cancelling a reminder"},
+	{regexp.MustCompile(`pantheon[- ]team['"]?\s+remind\b`), "Setting a reminder"},
+	{regexp.MustCompile(`pantheon[- ]team['"]?\s+search\b`), "Searching messages"},
+	{regexp.MustCompile(`pantheon[- ]team['"]?\s+join\b`), "Joining a channel"},
 	{regexp.MustCompile(`\b(pytest|go test|npm (run )?test|cargo test|jest|vitest|unittest)\b`), "Running tests"},
 	{regexp.MustCompile(`\b(pip3?|npm|yarn|pnpm|uv|brew|apt(-get)?|cargo) (install|add)\b`), "Installing packages"},
 	{regexp.MustCompile(`\b(go build|make|npm run build|cargo build|tsc)\b`), "Building"},
@@ -1304,6 +1339,9 @@ var shellWords = []struct {
 	{regexp.MustCompile(`^\s*(mkdir|cp|mv|rm|touch|chmod)\b`), "Organizing files"},
 }
 
+// joinRE is `pantheon team join '#x'` (or pantheon-team's): the channel it joins.
+var joinRE = regexp.MustCompile(`pantheon[- ]team['"]?\s+join\s+['"]?#?([A-Za-z0-9][A-Za-z0-9_-]{0,31})`)
+
 var catRE = regexp.MustCompile(`^\s*(cat|head|tail|less|sed -n \S+|wc(\s+-\w+)?)\s+['"]?([^\s;|&'"]+)`)
 var runRE = regexp.MustCompile(`^\s*(python3?|node|bash|sh|Rscript|ruby)\s+(-\S+\s+)*['"]?([^\s;|&'"]+\.\w+)`)
 
@@ -1314,6 +1352,9 @@ func shellLine(cmd string) string {
 	cmd = strings.TrimPrefix(strings.TrimSpace(cmd), "cd ")
 	if i := strings.Index(cmd, "&& "); i >= 0 && !strings.Contains(cmd[:i], " ") {
 		cmd = cmd[i+3:] // "cd dir && x" is x
+	}
+	if m := joinRE.FindStringSubmatch(cmd); m != nil {
+		return "Joining #" + m[1]
 	}
 	for _, w := range shellWords {
 		if w.re.MatchString(cmd) {

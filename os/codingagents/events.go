@@ -11,7 +11,7 @@ import (
 // Event is one step of a conversation, the same shape for every agent.
 type Event struct {
 	Seq       int64  `json:"seq"`
-	Type      string `json:"type"` // user|session|text|thinking|tool|done|limits|link
+	Type      string `json:"type"` // user|session|text|thinking|tool|wait|done|limits|link
 	Text      string `json:"text,omitempty"`
 	Delta     bool   `json:"delta,omitempty"`
 	SessionID string `json:"session_id,omitempty"`

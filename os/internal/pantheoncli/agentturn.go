@@ -26,6 +26,8 @@ import (
 //	{"type":"text","text":"…"}                         the Agent's text
 //	{"type":"tool_call","id":"…","name":"…","args":{…}} a tool call
 //	{"type":"tool_result","id":"…","name":"…","output":"…","is_error":true}
+//	{"type":"wait","status":"busy|done"}               a Team Chat turn waits for
+//	                                                   its conversation's other run
 //	{"type":"done","chat_id":"…","status":"finished|error|stopped","error":"…",
 //	 "model":"…","usage":{"input_tokens":…,"cached_tokens":…,"output_tokens":…,
 //	 "context_tokens":…,"context_window":…}}
@@ -283,7 +285,18 @@ func (t *agentTurnState) waitIdle(ctx context.Context, deadline time.Time) bool 
 	for {
 		running, err := t.running(ctx)
 		if err != nil || !running {
+			if t.waiting {
+				// Its own run starts now.
+				t.waiting = false
+				t.line(TurnLine{Type: "wait", Status: "done"})
+			}
 			return ctx.Err() == nil
+		}
+		if !t.waiting {
+			// Team Chat shows it waiting for earlier work, not starting
+			// (docs/apps/team-chat.md, "Fixes after the second PA check").
+			t.waiting = true
+			t.line(TurnLine{Type: "wait", Status: "busy"})
 		}
 		if time.Now().After(deadline) {
 			return false
@@ -323,6 +336,8 @@ type agentTurnState struct {
 	line   func(TurnLine)
 	// team: a Team Chat turn (it opened its conversation's channel).
 	team bool
+	// waiting: it said it waits for its conversation's other run.
+	waiting bool
 	// The event being put together from its fragments.
 	pending   string
 	fragments []string

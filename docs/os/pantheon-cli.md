@@ -383,6 +383,7 @@ The Coding Agents service runs it for the Agent Canvas
 {"type":"text","text":"…"}                             the Agent's text
 {"type":"tool_call","id":"…","name":"file_manager__read_file","args":{…}}
 {"type":"tool_result","id":"…","name":"…","output":"…","is_error":true}
+{"type":"wait","status":"busy|done"}                   a Team Chat turn waiting
 {"type":"done","chat_id":"…","status":"finished|error|stopped","error":"…",
  "model":"…","usage":{"input_tokens":…,"cached_tokens":…,"output_tokens":…,
  "context_tokens":…,"context_window":…}}
@@ -395,7 +396,9 @@ id, and `context`, its execution context. A tool result's output is capped at
 steps, not as pieces. The turn ends at the Agent's `chat_finished`; a turn
 longer than the call that runs it (ten minutes) is followed on the stream, and
 the conversation is asked whether it still runs when the stream stays quiet.
-SIGINT or SIGTERM stops the Agent's turn (`stop_chat`) and ends with
+A Team Chat turn (`--team-tool`) whose conversation runs something else waits
+for it: `wait` `busy` when it starts waiting, `wait` `done` when its own run
+starts. SIGINT or SIGTERM stops the Agent's turn (`stop_chat`) and ends with
 `stopped`. A failure before the turn starts (not signed in, no Agent, a node
 that is not the user's) is one line `{"type":"error","error":"…"}` and exit
 status 1.

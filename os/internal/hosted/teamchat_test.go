@@ -37,7 +37,8 @@ type fakeAgents struct {
 	prompts []string
 	sends   []map[string]any
 	reply   func(prompt string) (text, errText string)
-	hold    bool // turns run until released
+	hold    bool  // turns run until released
+	held    []any // a held turn's events (default: a running npm test)
 	release chan struct{}
 	convs   map[string][]map[string]any
 	stopped []string
@@ -137,6 +138,9 @@ func (f *fakeAgents) Call(_ context.Context, _ string, node, method string, args
 				select {
 				case <-f.release:
 				default:
+					if f.held != nil {
+						return map[string]any{"success": true, "events": f.held}, nil
+					}
 					return map[string]any{"success": true, "events": []any{map[string]any{"seq": 1, "type": "tool", "kind": "shell", "name": "Bash", "input": "npm test"}}}, nil
 				}
 			}
