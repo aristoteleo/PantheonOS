@@ -105,9 +105,10 @@ def test_a_redesign_opens_a_sprout_and_an_edit_joins_its_target_chain():
     assert edit not in m.chains[sprouts[0]]
 
 
-def test_no_new_planning_while_a_sprout_is_on_probation():
+def test_gated_molt_does_not_plan_while_a_sprout_is_on_probation():
     s = Store()
-    m, c, seed = make(s, probation_turns=50)
+    m, c, seed = make(s, probation_turns=50, plan_during_probation=False)
+    assert m.name == "molt-gated"
     calls = fake_llm(m, seed.id, types=("redesign",))
     items = run_until_stall(m, c)
     resolve(m, c, items, 0.5)
@@ -500,14 +501,14 @@ def test_ablation_periodic_plans_on_schedule_even_while_improving():
 
 def test_plan_during_probation_plans_while_sprouts_are_young_up_to_the_cap():
     s = Store()
-    m, c, seed = make(s, plan_during_probation=True, max_sprouts=2, probation_turns=50)
+    m, c, seed = make(s, max_sprouts=2, probation_turns=50)      # the default plans on
     calls = fake_llm(m, seed.id, types=("redesign",))
     resolve(m, c, run_until_stall(m, c), 0.5)          # one sprout, on probation for long
     assert sum(r == SPROUT for r in m.role.values()) == 1
     for _ in range(12):
         resolve(m, c, asyncio.run(m.ask(c, 3)), 0.9)
     n_sprouts = sum(r == SPROUT for r in m.role.values())
-    assert n_sprouts == 2 and m.name == "molt-overlap", "a stall planned while one sprout was young"
+    assert n_sprouts == 2 and m.name == "molt", "a stall planned while one sprout was young"
     n = len(m.interventions)
     for _ in range(12):
         resolve(m, c, asyncio.run(m.ask(c, 3)), 0.9)

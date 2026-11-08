@@ -18,6 +18,8 @@ incumbent -- is never picked again and the run stays on the old design. Molt add
     retired otherwise. At most `max_established` graduated or original chains stay active; when a
     graduate would exceed that, the active chain with the lowest best is retired (the molt: the old
     shell is shed), never the chain holding the global best.
+  * planning goes on while sprouts are young: a stall plans again even when sprouts are on
+    probation, as long as fewer than `max_sprouts` are.
 
 Integration and exploration directions (edits of a named live program, with up to two donors) run
 once and their child joins the target's chain, as in RSI-top's archive insertion.
@@ -30,7 +32,11 @@ direction runs once. Without a probation those runs ended with 15-29 chains shar
 round-robin. Over their 771 redesign chains, every chain that ended up holding the run's best was
 within 1 % of the champion it was planned against by its 5th program, while 71 % of all chains never
 got there -- hence `probation_turns=5`, `probation_margin=0.01`. `max_established` is a budget
-guard, not a measured optimum.
+guard, not a measured optimum. Planning during probation came from the ablations (AHC058/046/024,
+5 seeds, 400 evaluations, Nov 2026): when a young sprout blocked planning, Molt intervened ~6 times
+per run; planning on (at most 4 sprouts on probation) raised it to ~8, at the same cost, scored
+higher on 10 of 15 (task, seed) pairs on held-out cases, and broke out of AHC024's local optimum in
+4 of 5 runs.
 
 Only programs count. The stall window and a sprout's turns advance on attempts that produced a
 program (scored, or crashed when run); a model call that returned nothing (stage "generate": a
@@ -335,7 +341,7 @@ class Molt(SimpleTES):
                  catalog_size: int = 24, attempts_shown: int = 40, code_shown: int = 3,
                  tried_shown: int = 20, redesign: bool = True, protect: bool = True,
                  probation: bool = True, trigger: str = "stall", period: int = 65,
-                 period_first: int = 20, plan_during_probation: bool = False,
+                 period_first: int = 20, plan_during_probation: bool = True,
                  max_sprouts: int = 4, **kw):
         """The last six are ablations; their defaults are Molt. `redesign=False`: planners get
         RSI-top's two types only. `protect=False`: a redesign's program joins its target's
@@ -343,9 +349,9 @@ class Molt(SimpleTES):
         at once, never judged, and no chain is shed. `trigger="periodic"`: plan at attempt
         `period_first` and then every `period` attempts, stalled or not (the defaults match
         Molt's measured spacing on AHC058/024/046: first at ~20, then every ~65).
-        `plan_during_probation=True`: a stall plans even while sprouts are on probation, as long
-        as fewer than `max_sprouts` are -- by default a sprout on probation blocks planning, which
-        on AHC024 cut interventions to ~3 per 200 evaluations against ~7 per 160 without it."""
+        `plan_during_probation=False` (Molt before Nov 2026, "molt-gated"): any sprout on
+        probation blocks planning; with it on (the default) a stall plans as long as fewer than
+        `max_sprouts` sprouts are on probation."""
         super().__init__(**kw)
         self.planners = planners
         self.directions_per_planner = directions_per_planner
@@ -368,8 +374,8 @@ class Molt(SimpleTES):
         off = [n for n, on in (("noredesign", redesign), ("noprotect", protect),
                                ("noprobation", probation), ("periodic", trigger == "stall"))
                if not on]
-        if plan_during_probation:
-            off.append("overlap")
+        if not plan_during_probation:
+            off.append("gated")
         if off:
             self.name = "molt-" + "-".join(off)
 
