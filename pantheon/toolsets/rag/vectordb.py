@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-import diskcache
+from diskcache_community import Cache, SafeDisk
 
 
 from .wrap import RAGWrapper
@@ -44,7 +44,9 @@ class VectorDB(RAGWrapper):
         _key = f"{self.embedding_model}"
         _cache_dir = self.db_path / "embedding_cache" / _key
         _cache_dir.mkdir(parents=True, exist_ok=True)
-        self.embedding_cache = diskcache.Cache(str(_cache_dir))
+        self.embedding_cache = Cache(
+            str(_cache_dir), disk=SafeDisk.with_options(on_error="miss")
+        )
         _key = f"{self.embedding_model}_{self.chunk_size}_{self.chunk_overlap}"
         self.store_path = self.db_path / "db" / _key
         self._table = None
@@ -60,9 +62,9 @@ class VectorDB(RAGWrapper):
             The embedding of the text.
         """
         cache_key = text
-        if cache_key in self.embedding_cache:
+        if (embedding := self.embedding_cache.get(cache_key)) is not None:
             logger.info(f"Embedding cache hit for: {cache_key}")
-            return self.embedding_cache[cache_key]
+            return embedding
         else:
             logger.info(f"Embedding cache miss for: {cache_key}")
             embedding = await openai_embedding(text, model=self.embedding_model)
