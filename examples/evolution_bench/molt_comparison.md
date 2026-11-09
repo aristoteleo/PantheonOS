@@ -76,6 +76,10 @@ Test cases: the official generators, seeds 0-149 shown to every method during se
   same pool. `main024b` and `main070a` could not be replaced (no neighbouring job on their nodes; the
   `normal` partition ignores `--nodelist` and `--exclude`) and keep their own server. The switch cost
   one evaluation of one OpenEvolve run per replaced server ("Remote end closed connection").
+  First hour: the new servers take 77-88 s per AHC024/AHC070 evaluation (old servers ~45-50 s), so
+  throughput rose 80 -> 118 per hour (AHC024 a) and 74 -> 84 per hour (AHC070 b). Scores agree: an
+  AHC070 program read 25.3733 on a new server and 25.3733 on an old one, and four programs that read
+  0 on the new servers also read 0 on an old one.
 - Found at the same time: OpenEvolve's evaluator times out after 900 s, and on the busiest servers a
   queued request can wait longer, so OpenEvolve lost 33/799 (AHC024), 26/769 (AHC070) and 9/1136
   (AHC071) evaluations to time-outs up to this point; none on the other tasks, none for Shinka (1800 s)
