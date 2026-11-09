@@ -65,3 +65,21 @@ Test cases: the official generators, seeds 0-149 shown to every method during se
 
 - 2026-11-08: tasks added (commit 93d3fe9e), spec written, 18 eval servers and the 150-run array
   submitted.
+- 2026-11-08, 12.5 h in (~47 % of all evaluations done): each eval server measures one program at a
+  time, and at its throughput (AHC024 ~45 s, AHC070 ~50 s per evaluation) the servers `main024a`,
+  `main024b` and `main070b` would not finish 10 runs x 400 evaluations within the 48 h job limit
+  (~50-54 h needed). `main024a` and `main070b` were replaced in place: a load balancer
+  (`sherlock/eval_lb.py`) took over their host:port, run inside a neighbouring eval-server job on the
+  same node, and sends each request to the first free one of 3 (AHC024) or 2 (AHC070) new eval
+  servers (node sh04-05n13, warm-ups 2.458-2.476 vs 2.449-2.482 on the old servers), one measurement
+  at a time per server. Requests are not routed by method, so every method of those seeds sees the
+  same pool. `main024b` and `main070a` could not be replaced (no neighbouring job on their nodes; the
+  `normal` partition ignores `--nodelist` and `--exclude`) and keep their own server. The switch cost
+  one evaluation of one OpenEvolve run per replaced server ("Remote end closed connection").
+- Found at the same time: OpenEvolve's evaluator times out after 900 s, and on the busiest servers a
+  queued request can wait longer, so OpenEvolve lost 33/799 (AHC024), 26/769 (AHC070) and 9/1136
+  (AHC071) evaluations to time-outs up to this point; none on the other tasks, none for Shinka (1800 s)
+  or AIDE. The time-outs count against OpenEvolve's 400 evaluations. Reported with the results;
+  the analysis is unchanged.
+- An AIDE run (AHC046 seed 3) was killed at 35 evaluations by the 8 GB memory limit and restarted
+  from scratch with 16 GB; the killed run is kept as `ahc046_aide_s3.oom8g`.
