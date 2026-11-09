@@ -120,7 +120,11 @@ Test cases: the official generators, seeds 0-149 shown to every method during se
   added by handing the port to a new balancer; it read an AHC070 program at 32.8636, the same as the
   old server had recorded. A fifth (sh03-01n51, warm-up 2.459, the same program again 32.8636) was
   added the same way at 15:32.
-- 2026-11-09: AIDE AHC046 seed 2 stopped by hand at the dollar cap (as above). AIDE AHC070 seed 0
+- 2026-11-09: AIDE AHC046 seed 2 stopped by hand at the dollar cap (as above).
+  Shinka AHC070 seed 2 hung in uninterruptible scratch I/O on sh02-01n12 from 13:50 (226
+  evaluations); its job was cancelled at ~15:40 and its `summary.json` written by hand. Decided with
+  the user before any final score was computed, by the rule above: AHC070 seed 2 is cut at N = 226
+  for every method (the other methods would have reached 400). AIDE AHC070 seed 0
   stopped working at 13:02 when AIDE's own code-execution child process failed to start (102
   evaluations); found 2.5 h later and stopped by hand. It stands as it is, like every AIDE run.
 - An AIDE run (AHC046 seed 3) was killed at 35 evaluations by the 8 GB memory limit and restarted
