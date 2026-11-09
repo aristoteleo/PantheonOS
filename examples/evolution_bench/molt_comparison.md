@@ -90,7 +90,9 @@ Test cases: the official generators, seeds 0-149 shown to every method during se
 - 2026-11-09, 24.5 h in: AIDE reaches the $4 LLM cap before 400 evaluations (11 runs stopped there,
   at 121-352 evaluations) and then hangs instead of exiting; those runs were stopped by hand (SIGTERM
   to the AIDE process; the runner wrote their summaries as usual). The budget cap is part of the
-  protocol, so these runs stand as they are.
+  protocol, so these runs stand as they are. A 12th (AHC046 seed 0, 215 evaluations) was stopped the
+  same way at 27 h; its runner then hit an I/O error writing `summary.json`, which was written by hand
+  from the run's own `evals.jsonl` and `llm_calls.jsonl` (marked with a `note` field).
 - 2026-11-09, rule added before any final score was computed: `main024b` (AHC024 seeds 2-3) and
   `main070a` (AHC070 seeds 0-1) measure ~63-68 programs per hour and cannot be relieved, so their
   runs will be stopped by the time limits (48 h job limit; 44 h wall clock for the upstream
