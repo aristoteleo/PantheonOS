@@ -80,10 +80,25 @@ Test cases: the official generators, seeds 0-149 shown to every method during se
   throughput rose 80 -> 118 per hour (AHC024 a) and 74 -> 84 per hour (AHC070 b). Scores agree: an
   AHC070 program read 25.3733 on a new server and 25.3733 on an old one, and four programs that read
   0 on the new servers also read 0 on an old one.
-- Found at the same time: OpenEvolve's evaluator times out after 900 s, and on the busiest servers a
-  queued request can wait longer, so OpenEvolve lost 33/799 (AHC024), 26/769 (AHC070) and 9/1136
-  (AHC071) evaluations to time-outs up to this point; none on the other tasks, none for Shinka (1800 s)
-  or AIDE. The time-outs count against OpenEvolve's 400 evaluations. Reported with the results;
-  the analysis is unchanged.
+- Found at the same time: on the busiest servers a queued request can wait longer than a client's
+  time-out, and a timed-out request counts against the run's 400 evaluations. OpenEvolve (900 s)
+  lost 33/799 (AHC024), 26/769 (AHC070) and 9/1136 (AHC071) evaluations up to this point. Molt and
+  SimpleTES (900 s, three tries) lost about as many -- counted on 2026-11-09 as failed measurements
+  that took >= 2600 s: AHC024 59/1336 and 59/1341, AHC070 81/1168 and 80/1166, AHC071 11 and 11,
+  AHC073 9 and 8, none on AHC058/AHC046 -- and each cost that worker ~45 min. None for Shinka
+  (1800 s) or AIDE. Reported with the results; the analysis is unchanged.
+- 2026-11-09, 24.5 h in: AIDE reaches the $4 LLM cap before 400 evaluations (11 runs stopped there,
+  at 121-352 evaluations) and then hangs instead of exiting; those runs were stopped by hand (SIGTERM
+  to the AIDE process; the runner wrote their summaries as usual). The budget cap is part of the
+  protocol, so these runs stand as they are.
+- 2026-11-09, rule added before any final score was computed: `main024b` (AHC024 seeds 2-3) and
+  `main070a` (AHC070 seeds 0-1) measure ~63-68 programs per hour and cannot be relieved, so their
+  runs will be stopped by the time limits (48 h job limit; 44 h wall clock for the upstream
+  optimizers) at roughly 250-330 evaluations. For every (task, seed) whose runs were stopped by time:
+  N = the fewest evaluations reached by any time-stopped run of that (task, seed); every method's run
+  of that (task, seed) is cut at its first N evaluations (by evaluation time; the start program's
+  read not counted), and the run's pick is chosen from the programs scored in that prefix, then
+  re-measured as in step 1. Runs that stopped on the dollar cap (AIDE) before N are not cut and do
+  not set N. The uncut results (each run as it stopped) are reported alongside.
 - An AIDE run (AHC046 seed 3) was killed at 35 evaluations by the 8 GB memory limit and restarted
   from scratch with 16 GB; the killed run is kept as `ahc046_aide_s3.oom8g`.
