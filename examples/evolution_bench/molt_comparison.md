@@ -109,7 +109,11 @@ Test cases: the official generators, seeds 0-149 shown to every method during se
   logs (`note` field). Decided with the user before any final score was computed: a run stopped by
   such a failure counts as time-stopped in the cut rule above, so AHC070 seed 1 is cut at N = 191 for
   every method; AIDE runs keep their exception (they never set N), so AIDE AHC070 seed 2 stands at
-  99 evaluations. Separately, AIDE AHC071 seed 3 hung at 03:49 after AIDE itself failed to parse a
+  99 evaluations. At 13:45 the same error hit OpenEvolve AHC071 seed 0 after its 400 iterations (353
+  evaluations; the last iterations were refused by the dollar cap) while it wrote its final
+  checkpoint; its `summary.json` was also written by hand. All four I/O failures were on sh02 nodes.
+  The result files of every unfinished run were checked and parse (Molt and SimpleTES write
+  `store.json` atomically). Separately, AIDE AHC071 seed 3 hung at 03:49 after AIDE itself failed to parse a
   malformed function-call reply from the model (103 evaluations, $2.29); it was found 9 h later
   and stopped by hand. That is a failure of the method, so the run stands as it is.
 - 2026-11-09 14:08: a 4th server for the AHC070 b balancer (node sh03-01n58, warm-up 2.450) was
