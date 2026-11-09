@@ -112,5 +112,9 @@ Test cases: the official generators, seeds 0-149 shown to every method during se
   99 evaluations. Separately, AIDE AHC071 seed 3 hung at 03:49 after AIDE itself failed to parse a
   malformed function-call reply from the model (103 evaluations, $2.29); it was found 9 h later
   and stopped by hand. That is a failure of the method, so the run stands as it is.
+- 2026-11-09 14:08: a 4th server for the AHC070 b balancer (node sh03-01n58, warm-up 2.450) was
+  added by handing the port to a new balancer; it read an AHC070 program at 32.8636, the same as the
+  old server had recorded. A third and a fourth server for AHC070 b have been on the balancer since
+  10:20 and 14:08.
 - An AIDE run (AHC046 seed 3) was killed at 35 evaluations by the 8 GB memory limit and restarted
   from scratch with 16 GB; the killed run is kept as `ahc046_aide_s3.oom8g`.
