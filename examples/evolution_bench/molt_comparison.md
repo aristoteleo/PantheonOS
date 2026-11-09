@@ -102,5 +102,15 @@ Test cases: the official generators, seeds 0-149 shown to every method during se
   read not counted), and the run's pick is chosen from the programs scored in that prefix, then
   re-measured as in step 1. Runs that stopped on the dollar cap (AIDE) before N are not cut and do
   not set N. The uncut results (each run as it stopped) are reported alongside.
+- 2026-11-09, ~11:55-12:30: the scratch file system returned I/O errors (EIO) to several jobs.
+  Shinka AHC070 seed 1 lost its database writes and died (Bus error) at 191 evaluations (no
+  evaluation after 11:53); AIDE AHC070 seed 2 died writing its journal at 99 evaluations ($2.87
+  spent) and was stopped by hand. Their `summary.json` files were written by hand from the runs' own
+  logs (`note` field). Decided with the user before any final score was computed: a run stopped by
+  such a failure counts as time-stopped in the cut rule above, so AHC070 seed 1 is cut at N = 191 for
+  every method; AIDE runs keep their exception (they never set N), so AIDE AHC070 seed 2 stands at
+  99 evaluations. Separately, AIDE AHC071 seed 3 hung at 03:49 after AIDE itself failed to parse a
+  malformed function-call reply from the model (103 evaluations, $2.29); it was found 9 h later
+  and stopped by hand. That is a failure of the method, so the run stands as it is.
 - An AIDE run (AHC046 seed 3) was killed at 35 evaluations by the 8 GB memory limit and restarted
   from scratch with 16 GB; the killed run is kept as `ahc046_aide_s3.oom8g`.
