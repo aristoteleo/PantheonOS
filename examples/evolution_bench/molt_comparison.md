@@ -118,7 +118,10 @@ Test cases: the official generators, seeds 0-149 shown to every method during se
   and stopped by hand. That is a failure of the method, so the run stands as it is.
 - 2026-11-09 14:08: a 4th server for the AHC070 b balancer (node sh03-01n58, warm-up 2.450) was
   added by handing the port to a new balancer; it read an AHC070 program at 32.8636, the same as the
-  old server had recorded. A third and a fourth server for AHC070 b have been on the balancer since
-  10:20 and 14:08.
+  old server had recorded. A fifth (sh03-01n51, warm-up 2.459, the same program again 32.8636) was
+  added the same way at 15:32.
+- 2026-11-09: AIDE AHC046 seed 2 stopped by hand at the dollar cap (as above). AIDE AHC070 seed 0
+  stopped working at 13:02 when AIDE's own code-execution child process failed to start (102
+  evaluations); found 2.5 h later and stopped by hand. It stands as it is, like every AIDE run.
 - An AIDE run (AHC046 seed 3) was killed at 35 evaluations by the 8 GB memory limit and restarted
   from scratch with 16 GB; the killed run is kept as `ahc046_aide_s3.oom8g`.
