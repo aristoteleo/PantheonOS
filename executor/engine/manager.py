@@ -1,7 +1,7 @@
 import typing as T
 from pathlib import Path
 
-from diskcache import Cache
+from diskcache_community import Cache
 
 from .job.base import Job
 from .job.utils import (
