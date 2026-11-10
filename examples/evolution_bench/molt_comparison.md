@@ -127,5 +127,7 @@ Test cases: the official generators, seeds 0-149 shown to every method during se
   for every method (the other methods would have reached 400). AIDE AHC070 seed 0
   stopped working at 13:02 when AIDE's own code-execution child process failed to start (102
   evaluations); found 2.5 h later and stopped by hand. It stands as it is, like every AIDE run.
+  AIDE AHC024 seed 1 hung at 14:39 on the same malformed function-call reply as AHC071 seed 3 (211
+  evaluations, $3.17); stopped by hand at 16:45, stands as it is.
 - An AIDE run (AHC046 seed 3) was killed at 35 evaluations by the 8 GB memory limit and restarted
   from scratch with 16 GB; the killed run is kept as `ahc046_aide_s3.oom8g`.
