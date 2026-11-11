@@ -73,6 +73,7 @@ type Gateway struct {
 	dependencyHTTP        map[string]map[*dependencyFlight]struct{}
 	dependencyStore       *dependencyStore
 	dependencyStoreFailed bool
+	dependencyNow         func() time.Time // the journal's clock (tests)
 	mu                    sync.Mutex
 	grants                map[string]*grant // ticket and cookie share one opaque value
 	pending               map[string]*pending

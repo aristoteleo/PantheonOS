@@ -7,8 +7,10 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -242,15 +244,25 @@ func (g *Gateway) IssueDependency(parent context.Context, q DependencyRequest) (
 	key := nonce()
 	sum := sha256.Sum256([]byte(key))
 	id := hex.EncodeToString(sum[:])
+	owned := 0
 	for key, grant := range g.dependencies {
 		if grant.Expires <= time.Now().Unix() {
 			delete(g.dependencies, key)
+		} else if grant.Consumer.Fleet == q.Consumer.Fleet {
+			owned++
 		}
 	}
-	if len(g.dependencies) >= 1024 {
+	// Live grants are bounded per owner, so one owner cannot use up the
+	// gateway's admission for every other owner.
+	if owned >= maxActiveGrantsPerFleet || len(g.dependencies) >= maxActiveDependencyGrants {
+		log.Printf("[appgateway] dependency grant capacity reached (owner %s: %d live, all: %d)", q.Consumer.Fleet, owned, len(g.dependencies))
 		return nil, dependencyError(503, "dependency grant capacity reached")
 	}
 	if err := g.persistGrant(q, key, id); err != nil {
+		var capacity *DependencyError
+		if errors.As(err, &capacity) {
+			return nil, err
+		}
 		return nil, dependencyError(503, "dependency persistence unavailable")
 	}
 	g.dependencies[key] = &dependencyGrant{q, id}
