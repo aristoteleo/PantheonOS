@@ -1593,6 +1593,42 @@ also guides an owner with no computer to add one.
 - C7: the desktop's Agent window has the same picker.
 - C8: no regression: Team Chat Pantheon Agent turns, Coding Agents.
 
+### The App page's top bar
+
+Asked alongside: a darker, more modern bar on the Agent page and every
+`/app/<id>` page; the "● Connected" text replaced with something useful (the
+owner's computers); "Desktop" renamed.
+
+- *Style.* 40 px, flat, near-black (`#0b0d12`, the Agent page's darkest
+  surface) with a 1 px bottom line; pill-shaped buttons (26-28 px) with hover
+  and focus rings; the light theme keeps the layout on a near-white bar
+  (component tokens `--bar-*`). Below 700 px the computer name and text
+  buttons other than OS Mode go; below 420 px OS Mode keeps its icon only.
+- *Computers instead of "Connected"* (`FleetIndicator`): a pill with one dot
+  per computer (the Workspace and the owner's own, five at most, then +N) and
+  "N/M online", green when one is ready, amber while one starts, grey when none
+  is up. Its menu lists them in the composer picker's rows and words
+  (`fleetComputers.ts` builds them with the picker's `computerRows` from the
+  Fleet's node list and the Hub's Workspace state), with Start for a paused
+  Workspace, "Add a computer" (the same Fleet "Add a node" panel) and "Open
+  Fleet". When the page's connection is down the pill turns red and says
+  "Reconnecting…"; otherwise the connection is not mentioned. The computer an
+  App shows (a viewer's file) is still named beside it.
+- *OS Mode.* "Desktop" is "OS Mode", with a grid icon and the tooltip "Open
+  the full Pantheon OS desktop"; "Open on desktop" is "Open in OS Mode", and
+  the account menu's "Open desktop" is "Open OS Mode".
+
+**Acceptance criteria.**
+
+- T1: at 1440 px and 390 px the bar is 40 px, dark, nothing overflows the
+  page width; light theme still readable.
+- T2: the pill shows the Workspace and every fleet computer of the account
+  with the right states and count; its menu starts a paused Workspace, opens
+  Add a computer with the join command, links to Fleet; "Connected" is gone;
+  a lost connection shows red "Reconnecting…".
+- T3: the Agent page and `/app/<id>` pages say "OS Mode" (no "Desktop"
+  button), linking to `/desktop.html`.
+
 ## Open decisions
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and
