@@ -262,8 +262,13 @@ class NativeAgentApplication(ConfiguredAgentApplication):
         copy. On reset_required discard partial replay and take a new snapshot.
         Release the snapshot when consumed. Unreleased snapshots expire in 10 min.
         """
+        try:
+            memory = await run_func(self.memory_manager.get_memory, chat_id)
+        except KeyError:
+            # Said plainly: a window restored on a deleted conversation opens
+            # a new one instead of failing to load (combined check 1).
+            raise ValueError(f"Chat '{chat_id}' not found") from None
         cursor, inflight = await self._nats_adapter.history_checkpoint(chat_id)
-        memory = await run_func(self.memory_manager.get_memory, chat_id)
         # get_messages(False) returns shared dictionaries. Detach on the Agent
         # loop, without yielding between enumeration and copy.
         messages = deepcopy(memory.get_messages(_ALL_CONTEXTS, False) or [])
