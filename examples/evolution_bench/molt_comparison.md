@@ -157,3 +157,65 @@ Test cases: the official generators, seeds 0-149 shown to every method during se
   re-measured from scratch; the first attempt is kept in `results/main/intel_attempt/`.
 - An AIDE run (AHC046 seed 3) was killed at 35 evaluations by the 8 GB memory limit and restarted
   from scratch with 16 GB; the killed run is kept as `ahc046_aide_s3.oom8g`.
+- 2026-11-11: step 1 done on EPYC 7543 (six jobs, 1.1-2.7 h each; every warm-up read the start
+  program's known score). No program of Molt, SimpleTES, OpenEvolve or Shinka failed more than one of
+  its reads, and every pick read cleanly on the held-out cases. The one run left without a pick is
+  AIDE AHC073 seed 0 (see Results).
+
+## Results
+
+Final score = held-out mean of the run's pick (`$EVO/portfolio/main_stats.py`; full output in
+`results/main/stats.txt` and `stats.json`). Two cases the plan did not cover, set before the scores
+were read: a run with no pick (all of its top-3 failed the public re-read) is scored as its start
+program, and a failed held-out read would count as 0 in the pick's mean (none occurred).
+
+Per task, held-out score, mean +/- sd over seeds 0-4; Holm-corrected Welch p of Molt vs that method
+in brackets (bold: < 0.05).
+
+| task | Molt | SimpleTES | OpenEvolve | Shinka | AIDE |
+|---|---|---|---|---|---|
+| AHC070 (cut) | **35.78** +/- 3.68 | 32.82 +/- 2.62 (0.28) | 27.84 +/- 4.53 (0.051) | 24.91 +/- 4.80 (**0.018**) | 32.74 +/- 0.89 (0.28) |
+| AHC071 | **1.0584** +/- 0.0021 | 1.0572 +/- 0.0030 (0.48) | 1.0501 +/- 0.0025 (**0.0015**) | 1.0336 +/- 0.0350 (0.38) | 1.0490 +/- 0.0023 (**0.0006**) |
+| AHC073 | **5.74** +/- 0.57 | 4.21 +/- 1.85 (0.14) | 1.91 +/- 0.91 (**0.0005**) | 2.32 +/- 1.67 (**0.016**) | 1.61 +/- 1.06 (**0.0007**) |
+| AHC058 | **5.514** +/- 0.038 | 5.277 +/- 0.091 (**0.0025**) | 5.222 +/- 0.036 (**6e-6**) | 5.219 +/- 0.038 (**6e-6**) | 5.246 +/- 0.070 (**0.0005**) |
+| AHC046 | 1.4431 +/- 0.0070 | **1.4450** +/- 0.0086 (0.72) | 1.3964 +/- 0.0219 (**0.027**) | 1.3916 +/- 0.0345 (0.054) | 1.3750 +/- 0.0332 (**0.027**) |
+| AHC024 | **1.087** +/- 0.634 | 0.631 +/- 0.001 (0.73) | 0.631 +/- 0.001 (0.73) | 0.631 +/- 0.001 (0.73) | 0.898 +/- 0.596 (0.73) |
+
+Start programs (held-out): AHC070 0.1515, AHC071 0.4974, AHC073 0.1510, AHC058 4.8777, AHC046 1.1244,
+AHC024 0.6299.
+
+Primary endpoint, pooled normalised score over the three held-out tasks (15 (task, seed) pairs;
+Wilcoxon signed-rank, Holm over four comparisons):
+
+| Molt vs | mean normalised (other) | Molt wins | median diff | Holm p |
+|---|---|---|---|---|
+| SimpleTES | 0.823 | 8/15 | +0.004 | 0.21 |
+| OpenEvolve | 0.651 | 15/15 | +0.193 | **0.0002** |
+| Shinka | 0.640 | 15/15 | +0.217 | **0.0002** |
+| AIDE | 0.674 | 14/15 | +0.082 | **0.0017** |
+
+(Molt 0.933.) Secondary, all six tasks (30 pairs): Molt 0.841; vs SimpleTES 18/30, Holm p =
+**0.009**; vs OpenEvolve 29/30, vs Shinka 29/30 (both p = 4e-8); vs AIDE 27/30 (p = 3e-5).
+
+- Molt beats OpenEvolve, Shinka and AIDE on the held-out tasks (all 15 pairs vs OpenEvolve and
+  Shinka, 14/15 vs AIDE). Against
+  SimpleTES, its base method, the held-out difference is not significant: Molt is ahead on AHC070
+  (+3.0) and AHC073 (+1.5; SimpleTES seeds 0 and 2 stay below 2.7) and level on AHC071. Over all
+  six tasks it is ahead of SimpleTES (p = 0.009), mainly from AHC058, where every Molt seed is above
+  every SimpleTES seed.
+- AHC024 (step 4): runs that left the local optimum (final > 1.0, the optimum being ~0.63): Molt 2/5
+  (seeds 2 and 4), AIDE 1/5 (seed 0), others 0/5; Fisher p = 0.44 vs each of the three, 1.0 vs AIDE
+  (Holm 1.0). Not significant with five seeds.
+- Uncut (each run as it stopped; differs only on AHC070 seeds 1-2): OpenEvolve's AHC070 seed 1
+  rises from 23.3 to 36.9 with its evaluations after 191, so Molt vs OpenEvolve on AHC070 drops to
+  p = 0.34; the primary endpoint is unchanged in direction (vs SimpleTES p = 0.33, OpenEvolve
+  0.0026, Shinka 0.0002, AIDE 0.0026).
+- Cost (step 5), mean over 30 runs: Molt $2.81 (2.23-3.57) and 400 evaluations; SimpleTES $2.85,
+  400 (one run, AHC071 seed 0, 374); OpenEvolve $3.07, 392; Shinka $2.80, 375 (two
+  crashed on the I/O errors); AIDE $3.73, 246 (16 runs reached the $4 cap first).
+- AIDE AHC073 seed 0 has no pick: its top-3 programs (recorded 5.6335) read 0 in all 9 public and
+  3 held-out reads on EPYC 7543 (also on the Intel nodes). During the run the same program read
+  5.6335 eight times and 0 once, on a 7543 server. Scored as its start program (0.1510) by the rule
+  above; at 5.63 AIDE's AHC073 mean would be 2.7, and no conclusion above changes.
+- Time-outs (step 6): no run was stopped by time except AIDE (7 at the 44 h wall clock); the cut
+  applied only to AHC070 seeds 1-2 (crashed Shinka runs).
