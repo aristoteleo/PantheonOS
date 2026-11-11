@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -215,13 +216,30 @@ func (m *Manager) observe() {
 	defer m.jobs.Done()
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-	for {
+	m.reapOnce() // on node start: processes of generations the ledger no longer runs
+	for tick := 1; ; tick++ {
 		select {
 		case <-m.ctx.Done():
 			return
 		case <-ticker.C:
 			m.observeOnce()
+			if tick%12 == 0 {
+				m.reapOnce()
+			}
 		}
+	}
+}
+
+// reapOnce ends stray App processes of every instance (see reapStrays).
+func (m *Manager) reapOnce() {
+	if !m.serial.TryLock() {
+		return
+	}
+	defer m.serial.Unlock()
+	ctx, cancel := context.WithTimeout(m.ctx, strayGrace+killWait+30*time.Second)
+	defer cancel()
+	if err := m.reapStrays(ctx, ""); err != nil {
+		log.Printf("[lifecycle] stray App processes: %v", err)
 	}
 }
 func (m *Manager) observeOnce() {
@@ -766,6 +784,10 @@ func (m *Manager) perform(ctx context.Context, op *Operation) error {
 	if in != nil && (len(in.Resources) > 0 || (len(in.Reservations) > 0 && !prepared)) {
 		return fmt.Errorf("instance still owns resources; stop before restarting")
 	}
+	// Nothing of an earlier generation may run beside the new one.
+	if err := m.reapStrays(ctx, key); err != nil {
+		return err
+	}
 	generation := uint64(1)
 	if in != nil {
 		generation = in.Generation + 1
@@ -1007,6 +1029,11 @@ func (m *Manager) stop(ctx context.Context, op *Operation, d Definition, in *Ins
 			return err
 		}
 	}
+	// Children that left the stopped process group (their own session) end
+	// with it.
+	if err := m.reapStrays(ctx, in.ID); err != nil {
+		return fail(err)
+	}
 	if err := m.hook(ctx, op, d, "after_stop", p); err != nil {
 		return fail(err)
 	}
@@ -1116,6 +1143,9 @@ func (m *Manager) reconcile(ctx context.Context, op *Operation, in *Instance) er
 		}
 	}
 	if allStopped {
+		if err := m.reapStrays(ctx, in.ID); err != nil {
+			return err
+		}
 		for _, r := range in.Resources {
 			if err := m.driver.Release(ctx, r); err != nil {
 				return err

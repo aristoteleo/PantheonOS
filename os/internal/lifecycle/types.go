@@ -136,14 +136,18 @@ type Operation struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 type Resource struct {
-	ContainerID        string            `json:"container_id,omitempty"`
-	ContainerStartedAt string            `json:"container_started_at,omitempty"`
-	Component          string            `json:"component"`
-	Runtime            string            `json:"runtime"`
-	ID                 string            `json:"id"`
-	PID                int               `json:"pid,omitempty"`
-	Birth              int64             `json:"birth,omitempty"`
-	Endpoints          map[string]string `json:"endpoints,omitempty"`
+	ContainerID        string `json:"container_id,omitempty"`
+	ContainerStartedAt string `json:"container_started_at,omitempty"`
+	Component          string `json:"component"`
+	Runtime            string `json:"runtime"`
+	ID                 string `json:"id"`
+	PID                int    `json:"pid,omitempty"`
+	Birth              int64  `json:"birth,omitempty"`
+	// StartTicks is the process start time in clock ticks since boot (Linux
+	// /proc/<pid>/stat), its identity independent of the wall clock. Birth
+	// is derived from the boot time, which shifts when the clock is stepped.
+	StartTicks uint64            `json:"start_ticks,omitempty"`
+	Endpoints  map[string]string `json:"endpoints,omitempty"`
 }
 type Usage struct {
 	Windows      int        `json:"windows"`

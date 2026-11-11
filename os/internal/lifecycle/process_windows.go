@@ -75,3 +75,19 @@ func killCommandGroup(c *exec.Cmd) error {
 // Windows console shutdown has no POSIX group identity. Real child-process
 // acceptance and persistent Job Object ownership require a Windows node.
 func processGroupAlive(pid int) (bool, error) { return false, nil }
+
+// killProcessGroup force-ends a process tree whose graceful stop timed out.
+func killProcessGroup(pid int) error {
+	if pid <= 0 {
+		return fmt.Errorf("invalid process identity")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "taskkill.exe", "/PID", strconv.Itoa(pid), "/T", "/F")
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW, HideWindow: true}
+	return cmd.Run()
+}
+
+// The stray scan is Linux-only; these are never called with a stray here.
+func signalProcess(pid int, kill bool) error { return killProcessGroup(pid) }
+func processExists(int) bool                 { return false }

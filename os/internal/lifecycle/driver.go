@@ -281,6 +281,7 @@ func (d NativeDriver) Start(ctx context.Context, c Component, p Paths, id string
 		return r, err
 	}
 	r.PID = cmd.Process.Pid
+	r.StartTicks, _ = processStartTicks(r.PID)
 	proc, err := process.NewProcess(int32(r.PID))
 	if err == nil {
 		r.Birth, err = proc.CreateTime()
@@ -551,11 +552,11 @@ func (d NativeDriver) Alive(ctx context.Context, r Resource) (alive bool, err er
 	if e != nil {
 		return false, e
 	}
-	birth, e := p.CreateTime()
+	same, e := sameProcess(p, r)
 	if e != nil {
 		return false, e
 	}
-	if birth != r.Birth {
+	if !same {
 		return false, nil
 	}
 	// Windows has no Unix zombie state and gopsutil Status is unimplemented.
@@ -571,11 +572,42 @@ func (d NativeDriver) Alive(ctx context.Context, r Resource) (alive bool, err er
 			}
 		}
 	}
+	// The identity was just checked: IsRunning would compare two
+	// boot-time-derived creation times again, which a clock step can split.
+	if runtime.GOOS == "linux" {
+		return true, nil
+	}
 	alive, err = p.IsRunning()
 	if err == nil && !alive {
 		return processGroupAlive(r.PID)
 	}
 	return alive, err
+}
+
+// birthTolerance absorbs a boot-time shift for resources recorded without
+// StartTicks (before nodes recorded it, or where it is unavailable): Linux
+// derives a creation time from the current boot time, which moves by whole
+// seconds when the clock is stepped. Reusing the same PID within this window
+// would need the PID space to wrap in two seconds.
+const birthTolerance = 2000 // ms
+
+// sameProcess reports whether p is still the process r recorded. A false
+// "not the same" here made the node take a live backend for exited: it
+// stopped it without a signal and started another next to it (2026-11-10).
+func sameProcess(p *process.Process, r Resource) (bool, error) {
+	if r.StartTicks != 0 {
+		if ticks, err := processStartTicks(r.PID); err == nil {
+			return ticks == r.StartTicks, nil
+		} else if !errors.Is(err, errNoStartTicks) {
+			return false, err
+		}
+	}
+	birth, err := p.CreateTime()
+	if err != nil {
+		return false, err
+	}
+	diff := birth - r.Birth
+	return diff <= birthTolerance && diff >= -birthTolerance, nil
 }
 func (d NativeDriver) Probe(ctx context.Context, c Component, p Paths, r Resource) error {
 	if c.GroupNetwork && !d.groupIngress.has(r.ID) {
@@ -649,23 +681,45 @@ func (d NativeDriver) Stop(ctx context.Context, c Component, r Resource) error {
 	} else if err = terminateProcess(r.PID); err != nil {
 		return err
 	}
-	stopCtx, cancel := context.WithTimeout(ctx, time.Duration(seconds)*time.Second)
-	defer cancel()
-	for {
-		alive, err = d.Alive(stopCtx, r)
-		if err != nil {
-			return err
-		}
-		if !alive {
-			return nil
-		}
-		select {
-		case <-stopCtx.Done():
-			return fmt.Errorf("stop blocked: %s has not exited", c.Name)
-		case <-time.After(100 * time.Millisecond):
+	exited := func(timeout time.Duration) (bool, error) {
+		stopCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		for {
+			alive, err := d.Alive(stopCtx, r)
+			if err != nil {
+				return false, err
+			}
+			if !alive {
+				return true, nil
+			}
+			select {
+			case <-stopCtx.Done():
+				return false, nil
+			case <-time.After(100 * time.Millisecond):
+			}
 		}
 	}
+	done, err := exited(time.Duration(seconds) * time.Second)
+	if err != nil || done {
+		return err
+	}
+	// A process group still running after its grace period is killed: a
+	// backend left running beside its replacement keeps the instance's
+	// locks and data (the next generation could never start).
+	if r.Runtime == "container" {
+		return fmt.Errorf("stop blocked: %s has not exited", c.Name)
+	}
+	if err := killProcessGroup(r.PID); err != nil {
+		return err
+	}
+	if done, err = exited(killWait); err != nil || done {
+		return err
+	}
+	return fmt.Errorf("stop blocked: %s has not exited after SIGKILL", c.Name)
 }
+
+// killWait is how long a stop waits for a killed process group to go.
+const killWait = 5 * time.Second
 
 func (d NativeDriver) Release(ctx context.Context, r Resource) error {
 	if r.Runtime != "container" {

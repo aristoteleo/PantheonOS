@@ -9,8 +9,14 @@ import (
 	"github.com/shirou/gopsutil/v4/process"
 )
 
-func configureProcess(c *exec.Cmd)       { c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} }
-func terminateProcess(pid int) error     { return syscall.Kill(-pid, syscall.SIGTERM) }
+func configureProcess(c *exec.Cmd)   { c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} }
+func terminateProcess(pid int) error { return syscall.Kill(-pid, syscall.SIGTERM) }
+func killProcessGroup(pid int) error {
+	if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil && err != syscall.ESRCH {
+		return err
+	}
+	return nil
+}
 func killCommandGroup(c *exec.Cmd) error { return syscall.Kill(-c.Process.Pid, syscall.SIGKILL) }
 
 // The group outlives its leader while owned workers are still draining. Do
@@ -60,4 +66,30 @@ func processGroupAlive(pid int) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// signalProcess ends one stray process: SIGTERM, or SIGKILL when kill.
+func signalProcess(pid int, kill bool) error {
+	sig := syscall.SIGTERM
+	if kill {
+		sig = syscall.SIGKILL
+	}
+	return syscall.Kill(pid, sig)
+}
+
+func processExists(pid int) bool {
+	if err := syscall.Kill(pid, 0); err == syscall.ESRCH {
+		return false
+	}
+	// A zombie is gone for every purpose here (it holds no files or locks).
+	if p, err := process.NewProcess(int32(pid)); err == nil {
+		if states, err := p.Status(); err == nil {
+			for _, s := range states {
+				if s == process.Zombie {
+					return false
+				}
+			}
+		}
+	}
+	return true
 }
