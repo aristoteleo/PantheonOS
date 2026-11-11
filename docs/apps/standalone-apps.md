@@ -1445,6 +1445,58 @@ which pauses when idle and takes about a minute to resume.
 - A5: no regression: desktop Agent window, Team Chat Pantheon Agent turns,
   Coding Agents.
 
+**As built (2026-11-11).** PantheonOS `b868ceae` (Agent wait, allocator
+answer), `ff4b8740` (a placed provider still starting counts as not running
+yet: the first live try ended the wait when the shell App started, and three
+binds failed before it served), UI `812fce57` (page and Agent window copy, the
+"Waiting for your Workspace to start" activity). Agent App 0.9.123, frontend
+#50, controller `a96695d7`.
+
+Fixes alongside, on the two faults that kept the Agent from starting that day:
+
+- *Dependency journal* (`os/internal/appgateway/dependency_store.go`): records
+  whose grant expired more than a day ago are pruned at load, every 10 minutes
+  on a write, and at once when full (the retention is derived in the code
+  from how the allocator, the reconciler and model access retry an
+  operation); each owner has a share of 2048 records and 256 live grants, so
+  an owner that fills its share is refused alone and the gateway logs it. On
+  staging the journal went from 477 to 351 records at the first load.
+- *Stray App processes on a node* (`os/internal/lifecycle`): a process's
+  identity is its Linux start time in clock ticks (the creation time derived
+  from the boot time shifts when the clock is stepped, which made a node take
+  a live Agent backend for exited, stop it without a signal and start another
+  beside it); a stop kills the process group after its grace; processes that
+  write to an instance's component log but belong to nothing the ledger runs
+  are ended (SIGTERM, then SIGKILL) before a start, after a stop, on
+  reconcile, at node start and every minute. Node release
+  `fleet-v0.5.1-staging.22`.
+
+**Staging verification (acct4, 2026-11-11).**
+
+- A1 PASS: Agent computer up, Workspace paused before each of 6 loads: chat
+  list and input at 4.80, 3.62, 4.31, 3.71, 3.99, 4.17 s (p50 4.08 s, max
+  4.80 s); the Agent frame at 2.9-4.1 s.
+- A2 PASS: "Use your shell to run: echo WS-OK-42", sent 6.4 s after load:
+  "Waiting for your Workspace to start" under the message from 16.8 s to
+  about 42 s, then one shell call that ran, answer `WS-OK-42` at 46.5 s. Before:
+  six failed calls and "the command never ran" at 28 s.
+- A3 PASS: every load started the paused Workspace (billing 31-57 s after
+  load, its Apps ready 59-76 s).
+- A4 PASS: Agent computer down too: "Starting your Agent…" until the Agent
+  was ready at 26 s, no Workspace wording; usable at 31 s (30 s before: the
+  time is the Agent's own computer coming back, unchanged).
+- A5 PASS: desktop Agent window opened in 4 s and answered "OK" in 9 s;
+  Coding Agents listed the Workspace and its sessions; a new Team Chat
+  Pantheon Agent (Workspace, Fast) mentioned in #general answered "OK" in
+  about 35 s (then deleted with its folder).
+- B live: a process planted in the Agent pod writing to a stopped Agent
+  instance's log was ended by the node 22 s later.
+- Rollout: Agent App 0.9.123 to all 45 staging owners (44 changed, 0
+  errors); agents image sha-6b81ada pinned and prewarmed (k8s, Modal).
+- Left: an Agent computer that is down still takes about 30 s (its pod comes
+  back, then the Agent starts); the allocator's own binding journal also only
+  grows (about 47 records a day on acct4, 4096 per owner).
+
 ## Open decisions
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and
