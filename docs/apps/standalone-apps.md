@@ -1497,6 +1497,102 @@ Fixes alongside, on the two faults that kept the Agent from starting that day:
   back, then the Agent starts); the allocator's own binding journal also only
   grows (about 47 records a day on acct4, 4096 per owner).
 
+## Choosing the computer in the composer (2026-11-11)
+
+The owner asked for the Agent page to be usable while the Workspace is not
+started, and for the composer's computer chip to become a real picker that
+also guides an owner with no computer to add one.
+
+**What was there.**
+
+- The chip next to the model tier is `ChatNodeSwitcher` (UI). It showed only
+  inside an existing conversation, and only once the Agent answered
+  `get_chat_node`. That call first asked where the Agent's Files App runs
+  (`agent_nodes.default_node`), which binds Files and so waited for a paused
+  Workspace (up to 10 s, then the chip stayed hidden). It showed the raw
+  node name (`workspace-377a8b5…`) and no state.
+- A conversation's computer is `chat_node` in its memory (none = the
+  Workspace, where the Agent's Files and Shell Apps run), passed to the core
+  file tools and `run_command` as the context variable `chat_node`; one call
+  can name another with its `node` argument (`agent_nodes.route`).
+- `route` also resolved the Workspace's node before it looked at the named
+  node: the check's call with node `本地` waited 29.5 s for the Workspace,
+  then failed "not one of your nodes". The first turn's environment note
+  waited up to 5 s the same way, so a first message that needs no tool
+  waited for a paused Workspace too.
+
+**Design.**
+
+1. *Nothing waits for the Workspace to know which computer is which.* The
+   Workspace's node is the node the Agent's Files App is bound to, or, before
+   it is bound, the one node of the owner's fleet with the `fs:workspace`
+   capability (the sandbox node). `get_chat_node`, `set_chat_node`, the
+   environment note, sub-agent notes and `route` use that; only a tool that
+   actually runs on the Workspace waits for it (the existing wait with
+   "Waiting for your Workspace to start").
+2. *A named computer is checked before anything waits.* `route` looks the
+   name up in the fleet list first (node id, name, name without `.local`,
+   case-insensitive): an unknown name fails at once with the names it can
+   use, an offline computer fails at once.
+3. *The Agent lists the computers in under a second, with or without a
+   conversation.* `get_chat_node(chat_id)` returns the conversation's
+   computer and every computer of the owner except the Agent's own: for each
+   its id, a readable name (`Workspace` for the Workspace node; a machine's
+   name without `.local`), kind (`workspace` or `computer`), fleet status
+   (online, busy, offline), OS, and whether files and commands work there.
+   With an empty `chat_id` (the new-chat screen) it answers the same list and
+   the default, from any open conversation's agent (or one built once for
+   listing).
+4. *The picker* (`ComputerPicker`, replacing `ChatNodeSwitcher`) is always in
+   the composer's bottom row for a core-tool Agent, on the new-chat screen
+   too. The chip shows a status dot and the computer's name. The menu lists
+   the Workspace first, then the owner's computers by name, each with its
+   state: Ready, Starting, Paused (with Start) or Offline. Choosing one sets
+   the conversation's computer; on the new-chat screen the choice is kept
+   and applied when the first message creates the conversation, before it is
+   sent. Offline computers and computers without files and commands cannot
+   be chosen.
+5. *Workspace state and Start come from the page's host.* The Agent's
+   frontend runs in a packaged-App frame without a Hub session, so the App
+   host interface gains a `computers` capability, given to the Agent App
+   (`agent`) only: `workspace` (ready, starting, paused, or none, read from
+   the Hub's pod status, which starts nothing), `startWorkspace` (the same
+   resume Team Chat uses) and `addComputer`. The Workspace node online in the
+   fleet list is Ready whatever the host says.
+6. *Adding a computer.* "Add a computer" in the menu asks the host to show
+   the Fleet App's "Add a node" panel (`FleetAddNode`: OS choice, one-use
+   join command from `fleetJoinCommand`, the node appearing when it joins)
+   over the page or the desktop. The join token never enters the App's
+   frame: it adds a machine to the owner's fleet. On a host without the
+   capability the entry opens the Fleet App.
+7. *No computer available* (no Workspace and no computer online): the chip
+   reads "No computer" and the menu says that tools need a computer, with
+   "Start Workspace" when there is a paused one and "Add a computer".
+8. *The chat itself never waits for the Workspace.* Loading, reading history,
+   sending, and a turn that needs no computer go ahead while it is paused or
+   starting; the picker never blocks the composer.
+
+**Acceptance criteria (staging, acct4).**
+
+- C1: the picker shows on the new-chat screen and in an existing
+  conversation within the page's 5 s load, with the Workspace paused.
+- C2: it lists the Workspace and every fleet node of the account (a test
+  node joined to acct4), each with the right state: the Workspace paused,
+  starting and ready; the node ready and, after it stops, offline.
+- C3: choosing the node makes the next tool call run there (`hostname` /
+  `uname` output of the node, not of the Workspace); choosing the Workspace
+  again runs it on the Workspace.
+- C4: Workspace paused: a question that needs no tool is answered without
+  waiting for the Workspace (no "Waiting for your Workspace to start"); a
+  tool on the Workspace shows that line, waits, then runs once.
+- C5: a tool call naming an unknown computer fails within a second, without
+  waiting for the Workspace.
+- C6: no computers (Workspace paused, test node stopped): the chip reads "No
+  computer"; "Add a computer" shows the join command for this account and the
+  staging controller (`https://fleet-staging.aristoteleo.com`).
+- C7: the desktop's Agent window has the same picker.
+- C8: no regression: Team Chat Pantheon Agent turns, Coding Agents.
+
 ## Open decisions
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and
