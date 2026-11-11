@@ -763,6 +763,14 @@ func TestAppThatAvoidsKindsWaitsForItsOwnNodeAndMovesHome(t *testing.T) {
 	if _, ok := steps(p)["agent"]; ok || !strings.HasPrefix(got.Reason, "waiting for node") {
 		t.Fatalf("the Agent waits for its own computer, not the sandbox: %+v %+v", steps(p)["agent"], got)
 	}
+	// An assignment to the sandbox left by an older rule (never run there) is dropped.
+	s.NodeID, s.DataNode = "sandbox", ""
+	d.Status.Apps["agent"] = s
+	if got := PlanDeployment(d, testRelease(revAgent), w.view).Status.Apps["agent"]; got.NodeID != "" || !strings.HasPrefix(got.Reason, "waiting for node") {
+		t.Fatalf("not placed on the sandbox: %+v", got)
+	}
+	s.NodeID = "brain"
+	d.Status.Apps["agent"] = s
 
 	// A deployment from before the placement: the Agent ran on the sandbox
 	// (its current revision), the brain keeps an older revision's state.

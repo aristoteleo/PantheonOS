@@ -446,6 +446,12 @@ func (p *appPlanner) locate() *result {
 	if node == "" {
 		// An App on a node that is offline (within grace) keeps its record.
 		r := p.is("waiting", reason)
+		if p.prev.DataNode == "" && p.prev.NodeID != "" && len(p.a.Placement.Avoid) > 0 {
+			if n, online := p.v.Nodes[p.prev.NodeID]; online && slices.Contains(p.a.Placement.Avoid, n.Kind) {
+				// Assigned there by an older rule and never run: it is not placed there now.
+				r.status.NodeID = ""
+			}
+		}
 		return &r
 	}
 	p.node, p.variant, p.ledger = node, variants[p.v.Nodes[node].Platform], p.v.Nodes[node].Ledger
