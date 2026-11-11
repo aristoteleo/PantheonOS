@@ -1764,7 +1764,14 @@ Three things make the wait long:
    topology (the pod first, the Workspace beside it) instead of only the
    Workspace; `/` still calls `GET /api/chatroom` at load, before the Agent
    lookup answers.
-4. *Kept warm while the owner comes back.* The Hub keeps an owner's pod
+4. *A pause stops the Workspace, not the Agent.* `POST /api/chatroom/release`
+   (the desktop's Sandbox panel *Pause*, scripts) stops the topology's other
+   nodes and keeps the Agent computer; nothing stays marked paused, so the
+   next entry starts the Workspace again as it did after a full release. The
+   Agent stops only on its own (`nodes/agent/pause`, Stop Agent). Observed on
+   staging the same evening: a cleanup's release deleted acct4's pod and the
+   next load took 36.8 s to a usable chat.
+5. *Kept warm while the owner comes back.* The Hub keeps an owner's pod
    while they have been active within `AGENT_POD_IDLE_HOURS` (default 168 h:
    a week). Activity is the page's own (load, engaged and pulse heartbeats,
    synced to the DB every minute), and a pod running a chat is never
@@ -1775,7 +1782,7 @@ Three things make the wait long:
    4 vCPU) holds about 16 next to the platform's own pods, so a week of
    warmth fits the owners who actually come back, and the pressure reclaim
    sheds the longest-idle first beyond that.
-5. *A cold pod gives a ready Agent sooner.* The controller passes a fleet's
+6. *A cold pod gives a ready Agent sooner.* The controller passes a fleet's
    deployments as soon as one of its nodes connects (its `/join` or `/token`;
    again 1, 2 and 4 s later while it registers) instead of on the next 5 s
    tick; a pass that made progress is followed after 250 ms (was 1 s); while
@@ -1784,7 +1791,7 @@ Three things make the wait long:
    state. The page reads the deployment every second for the first 90 s of a
    start (was every 4 s). What remains is the volume attach (about 10 s on
    DigitalOcean) and the Agent backend's own start (about 2.5 s).
-6. *No host-drawn copy of the Agent while it starts.* The page keeps its
+7. *No host-drawn copy of the Agent while it starts.* The page keeps its
    "Starting your Agent…" panel with the top bar; it does not draw a chat list,
    conversation or composer of its own. The Agent's frontend is the Agent
    App's, served by the running instance from its own isolated origin
