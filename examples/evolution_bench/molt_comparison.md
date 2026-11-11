@@ -215,7 +215,9 @@ Wilcoxon signed-rank, Holm over four comparisons):
   crashed on the I/O errors); AIDE $3.73, 246 (16 runs reached the $4 cap first).
 - AIDE AHC073 seed 0 has no pick: its top-3 programs (recorded 5.6335) read 0 in all 9 public and
   3 held-out reads on EPYC 7543 (also on the Intel nodes). During the run the same program read
-  5.6335 eight times and 0 once, on a 7543 server. Scored as its start program (0.1510) by the rule
-  above; at 5.63 AIDE's AHC073 mean would be 2.7, and no conclusion above changes.
+  5.6335 eight times and 0 once, on a 7543 server. A separate read on another 7543 gave 0 ("1/150
+  cases rejected -- case 51: TLE CPU limit exceeded") and then 5.6335: the program runs at the edge
+  of the time limit on one case, so it fails some reads on any machine. Scored as its start program
+  (0.1510) by the rule above; at 5.63 AIDE's AHC073 mean would be 2.7, and no conclusion above changes.
 - Time-outs (step 6): no run was stopped by time except AIDE (7 at the 44 h wall clock); the cut
   applied only to AHC070 seeds 1-2 (crashed Shinka runs).
