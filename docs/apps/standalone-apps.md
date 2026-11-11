@@ -1865,6 +1865,95 @@ owners (45 changed, 0 errors, 5 started to move).
   latency (8-10 s for a one-word reply) is the Agent's own and was not
   changed here.
 
+## Fixes after combined check 1 (2026-11-11)
+
+An independent check of the picker, top bar, auto-update and the Agent kept
+warm (acct4) found one High, two Medium and several Low issues.
+
+**What was wrong.**
+
+- *H1: a message lost after the Workspace pauses.* In a conversation whose
+  shell was bound (it ran a command), every run first probed the shell
+  (`_prepare_shell`: `true`, or `cd` into a Team Chat agent's folder) and
+  waited up to 120 s for it. With the Workspace paused the allocator answered
+  "dependency provider not running yet" every 3 s, the chat said "Waiting for
+  model" for 120 s, and the run then returned an error before the user's
+  message was stored: the message vanished on the next reload. This broke
+  design point 8 ("the chat itself never waits for the Workspace").
+- *M1: a tool waiting on a paused Workspace had no way out.* The line
+  "Waiting for your Workspace to start" offered nothing; nothing started the
+  Workspace (a node-level pause is not undone by the page), and the wait only
+  ended after 5 minutes.
+- *M2: the Agent page's warm load* was usable at p50 3.8 s but up to 6.3 s,
+  and the picker came 5.0-6.0 s after load (C1 says within 5 s).
+- Lows: the top bar ignored the light theme; its online count lagged the
+  composer picker by about 30 s; a stopped computer vanished instead of
+  showing Offline (C2); the Store detail page kept "v1.1.0 is available" after
+  the App updated itself; the desktop Agent window showed a raw node id
+  ("Backend: n_6c22…") and a restored window for a deleted conversation said
+  "Could not load this conversation"; `/app/team-chat` at 390 px had no OS
+  Mode icon; the controller logged about 5,000 lines an hour of "maintenance
+  deferred: nats: no responders" and its host had no journald size cap (1.8 GB
+  of journal, disk 78 %).
+
+**Design.**
+
+1. *A run never waits for its shell.* The run only asks the shell binding to
+   check itself before its next command (`AllocatedToolProvider.prepare`):
+   the first command of the run (or any later one, if the check failed) runs
+   the probe first, with the existing wait for a starting Workspace, then the
+   command. A run that needs no command never touches the Workspace.
+2. *A message is never dropped.* A run that fails before it starts (its team
+   cannot be built, its note cannot be made) stores the user's message in the
+   conversation, ends the chat with the reason shown as an error, and answers
+   `kept: true`; the user resends to retry.
+3. *The wait has a way out and an end.* While a tool waits for the Workspace,
+   the chat's wait line has a "Start Workspace" button (the page's host
+   `computers` capability), and the page starts a paused Workspace by itself
+   once when a wait begins. The wait ends after 3 minutes (was 5) with "your
+   Workspace did not start within 3 minutes (it may be paused: use Start
+   Workspace …). Nothing was executed."; the probe of design point 1 is not
+   retried past that.
+4. *The warm page and the picker within 5 s* (see M2's findings below).
+5. Lows: the top bar's light theme works; the pill and the composer picker
+   read the same computer list (one source, refreshed together); a stopped
+   computer stays listed as Offline; the Store detail page drops "is
+   available" once the App is on that version; the desktop Agent window names
+   the computer, and a restored window whose conversation is gone opens a new
+   conversation; `/app/<id>` at 390 px keeps the OS Mode icon; the
+   controller's "maintenance deferred" line is logged once per state change
+   (and at most every 10 minutes while it lasts); the controller host's
+   journald is capped (`SystemMaxUse=500M`).
+
+**Acceptance criteria (staging, acct4).**
+
+- F1 (H1): in a conversation that ran a shell command, with the Workspace
+  paused (`budget.running` empty), a plain question is answered within 15 s of
+  sending, with no "Waiting for your Workspace to start"; the message and the
+  answer are in the conversation file after a reload. Then a shell command in
+  that conversation shows the wait line, the Workspace starts, and the command
+  runs once in the right folder.
+- F2 (H1): a run that fails before it starts keeps the user's message in the
+  conversation and shows an error (unit test; the live path has no
+  pre-run failure to provoke).
+- F3 (M1): Workspace paused at the node level: a shell command shows "Waiting
+  for your Workspace to start" with a "Start Workspace" button; the Workspace
+  is started without a click (auto-start) and the command runs once; a wait
+  that cannot end (unit test with a short wait) ends the tool with the clear
+  error, nothing run.
+- F4 (M2): warm pod, Workspace paused: chat usable within 5 s (p50 and max
+  over at least 5 loads), and the picker within 5 s of load in each.
+- F5 (Lows): each Low above checked once on staging (light theme bar colour,
+  pill count equals the picker's after a state change within 5 s, Offline row
+  for a stopped node, Store detail after an auto-update, desktop Agent window
+  label and a restored dead conversation, 390 px OS Mode icon, controller log
+  rate under 100 lines an hour for that message, `journalctl --disk-usage`
+  under the cap).
+- F6: no regression: C1-C8, T1-T3, desktop Agent window, Team Chat Pantheon
+  Agent turn, Coding Agents.
+- Out of scope: the cold path B (pod deleted, about 40 s to the first answer)
+  stays as documented above; that is the owner's decision.
+
 ## Open decisions
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and
