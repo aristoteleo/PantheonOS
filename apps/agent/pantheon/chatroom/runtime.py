@@ -89,6 +89,11 @@ def _is_internal_notification(message: list[dict]) -> bool:
     return False
 
 
+# The instance identity of the team that lists the owner's computers before
+# any conversation is open (the new-chat screen's computer picker).
+LISTING_CONVERSATION = "computer-picker"
+
+
 class AgentRuntime(AgentLifetime, ToolSet):
     """
     Agent execution and conversation service with explicitly supplied integrations.
@@ -1009,7 +1014,8 @@ class AgentRuntime(AgentLifetime, ToolSet):
     async def _listing_agent(self, chat_id: str):
         """The agent whose fleet lists the owner's computers: the
         conversation's, or without one (the new-chat screen) any open
-        conversation's, else one built once for listing."""
+        conversation's, else a team built once for listing (its own
+        instance identity, LISTING_CONVERSATION: it never holds a chat)."""
         if chat_id:
             return (await self.get_team_for_chat(chat_id)).team_agents[0]
         teams = [t for t in [getattr(self, "_default_team", None), *self.chat_teams.values()] if t is not None]
@@ -1023,7 +1029,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
                         default = self.template_manager.get_template("default")
                         if not default:
                             raise RuntimeError("Default template not found in template manager")
-                        team = await self._create_team_from_template(default)
+                        team = await self._create_team_from_template(default, chat_id=LISTING_CONVERSATION)
                         self._listing_team = team
             teams = [team]
         return teams[0].team_agents[0]

@@ -324,3 +324,27 @@ async def test_the_first_turns_environment_note_does_not_wait_for_the_workspace(
     out = await asyncio.wait_for(runtime._with_environment_note("chat", memory, message, "/workspace"), 1)
     assert "workspace (ws)" in out[0]["_llm_content"]
     assert leader.providers["file_manager"].binds == 0
+
+
+@pytest.mark.asyncio
+async def test_without_any_open_conversation_a_listing_team_is_built_once():
+    import asyncio
+    from types import SimpleNamespace
+    from pantheon.chatroom.runtime import AgentRuntime, LISTING_CONVERSATION
+
+    leader = await starting_agent()
+    runtime = AgentRuntime.__new__(AgentRuntime)
+    runtime._environment = SimpleNamespace(host_node="pod")
+    runtime._default_team = None
+    runtime.chat_teams = {}
+    runtime.template_manager = SimpleNamespace(get_template=lambda name: SimpleNamespace(name=name))
+    built = []
+
+    async def create(config, chat_id=None):
+        built.append(chat_id)
+        return SimpleNamespace(team_agents=[leader])
+    runtime._create_team_from_template = create
+    for _ in range(2):
+        reply = await asyncio.wait_for(runtime.get_chat_node(""), 1)
+        assert reply["success"] and len(reply["nodes"]) == 3
+    assert built == [LISTING_CONVERSATION]
