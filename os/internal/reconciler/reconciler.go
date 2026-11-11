@@ -53,15 +53,20 @@ type Reconciler struct {
 	// Grace before an absent node counts as lost (default 90 s).
 	Grace time.Duration
 	// Busy deployments are revisited every Tick, settled ones every Settled.
-	// A pass that made progress is followed after Next (default 1 s): a
+	// A pass that made progress is followed after Next (default 250 ms): a
 	// start goes reconcile, prepare, configure and start in successive
 	// passes, and a Tick between each made a cold node seconds slower.
-	Tick, Settled, Next time.Duration
+	// While an App waits on an operation its node is carrying out (an
+	// install, a start), the deployment is revisited every Busy (default
+	// 400 ms) for the first BusyFor (default 2 min) of that state, so the next
+	// step follows the operation's end instead of the next Tick.
+	Tick, Settled, Next, Busy, BusyFor time.Duration
 	// CallTimeout bounds one node call a step makes (default 20 s).
 	CallTimeout time.Duration
 	Now         func() time.Time
 
 	mu       sync.Mutex
+	kicks    chan string          // fleets whose nodes just connected
 	missing  map[string]time.Time // fleet/node -> first seen absent
 	inflight map[string]bool
 	last     map[string]time.Time
@@ -97,7 +102,13 @@ func (r *Reconciler) defaults() {
 		r.Settled = 30 * time.Second
 	}
 	if r.Next == 0 {
-		r.Next = time.Second
+		r.Next = 250 * time.Millisecond
+	}
+	if r.Busy == 0 {
+		r.Busy = 400 * time.Millisecond
+	}
+	if r.BusyFor == 0 {
+		r.BusyFor = 2 * time.Minute
 	}
 	if r.CallTimeout == 0 {
 		r.CallTimeout = 20 * time.Second
@@ -109,7 +120,46 @@ func (r *Reconciler) defaults() {
 	if r.missing == nil {
 		r.missing, r.inflight, r.last, r.settled = map[string]time.Time{}, map[string]bool{}, map[string]time.Time{}, map[string]bool{}
 	}
+	if r.kicks == nil {
+		r.kicks = make(chan string, 64)
+	}
 	r.mu.Unlock()
+}
+
+// kickAfter is when a fleet's deployments are passed again after one of its
+// nodes connected: at once, then while the node is still registering (its
+// registry record follows its credential by about a second) and announcing
+// its ledger.
+var kickAfter = []time.Duration{0, time.Second, 2 * time.Second, 4 * time.Second}
+
+// Kick passes a fleet's deployments now and over the next seconds: one of its
+// nodes has just connected (a brain pod back, a Workspace resumed), so an App
+// waiting for that node can be placed at once instead of on the next Tick.
+func (r *Reconciler) Kick(fleet string) {
+	r.defaults()
+	for _, after := range kickAfter {
+		time.AfterFunc(after, func() {
+			select {
+			case r.kicks <- fleet:
+			default:
+			}
+		})
+	}
+}
+
+// transitional reports whether an App of the status waits on an operation
+// its node is carrying out, and has for less than BusyFor.
+func (r *Reconciler) transitional(status deployments.Status) bool {
+	now := r.Now().Unix()
+	for _, a := range status.Apps {
+		switch a.State {
+		case "starting", "installing", "recovering", "stopping":
+			if now-a.Since < int64(r.BusyFor/time.Second) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Run reconciles until ctx ends: on every deployment write, and periodically.
@@ -128,10 +178,15 @@ func (r *Reconciler) Run(ctx context.Context) {
 			changed[k] = true
 		case k := <-next:
 			changed[k] = true
+		case fleet := <-r.kicks:
+			changed["fleet:"+fleet] = true
 		case <-tick.C:
 		}
 		for _, d := range r.Store.All() {
 			k := d.Fleet + "/" + d.Name
+			if changed["fleet:"+d.Fleet] {
+				changed[k] = true
+			}
 			r.mu.Lock()
 			due := changed[k] || !r.settled[k] || r.Now().Sub(r.last[k]) >= r.Settled
 			if !due || r.inflight[k] {
@@ -153,8 +208,16 @@ func (r *Reconciler) Run(ctx context.Context) {
 				delete(r.inflight, k)
 				r.last[k], r.settled[k] = r.Now(), settled && err == nil
 				r.mu.Unlock()
+				again := time.Duration(0)
 				if progressed && !settled {
-					time.AfterFunc(r.Next, func() {
+					again = r.Next
+				} else if !settled && err == nil {
+					if current, err := r.Store.Get(d.Fleet, d.Name); err == nil && r.transitional(current.Status) {
+						again = r.Busy
+					}
+				}
+				if again > 0 {
+					time.AfterFunc(again, func() {
 						select {
 						case next <- k:
 						default:

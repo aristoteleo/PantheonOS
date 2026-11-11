@@ -1700,6 +1700,171 @@ Fixes after the check:
   (`scrollWidth` = width). T2 PASS: "1/2 online", rows and Start as above.
   T3 PASS: "OS Mode" with the grid icon, `/desktop.html`.
 
+## The Agent on its own computer, and kept warm (2026-11-11)
+
+The owner asked why opening `/` still shows "Starting your Agent…" for a long
+time: the Agent should open fast and never wait for the Workspace.
+
+**What happens on a visit today (staging, before the change).** The owner's
+Agent App runs on their Agent computer, the `chatroom-<user>` pod (node kind
+`pod`, node `agent-<user>`); Files, Shell, Desktop, Notebook, Web and
+Evolution run on the Workspace (a Modal sandbox, kind `sandbox`). On sign-in
+and on `GET /api/chatroom` the Hub creates a missing pod; the node joins the
+controller, which then installs (when the release is new to the node),
+prepares and starts the Agent App, one reconcile pass per step.
+
+Three things make the wait long:
+
+1. *The Agent computer is usually gone.* Of 45 staging owners only 4 had a
+   running pod. The brain pool never reclaims an idle pod, but nothing brings
+   one back either once it is gone: the cluster's only node was replaced on
+   11-05 (bare pods die with it; the health checker restores only owners
+   whose row still said running), the capacity-pressure reclaim sheds the
+   least recently active pods when the node fills, and a full release (the
+   desktop's Sandbox panel *Pause*, `POST /api/chatroom/release`) stops the
+   pod with the Workspace. The sign-in warm-up started only the Workspace
+   (the Modal pool), not the pod.
+2. *The Agent is placed on the Workspace for some owners.* Its placement is
+   empty, so the planner ranks nodes by capability count: the pod (`proc`)
+   wins while it is online, but when the pod is gone and the Workspace is up
+   the Agent fails over to the Workspace, and from then on its data lives
+   there. Five owners had their Agent's data on the Workspace node; their
+   Agent waited for the Workspace (60-120 s) on every visit, and a move back
+   home could copy an older state the pod kept from before the failover.
+3. *A cold pod is slow to give a ready Agent.* Measured for admin
+   (pod absent, 11-11 18:52): page load and pod created 0.3 s; volume attach
+   and container start 10 s (pod running at 11 s); node online 12 s; the
+   controller's first operation 2.5 s later (it waits for its 5 s tick); then
+   install (18.7 s, the release was new to that pod), copy data, prepare,
+   start, each one or two seconds after the previous ended (a pass follows
+   progress after 1 s, an operation still running waits for the next tick);
+   the Agent backend's start to ready 2.5 s; the page reads the deployment
+   every 4 s while the Agent starts.
+
+**Design.**
+
+1. *The Agent runs only on its own computer.* On a hosted topology (a
+   `runner` brain of kind `pod`), the Hub sets the Agent App's placement to
+   `{"prefer": ["pod"], "avoid": ["sandbox", "machine", "frontend"]}` whenever
+   it saves an owner's deployment (setup, rollout, the follower), so no
+   release has to carry it. While the pod is away the controller says
+   `waiting for node of kind pod to come online (…)` and the page says the
+   Agent's computer is coming back; it never fails over to the Workspace or
+   to the owner's own machines. Local mode has no Hub and keeps its own
+   placement (one machine takes everything).
+2. *Existing deployments move home.* An admin pass
+   (`POST /api/admin/agent-setup/placement`, dry run by default) changes only
+   the Agent's placement on every deployment (release and pins stay) and lists
+   whose Agent is on a Workspace. Such an Agent stops there and moves to its
+   pod with its data: the planner carries the state from the node that holds
+   its newest data (the recorded data node), not an older revision the pod
+   kept. With `start_moving` the pass starts those owners' pod and Workspace
+   at once so the move happens now, not on their next visit.
+3. *The Agent computer is there before the page asks.* Sign-in warms the
+   topology (the pod first, the Workspace beside it) instead of only the
+   Workspace; `/` still calls `GET /api/chatroom` at load, before the Agent
+   lookup answers.
+4. *A pause stops the Workspace, not the Agent.* `POST /api/chatroom/release`
+   (the desktop's Sandbox panel *Pause*, scripts) stops the topology's other
+   nodes and keeps the Agent computer; nothing stays marked paused, so the
+   next entry starts the Workspace again as it did after a full release. The
+   Agent stops only on its own (`nodes/agent/pause`, Stop Agent). Observed on
+   staging the same evening: a cleanup's release deleted acct4's pod and the
+   next load took 36.8 s to a usable chat.
+5. *Kept warm while the owner comes back.* The Hub keeps an owner's pod
+   while they have been active within `AGENT_POD_IDLE_HOURS` (default 168 h:
+   a week). Activity is the page's own (load, engaged and pulse heartbeats,
+   synced to the DB every minute); a pod whose health record says it runs a
+   task is skipped. Past that the pod is released (checked every 10 minutes from the
+   DB, so a Hub restart does not forget anyone); the next visit or sign-in
+   creates it again. The capacity-pressure reclaim stays as it is. Cost: a pod
+   requests 20m CPU and 600Mi (it uses 0.4-0.85 GB); the staging node (16 GB,
+   4 vCPU) holds about 16 next to the platform's own pods, so a week of
+   warmth fits the owners who actually come back, and the pressure reclaim
+   sheds the longest-idle first beyond that.
+6. *A cold pod gives a ready Agent sooner.* The controller passes a fleet's
+   deployments as soon as one of its nodes connects (its `/join` or `/token`;
+   again 1, 2 and 4 s later while it registers) instead of on the next 5 s
+   tick; a pass that made progress is followed after 250 ms (was 1 s); while
+   an App waits on an operation its node carries out (install, copy, start),
+   the deployment is passed every 400 ms for the first two minutes of that
+   state. The page reads the deployment every second for the first 90 s of a
+   start (was every 4 s). What remains is the volume attach (about 10 s on
+   DigitalOcean) and the Agent backend's own start (about 2.5 s).
+7. *No host-drawn copy of the Agent while it starts.* The page keeps its
+   "Starting your Agent…" panel with the top bar; it does not draw a chat list,
+   conversation or composer of its own. The Agent's frontend is the Agent
+   App's, served by the running instance from its own isolated origin
+   (`/package/…` of the instance, storage keyed to that origin), so nothing of
+   it can render before the instance runs. A copy drawn by the page would be a
+   second Agent UI outside the Agent's package (not versioned with it), and its
+   cached chat titles and messages would live in the Hub's origin, outside the
+   Agent's isolated storage. With the pod kept warm the real Agent is up in a
+   few seconds on the visits that matter; a cold pod is the rare case.
+
+**Acceptance criteria (staging).**
+
+- A: warm pod, Workspace paused: chat usable within 5 s of load (p50 and max
+  over at least 5 loads).
+- B: pod deleted, Workspace paused: the page shows within 5 s and the Agent
+  answers a no-tool message within 20 s of load (p50 and max over at least 3
+  runs; if 20 s cannot be reached, the measured floor and why).
+- C: after the placement pass, no owner's Agent is placed on a Workspace node
+  (all deployments listed).
+- D: no regression: the desktop's Agent window, Team Chat Pantheon Agent
+  turns, Coding Agents, the computer picker, the System Apps follower.
+
+**As built (2026-11-11).** PantheonOS `c33a304b` (controller: kick on
+`/join` and `/token`, `Next` 250 ms, `Busy` 400 ms, the avoid-kinds reason,
+moving home from the recorded data node) and `9f99f8e7` (a stale
+assignment to an avoided node is dropped); hub `44354db` (placement on setup,
+`keep_agent_home`, the admin pass, sign-in warms the topology, the resident
+idle limit) and `a0e8c89` (the Workspace-only release); UI `85783078` (the lookup reads
+every second for 90 s). No Agent App or node release was needed. Live on
+staging: controller (build of PantheonOS `codex/cold-agent`), hub image
+`455d33f2`, frontend #56 (`302bf17e`); the placement pass ran over all 45
+owners (45 changed, 0 errors, 5 started to move).
+
+**Staging verification (acct4 unless named; times from page load).**
+
+| | Before | After |
+|---|---|---|
+| A: pod up, Workspace paused, chat usable (5 loads) | 3.5-4.5 s (and 36.8 s on the load after a cleanup's release had deleted the pod) | 3.5-4.6 s, p50 3.9 s |
+| B: pod deleted, Workspace paused: page shown | 1.6-2.9 s | 1.5-1.8 s |
+| B: Agent ready (controller) | 19.0, 25.6, 28.5 s | 16.1, 21.6, 24.0 s |
+| B: chat usable | 22.5, 31.9, 32.8 s | 20.8, 26.3, 28.2 s |
+| B: answer to a one-word request | 32.7, 41.2, 42.7 s (p50 41.2) | 33.0, 38.6, 38.9 s (p50 38.6) |
+| Agent on the Workspace, pod gone, Workspace paused | usable 69.3 s, answer 86.0 s (Agent ready at 58.8 s, after the Workspace) | no Agent is placed there any more |
+
+- Cold pod phases after the change (3 runs): pod created 1.3-1.5 s, running
+  6.7-16.2 s (the volume attach dominates and varies), node back and the
+  first operation within 0.4 s of it, the Agent's start operation 3.5-4.1 s
+  (backend start to ready 2.7-3.2 s), ready noticed 1-1.5 s later, the Agent
+  frame 2-2.5 s after that, chat usable 2 s later. Before, the pod-running to
+  Agent-ready span was 10.6-13.3 s; after, 7.8-9.4 s.
+- B's 20 s answer is not reached: the floor is the pod (7-16 s) plus the
+  Agent's start (about 8 s) plus the page (about 4 s) plus the first answer,
+  which alone takes 7.8-10.4 s with a warm Agent (two loads: usable at 3.8-4.2
+  s, answer at 12.2-15.2 s). The design therefore keeps pods warm so the cold
+  path is rare.
+- C PASS: all 45 deployments carry the Agent placement; none has its Agent on
+  a Workspace node (`coldagent/runs/survey-after.txt`). The four owners whose
+  Agent had failed over moved home with their data (`import_data` on their
+  pod); one whose Agent never ran was placed on its pod. Agents already on
+  their pod were not restarted (the owner's stayed ready).
+- D PASS: desktop Agent window open in 8 s, answered "OK" in 9 s; its computer
+  picker lists "Workspace · Cloud workspace · Ready"; Coding Agents lists the
+  Workspace, the Pantheon Agent and its sessions; a Team Chat Pantheon agent on
+  the Workspace answered "OK" 31.1 s after the mention and was deleted with
+  its conversation; the System Apps follower kept moving owners (five verified
+  ready on 0.9.131 after the pass) and acct4 stayed up to date.
+- Left: an Agent whose pod still holds a used instance of the same revision
+  restarts that older state when it moves home (the node will not overwrite a
+  used instance's state); it was hit only by the reproduction on acct4 (one
+  test chat stays in the Workspace's stopped instance). The first answer
+  latency (8-10 s for a one-word reply) is the Agent's own and was not
+  changed here.
+
 ## Open decisions
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and

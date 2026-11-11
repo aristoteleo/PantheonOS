@@ -558,6 +558,65 @@ func TestProgressIsFollowedWithoutWaitingForTheTick(t *testing.T) {
 	}
 }
 
+// A node that connects (its /join or /token) kicks its fleet's deployments:
+// an App waiting for it is placed at once, not on the next Tick.
+func TestNodeConnectingKicksItsFleet(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "release", "artifacts"), 0o700)
+	rev, variant := artifact(t, filepath.Join(dir, "release"), "allocator package")
+	variant.AppID = "pantheon-allocator"
+	release := &Release{SHA256: "x", dir: filepath.Join(dir, "release"), Index: Index{Protocol: 2, Apps: map[string]map[string]Variant{
+		"allocator": {"linux-amd64": variant}}}}
+	releases, _ := NewReleases(filepath.Join(dir, "cache"), nil)
+	pin := fmt.Sprintf("%064d", 0)
+	releases.cache[pin] = release
+	node := &fakeNode{id: "brain", kind: "pod", caps: []string{"proc"}, staged: map[string][]byte{}, configs: map[string]lifecycle.AppConfiguration{},
+		defs:   map[string]lifecycle.Definition{rev: {AppID: "pantheon-allocator", Version: "1.0.0", Components: []lifecycle.Component{{Name: "backend"}}}},
+		mans:   map[string]json.RawMessage{rev: json.RawMessage(`{"apiVersion":2,"id":"pantheon-allocator","version":"1.2.0"}`)},
+		ledger: lifecycle.Ledger{Owner: "f_1", Node: "brain", Installations: map[string]*lifecycle.Installation{}, Instances: map[string]*lifecycle.Instance{}, Operations: map[string]*lifecycle.Operation{}}}
+	store, err := deployments.Open(filepath.Join(dir, "deployments"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	fleet := &fakeFleet{nodes: map[string]*fakeNode{}}
+	r := &Reconciler{Store: store, Releases: releases, Nodes: fleet, Tick: time.Hour, Settled: time.Hour, Next: 10 * time.Millisecond}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go r.Run(ctx)
+	spec := deployments.Spec{Release: deployments.Release{URL: "https://releases.test/set.tar.gz", SHA256: pin},
+		Apps: map[string]deployments.AppSpec{"allocator": {Package: "allocator", Scope: "deployment", Intent: deployments.Running}}}
+	if _, err := store.Put("f_1", "team", 0, spec); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		d, _ := store.Get("f_1", "team")
+		if d.Status.Apps["allocator"].State == "waiting" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no node yet: the App waits: %+v", d.Status)
+		}
+	}
+	fleet.mu.Lock()
+	fleet.nodes["brain"] = node
+	fleet.mu.Unlock()
+	time.Sleep(100 * time.Millisecond)
+	if d, _ := store.Get("f_1", "team"); d.Status.Apps["allocator"].State != "waiting" {
+		t.Fatalf("nothing passed it before the kick: %+v", d.Status)
+	}
+	r.Kick("f_1")
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		d, _ := store.Get("f_1", "team")
+		if len(d.Status.Conditions) > 0 && d.Status.Conditions[0].Status {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("waited for the tick after the node connected: %+v", d.Status)
+		}
+	}
+}
+
 // A provider whose node takes a request and never answers fails only its
 // consumer's start, in CallTimeout; the pass returns and the other Apps keep
 // converging instead of waiting for the pass's deadline.

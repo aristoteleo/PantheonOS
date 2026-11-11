@@ -34,6 +34,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aristoteleo/pantheonos/os/internal/appgateway"
@@ -185,6 +186,14 @@ func Main(args []string) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/delegate", delegateHandler(authority, refreshPub, revoked))
+	// A node that has just (re)connected (its /join or /token): the reconciler
+	// passes its fleet's deployments at once (set once deployments are served).
+	var nodeConnected atomic.Pointer[func(fleet string)]
+	connected := func(fleet string) {
+		if f := nodeConnected.Load(); f != nil && fleet != "" {
+			(*f)(fleet)
+		}
+	}
 
 	// resolveFleet maps a presented key to its fleet id, accepting EITHER a
 	// hub-validated credential (a session-derived fleet JWT, or a pbk_ key the hub
@@ -321,6 +330,9 @@ func Main(args []string) {
 			}
 			resp.RefreshToken = rt
 		}
+		if req.NodeID != "" {
+			connected(fid)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp) //nolint:errcheck
 	})
@@ -372,6 +384,7 @@ func Main(args []string) {
 		if p.NodeID != "" {
 			userPubs.record(p.NodeID, userPubFromCreds(creds)) // track the LATEST cred for the kick
 			nodeFleets.record(p.NodeID, p.FleetID)
+			connected(p.FleetID)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(proto.TokenResponse{Creds: string(creds)}) //nolint:errcheck
@@ -635,6 +648,8 @@ func Main(args []string) {
 		}
 		nodes := newNATSNodes(authority, *natsURL)
 		r := &reconciler.Reconciler{Store: store, Secrets: secrets, Releases: releases, Nodes: nodes}
+		kick := r.Kick
+		nodeConnected.Store(&kick)
 		reconciler.RegisterActivity(mux, store, nodes, deploymentAuth)
 		if grants != nil {
 			r.Grants = grants
