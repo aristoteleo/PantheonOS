@@ -157,8 +157,8 @@ when you want it*, with the existing Pull update / merge actions.
 ### 4.3 Running backends and readiness
 
 An App whose new version cannot become a launchable snapshot (invalid or
-foreign manifest, a runtime restriction, an archive that does not unpack)
-fails readiness: `official` is moved back to `previous` (the earlier commit is
+foreign manifest, an archive that does not unpack, a frontend or backend
+entry file the release does not contain) fails readiness: `official` is moved back to `previous` (the earlier commit is
 kept under `refs/pantheon/official-before/<commit>` as well), the release is
 recorded in `failed`, a notice is written, and the next launch runs the
 previous version.
@@ -269,6 +269,11 @@ picker pins; *Follow Store* returns to the recommended release.
 
 The admin rollout (`POST /api/admin/agent-setup/rollout`) skips Pinned owners
 unless their `user_ids` are named explicitly; it otherwise stays as it is.
+
+`POST /api/admin/system-apps-follow/pass {user_ids?, release?}` runs one pass
+now. With `user_ids` and `release` it moves only those owners toward that
+release instead of the pin, through the same apply/verify/rollback path: an
+operator checks one release on a test account without changing the pin.
 
 ## 6. Out of scope
 
