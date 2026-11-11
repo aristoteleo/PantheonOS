@@ -738,3 +738,59 @@ func TestStopWithUnknownOutcomeIsRetriedUnderANewOperation(t *testing.T) {
 		t.Fatalf("cancelled under a new operation: first %q, again %+v", first, again)
 	}
 }
+
+// An App placed on its own kind of node (the Agent on its brain pod) never
+// fails over to a sandbox while that node is away, and one that ran on a
+// sandbox before the placement was set moves home with its data.
+func TestAppThatAvoidsKindsWaitsForItsOwnNodeAndMovesHome(t *testing.T) {
+	w, d := readyWorld(t)
+	agent := d.Spec.Apps["agent"]
+	agent.Placement = deployments.Placement{Prefer: []string{"pod"}, Avoid: []string{"sandbox", "machine", "frontend"}}
+	d.Spec.Apps["agent"] = agent
+	p := PlanDeployment(d, testRelease(revAgent), w.view)
+	if len(p.Steps) != 0 || p.Status.Apps["agent"].NodeID != "brain" {
+		t.Fatalf("an Agent on its pod stays: %+v %+v", p.Steps, p.Status.Apps["agent"])
+	}
+	// The brain pod is gone for good (deleted, not coming back as itself).
+	brain := w.view.Nodes["brain"]
+	delete(w.view.Nodes, "brain")
+	w.view.Lost["brain"] = true
+	s := d.Status.Apps["agent"]
+	s.DataNode = ""
+	d.Status.Apps["agent"] = s
+	p = PlanDeployment(d, testRelease(revAgent), w.view)
+	got := p.Status.Apps["agent"]
+	if _, ok := steps(p)["agent"]; ok || !strings.HasPrefix(got.Reason, "waiting for node") {
+		t.Fatalf("the Agent waits for its own computer, not the sandbox: %+v %+v", steps(p)["agent"], got)
+	}
+
+	// A deployment from before the placement: the Agent ran on the sandbox
+	// (its current revision), the brain keeps an older revision's state.
+	w.view.Nodes["brain"] = brain
+	delete(w.view.Lost, "brain")
+	delete(w.view.Nodes["brain"].Ledger.Instances, "i-agent")
+	w.install("brain", revAgentV2)
+	w.instance("brain", "i-agent-old", "pantheon-agent", revAgentV2, "stopped", 2)
+	delete(w.view.Nodes["brain"].Ledger.Installations, revAgent)
+	w.install("sandbox", revAgent)
+	w.instance("sandbox", "i-agent-s", "pantheon-agent", revAgent, "ready", 3)
+	d.Status.Apps["agent"] = deployments.AppStatus{NodeID: "sandbox", DataNode: "sandbox", InstanceID: "i-agent-s", Generation: 3,
+		State: "ready", Revision: revAgent, Providers: map[string]string{"allocator": "brain/i-alloc/2"}}
+	p = PlanDeployment(d, testRelease(revAgent), w.view)
+	if st := steps(p)["agent"]; st.Kind != StepStop || st.Node != "sandbox" {
+		t.Fatalf("stops on the sandbox first: %+v", st)
+	}
+	w.instance("sandbox", "i-agent-s", "pantheon-agent", revAgent, "stopped", 3)
+	d.Status = p.Status
+	p = PlanDeployment(d, testRelease(revAgent), w.view)
+	if st := steps(p)["agent"]; st.Kind != StepInstall || st.Node != "brain" {
+		t.Fatalf("installs on the brain: %+v %+v", st, p.Status.Apps["agent"])
+	}
+	w.install("brain", revAgent)
+	d.Status = p.Status
+	p = PlanDeployment(d, testRelease(revAgent), w.view)
+	st := steps(p)["agent"]
+	if st.Kind != StepMoveData || st.SourceNode != "sandbox" || st.Node != "brain" || st.Source.Generation != 3 || st.Source.Digest != revAgent {
+		t.Fatalf("moves its newest state home from the sandbox, not the brain's older one: %+v %+v", st, p.Status.Apps["agent"])
+	}
+}

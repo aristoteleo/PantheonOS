@@ -544,6 +544,16 @@ func (p *appPlanner) install() *result {
 		p.prev.DataFrom = ""
 		return nil
 	}
+	// The App last ran on another node that still holds its stopped state
+	// (an Agent moving home from a sandbox it failed over to): carry that
+	// state, not an older one this node kept from before.
+	if home := p.dataHome(); home != "" && home != p.node {
+		for _, l := range p.all {
+			if l.node == home && l.in.State == "stopped" && l.in.Generation > 0 && len(l.in.Resources) == 0 {
+				return p.move(hold)
+			}
+		}
+	}
 	// Carry the App's data from the revision it last ran on this node, else
 	// (an App placed before that was recorded) its newest stopped revision.
 	var source *lifecycle.Instance
@@ -578,9 +588,19 @@ func (p *appPlanner) install() *result {
 // move carries the App's state from another node: the stopped instance on the
 // node it last ran on, else the newest stopped one elsewhere. A lost node's
 // data cannot be read; the App then starts empty there.
+// dataHome is the node holding the App's newest state: the node its data was
+// last recorded on, else the node it was last placed on.
+func (p *appPlanner) dataHome() string {
+	if p.prev.DataNode != "" {
+		return p.prev.DataNode
+	}
+	return p.lastNode
+}
+
 func (p *appPlanner) move(hold func() *result) *result {
+	home := p.dataHome()
 	rank := func(l located) (bool, bool) { // the revision it last ran, then the node it ran on
-		return l.node == p.lastNode && p.prev.DataFrom != "" && l.in.Digest == p.prev.DataFrom, l.node == p.lastNode
+		return l.node == home && p.prev.DataFrom != "" && l.in.Digest == p.prev.DataFrom, l.node == home
 	}
 	var source *located
 	for i, l := range p.all {
@@ -1244,6 +1264,12 @@ func (p *appPlanner) place(variants map[string]Variant) (string, string) {
 		var requires []string
 		for _, variant := range variants {
 			requires = variant.Requires
+		}
+		if len(p.a.Placement.Avoid) > 0 && len(p.a.Placement.Prefer) > 0 {
+			// The App is meant for one kind of node (an Agent on its own
+			// computer): say that it waits for that node, not that none fits.
+			return "", fmt.Sprintf("waiting for node of kind %s to come online (%s does not run on %s nodes)",
+				strings.Join(p.a.Placement.Prefer, " or "), p.a.Package, strings.Join(p.a.Placement.Avoid, ", "))
 		}
 		return "", fmt.Sprintf("no online node offers %v for %s", requires, p.a.Package)
 	}
