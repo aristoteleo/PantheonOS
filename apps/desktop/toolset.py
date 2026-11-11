@@ -1241,7 +1241,7 @@ class DesktopToolSet(ToolSet):
                 "tag": lambda: manager.tag(app_id, version, scope, repository_id),
                 "initialize": manager.versions.ensure,
                 "versions": lambda: manager.versions.versions(app_id, scope, repository_id, version[7:] if version.startswith("branch:") else ""),
-                "default": lambda: manager.versions.set_default(app_id, scope, version, repository_id),
+                "default": lambda: _default_and_policy(manager, app_id, scope, version, repository_id),
                 "resolve": lambda: manager.versions.resolve(app_id, scope, version, repository_id),
                 "preview": lambda: manager.versions.preview(app_id, (download or {}).get('app_release') or {}, version, repository_id),
             }
@@ -1277,6 +1277,66 @@ class DesktopToolSet(ToolSet):
             # the desktop draws; reads leave the index as it is.
             if action not in ('versions', 'resolve', 'trash', 'instances', 'prepare', 'release'):
                 self._app_index_changed()
+
+    @tool(exclude=True)
+    async def desktop_store_updates(self, action: str = "status", app_id: str = "", scope: str = "",
+                                    repository_id: str = "", policy: str = "", version: str = "",
+                                    ids: list | None = None) -> dict:
+        """Store Apps follow their Store repository's newest release unless pinned
+        (docs/apps/app-auto-update.md).
+
+        status: each installed App with a Store repository: policy (follow|pinned),
+        state (up_to_date, pending, pinned, modified, failed), the newer release if
+        any, and unacknowledged notices. set_policy(app_id, scope, repository_id,
+        policy='follow'|'pinned', version=tag or commit to pin; default: the one
+        it launches now). check: run an update pass now. ack(ids?): the notices
+        were shown.
+        """
+        from . import app_auto_update as updates
+        from .store_manager import AppStoreManager
+        try:
+            manager = AppStoreManager(self._app_scope_roots())
+            if action == 'set_policy':
+                result = await asyncio.to_thread(updates.set_policy, manager, app_id, scope, repository_id, policy, version)
+                if policy == updates.FOLLOW:
+                    self._auto_updates().kick()
+                return result
+            if action == 'check':
+                return await self._auto_updates().run()
+            if action == 'ack':
+                return {'success': True, 'acknowledged': await asyncio.to_thread(updates.acknowledge, manager, ids)}
+            if action != 'status':
+                raise ValueError('Actions: status, set_policy, check, ack')
+            apps = await asyncio.to_thread(updates.followed, manager)
+            if app_id:
+                apps = [a for a in apps if a['id'] == app_id and (not repository_id or a['repository_id'] == repository_id)]
+            heads = {}
+            if apps:
+                try:
+                    heads, _ = await updates.store_heads(self._store_binding, sorted({updates.upstream_of(a)['id'] for a in apps}))
+                except (ValueError, OSError) as exc:
+                    logger.debug(f'[app-auto-update] heads unavailable: {exc}')
+            described = await asyncio.to_thread(lambda: [updates.describe(manager, a, heads.get(updates.upstream_of(a)['id']))
+                                                         for a in apps])
+            last = self._auto_updates().last
+            return {'success': True, 'apps': described,
+                    'notices': [n for n in await asyncio.to_thread(updates.notices, manager) if not n.get('acknowledged')],
+                    'last_pass': last and {'at': last.get('at'), 'outcomes': last.get('outcomes')}}
+        except (ValueError, OSError) as exc:
+            return {'success': False, 'error': str(exc)}
+        finally:
+            if action == 'set_policy':
+                self._app_index_changed()
+
+    def _auto_updates(self):
+        if getattr(self, '_auto_updater', None) is None:
+            from .app_auto_update import Updater
+            self._auto_updater = Updater(self)
+        return self._auto_updater
+
+    def start_auto_updates(self):
+        """The Store updater's background passes (the managed Desktop starts it)."""
+        self._auto_updates().start()
 
     @tool(exclude=True)
     async def desktop_store_git(self, app_id: str, scope: str = "user", limit: int = 100, repository_id: str = "") -> dict:
@@ -1368,6 +1428,8 @@ class DesktopToolSet(ToolSet):
 
     async def cleanup(self):
         try:
+            if getattr(self, '_auto_updater', None) is not None:
+                await self._auto_updater.close()
             if getattr(self, '_app_index_publisher', None) is not None:
                 self._app_index_publisher.close()
             if getattr(self, '_agent_lease_table', None) is not None:
@@ -3319,3 +3381,12 @@ class DesktopToolSet(ToolSet):
             return {"success": True}
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+
+def _default_and_policy(manager, app_id, scope, version, repository_id):
+    """Set default, and record what it means for following the Store: a
+    version pins, following the official branch follows."""
+    result = manager.versions.set_default(app_id, scope, version, repository_id)
+    from .app_auto_update import note_default
+    note_default(manager, app_id, scope, repository_id, version)
+    return result

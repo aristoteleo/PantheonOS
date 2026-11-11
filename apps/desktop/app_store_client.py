@@ -40,6 +40,10 @@ async def store_action(manager, action, app_id, repository_id, scope, version, n
                 raise ValueError(str(detail))
             return response.json()
         try:
+            if action == 'heads':
+                # Newest published release of each repository (ids comma-separated).
+                reply = await request('GET', 'apps/heads', params={'repository_ids': repository_id})
+                return {**reply, 'base': base}
             if action == 'search':
                 return await request('GET', 'packages', params={'type': 'app', 'q': query, 'limit': 20})
             if action == 'inspect':

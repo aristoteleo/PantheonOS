@@ -81,7 +81,8 @@ async def instances(desktop, app_ids=None) -> dict:
             found.setdefault(app_id, []).append({
                 'node_id': node['node_id'], 'node': node.get('name'), 'state': instance['state'],
                 'instance_id': instance.get('instance_id'), 'revision': instance.get('digest'),
-                'generation': instance.get('generation'), 'version': instance.get('version')})
+                'generation': instance.get('generation'), 'version': instance.get('version'),
+                'keep_alive': bool(instance.get('keep_alive')), 'usage': instance.get('usage') or {}})
     return found
 
 

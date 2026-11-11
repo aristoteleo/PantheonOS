@@ -187,6 +187,8 @@ async def create_service(configuration, workspace, state, *, data_port=0):
             store_binding=store)
         # The controller's copy of the installed-App index, current from the start.
         service._app_index_changed()
+        # Store Apps follow their Store releases (docs/apps/app-auto-update.md §4).
+        service.start_auto_updates()
         return service
     except BaseException:
         async def dispose():
