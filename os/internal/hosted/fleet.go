@@ -39,6 +39,81 @@ type Fleet struct {
 	mu        sync.Mutex
 	apps      map[string]auth.AppsCredential
 	transfers map[string]map[string]map[string]any // fleet -> transfer id -> latest progress
+	known     map[string]map[string]knownNode      // fleet -> node id -> last live record (listed)
+}
+
+// KnownNodeDays is how long a computer that left the fleet (a clean stop
+// deletes its registry record, a crash lets it expire after 30 s) stays
+// listed as offline instead of vanishing (combined check 1, C2).
+const KnownNodeDays = 7
+
+// knownNode is one owner's computer as last seen live.
+type knownNode struct {
+	record map[string]any
+	seen   time.Time
+}
+
+// rememberable: an owner's own computer. Platform nodes (the Agent's pod, a
+// Workspace sandbox, a page's frontend) and delegated HPC nodes come and go
+// with their own lifecycle and are never listed once gone.
+func rememberable(r map[string]any) bool {
+	switch str(r["kind"]) {
+	case "pod", "sandbox", "workspace", "frontend":
+		return false
+	}
+	if truthy(r["delegation"]) || slices.Contains(strings_(field(r, "capability", "caps")), "fs:workspace") {
+		return false
+	}
+	return str(r["node_id"]) != ""
+}
+
+// listed is the live records plus the owner's computers seen live within
+// KnownNodeDays that are gone now, each with state.status "offline". For the
+// node lists only (fleet_list_nodes, fleet_inventory): nothing is ever run on
+// a remembered node.
+func (f *Fleet) listed(fleet string, live []map[string]any, now time.Time) []map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.known == nil {
+		f.known = map[string]map[string]knownNode{}
+	}
+	known := f.known[fleet]
+	if known == nil {
+		known = map[string]knownNode{}
+		f.known[fleet] = known
+	}
+	here := map[string]bool{}
+	for _, r := range live {
+		id := str(r["node_id"])
+		here[id] = true
+		if rememberable(r) {
+			known[id] = knownNode{record: r, seen: now}
+		}
+	}
+	out := append([]map[string]any(nil), live...)
+	for id, k := range known {
+		if here[id] {
+			continue
+		}
+		if now.Sub(k.seen) > KnownNodeDays*24*time.Hour {
+			delete(known, id)
+			continue
+		}
+		gone := map[string]any{}
+		for key, v := range k.record {
+			gone[key] = v
+		}
+		state := map[string]any{}
+		if old, ok := k.record["state"].(map[string]any); ok {
+			for key, v := range old {
+				state[key] = v
+			}
+		}
+		state["status"], state["instances"] = "offline", []any{}
+		gone["state"] = state
+		out = append(out, gone)
+	}
+	return out
 }
 
 func (f *Fleet) Call(ctx context.Context, c *Call) (any, error) {
@@ -180,7 +255,8 @@ func (f *Fleet) inventory(ctx context.Context, fleet string) (map[string]any, er
 	if err != nil {
 		return nil, err
 	}
-	return inventory(records, time.Now()), nil
+	now := time.Now()
+	return inventory(f.listed(fleet, records, now), now), nil
 }
 
 // self is the node the Agent of this deployment runs on: "this machine" for
@@ -249,6 +325,7 @@ func (f *Fleet) listNodes(ctx context.Context, c *Call) (any, error) {
 	if err != nil {
 		return Failure(err), nil
 	}
+	records = f.listed(c.Fleet, records, time.Now())
 	self := f.self(c)
 	nodes := []map[string]any{}
 	for _, n := range records {

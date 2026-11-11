@@ -10,6 +10,56 @@ import (
 	"time"
 )
 
+// DeferLogEvery is how often a maintenance deferral that goes on (the same
+// error for the same journal) is logged again: a provider that is away (a
+// paused Workspace answers "nats: no responders") deferred every pass, about
+// 5,000 lines an hour on staging (combined check 1).
+const DeferLogEvery = 10 * time.Minute
+
+type deferral struct {
+	err        string
+	logged     time.Time
+	suppressed int
+}
+
+// deferLog logs one journal's maintenance deferral when it starts or its error
+// changes, and then once every DeferLogEvery with how many passes it skipped;
+// a pass that succeeds again is logged once (deferResolved).
+func (a *Allocator) deferLog(fleet, kind, path string, err error, now time.Time) {
+	key := fleet + "|" + kind + "|" + path
+	a.mu.Lock()
+	if a.deferred == nil {
+		a.deferred = map[string]deferral{}
+	}
+	d, seen := a.deferred[key]
+	text := err.Error()
+	if seen && d.err == text && now.Sub(d.logged) < DeferLogEvery {
+		d.suppressed++
+		a.deferred[key] = d
+		a.mu.Unlock()
+		return
+	}
+	skipped := d.suppressed
+	a.deferred[key] = deferral{err: text, logged: now}
+	a.mu.Unlock()
+	if seen && d.err == text {
+		log.Printf("[hosted] %s %s maintenance still deferred (%d passes in %s): %v", fleet, kind, skipped+1, now.Sub(d.logged).Round(time.Second), err)
+		return
+	}
+	log.Printf("[hosted] %s %s maintenance deferred: %v", fleet, kind, err)
+}
+
+func (a *Allocator) deferResolved(fleet, kind, path string) {
+	key := fleet + "|" + kind + "|" + path
+	a.mu.Lock()
+	_, seen := a.deferred[key]
+	delete(a.deferred, key)
+	a.mu.Unlock()
+	if seen {
+		log.Printf("[hosted] %s %s maintenance resumed", fleet, kind)
+	}
+}
+
 type retirement struct {
 	Protocol  int               `json:"protocol"`
 	Consumer  identity          `json:"consumer"`
@@ -204,7 +254,9 @@ func (a *Allocator) MaintainOnce(ctx context.Context, fleet string) {
 	if dir, err := a.dir(fleet, "bindings"); err == nil {
 		for _, path := range journals(dir) {
 			if err := a.maintainBinding(ctx, fleet, path); err != nil {
-				log.Printf("[hosted] %s binding maintenance deferred: %v", fleet, err)
+				a.deferLog(fleet, "binding", path, err, a.now())
+			} else {
+				a.deferResolved(fleet, "binding", path)
 			}
 		}
 	}
@@ -214,7 +266,9 @@ func (a *Allocator) MaintainOnce(ctx context.Context, fleet string) {
 			var record sessionRecord
 			if _, err := readJournal(path, &record); err == nil && record.Phase != "terminal" {
 				if _, err := a.maintainSession(ctx, fleet, path, &record, false); err != nil {
-					log.Printf("[hosted] %s session maintenance deferred: %v", fleet, err)
+					a.deferLog(fleet, "session", path, err, a.now())
+				} else {
+					a.deferResolved(fleet, "session", path)
 				}
 			}
 			unlock()
