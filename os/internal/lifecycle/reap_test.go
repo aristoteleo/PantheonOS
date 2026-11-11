@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -64,10 +65,10 @@ func (f *fakeProcesses) sent() []string {
 	return out
 }
 
-// A running instance keeps its recorded leader, its group and descendants
-// that started their own session; a backend the ledger lost and the processes
-// of a stopped instance are ended, SIGKILL after the grace for one that
-// ignores SIGTERM.
+// A running instance keeps its recorded leader, its group and processes that
+// left it (a daemonized server); a backend the node started and lost track of
+// is ended (SIGKILL after the grace for one that ignores SIGTERM), and so is
+// every process of a stopped instance.
 func TestReapStraysKeepsRecordedProcessesAndEndsTheRest(t *testing.T) {
 	m, f, d := setup(t)
 	if op := submit(t, m, d, "install", "install", "s", 0); op.State != "succeeded" {
@@ -77,18 +78,18 @@ func TestReapStraysKeepsRecordedProcessesAndEndsTheRest(t *testing.T) {
 		t.Fatal(op)
 	}
 	running := m.instanceID(d, "s")
-	leader := 50
+	leader, self := 50, os.Getpid()
 	m.update(func() { m.ledger.Instances[running].Resources[0].PID = leader })
 	_ = f
 	other := "0123456789abcdef0123456789abcdef"
 	procs := &fakeProcesses{
 		table: processTable{
-			parent: map[int]int{leader: 0, 101: leader, 102: 101, 200: 1, 201: 1, 300: 1},
-			group:  map[int]int{leader: leader, 101: leader, 102: 102, 200: 200, 201: 200, 300: 300},
+			parent: map[int]int{leader: self, 101: leader, 102: 101, 103: self + 7, 200: self, 201: self, 300: self + 7},
+			group:  map[int]int{leader: leader, 101: leader, 102: 102, 103: 103, 200: 200, 201: 201, 300: 300},
 			apps: []appProcess{{leader, running, "backend"}, {101, running, "backend"}, {102, running, "backend"},
-				{200, running, "backend"}, {201, running, "backend"}, {300, other, "backend"}},
+				{103, running, "backend"}, {200, running, "backend"}, {201, running, "backend"}, {300, other, "backend"}},
 		},
-		alive:      map[int]bool{leader: true, 101: true, 102: true, 200: true, 201: true, 300: true},
+		alive:      map[int]bool{leader: true, 101: true, 102: true, 103: true, 200: true, 201: true, 300: true},
 		ignoreTERM: map[int]bool{201: true},
 	}
 	procs.install(t)
@@ -103,8 +104,10 @@ func TestReapStraysKeepsRecordedProcessesAndEndsTheRest(t *testing.T) {
 	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
 		t.Fatal("signals", got)
 	}
-	if !procs.alive[300] || !procs.alive[leader] || !procs.alive[101] || !procs.alive[102] {
-		t.Fatal("ended a process it had to keep (or another instance's)")
+	for _, pid := range []int{leader, 101, 102, 103, 300} {
+		if !procs.alive[pid] {
+			t.Fatal("ended a process it had to keep (or another instance's)", pid)
+		}
 	}
 	m.serial.Lock()
 	err = m.reapStrays(context.Background(), "")

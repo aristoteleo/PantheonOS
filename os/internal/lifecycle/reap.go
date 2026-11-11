@@ -38,23 +38,28 @@ var (
 	strayKillWait    = killWait
 )
 
-// reapStrays ends every process that writes to an App instance's component
-// log but belongs to no running resource the ledger records for it: a backend
-// the node lost track of, or a child left behind by one. Such a process holds
-// the instance's locks and data, so no new generation could start beside it
-// (2026-11-11: "Project registry is busy" until killed by hand). It sends
-// SIGTERM, waits strayGrace, then SIGKILL. only limits it to one instance id
-// ("" = all). Called with the serial lock held (no start is between creating
-// its process and recording it). Returns an error if a stray survives.
+// reapStrays ends App processes the ledger does not run, so no new
+// generation starts beside an old one that holds the instance's locks and
+// data (2026-11-11: "Project registry is busy" until killed by hand). A
+// process belongs to an instance when its stdout or stderr is the instance's
+// component log. For an instance with nothing running every such process is a
+// stray; for a running instance only a backend this node started and lost
+// track of (its direct child, not a recorded leader or in a recorded group).
+// Other processes of a running instance that left its process group (a
+// daemonized window server, a session of its own) are its own business. It
+// sends SIGTERM, waits strayGrace, then SIGKILL. only limits it to one
+// instance id ("" = all). Called with the serial lock held (no start is
+// between creating its process and recording it). Returns an error if a
+// stray survives.
 func (m *Manager) reapStrays(ctx context.Context, only string) error {
 	table, err := scanAppProcesses(filepath.Join(m.root, "data"))
 	if err != nil || len(table.apps) == 0 {
 		return err
 	}
 	// The recorded leaders whose processes still run (or whose state cannot
-	// be read: never kill what might be live and recorded).
-	keep := map[int]bool{}
-	for _, in := range m.Snapshot().Instances {
+	// be read: never kill what might be live and recorded), and their instances.
+	keep, running := map[int]bool{}, map[string]bool{}
+	for id, in := range m.Snapshot().Instances {
 		for _, r := range in.Resources {
 			if r.Runtime != "process" || r.PID <= 0 {
 				continue
@@ -63,14 +68,17 @@ func (m *Manager) reapStrays(ctx context.Context, only string) error {
 			alive, err := m.driver.Alive(c, r)
 			cancel()
 			if alive || err != nil {
-				keep[r.PID] = true
+				keep[r.PID], running[id] = true, true
 			}
 		}
 	}
 	self := os.Getpid()
 	var strays []appProcess
 	for _, p := range table.apps {
-		if (only != "" && p.Instance != only) || p.PID == self || owned(p.PID, keep, table) {
+		if (only != "" && p.Instance != only) || p.PID == self {
+			continue
+		}
+		if running[p.Instance] && (table.parent[p.PID] != self || keep[p.PID] || keep[table.group[p.PID]]) {
 			continue
 		}
 		strays = append(strays, p)
@@ -111,19 +119,4 @@ func (m *Manager) reapStrays(ctx context.Context, only string) error {
 		return fmt.Errorf("a process of a previous generation (%d) is still running", left[0].PID)
 	}
 	return nil
-}
-
-// owned reports whether pid belongs to a kept leader: in its process group,
-// or a descendant of it (a child that started its own session).
-func owned(pid int, keep map[int]bool, table processTable) bool {
-	if keep[table.group[pid]] {
-		return true
-	}
-	for i := 0; i < 64 && pid > 1; i++ {
-		if keep[pid] {
-			return true
-		}
-		pid = table.parent[pid]
-	}
-	return false
 }
