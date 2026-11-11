@@ -215,6 +215,9 @@ func Tools(app *App) ([]*appsvc.Tool, error) {
 			return app.conversation(strP(p, "conversation_id"), intP(p, "after")), nil
 		},
 		"agent_delete": func(_ context.Context, p map[string]any) (any, error) {
+			if boolP(p, "with_session", false) {
+				return app.removeWithSession(strP(p, "conversation_id")), nil
+			}
 			return app.remove(strP(p, "conversation_id")), nil
 		},
 		"agents_links": func(_ context.Context, p map[string]any) (any, error) {

@@ -143,6 +143,7 @@
       let state = null
       let canNavigate = false
       let canOpenFiles = false
+      let canComputers = false
       let hostInfo = null, visitorInfo = null
       let stateCb = null
       const actions = new Map()
@@ -333,6 +334,8 @@
           canNavigate = m.capabilities?.appNavigation === 1
           // The host shows the files this App links (an App page's side panel).
           canOpenFiles = m.capabilities?.fileOpening === 1
+          // The owner's computers: the Workspace's state, Start, Add a computer (the Agent App only).
+          canComputers = m.capabilities?.computers === 1
           // A hosted App (docs/apps/app-hosting.md) learns who is using it.
           hostInfo = m.host || null
           visitorInfo = m.visitor || null
@@ -394,6 +397,21 @@
           openFile: (path, name) => canOpenFiles
             ? request({ t: 'navigate', op: 'openFile', args: name ? { path, name } : { path } }, 120_000)
             : Promise.reject(new Error('This host does not open files.')),
+        },
+        // The owner's computers, as the host knows them (docs/apps/standalone-apps.md,
+        // "Choosing the computer in the composer"). The host shows the join command
+        // itself: a join token never enters an App's frame.
+        computers: {
+          get available() { return canComputers },
+          workspace: () => canComputers
+            ? request({ t: 'navigate', op: 'workspace', args: {} }, 30_000)
+            : Promise.reject(new Error('This host does not report the Workspace.')),
+          startWorkspace: () => canComputers
+            ? request({ t: 'navigate', op: 'startWorkspace', args: {} }, 60_000)
+            : Promise.reject(new Error('This host cannot start the Workspace.')),
+          addComputer: () => canComputers
+            ? request({ t: 'navigate', op: 'addComputer', args: {} }, 30_000)
+            : Promise.reject(new Error('This host cannot add a computer.')),
         },
         onEvent(name, cb) {
           if (!events.has(name)) events.set(name, new Set())

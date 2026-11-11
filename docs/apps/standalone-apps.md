@@ -1593,6 +1593,113 @@ also guides an owner with no computer to add one.
 - C7: the desktop's Agent window has the same picker.
 - C8: no regression: Team Chat Pantheon Agent turns, Coding Agents.
 
+### The App page's top bar
+
+Asked alongside: a darker, more modern bar on the Agent page and every
+`/app/<id>` page; the "● Connected" text replaced with something useful (the
+owner's computers); "Desktop" renamed.
+
+- *Style.* 40 px, flat, near-black (`#0b0d12`, the Agent page's darkest
+  surface) with a 1 px bottom line; pill-shaped buttons (26-28 px) with hover
+  and focus rings; the light theme keeps the layout on a near-white bar
+  (component tokens `--bar-*`). Below 700 px the computer name and text
+  buttons other than OS Mode go; below 420 px OS Mode keeps its icon only.
+- *Computers instead of "Connected"* (`FleetIndicator`): a pill with one dot
+  per computer (the Workspace and the owner's own, five at most, then +N) and
+  "N/M online", green when one is ready, amber while one starts, grey when none
+  is up. Its menu lists them in the composer picker's rows and words
+  (`fleetComputers.ts` builds them with the picker's `computerRows` from the
+  Fleet's node list and the Hub's Workspace state), with Start for a paused
+  Workspace, "Add a computer" (the same Fleet "Add a node" panel) and "Open
+  Fleet". When the page's connection is down the pill turns red and says
+  "Reconnecting…"; otherwise the connection is not mentioned. The computer an
+  App shows (a viewer's file) is still named beside it.
+- *OS Mode.* "Desktop" is "OS Mode", with a grid icon and the tooltip "Open
+  the full Pantheon OS desktop"; "Open on desktop" is "Open in OS Mode", and
+  the account menu's "Open desktop" is "Open OS Mode".
+
+**Acceptance criteria.**
+
+- T1: at 1440 px and 390 px the bar is 40 px, dark, nothing overflows the
+  page width; light theme still readable.
+- T2: the pill shows the Workspace and every fleet computer of the account
+  with the right states and count; its menu starts a paused Workspace, opens
+  Add a computer with the join command, links to Fleet; "Connected" is gone;
+  a lost connection shows red "Reconnecting…".
+- T3: the Agent page and `/app/<id>` pages say "OS Mode" (no "Desktop"
+  button), linking to `/desktop.html`.
+
+### As built, and the fixes after Fast Agent check 1 (2026-11-11)
+
+PantheonOS `a9106b78` (design), `6332093e` (reaper, journal), `f85e2a49`
+(Agent: no waiting to know the Workspace, `get_chat_node('')`, `route` checks
+first, a run's latest status kept for a page opened mid-run; Team Chat agent
+delete), `c402a32e` (listing team), `04868d75` (CI race in a node test),
+`018d509b` (the runtime's copy of the App host SDK gets `computers`: the
+Agent's isolated origin serves that copy), `839dc20a` (an unknown node's error
+does not offer the Agent's own computer). UI `1e03ddb3`, `995be4f1` (top bar),
+`ff1d5643`, `a3a07a68` (`pkg:agent` and `agent` get `computers`; the
+Workspace shows before the Agent answers), `e35261d8` (summary step "Waiting
+for Workspace", phone menu). Live on staging: controller `2274780c`, node
+`fleet-v0.5.1-staging.24`, agents image `sha-04868d7`, Agent App 0.9.128 on all
+45 owners, frontend #54 (`a3a07a68`).
+
+Fixes after the check:
+
+- *A4.* The Agent window while its Agent's instance comes back says
+  "Starting your Agent…" (it said "Starting on your workspace…"). Measured
+  with the Agent computer deleted and gone (acct4): page load to pod created
+  1.7 s, pod ready 13.4 s, node back and the Agent App recovering 18 s, ready
+  28 s, conversation usable 35.9 s; nothing waits on the Workspace. The
+  check's 48-58 s came from loading while the deleted pod was still
+  terminating (31 s grace: the page first bound to the dying instance). The
+  page now asks the Hub every second (was 3 s) for the first 90 s.
+- *Low 1.* A run's latest status is kept with the in-flight message
+  (`event_store`), so a reload or a second tab says "Waiting for your
+  Workspace to start" (2.2 s after a reload mid-wait, measured).
+- *Low 2.* The running step reads "Waiting for Workspace" in the message's
+  summary and the timeline while its tool waits.
+- *Low 3.* `route` looks a node up first: `本地` failed in 10 ms with the
+  computers to use (Workspace paused).
+- *Low 4.* The stray reaper checks each process's start time again before
+  SIGTERM and SIGKILL; a process whose start time cannot be read is never
+  signalled. Ledger records without a start time keep the creation-time check.
+- *Low 5.* An owner at its journal share loses its own tombstones over an
+  hour old at once (more than three times the longest retry that needs
+  them); the log says how many records are live grants and how many recent
+  tombstones.
+- *Low 6.* Deleting a Team Chat agent deletes its Coding Agents conversation
+  and, for a Pantheon agent, the Agent conversation it continued (`pantheon
+  agent chat --json --chat ID --delete` on its computer); best effort, a
+  computer that is away keeps them. acct4's leftover test chats were deleted.
+
+**Staging verification (acct4).**
+
+- C1 PASS: picker on the new-chat screen 4.2-6.6 s after load (0.1 s after
+  the message input; the first load after an Agent restart is the slowest), in
+  an existing conversation 4.3 s; Workspace paused.
+- C2 PASS: picker and top bar list "Workspace · Paused (Start)" and the test
+  node "acct4-picker · macOS · Ready"; the Workspace "Starting…" while it
+  resumed and "Ready" once up.
+- C3 PASS: with acct4-picker chosen `hostname; uname -s` gave
+  `Weizes-MacBook-Pro.local / Darwin`; Workspace chosen again gave
+  `modal / Linux`.
+- C4 PASS: Workspace paused, "17 times 3" answered 7.1 s after sending with no
+  Workspace line; a shell command showed "Waiting for your Workspace to start"
+  and "Waiting for Workspace" on its step, then ran once (output `modal`).
+- C5 PASS: tool result for node `本地` 10 ms after the call.
+- C6 PASS: test node stopped, Workspace paused: chip "No computer", the menu
+  offers Start Workspace and Add a computer; the Fleet "Add a node" panel
+  shows `curl … fleet-v0.5.1-staging.24/install.sh | sh -s -- --controller
+  'https://fleet-staging.aristoteleo.com' --join-token '…'`.
+- C7 PASS: the desktop's Agent window shows the picker (Workspace · Ready).
+- C8 PASS: a Team Chat Pantheon agent on the Workspace answered "OK" in 36.7 s;
+  deleting it reported `conversation_deleted: true` and left no Agent
+  conversation; Coding Agents listed the Workspace and the Pantheon Agent.
+- T1 PASS: 40 px dark bar, no horizontal overflow at 1440 and 390 px
+  (`scrollWidth` = width). T2 PASS: "1/2 online", rows and Start as above.
+  T3 PASS: "OS Mode" with the grid icon, `/desktop.html`.
+
 ## Open decisions
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and

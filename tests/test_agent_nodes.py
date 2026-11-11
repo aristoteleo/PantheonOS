@@ -45,7 +45,7 @@ class FakeFleet:
                 {"node_id": "mac", "name": "Mac", "os": "darwin", "shell": "posix", "status": "online",
                  "caps": ["fs:local", "proc"], "file_roots": ["/Users/me"]},
                 {"node_id": "pod", "name": "brain", "os": "linux", "shell": "posix", "status": "online",
-                 "caps": [], "file_roots": []},
+                 "caps": [], "file_roots": [], "is_self": True},
                 {"node_id": "off", "name": "Laptop", "os": "windows", "shell": "powershell", "status": "offline",
                  "caps": ["fs:local", "proc"], "file_roots": ["C:/Users/me"]}]}
         if name == "node_call":
@@ -230,3 +230,122 @@ async def test_a_conversations_working_directory_on_its_node():
     # Another node named in the call does not take this one's folder.
     await agent.call_tool("shell__run_command", {"command": "ls", "node": "off"}, context_variables=dict(cv))
     assert describe_node({"node_id": "mac", "name": "Mac"}, default=False, workdir="/Users/me/proj").count("/Users/me/proj") == 1
+
+
+class StartingFiles:
+    """A Files provider whose App runs on a Workspace that is still starting:
+    binding it waits (docs/apps/standalone-apps.md, "Choosing the computer in
+    the composer")."""
+
+    _bound = None
+
+    def __init__(self):
+        self.binds = 0
+
+    async def bound_node(self):
+        self.binds += 1
+        import asyncio
+        await asyncio.sleep(3600)
+
+
+async def starting_agent():
+    agent = await agent_on()
+    agent.providers["file_manager"] = StartingFiles()
+    return agent
+
+
+@pytest.mark.asyncio
+async def test_a_named_node_is_checked_before_anything_waits_for_the_workspace():
+    import asyncio
+    agent = await starting_agent()
+    reply = await asyncio.wait_for(route(agent, "shell__run_command", {"command": "ls"}, "本地"), 1)
+    assert "not one of your nodes" in reply["error"] and "Mac" in reply["error"] and "Workspace" in reply["error"]
+    assert "brain" not in reply["error"]  # the Agent's own computer is not offered
+    assert "offline" in (await asyncio.wait_for(route(agent, "shell__run_command", {"command": "ls"}, "off"), 1))["error"]
+    # The Workspace, by id or name, runs as usual (its own wait), never through the Fleet App.
+    assert await asyncio.wait_for(route(agent, "shell__run_command", {"command": "ls"}, "ws"), 1) is None
+    assert await asyncio.wait_for(route(agent, "shell__run_command", {"command": "ls"}, "Workspace"), 1) is None
+    # A machine by its name, case and .local aside.
+    ran = await asyncio.wait_for(route(agent, "shell__run_command", {"command": "uname"}, "mac.local"), 1)
+    assert ran["node_id"] == "mac" and ran["output"] == "Darwin\n"
+    assert agent.providers["file_manager"].binds == 0
+
+
+@pytest.mark.asyncio
+async def test_the_picker_lists_computers_while_the_workspace_starts_with_or_without_a_conversation():
+    import asyncio
+    from types import SimpleNamespace
+    from pantheon.chatroom.runtime import AgentRuntime
+    from pantheon.internal.memory import Memory
+
+    leader = await starting_agent()
+    runtime = AgentRuntime.__new__(AgentRuntime)
+    runtime._environment = SimpleNamespace(host_node="pod")
+    runtime._default_team = None
+    runtime.chat_teams = {}
+    memory = Memory("chat")
+    memory.extra_data = {"chat_node": "mac"}
+
+    async def team_for(chat_id):
+        return SimpleNamespace(team_agents=[leader])
+    runtime.get_team_for_chat = team_for
+    runtime.memory_manager = SimpleNamespace(get_memory=lambda chat_id: memory, save_one=lambda chat_id: None)
+    reply = await asyncio.wait_for(runtime.get_chat_node("chat"), 1)
+    assert reply["success"] and reply["default_node_id"] == "ws" and reply["node_id"] == "mac"
+    names = {n["node_id"]: (n["name"], n["kind"], n["status"]) for n in reply["nodes"]}
+    assert names == {"ws": ("Workspace", "workspace", "online"), "mac": ("Mac", "computer", "online"),
+                     "off": ("Laptop", "computer", "offline")}
+    # The new-chat screen: an open conversation's agent lists them.
+    runtime.chat_teams = {"other": SimpleNamespace(team_agents=[leader])}
+    fresh = await asyncio.wait_for(runtime.get_chat_node(""), 1)
+    assert fresh["success"] and fresh["node_id"] == "ws" and len(fresh["nodes"]) == 3
+    # Choosing by name, and back to the Workspace, without waiting either.
+    assert (await asyncio.wait_for(runtime.set_chat_node("chat", "Laptop"), 1))["node_id"] == "off"
+    assert memory.extra_data["chat_node"] == "off"
+    assert (await asyncio.wait_for(runtime.set_chat_node("chat", ""), 1))["node_id"] == "ws"
+    assert memory.extra_data["chat_node"] is None
+    assert leader.providers["file_manager"].binds == 0
+
+
+@pytest.mark.asyncio
+async def test_the_first_turns_environment_note_does_not_wait_for_the_workspace():
+    import asyncio
+    from types import SimpleNamespace
+    from pantheon.chatroom.runtime import AgentRuntime
+    from pantheon.internal.memory import Memory
+
+    leader = await starting_agent()
+    runtime = AgentRuntime.__new__(AgentRuntime)
+
+    async def team_for(chat_id):
+        return SimpleNamespace(team_agents=[leader])
+    runtime.get_team_for_chat = team_for
+    memory = Memory("chat")
+    message = [{"role": "user", "content": "hi"}]
+    out = await asyncio.wait_for(runtime._with_environment_note("chat", memory, message, "/workspace"), 1)
+    assert "workspace (ws)" in out[0]["_llm_content"]
+    assert leader.providers["file_manager"].binds == 0
+
+
+@pytest.mark.asyncio
+async def test_without_any_open_conversation_a_listing_team_is_built_once():
+    import asyncio
+    from types import SimpleNamespace
+    from pantheon.chatroom.runtime import AgentRuntime, LISTING_CONVERSATION
+
+    leader = await starting_agent()
+    runtime = AgentRuntime.__new__(AgentRuntime)
+    runtime._environment = SimpleNamespace(host_node="pod")
+    runtime._default_team = None
+    runtime.chat_teams = {}
+    runtime.template_manager = SimpleNamespace(get_template=lambda name: SimpleNamespace(name=name))
+    built = []
+
+    async def create(config, chat_id=None):
+        built.append(chat_id)
+        return SimpleNamespace(team_agents=[leader])
+    runtime._create_team_from_template = create
+    for _ in range(2):
+        reply = await asyncio.wait_for(runtime.get_chat_node(""), 1)
+        assert reply["success"] and len(reply["nodes"]) == 3
+    assert built == [LISTING_CONVERSATION]

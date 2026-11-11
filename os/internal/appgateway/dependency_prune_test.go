@@ -144,3 +144,34 @@ func TestDependencyLiveGrantsBoundedPerOwner(t *testing.T) {
 	}
 	persistedIssue(t, h, onFleet(q, "other", "a"))
 }
+
+// An owner at its share with tombstones younger than the day's retention:
+// its own tombstones over an hour old go at once and its grant is admitted;
+// ones under an hour old (a retry may still need them) keep it refused.
+func TestDependencyJournalOwnerAtShareRecoversFromItsOwnTombstones(t *testing.T) {
+	defer func(v int) { maxDependencyRecordsPerFleet = v }(maxDependencyRecordsPerFleet)
+	maxDependencyRecordsPerFleet = 3
+	root := filepath.Join(t.TempDir(), "journal")
+	g, h := persistedGateway(t, root)
+	q := persistenceRequest()
+	var hourOld []string
+	for i := range 2 {
+		hourOld = append(hourOld, tombstone(t, g, "owner", i, time.Now().Add(-2*time.Hour)))
+	}
+	fresh := tombstone(t, g, "owner", 7, time.Now().Add(-10*time.Minute))
+	others := tombstone(t, g, "other", 8, time.Now().Add(-2*time.Hour))
+	persistedIssue(t, h, onFleet(q, "owner", "op-a"))
+	for _, key := range hourOld {
+		if exists(root, key) {
+			t.Fatal("an hour-old tombstone of the full owner was kept")
+		}
+	}
+	if !exists(root, fresh) || !exists(root, others) {
+		t.Fatal("pruned a tombstone under an hour old, or another owner's")
+	}
+	tombstone(t, g, "owner", 9, time.Now().Add(-5*time.Minute))
+	full := persistenceCall(h, "POST", "control.test", "/apps/dependencies", persistenceControl, onFleet(q, "owner", "op-b"))
+	if full.Code != 503 || !strings.Contains(full.Body.String(), "for this owner") {
+		t.Fatal("admitted over recent tombstones", full.Code, full.Body.String())
+	}
+}

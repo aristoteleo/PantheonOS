@@ -125,3 +125,23 @@ def test_event_journal_rejects_symlink(tmp_path):
     (root/'events.sqlite3').symlink_to(tmp_path/'foreign')
     with pytest.raises(ValueError, match='private'):
         AgentEventStore(root)
+
+
+@pytest.mark.asyncio
+async def test_a_page_opened_mid_run_gets_the_runs_latest_status(tmp_path):
+    # Fast Agent check 1: a reload while a tool waited for the Workspace said
+    # "Waiting for model".
+    store = AgentEventStore(tmp_path/'events')
+    chunk = lambda c: store.publish('a', 'chunk', {'type': 'chunk', 'chunk': c})
+    await chunk({'begin': True, 'message_id': 'm1'})
+    await chunk({'activity': 'waiting_for_workspace', 'execution_context_id': None})
+    await chunk({'activity': 'running_tools', 'execution_context_id': None})
+    await chunk({'activity': 'waiting_for_workspace', 'execution_context_id': 'sub-agent'})
+    await chunk({'activity': 'waiting_for_workspace', 'execution_context_id': None})
+    _, inflight = await store.history_checkpoint('a')
+    statuses = [e['data']['chunk'].get('activity') for e in inflight]
+    assert statuses == [None, 'waiting_for_workspace']
+    assert (await store.history_checkpoint('b'))[1] == []
+    await store.publish_chat_finished('a')
+    assert (await store.history_checkpoint('a'))[1] == []
+    await store.close()

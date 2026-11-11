@@ -6,6 +6,7 @@ package codingagentsapp
 
 import (
 	"bufio"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -1088,6 +1089,60 @@ func (a *App) conversation(id string, after int64) map[string]any {
 		}
 	}
 	return map[string]any{"success": true, "conversation": meta, "events": events, "more": more}
+}
+
+// forgetAgentSession deletes the owner's Pantheon Agent conversation that a
+// conversation here continued (its session): that conversation lives in the
+// Agent, not on this node. Other agents' sessions stay where they are.
+var forgetAgentSession = func(agentID, session string) error {
+	if agentID != codingagents.PantheonAgent || session == "" {
+		return nil
+	}
+	r, err := resolve(agentID)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, r.path, "agent", "chat", "--json", "--chat", session, "--delete")
+	// As a Team Chat turn: an allow-listed environment signed in with the node's key.
+	cmd.Env = codingagents.SetEnv(codingagents.TeamEnv(agentID, nil, codingagents.Models{}),
+		codingagents.TeamSignIn(r.settings, agentID)...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%v: %s", err, strings.TrimSpace(lastLine(string(out))))
+	}
+	return nil
+}
+
+func lastLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.LastIndexByte(s, '\n'); i >= 0 {
+		return s[i+1:]
+	}
+	return s
+}
+
+// removeWithSession removes a conversation and, for the Pantheon Agent, the
+// Agent conversation it continued (Team Chat deletes an agent this way).
+func (a *App) removeWithSession(id string) map[string]any {
+	a.mu.Lock()
+	c := a.convs[id]
+	var agentID, session string
+	if c != nil {
+		agentID, session = c.Agent, c.Session
+	}
+	a.mu.Unlock()
+	out := a.remove(id)
+	if out["success"] != true {
+		return out
+	}
+	if err := forgetAgentSession(agentID, session); err != nil {
+		out["session_error"] = err.Error()
+	} else if agentID == codingagents.PantheonAgent && session != "" {
+		out["session_deleted"] = session
+	}
+	return out
 }
 
 func (a *App) remove(id string) map[string]any {

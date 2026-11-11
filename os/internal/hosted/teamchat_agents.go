@@ -541,7 +541,28 @@ func (t *TeamChat) agentControl(ctx context.Context, fid, mid, action, confirm s
 		delete(fl.members, mid)
 		t.emit(fl, map[string]any{"type": "member", "mid": mid, "deleted": true})
 		fl.mu.Unlock()
-		return map[string]any{"deleted": mid}, nil
+		out := map[string]any{"deleted": mid}
+		if gone.Session != "" && gone.NodeID != "" {
+			// Its conversation goes with it: the Coding Agents conversation on
+			// its computer and, for a Pantheon agent, the Agent conversation
+			// that one continued. Best effort: a computer that is away keeps
+			// them (the owner can delete them there).
+			res, err := t.Nodes.Call(ctx, fid, gone.NodeID, "agent_delete", map[string]any{
+				"conversation_id": gone.Session, "with_session": true}, 2*time.Minute)
+			if err == nil && res["success"] != true {
+				err = fmt.Errorf("%s", str(res["error"]))
+			}
+			if err == nil {
+				if e := str(res["session_error"]); e != "" {
+					err = fmt.Errorf("its Agent conversation: %s", e)
+				}
+			}
+			out["conversation_deleted"] = err == nil
+			if err != nil {
+				log.Printf("[teamchat] %s: agent %s deleted; its conversation on %s was not: %v", fid, mid, gone.NodeID, err)
+			}
+		}
+		return out, nil
 	}
 	fl.mu.Unlock()
 	return nil, &ArgumentError{"action is start, stop, stop_turn, retry, reset_session, reset_full or delete"}

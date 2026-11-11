@@ -19,6 +19,9 @@ import (
 // writing elsewhere is not touched.
 func TestReapStraysEndsRealUnrecordedProcess(t *testing.T) {
 	root := t.TempDir()
+	// Before Open: the node's own reaper goroutine reads it.
+	defer func(g time.Duration) { strayGrace = g }(strayGrace)
+	strayGrace = 500 * time.Millisecond
 	m, err := Open(root, "owner", "node", proto.Capability{}, NativeDriver{})
 	if err != nil {
 		t.Fatal(err)
@@ -41,8 +44,6 @@ func TestReapStraysEndsRealUnrecordedProcess(t *testing.T) {
 	log.Close()
 	defer other.Process.Kill()
 	time.Sleep(200 * time.Millisecond)
-	defer func(g time.Duration) { strayGrace = g }(strayGrace)
-	strayGrace = 500 * time.Millisecond
 	m.serial.Lock()
 	err = m.reapStrays(context.Background(), "")
 	m.serial.Unlock()
