@@ -635,6 +635,7 @@ func Main(args []string) {
 		}
 		nodes := newNATSNodes(authority, *natsURL)
 		r := &reconciler.Reconciler{Store: store, Secrets: secrets, Releases: releases, Nodes: nodes}
+		reconciler.RegisterActivity(mux, store, nodes, deploymentAuth)
 		if grants != nil {
 			r.Grants = grants
 		}
