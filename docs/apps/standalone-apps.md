@@ -1368,6 +1368,82 @@ Verified on staging (frontend #47, Agent App 0.9.119 on acct4, acct4):
 - L5: after a reply, 8 switches between two chats sampled every 10 ms: no
   suggestion shown under the other chat's messages.
 
+## The Agent page before the Workspace (2026-11-11)
+
+The owner asked for the Agent page to be usable as soon as the Agent itself is
+up, as the old ChatRoom was, not after the whole Workspace has resumed.
+
+**Where things run.** The Agent App runs on the owner's always-on Agent
+computer (the `chatroom-<user>` pod, node `agent-<user>`). Its bindings are
+`allocator` and `model_services`, both hosted by the controller. Files, Shell,
+Desktop, Web, Notebook and Evolution run on the Workspace (a Modal sandbox),
+which pauses when idle and takes about a minute to resume.
+
+**Measured on staging before the change (acct4, Agent App 0.9.122).**
+
+| Case | Agent ready | Conversation shown | Workspace Apps ready |
+|---|---|---|---|
+| Agent computer up, Workspace paused | before load | 4.7-5.3 s | 59 s |
+| Agent computer down too, Workspace paused | 26 s | 30 s | 59 s |
+
+- The Agent's readiness does not wait for the Workspace: the controller starts
+  it as soon as its own computer is up, and its tools bind on first use
+  (`DependencyInstanceProvisioner`), never at start. So with the Agent
+  computer up the page already opens the chat list and conversation at once.
+- What fails is the first message that needs the Workspace. Asked to run a
+  shell command 5 s after load, the Agent's shell binding failed at once
+  ("shell is not available yet ... Try again shortly") six times in 23 s,
+  and the Agent answered at 28 s that the command never ran; the Workspace
+  was up at 59 s.
+- With the Agent computer down (after a node replacement, a hub-side stop or
+  an explicit Agent pause) the page said "Waiting for your Workspace to
+  start" for 17 s while it was the Agent's own computer that was coming
+  back, then "Starting your Agent on your Workspace…": the Agent does not
+  run on the Workspace.
+- The same day the Agent did not start at all on several accounts, for two
+  platform faults fixed alongside: the controller's dependency journal was
+  full (every grant refused), and a node had lost track of a running Agent
+  backend, so every new one failed on its data lock. See "Fixes" below.
+
+**Design.**
+
+1. *The page opens on the Agent alone.* `/` shows the Agent's frontend as
+   soon as the deployment's `agent` App is ready, whatever the Workspace's
+   state (unchanged; this is already so). Loading the page still starts a
+   paused Workspace (`GET /api/chatroom` wakes every node of the session).
+2. *A tool that needs the Workspace waits for it, in the chat.* When a
+   binding's provider App is not running yet, the controller's allocator
+   answers exactly `dependency provider not running yet` (any other failure
+   stays the generic one). The Agent's allocated toolset then waits for it:
+   it asks again every 3 s for up to 5 minutes, and the chat shows the
+   activity "Waiting for your Workspace to start" under the message, then
+   "Running tools" once it runs. The model sees nothing but the tool's
+   eventual result, and the wait does not count toward the 60 s after which
+   a foreground tool call moves to the background. Stop ends the wait. If
+   the Workspace is still not up after 5 minutes (paused and nobody started
+   it), the tool fails with "your Workspace did not start within 5 minutes
+   (it may be paused: open the Agent page or the desktop to start it)";
+   nothing ran. Grants, journals and sessions are only made once the
+   provider runs (a refused bind writes no record).
+3. *The page never says the Agent runs on the Workspace.* While the Agent
+   App starts: "Starting your Agent…"; while it waits for its own computer:
+   "Starting your Agent — its computer is coming back (this can take a
+   minute)…".
+
+**Acceptance criteria (staging, acct4).**
+
+- A1: Agent computer up, Workspace paused: the page shows the conversation
+  (chat list and message input) within 5 s of load, p50 and max over at
+  least 5 loads.
+- A2: a message sent right after load that needs the shell gets its real
+  result once the Workspace is up, with "Waiting for your Workspace to
+  start" shown while it waits; no failed tool calls in between.
+- A3: loading the page with the Workspace paused starts it.
+- A4: no page text says the Agent starts on the Workspace; with the Agent
+  computer down the page says its computer is coming back.
+- A5: no regression: desktop Agent window, Team Chat Pantheon Agent turns,
+  Coding Agents.
+
 ## Open decisions
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and
