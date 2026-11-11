@@ -329,3 +329,36 @@ notes.
   recorded failed and not retried on later passes.
 - **U14** The owner/admin accounts behave the same as any other account (no
   role-based exception).
+
+## 8. As built and staging verification (2026-11-11)
+
+Live on staging: controller with `GET /deployments/{name}/activity`, Hub follower
+(`SYSTEM_APPS_FOLLOW=1`), Agent App 0.9.131 (the Desktop's updater), frontend #55.
+
+- U1, U2: a new install of a test Store App follows; v1.1.0 published at
+  19:07:10 UTC was installed by the Desktop's pass about 2 minutes later, with
+  the toast "… updated to v1.1.0".
+- U4, U6: Pin kept v1.1.0 with "v1.2.0 is available"; Follow Store moved it to
+  v1.2.0 in 11 s.
+- U5: a development branch with its own commit: "Update available: v1.5.0. You
+  changed this App (it has commits of your own) …"; `official` unchanged.
+- U8, U9, U14: changing the pin to 0.9.129 moved 44 owners (the owner and admin
+  accounts included) with no admin call; the Pinned test account stayed.
+- U10: a running chat (`sleep 150`) deferred the move ("a chat is running"); the
+  chat finished, and the move followed within a pass.
+- U11: owners whose computers were away moved without being woken; a newer pin
+  (0.9.131) replaced the one they had not run yet.
+- U12: an App running the owner's own build: state `modified`, not moved.
+- U13: a release set with an App that never becomes ready was rolled back
+  automatically within 3 minutes, recorded failed, not retried, toast shown.
+- U3, U7 for Store Apps: unit tests (idle/busy backend, backend that does not
+  start). The Store itself refuses a release whose entry files are missing, so a
+  DOM release that cannot launch cannot be published. An App with a `build`
+  step is not checked for entry files its build makes.
+
+Open: a rollback returns to the previous release, but the reconciler carries
+data from the revision it located last. When the new revision's data copy
+failed (one staging owner, Desktop: "source data is not an owned directory"),
+the previous revision then tries to copy from the failed candidate and stays in
+backoff. The data source must be an instance that has data; to be fixed in the
+reconciler.
