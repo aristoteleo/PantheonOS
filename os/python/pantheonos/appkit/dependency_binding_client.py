@@ -10,6 +10,15 @@ import re
 
 from pantheonos.appkit.dependency_client import DependencyClient, DependencyCallError
 
+# The controller's answer when a binding's provider App is meant to run but
+# has not started yet, typically on a paused or starting Workspace
+# (os/internal/hosted/allocator.go errProviderStarting). Nothing was allocated.
+PROVIDER_STARTING = 'dependency provider not running yet'
+
+
+class DependencyProviderStarting(DependencyCallError):
+    """The App a binding needs is not running yet; asking again later is safe."""
+
 
 async def _drain(task):
     cancelled = False
@@ -56,6 +65,9 @@ class RemoteDependencyBindings:
             self._pending.add(task)
             try:
                 response = await _drain(task)
+                if (isinstance(response, dict) and response.get('success') is False
+                        and response.get('error') == PROVIDER_STARTING):
+                    raise DependencyProviderStarting('The App this binding needs is not running yet')
                 if (not isinstance(response, dict) or response.get('success') is not True
                         or not isinstance(response.get('result'), dict)):
                     raise DependencyCallError('Dependency allocation failed; retry only the original operation',

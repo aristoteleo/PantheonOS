@@ -64,6 +64,16 @@ var liveStates = map[string]bool{"starting": true, "ready": true, "recovered": t
 // errAllocation is what an Agent sees; the cause stays in the controller log.
 var errAllocation = errors.New("Dependency allocation unavailable; retry the original operation or inspect its owner")
 
+// errProviderStarting answers a bind whose provider App is not running yet
+// (typically on a Workspace that is paused or starting). The Agent waits on
+// exactly this answer and shows that it waits (pantheon/factory/
+// dependency_provisioner.py); every other failure stays errAllocation. Nothing
+// is journaled before it.
+var errProviderStarting = errors.New("dependency provider not running yet")
+
+// errNotRunning marks a deployment App that is not running yet.
+var errNotRunning = errors.New("not running yet")
+
 type identity struct {
 	NodeID     string `json:"node_id"`
 	InstanceID string `json:"instance_id"`
@@ -172,6 +182,9 @@ func (a *Allocator) Call(ctx context.Context, c *Call) (any, error) {
 			return nil, errAllocation
 		}
 		result, err := a.bind(ctx, c, p, args.OwnerRef, args.OperationID, args.Aliases)
+		if errors.Is(err, errProviderStarting) {
+			return nil, errProviderStarting
+		}
 		if err != nil {
 			log.Printf("[hosted] %s allocation %s: %v", c.Fleet, args.OwnerRef, err)
 			return nil, errAllocation
@@ -244,7 +257,7 @@ func (a *Allocator) resolveIdentity(fleet, deployment string, raw json.RawMessag
 		}
 		s := d.Status.Apps[name]
 		if (s.State != "ready" && s.State != "starting") || s.NodeID == "" || s.InstanceID == "" || s.Revision == "" || s.Generation == 0 {
-			return out, fmt.Errorf("%s is not running yet", name)
+			return out, fmt.Errorf("%s is %w", name, errNotRunning)
 		}
 		out = identity{NodeID: s.NodeID, InstanceID: s.InstanceID, Revision: s.Revision, Generation: s.Generation}
 		out.Component, _ = ref["component"].(string)
@@ -256,6 +269,18 @@ func (a *Allocator) resolveIdentity(fleet, deployment string, raw json.RawMessag
 		return out, fmt.Errorf("use an exact App instance binding")
 	}
 	return out, nil
+}
+
+// intendedToRun reports whether a policy's provider reference names an App of
+// the deployment whose intent is to run (a stopped App is not waited for).
+func intendedToRun(d deployments.Deployment, raw json.RawMessage) bool {
+	var ref map[string]any
+	if json.Unmarshal(raw, &ref) != nil {
+		return false
+	}
+	name, _ := ref["$app"].(string)
+	app, ok := d.Spec.Apps[name]
+	return ok && app.Intent != "stopped"
 }
 
 // validatePolicy is the former _binding_policy check of one binding.
@@ -475,6 +500,12 @@ func (a *Allocator) bind(ctx context.Context, c *Call, p policy, ownerRef, opera
 			return nil, err
 		}
 		provider, err := a.resolveIdentity(c.Fleet, c.Deployment, b.Provider, true)
+		if errors.Is(err, errNotRunning) {
+			// Only an App of this deployment that is meant to run.
+			if d, e := a.Store.Get(c.Fleet, c.Deployment); e == nil && intendedToRun(d, b.Provider) {
+				return nil, errProviderStarting
+			}
+		}
 		if err != nil {
 			return nil, err
 		}

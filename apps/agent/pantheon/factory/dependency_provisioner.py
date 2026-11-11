@@ -12,6 +12,7 @@ import secrets
 import time
 
 from pantheonos.appkit.dependency_assembly import _copy, _grant, _identity, CONFIGURATION_BYTES
+from pantheonos.appkit.dependency_binding_client import DependencyProviderStarting
 from pantheonos.appkit.dependency_client import DependencyCallError, DependencyClient
 from pantheonos.appkit.runtime_config import RuntimeCredential
 from pantheon.dependency_provider import DependencyToolProvider
@@ -173,6 +174,13 @@ class DependencyInstanceProvisioner:
 # gone: rebind instead of failing every later call.
 _REBIND = {401, 403, 404, 410, 502, 503}
 
+# A tool whose App is not running yet waits for it: a paused Workspace resumes
+# in about a minute (docs/apps/standalone-apps.md, "The Agent page before the
+# Workspace"). It asks the allocator again every PROVIDER_POLL_SECONDS, for up
+# to PROVIDER_WAIT_SECONDS; a refused bind allocates nothing.
+PROVIDER_WAIT_SECONDS = 300.0
+PROVIDER_POLL_SECONDS = 3.0
+
 
 class AllocatedToolProvider(DependencyToolProvider):
     """A dependency toolset bound on first call and rebound when its grant is lost."""
@@ -195,26 +203,52 @@ class AllocatedToolProvider(DependencyToolProvider):
         async with self._lock:
             self._check_open()
             if self._bound is None:
-                # Each attempt is a new allocator operation: a lost grant is
-                # never revived, the allocator issues a fresh one. The first
-                # attempt may re-read an allocation whose session was
-                # replaced since (a Workspace restart): the next one is new.
-                for tries in (1, 2):
-                    self._attempt += 1
-                    try:
-                        self._bound = await self._provisioner._allocate(self.toolset_name, self._owner_ref,
-                                                                        self._attempt, self._profile, self._operation)
-                        break
-                    except DependencyCallError as error:
-                        if tries == 1 and self._attempt == 1:
-                            continue
-                        # Nothing ran: the provider App is not up (typically the
-                        # workspace node still starting). Say so to the model.
-                        raise DependencyCallError(
-                            f'{self.toolset_name} is not available yet; the computer that runs it may still be '
-                            'starting. Nothing was executed. Try again shortly, or continue without it.',
-                            status=error.status, outcome_unknown=False) from error
+                try:
+                    self._bound = await self._bind()
+                except DependencyProviderStarting:
+                    # Its App runs on a computer that is starting (a paused
+                    # Workspace): wait for it here, shown in the chat, rather
+                    # than failing the call for the model to give up on.
+                    from pantheon.agent_tools import waiting_for_provider
+                    async with waiting_for_provider():
+                        self._bound = await self._wait_for_provider()
             return self._bound
+
+    async def _bind(self):
+        # Each attempt is a new allocator operation: a lost grant is never
+        # revived, the allocator issues a fresh one. The first attempt may
+        # re-read an allocation whose session was replaced since (a
+        # Workspace restart): the next one is new.
+        for tries in (1, 2):
+            self._attempt += 1
+            try:
+                return await self._provisioner._allocate(self.toolset_name, self._owner_ref,
+                                                         self._attempt, self._profile, self._operation)
+            except DependencyProviderStarting:
+                raise
+            except DependencyCallError as error:
+                if tries == 1 and self._attempt == 1:
+                    continue
+                # Nothing ran: the provider App is not up. Say so to the model.
+                raise DependencyCallError(
+                    f'{self.toolset_name} is not available yet; the computer that runs it may still be '
+                    'starting. Nothing was executed. Try again shortly, or continue without it.',
+                    status=error.status, outcome_unknown=False) from error
+
+    async def _wait_for_provider(self):
+        deadline = time.monotonic() + PROVIDER_WAIT_SECONDS
+        while True:
+            await asyncio.sleep(PROVIDER_POLL_SECONDS)
+            self._check_open()
+            try:
+                return await self._bind()
+            except DependencyProviderStarting as error:
+                if time.monotonic() >= deadline:
+                    raise DependencyCallError(
+                        f'{self.toolset_name} could not run: your Workspace did not start within '
+                        f'{round(PROVIDER_WAIT_SECONDS / 60)} minutes (it may be paused: open the Agent page '
+                        'or the desktop to start it). Nothing was executed.',
+                        status=error.status, outcome_unknown=False) from error
 
     async def ready(self, name, args, *, timeout: float, every: float = 3.0):
         """Call a tool whose call may be repeated safely (a probe such as
@@ -224,7 +258,14 @@ class AllocatedToolProvider(DependencyToolProvider):
         deadline = time.monotonic() + timeout
         while True:
             try:
-                return await self.call_tool(name, args)
+                # A wait for the provider inside the call is bounded by this
+                # probe's own timeout.
+                return await asyncio.wait_for(self.call_tool(name, args),
+                                              max(0.1, deadline - time.monotonic()))
+            except asyncio.TimeoutError:
+                self._check_open()
+                raise DependencyCallError(f'{self.toolset_name} did not answer within {timeout:.0f} s',
+                                          outcome_unknown=False) from None
             except DependencyCallError:
                 self._check_open()
                 if time.monotonic() >= deadline:

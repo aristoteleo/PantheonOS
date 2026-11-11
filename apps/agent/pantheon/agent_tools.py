@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import time
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, Callable
 from uuid import uuid4
 
@@ -62,6 +64,58 @@ class _Stopped:
                 "check before relying on it or running it again.")
         printed = "\n".join(str(line).rstrip("\n") for line in self.output)
         return f"{text}\nOutput before the stop:\n{printed}" if printed.strip() else text
+
+
+# A foreground tool call's time spent waiting for the computer that runs its
+# App to start (a paused Workspace): [finished waits, start of the current
+# wait or 0]. That time does not count toward the call's foreground timeout.
+_provider_wait: ContextVar[list | None] = ContextVar("provider_wait", default=None)
+
+
+def _provider_waited(cell: list | None) -> float:
+    if not cell:
+        return 0.0
+    return cell[0] + (time.monotonic() - cell[1] if cell[1] else 0.0)
+
+
+async def _report_activity(activity: str) -> None:
+    """Show a status under the chat's pending message (the UI's activity line)."""
+    from .agent import get_current_run_context
+    from pantheonos.utils.misc import run_func
+
+    context = get_current_run_context()
+    if context is None or context.process_chunk is None:
+        return
+    try:
+        # An explicit execution_context_id: the chat shows it whichever run waits.
+        await asyncio.wait_for(run_func(context.process_chunk,
+                                        {"activity": activity, "execution_context_id": None}), timeout=0.25)
+    except Exception:
+        pass  # a status line must never break the tool call
+
+
+@asynccontextmanager
+async def waiting_for_provider():
+    """Around a tool's wait for the computer that runs its App to start: the
+    chat shows "Waiting for your Workspace to start" meanwhile, and the wait
+    does not count toward the call's foreground timeout."""
+    cell = _provider_wait.get()
+    started = time.monotonic()
+    if cell is not None:
+        cell[1] = started
+    await _report_activity("waiting_for_workspace")
+
+    def done():
+        if cell is not None:
+            cell[0] += time.monotonic() - started
+            cell[1] = 0.0
+    try:
+        yield
+    except BaseException:
+        done()
+        raise
+    done()
+    await _report_activity("running_tools")
 
 
 def changes_files(tool_name: str) -> bool:
@@ -359,6 +413,8 @@ async def _foreground(agent, call, func_name, tool_call_id, params, context_vari
 
     stdout_buffer: list[str] = []
     token = _bg_output_buffer.set(stdout_buffer)
+    wait_cell = [0.0, 0.0]
+    wait_token = _provider_wait.set(wait_cell)
     steer = steer_queue(agent, (context_variables or {}).get("execution_context_id"))
     call_task = asyncio.create_task(agent.call_tool(func_name, params, context_variables, tool_call_id=tool_call_id))
     adopted = False
@@ -370,7 +426,7 @@ async def _foreground(agent, call, func_name, tool_call_id, params, context_vari
                 break
             elapsed = time.time() - start_time
             steer_pending = steer is not None and len(steer) > 0
-            timed_out = timeout is not None and elapsed >= timeout
+            timed_out = timeout is not None and elapsed - _provider_waited(wait_cell) >= timeout
             steer_background = steer_pending and elapsed >= STEER_BG_MIN_SECONDS
             if allow_timeout and (timed_out or steer_background):
                 # Keep the same output list so later prints keep accumulating.
@@ -411,6 +467,7 @@ async def _foreground(agent, call, func_name, tool_call_id, params, context_vari
         return repr(e)
     finally:
         _bg_output_buffer.reset(token)
+        _provider_wait.reset(wait_token)
         # If we are cancelled, the tool is too (unless adopted into the background).
         if not call_task.done() and not agent._bg_manager._is_adopted(call_task):
             logger.warning(f"Cancelling orphaned tool task for {func_name}")
