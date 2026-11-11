@@ -130,5 +130,17 @@ Test cases: the official generators, seeds 0-149 shown to every method during se
   AIDE AHC024 seed 1 hung at 14:39 on the same malformed function-call reply as AHC071 seed 3 (211
   evaluations, $3.17); stopped by hand at 16:45, stands as it is. At 17:15 three more AIDE runs were
   stopped at the dollar cap: AHC024, AHC071 and AHC073 seed 0 (295, 273 and 208 evaluations).
+- 2026-11-10: all 150 runs ended. Once the other runs had finished, the slow servers had fewer
+  clients, and every Molt and SimpleTES run reached its 400 evaluations (the last at ~41 h), as did
+  every OpenEvolve and Shinka run that did not crash (none reached the 44 h wall clock; those under
+  400 recorded evaluations stopped at the dollar cap or on iterations that produced no evaluation).
+  So no run was stopped by time, and the cut rule applies only to the two seeds of the crashed Shinka
+  runs: AHC070 seed 1 (N = 191) and seed 2 (N = 226). AIDE: 16 runs stopped at the dollar cap, 7 at
+  the 44 h wall clock, 2 at 400 evaluations, 4 on AIDE failures (2 malformed function-call replies,
+  2 code-execution child processes that failed to start; one of these, AHC070 seed 3 at 104
+  evaluations, exited by itself at 12:00 on 2026-11-09, during the I/O errors), 1 on the I/O error.
+- 2026-11-11: step 1 started, one 16-CPU job per task on `normal` (`portfolio/main_measure.sbatch`:
+  public server -> `main_measure.py`, = `abl_measure.py` plus the cut; then held-out server ->
+  `holdout_measure.py`); jobs in `$EVO/main_measure_jobs.txt`.
 - An AIDE run (AHC046 seed 3) was killed at 35 evaluations by the 8 GB memory limit and restarted
   from scratch with 16 GB; the killed run is kept as `ahc046_aide_s3.oom8g`.
