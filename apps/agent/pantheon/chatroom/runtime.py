@@ -988,14 +988,17 @@ class AgentRuntime(AgentLifetime, ToolSet):
             agent = team.team_agents[0]
             if getattr(agent, "tool_exposure", "all") != "core" or not isinstance(message, list):
                 return message
-            from pantheon.agent_nodes import default_node, describe_node, list_nodes, with_note
-            default = await asyncio.wait_for(default_node(agent), timeout=5)
+            from pantheon.agent_nodes import describe_node, known_default, list_nodes, with_note
+            # Never waits for the Workspace: a first message that needs no
+            # tool is answered while it is paused or starting.
+            nodes = await asyncio.wait_for(list_nodes(agent), timeout=5)
+            default = await known_default(agent, nodes)
             node_id = (memory.extra_data or {}).get("chat_node") or default
             chat_workdir = (memory.extra_data or {}).get("chat_workdir") or ""
             announce = f"{node_id}:{chat_workdir}" if chat_workdir else node_id
             if not node_id or (memory.extra_data or {}).get("announced_node") == announce:
                 return message
-            node = next((n for n in await list_nodes(agent) if n.get("node_id") == node_id), {"node_id": node_id})
+            node = next((n for n in nodes if n.get("node_id") == node_id), {"node_id": node_id})
             memory.set_metadata("announced_node", announce)
             return with_note(message, describe_node(node, default=node_id == default, workdir=chat_workdir or workdir,
                                                     starts=bool(chat_workdir)))
@@ -1003,24 +1006,53 @@ class AgentRuntime(AgentLifetime, ToolSet):
             logger.debug(f"No environment note for {chat_id}: {e}")
             return message
 
+    async def _listing_agent(self, chat_id: str):
+        """The agent whose fleet lists the owner's computers: the
+        conversation's, or without one (the new-chat screen) any open
+        conversation's, else one built once for listing."""
+        if chat_id:
+            return (await self.get_team_for_chat(chat_id)).team_agents[0]
+        teams = [t for t in [getattr(self, "_default_team", None), *self.chat_teams.values()] if t is not None]
+        if not teams:
+            team = getattr(self, "_listing_team", None)
+            if team is None:
+                lock = self.__dict__.setdefault("_listing_lock", asyncio.Lock())
+                async with lock:
+                    team = getattr(self, "_listing_team", None)
+                    if team is None:
+                        default = self.template_manager.get_template("default")
+                        if not default:
+                            raise RuntimeError("Default template not found in template manager")
+                        team = await self._create_team_from_template(default)
+                        self._listing_team = team
+            teams = [team]
+        return teams[0].team_agents[0]
+
     @tool
-    async def get_chat_node(self, chat_id: str) -> dict:
-        """The conversation's working node and the nodes it can switch to."""
+    async def get_chat_node(self, chat_id: str = "") -> dict:
+        """The conversation's computer (node) and the owner's computers it can
+        work on, without waiting for a paused Workspace. chat_id "" (a new
+        chat): the computers and the default."""
         try:
-            team = await self.get_team_for_chat(chat_id)
-            agent = team.team_agents[0]
+            agent = await self._listing_agent(chat_id)
             if getattr(agent, "tool_exposure", "all") != "core":
                 return {"success": True, "supported": False}
-            from pantheon.agent_nodes import default_node, list_nodes, summarize
-            memory = await run_func(self.memory_manager.get_memory, chat_id)
-            default = await asyncio.wait_for(default_node(agent), timeout=10)
+            from pantheon.agent_nodes import fleet_of, known_default, list_nodes, summarize
+            listed = await asyncio.wait_for(list_nodes(agent), timeout=10)
+            default = await known_default(agent, listed)
+            chosen = None
+            workdir = ""
+            if chat_id:
+                memory = await run_func(self.memory_manager.get_memory, chat_id)
+                chosen = (memory.extra_data or {}).get("chat_node")
+                workdir = (memory.extra_data or {}).get("chat_workdir") or ""
             # The node the Agent itself runs on is not a place to work.
             host = getattr(getattr(self, "_environment", None), "host_node", None)
-            nodes = [summarize(n, default) for n in await list_nodes(agent)
+            nodes = [summarize(n, default) for n in listed
                      if n.get("node_id") != host or n.get("node_id") == default]
             return {"success": True, "supported": True, "default_node_id": default,
-                    "node_id": (memory.extra_data or {}).get("chat_node") or default,
-                    "workdir": (memory.extra_data or {}).get("chat_workdir") or "", "nodes": nodes}
+                    "node_id": chosen or default, "workdir": workdir, "nodes": nodes,
+                    "fleet": fleet_of(agent) is not None}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -1028,17 +1060,22 @@ class AgentRuntime(AgentLifetime, ToolSet):
     async def set_chat_node(self, chat_id: str, node_id: str = "", workdir: str = "") -> dict:
         """Switch the conversation's working node ("" = back to the default),
         optionally with a working directory there: where its commands start
-        and relative paths lead (a Team Chat agent's folder)."""
+        and relative paths lead (a Team Chat agent's folder). Never waits for
+        a paused Workspace."""
         try:
             team = await self.get_team_for_chat(chat_id)
             agent = team.team_agents[0]
-            from pantheon.agent_nodes import default_node, list_nodes
+            from pantheon.agent_nodes import _node, default_node, known_default, list_nodes
             memory = await run_func(self.memory_manager.get_memory, chat_id)
-            default = await asyncio.wait_for(default_node(agent), timeout=10)
+            nodes = await list_nodes(agent)
+            default = await known_default(agent, nodes)
+            if default is None and not nodes:
+                default = await asyncio.wait_for(default_node(agent), timeout=10)
             if node_id and node_id != default:
-                node = next((n for n in await list_nodes(agent) if n.get("node_id") == node_id), None)
+                node = _node(nodes, node_id)
                 if node is None:
                     return {"success": False, "error": "That node is not one of your nodes."}
+                node_id = node["node_id"]
             chosen = None if not node_id or node_id == default else node_id
             memory.set_metadata("chat_node", chosen)
             memory.set_metadata("chat_workdir", workdir or None)

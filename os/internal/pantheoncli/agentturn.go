@@ -148,6 +148,9 @@ func (r *runner) agentTurn() error {
 // error before the turn starts is returned; after, the turn ends with a done
 // line.
 func (r *runner) runTurn(line func(TurnLine)) error {
+	if r.p.bools["delete"] {
+		return r.deleteChat(line)
+	}
 	message, err := r.turnMessage()
 	if err != nil {
 		return err
@@ -701,4 +704,31 @@ func toolFailed(content any) bool {
 	}
 	e, _ := r.Error.(string)
 	return e != ""
+}
+
+// deleteChat deletes the conversation --chat names in the owner's Agent
+// (`pantheon agent chat --json --chat ID --delete`): a Team Chat Pantheon
+// agent's conversation goes with the agent (docs/apps/team-chat.md).
+func (r *runner) deleteChat(line func(TurnLine)) error {
+	chatID := r.p.flags["chat"]
+	if chatID == "" {
+		return errors.New("usage: pantheon agent chat --json --chat ID --delete")
+	}
+	dep, err := r.s.Deployment(r.ctx)
+	if err != nil {
+		return err
+	}
+	b, err := dep.AppBinding("agent")
+	if err != nil {
+		return err
+	}
+	result, err := r.s.Call(r.ctx, b, "delete_chat", map[string]any{"chat_id": chatID}, 120*time.Second)
+	if err == nil {
+		err = failed(result)
+	}
+	if err != nil {
+		return fmt.Errorf("deleting the conversation: %w", err)
+	}
+	line(TurnLine{Type: "deleted", ChatID: chatID})
+	return nil
 }

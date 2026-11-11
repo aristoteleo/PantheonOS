@@ -43,7 +43,9 @@ def add_node_param(tool: dict) -> None:
 
 
 async def default_node(agent) -> str | None:
-    """The node the Agent's own Files App runs on (the workspace)."""
+    """The node the Agent's own Files App runs on (the workspace), binding it
+    if needed: waits for a Workspace that is starting. Use known_default to
+    learn which node that is without waiting."""
     files = agent.providers.get("file_manager")
     bound = getattr(files, "bound_node", None)
     if bound is None:
@@ -52,6 +54,29 @@ async def default_node(agent) -> str | None:
         return await bound()
     except Exception:
         return None
+
+
+def is_workspace(node: dict) -> bool:
+    """The owner's Workspace node (the sandbox node holding the workspace files)."""
+    return "fs:workspace" in (node.get("caps") or [])
+
+
+async def known_default(agent, nodes: list[dict] | None = None) -> str | None:
+    """The Workspace's node without waiting for it: the node the Files App is
+    bound to, or before it is bound the one Workspace node of the owner's
+    fleet. None when neither says (no fleet, or more than one Workspace)."""
+    files = agent.providers.get("file_manager")
+    if files is None:
+        return None
+    if getattr(files, "bound_node", None) is None:
+        return getattr(files, "node_id", None)
+    bound = getattr(getattr(files, "_bound", None), "node_id", None)
+    if bound:
+        return bound
+    if nodes is None:
+        nodes = await list_nodes(agent)
+    workspaces = [n["node_id"] for n in nodes if is_workspace(n)]
+    return workspaces[0] if len(workspaces) == 1 else None
 
 
 def fleet_of(agent):
@@ -100,25 +125,57 @@ def describe_node(node: dict, *, default: bool, workdir: str | None = None, star
     return "<environment>\n" + "\n".join(lines) + "\n</environment>"
 
 
+def _plain(name) -> str:
+    text = str(name or "").strip().lower()
+    return text[:-len(".local")] if text.endswith(".local") else text
+
+
 def _node(nodes: list[dict], node_id: str) -> dict | None:
-    return next((n for n in nodes if n.get("node_id") == node_id or n.get("name") == node_id), None)
+    """A node by id, or by name (case and a trailing .local do not matter)."""
+    found = next((n for n in nodes if n.get("node_id") == node_id), None)
+    if found is None and _plain(node_id):
+        found = next((n for n in nodes if _plain(n.get("name")) == _plain(node_id)), None)
+    return found
+
+
+def _names(nodes: list[dict], host: str | None = None) -> str:
+    return ", ".join(sorted(display_name(n) for n in nodes if n.get("node_id") != host)) or "none"
+
+
+def display_name(node: dict) -> str:
+    """A computer's name for people: Workspace, or the machine's name."""
+    if is_workspace(node):
+        return "Workspace"
+    name = str(node.get("name") or node.get("node_id") or "")
+    return name[:-len(".local")] if name.endswith(".local") else name
 
 
 async def route(agent, name: str, args: dict, node_id: str, workdir: str = "") -> Any:
     """Run a core node tool on node_id, or return None to run it as usual
     (node_id is the Agent's own node). workdir is the conversation's working
-    directory on that node: where commands start and relative paths lead."""
-    default = await default_node(agent)
-    if not node_id or node_id == default:
+    directory on that node: where commands start and relative paths lead.
+
+    The node is looked up before anything waits: a name that is not one of
+    the owner's nodes, or an offline node, fails at once, even while the
+    Workspace is starting (docs/apps/standalone-apps.md, "Choosing the
+    computer in the composer")."""
+    if not node_id:
         return None
     fleet = fleet_of(agent)
-    if fleet is None:
-        return {"success": False, "error": f"This agent cannot reach node {node_id}; it works on its own node only."}
-    node = _node(await list_nodes(agent), node_id)
-    if node is None:
-        return {"success": False, "error": f"Node {node_id} is not one of your nodes. `pantheon nodes list` lists them."}
-    node_id = node["node_id"]
+    nodes = await list_nodes(agent) if fleet is not None else []
+    default = await known_default(agent, nodes)
     if node_id == default:
+        return None
+    node = _node(nodes, node_id)
+    if node is None:
+        if fleet is None:
+            if default is None and node_id == await default_node(agent):
+                return None
+            return {"success": False, "error": f"This agent cannot reach node {node_id}; it works on its own node only."}
+        return {"success": False, "error": f"Node {node_id} is not one of your nodes. Your nodes: {_names(nodes)}. "
+                                           "Leave node empty to work on this conversation's node."}
+    node_id = node["node_id"]
+    if node_id == default or (default is None and node_id == await default_node(agent)):
         # The conversation's own node, named rather than given by id.
         return None
     if node.get("status") == "offline":
@@ -220,10 +277,10 @@ async def _run(fleet, node: dict, args: dict, workdir: str = "") -> dict:
 
 async def note_for(agent, node_id: str, workdir: str = "") -> str | None:
     """The environment note for node_id, unless it is the Agent's own node."""
-    default = await default_node(agent)
-    if not node_id or node_id == default:
+    nodes = await list_nodes(agent)
+    if not node_id or node_id == await known_default(agent, nodes):
         return None
-    node = next((n for n in await list_nodes(agent) if node_id in (n.get("node_id"), n.get("name"))), None)
+    node = _node(nodes, node_id)
     return describe_node(node, default=False, workdir=workdir or None) if node is not None else None
 
 
@@ -249,10 +306,12 @@ def with_note(message: list[dict], note: str) -> list[dict]:
 def summarize(node: dict, default: str | None) -> dict:
     """What the UI shows to choose a conversation's node."""
     caps = node.get("caps") or []
-    return {"node_id": node.get("node_id"), "name": node.get("name") or node.get("node_id"),
+    own = node.get("node_id") == default
+    return {"node_id": node.get("node_id"), "name": display_name(node), "node_name": node.get("name"),
+            "kind": "workspace" if is_workspace(node) else "computer",
             "os": node.get("os"), "shell": node.get("shell"), "status": node.get("status"),
-            "default": node.get("node_id") == default,
+            "default": own,
             # Another node's files go through its file service (shared
             # folders); its commands need process execution.
-            "files": node.get("node_id") == default or bool(node.get("file_roots")) or "fs:local" in caps,
-            "commands": node.get("node_id") == default or "proc" in caps}
+            "files": own or bool(node.get("file_roots")) or "fs:local" in caps,
+            "commands": own or "proc" in caps}

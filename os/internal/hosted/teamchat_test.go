@@ -42,6 +42,7 @@ type fakeAgents struct {
 	release chan struct{}
 	convs   map[string][]map[string]any
 	stopped []string
+	deletes []map[string]any // agent_delete calls (an agent deleted with its conversation)
 	setups  []map[string]any
 	files   map[string]int64
 	detect  []any
@@ -117,6 +118,9 @@ func (f *fakeAgents) Call(_ context.Context, _ string, node, method string, args
 		}
 		f.convs[id] = append(f.convs[id], map[string]any{"pending": str(args["prompt"])})
 		return map[string]any{"success": true, "conversation_id": id, "from_seq": float64(len(f.convs[id]) * 10)}, nil
+	case "agent_delete":
+		f.deletes = append(f.deletes, args)
+		return map[string]any{"success": true}, nil
 	case "agent_stop":
 		f.stopped = append(f.stopped, str(args["conversation_id"]))
 		id := str(args["conversation_id"])

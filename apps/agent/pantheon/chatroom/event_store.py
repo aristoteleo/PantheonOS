@@ -21,6 +21,10 @@ HISTORY_TTL = 10 * 60
 MAX_SNAPSHOTS = 8
 
 
+# The inflight row holding a chat's latest activity status.
+ACTIVITY = '__activity__'
+
+
 class AgentEventStore(ChatEventHooks):
     """One App-owned writer; the Agent data lifetime lock must already be held."""
     def __init__(self, root, *, retain_bytes=16 * 1024 * 1024, retain_rows=8192):
@@ -131,6 +135,13 @@ class AgentEventStore(ChatEventHooks):
                 message_id = chunk.get('message_id') if isinstance(chunk, dict) else None
                 if message_type in ('chunk', 'tool_delta') and isinstance(message_id, str):
                     self.db.execute('INSERT INTO inflight VALUES (?,?,?,?)', (last, chat_id, message_id, raw))
+                elif (message_type == 'chunk' and isinstance(chunk, dict) and isinstance(chunk.get('activity'), str)
+                        and not chunk.get('execution_context_id')):
+                    # The run's latest status ("Waiting for your Workspace to
+                    # start"): a page opened mid-run shows it, not "Waiting for
+                    # model". One row per chat, replaced; the run's end clears it.
+                    self.db.execute('DELETE FROM inflight WHERE chat_id=? AND message_id=?', (chat_id, ACTIVITY))
+                    self.db.execute('INSERT INTO inflight VALUES (?,?,?,?)', (last, chat_id, ACTIVITY, raw))
                 elif message_type == 'step':
                     message = data.get('step_message', {})
                     if isinstance(message, dict) and isinstance(message.get('id'), str):

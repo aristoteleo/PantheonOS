@@ -330,9 +330,16 @@ func TestRecurringRemindersStoppedAgentsAndDelete(t *testing.T) {
 		s := call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[writer].(map[string]any)
 		return s["state"] == "ready"
 	})
-	call(t, h, mine, "agent_control", map[string]any{"mid": writer, "action": "delete"})
+	deleted := call(t, h, mine, "agent_control", map[string]any{"mid": writer, "action": "delete"})
 	if n := len(call(t, h, mine, "reminders", map[string]any{})["reminders"].([]any)); n != 0 {
 		t.Fatalf("%d reminders after delete", n)
+	}
+	// Its conversation goes with it, with the Agent conversation it continued (Fast Agent check 1).
+	nodes.mu.Lock()
+	gone := append([]map[string]any(nil), nodes.deletes...)
+	nodes.mu.Unlock()
+	if len(gone) != 1 || gone[0]["conversation_id"] == "" || gone[0]["with_session"] != true || deleted["conversation_deleted"] != true {
+		t.Fatal("the agent's conversation was not deleted with it", gone, deleted)
 	}
 }
 
