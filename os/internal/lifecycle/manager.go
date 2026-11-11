@@ -230,14 +230,19 @@ func (m *Manager) observe() {
 	}
 }
 
-// reapOnce ends stray App processes of every instance (see reapStrays).
+// reapOnce ends stray App processes of every instance (see reapStrays). It
+// looks without the serial lock first: the usual answer is "none", and the
+// lock is shared with operations that refuse rather than wait for it.
 func (m *Manager) reapOnce() {
+	ctx, cancel := context.WithTimeout(m.ctx, strayGrace+killWait+30*time.Second)
+	defer cancel()
+	if strays, err := m.findStrays(ctx, ""); err != nil || len(strays) == 0 {
+		return
+	}
 	if !m.serial.TryLock() {
 		return
 	}
 	defer m.serial.Unlock()
-	ctx, cancel := context.WithTimeout(m.ctx, strayGrace+killWait+30*time.Second)
-	defer cancel()
 	if err := m.reapStrays(ctx, ""); err != nil {
 		log.Printf("[lifecycle] stray App processes: %v", err)
 	}

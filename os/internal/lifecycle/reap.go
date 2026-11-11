@@ -52,9 +52,18 @@ var (
 // between creating its process and recording it). Returns an error if a
 // stray survives.
 func (m *Manager) reapStrays(ctx context.Context, only string) error {
+	strays, err := m.findStrays(ctx, only)
+	if err != nil || len(strays) == 0 {
+		return err
+	}
+	return endStrays(ctx, strays)
+}
+
+// findStrays lists the processes reapStrays ends, without signalling any.
+func (m *Manager) findStrays(ctx context.Context, only string) ([]appProcess, error) {
 	table, err := scanAppProcesses(filepath.Join(m.root, "data"))
 	if err != nil || len(table.apps) == 0 {
-		return err
+		return nil, err
 	}
 	// The recorded leaders whose processes still run (or whose state cannot
 	// be read: never kill what might be live and recorded), and their instances.
@@ -83,9 +92,10 @@ func (m *Manager) reapStrays(ctx context.Context, only string) error {
 		}
 		strays = append(strays, p)
 	}
-	if len(strays) == 0 {
-		return nil
-	}
+	return strays, nil
+}
+
+func endStrays(ctx context.Context, strays []appProcess) error {
 	sort.Slice(strays, func(i, j int) bool { return strays[i].PID < strays[j].PID })
 	for _, p := range strays {
 		log.Printf("[lifecycle] instance %s: ending stray %s process %d (not a running recorded resource)", p.Instance, p.Component, p.PID)
