@@ -210,10 +210,15 @@ One pass walks the users that have an Agent deployment (pages of 500, at most
 3. The pin's SHA-256 is in `failed` → skip (no loop).
 4. Any App runs the owner's own build (`digest`) → modified: skip; the Store
    shows *Update available*.
-5. The deployment is not fully running and ready (paused, a Workspace that is
-   stopped, Apps starting) → defer; the owner gets it when it is back and idle.
-   An update never wakes a paused Workspace.
-6. The Agent is busy (§5.2) → record `deferred` with the reason and wait.
+5. An App the owner runs is starting, installing or failing → defer (the
+   deployment is in flux). Apps that are ready, and Apps that wait for their
+   computer to come back (a paused Workspace, a released brain Pod: state
+   `waiting`, "waiting for node …" / "no online node …"), are settled: nothing
+   of an away App runs, so changing its release interrupts nothing. The
+   update never wakes anything; the owner's computers start on the new release
+   when they return, and the next launch is already the new version.
+6. The Agent is ready and busy (§5.2) → record `deferred` with the reason and
+   wait. An Agent that is away runs no chat.
 7. Otherwise record `applying` (the release it runs now as `previous`) and run
    the owner's own setup path (`FleetControl.setup_agent(user, pin)`), keeping
    the intent of Apps the owner stopped.
@@ -314,8 +319,9 @@ notes.
   release in Store → Versions makes the owner Pinned.
 - **U10** An owner with a running chat is deferred (state `deferred`, reason a
   chat is running) and moved within one pass after the chat ends.
-- **U11** An owner whose deployment is paused (Workspace stopped) is not woken
-  by the follower; it is moved after it runs and is idle.
+- **U11** An owner whose computers are away (Workspace paused, brain
+  released) is moved without being woken: the spec changes, nothing starts, and
+  verification waits until they return (time away does not count).
 - **U12** An owner running their own build of a System App is not moved;
   state `modified`.
 - **U13** A pin whose release fails to become ready is rolled back to the
