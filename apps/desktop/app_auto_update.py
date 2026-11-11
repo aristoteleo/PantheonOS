@@ -90,9 +90,14 @@ def modified(manager, app: dict) -> str:
         if (app.get('install') or {}).get('branch_model'):
             if git(root, 'rev-list', '-n', '1', '--branches', '--not', f'refs/heads/{branch}').strip():
                 return 'it has commits of your own'
+            # The branch new launches follow: an explicit default of this
+            # repository, else its development branch (launch_default).
             selected = manager.versions.default(app['id']) or {}
-            if selected.get('repository_id') == app['repository_id'] and selected.get('branch') not in (None, '', branch):
-                return f"it launches your branch {selected['branch']}"
+            mine = selected.get('repository_id') == app['repository_id']
+            launching = (selected.get('branch') if mine and selected.get('mode') == 'latest'
+                         else '' if mine else (app.get('install') or {}).get('work_branch'))
+            if launching and launching != branch:
+                return f"it launches your branch {launching}"
         else:
             current = git(root, 'branch', '--show-current').strip()
             if current != branch:

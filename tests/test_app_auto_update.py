@@ -137,13 +137,17 @@ def test_pin_and_follow_through_set_default_and_set_policy(world):
     assert updates.policy_of(manager, app_of(manager)) == 'follow' and launched(manager) == new
 
 
-@pytest.mark.parametrize('change', ['branch', 'dirty'])
+@pytest.mark.parametrize('change', ['branch', 'dirty', 'development-branch'])
 def test_a_modified_install_is_not_touched(world, change):
     manager, store, _ = world
     app = app_of(manager)
     root = Path(app['dir'])
     first = updates.current_commit(app)
-    if change == 'branch':
+    if change == 'development-branch':
+        # Store's "Create development branch": new launches follow it, even before a commit.
+        from apps.desktop.local_repository import create_branch
+        create_branch(manager, app)
+    elif change == 'branch':
         git(root, 'switch', '-q', '-c', 'my-work')
         (root / 'mine.txt').write_text('mine')
         commit(root, 'My change')
