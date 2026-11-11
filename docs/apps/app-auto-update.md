@@ -356,9 +356,13 @@ Live on staging: controller with `GET /deployments/{name}/activity`, Hub followe
   DOM release that cannot launch cannot be published. An App with a `build`
   step is not checked for entry files its build makes.
 
-Open: a rollback returns to the previous release, but the reconciler carries
-data from the revision it located last. When the new revision's data copy
-failed (one staging owner, Desktop: "source data is not an owned directory"),
-the previous revision then tries to copy from the failed candidate and stays in
-backoff. The data source must be an instance that has data; to be fixed in the
-reconciler.
+Found and fixed after: one owner's Desktop (admin_001) could not move to any
+new revision since its Workspace returned: its only stopped Desktop instance
+had no data directory, so every data copy (0.9.128 before this work, 0.9.129,
+and the automatic rollback to 0.9.128) failed with "source data is not an
+owned directory" and stayed in backoff. A node now treats a source instance
+whose data directory does not exist as empty: the new revision starts empty
+(nothing existed to carry); a source that exists but is not a directory is
+still refused (`TestStateCopyFromASourceWithoutDataStartsEmpty`). Until nodes
+run that build, the same repair is an empty data directory for the source
+instance.

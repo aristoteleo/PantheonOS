@@ -170,3 +170,65 @@ func TestStateCopyRefusesLinksAndOversizedFiles(t *testing.T) {
 		})
 	}
 }
+
+// A stopped source instance whose data directory is gone kept nothing to
+// carry: the new revision starts empty instead of failing every attempt (a
+// rollback to an earlier revision included). A source that is not a
+// directory is still refused.
+func TestStateCopyFromASourceWithoutDataStartsEmpty(t *testing.T) {
+	m, _, old := setup(t)
+	def := definition()
+	def.Version = "2"
+	b, next := bundle(t, def, nil)
+	if _, err := m.Stage(next, 0, b); err != nil {
+		t.Fatal(err)
+	}
+	run := func(id, action, digest string, generation uint64, source *DataSource) Operation {
+		t.Helper()
+		if _, err := m.Submit(Request{Protocol: 1, OperationID: id, Action: action, Digest: digest, Scope: "model-test", Generation: generation, DataSource: source}); err != nil {
+			t.Fatal(err)
+		}
+		return wait(t, m, id)
+	}
+	for _, step := range []struct {
+		id, action, digest string
+		gen                uint64
+	}{{"start-old", "start", old, 0}, {"stop-old", "stop", old, 1}, {"install-new", "install", next, 0}} {
+		if op := run(step.id, step.action, step.digest, step.gen, nil); op.State != "succeeded" {
+			t.Fatal(step.id, op)
+		}
+	}
+	sourcePath := m.paths(old, "model-test").Data
+	if err := os.RemoveAll(sourcePath); err != nil {
+		t.Fatal(err)
+	}
+	// Not a directory: refused, nothing created.
+	if err := os.WriteFile(sourcePath, []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if op := run("copy-file", "clone_data", next, 0, &DataSource{Digest: old, Generation: 2}); op.State != "failed" {
+		t.Fatal("a source that is not a directory must be refused", op)
+	}
+	if err := os.Remove(sourcePath); err != nil {
+		t.Fatal(err)
+	}
+	if op := run("copy-none", "clone_data", next, 0, &DataSource{Digest: old, Generation: 2}); op.State != "succeeded" {
+		t.Fatal("a source without data must start the new revision empty", op)
+	}
+	targetPath := m.paths(next, "model-test").Data
+	entries, err := os.ReadDir(targetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name() != importReceipt {
+			t.Fatal("unexpected file in the new data", e.Name())
+		}
+	}
+	if leftovers, _ := filepath.Glob(filepath.Join(filepath.Dir(targetPath), ".nodata-*")); len(leftovers) != 0 {
+		t.Fatal("temporary empty source left behind", leftovers)
+	}
+	if op := run("start-new", "start", next, 0, nil); op.State != "succeeded" {
+		t.Fatal(op)
+	}
+}

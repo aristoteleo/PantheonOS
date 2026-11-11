@@ -69,19 +69,30 @@ func (m *Manager) cloneData(ctx context.Context, op *Operation, install *Install
 		if _, err := data.Lstat(key); !os.IsNotExist(err) {
 			return Receipt{}, fmt.Errorf("destination data exists without a matching import receipt")
 		}
-		st, err := data.Lstat(source.ID)
-		if err != nil || !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
-			return Receipt{}, fmt.Errorf("source data is not an owned directory")
-		}
-		src, err := data.OpenRoot(source.ID)
-		if err != nil {
-			return Receipt{}, err
-		}
-		defer src.Close()
 		nonce := make([]byte, 12)
 		if _, err := rand.Read(nonce); err != nil {
 			return Receipt{}, err
 		}
+		sourceDir := source.ID
+		st, err := data.Lstat(source.ID)
+		if os.IsNotExist(err) {
+			// The source instance kept no data (never wrote any, or its
+			// directory is gone): there is nothing to carry, and the new
+			// revision starts as the source would have, empty. Refusing
+			// left every later revision, and a rollback, unable to start.
+			sourceDir = ".nodata-" + hex.EncodeToString(nonce)
+			if err := data.Mkdir(sourceDir, 0700); err != nil {
+				return Receipt{}, err
+			}
+			defer data.RemoveAll(sourceDir)
+		} else if err != nil || !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
+			return Receipt{}, fmt.Errorf("source data is not an owned directory")
+		}
+		src, err := data.OpenRoot(sourceDir)
+		if err != nil {
+			return Receipt{}, err
+		}
+		defer src.Close()
 		temporary := ".import-" + hex.EncodeToString(nonce)
 		if err := data.Mkdir(temporary, 0700); err != nil {
 			return Receipt{}, err
