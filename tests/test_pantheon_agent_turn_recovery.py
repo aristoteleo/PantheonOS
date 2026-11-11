@@ -9,7 +9,7 @@ import pytest
 from pantheonos.appkit.dependency_client import DependencyCallError
 from pantheon.chatroom import command_gateway
 from pantheon.chatroom.command_gateway import TeamTurns
-from pantheon.chatroom.runtime import WORKSPACE_STARTING, AgentRuntime
+from pantheon.chatroom.runtime import AgentRuntime
 from pantheon.factory.dependency_provisioner import AllocatedToolProvider, DependencyInstanceProvisioner
 from pantheon.internal.memory import Memory
 
@@ -98,11 +98,10 @@ class Shell:
     def __init__(self, fail=False, bound=True):
         self.fail, self.calls, self.is_bound = fail, [], bound
 
-    async def ready(self, name, args, *, timeout):
+    def prepare(self, name, args):
         self.calls.append((name, args))
         if self.fail:
-            raise DependencyCallError('shell is not available yet', status=503)
-        return {'success': True}
+            raise ValueError('not a shell tool')
 
 
 def runtime_with(shell, memory):
@@ -119,22 +118,41 @@ def runtime_with(shell, memory):
 
 
 @pytest.mark.asyncio
-async def test_a_run_waits_for_its_shell_and_says_the_workspace_is_starting():
+async def test_a_run_never_waits_for_its_shell_it_asks_the_first_command_to_check_it():
+    # Combined check 1, H1: a bound shell on a paused Workspace held the run
+    # 120 s, then the message was dropped. The run now only asks the shell to
+    # check itself before its next command.
     memory = Memory('chat')
-    shell = Shell(fail=True)
+    shell = Shell()
     runtime = runtime_with(shell, memory)
-    out = await runtime.chat(chat_id='chat', message=[{'role': 'user', 'content': 'hi'}])
-    # Not answered without tools: the reason, which Team Chat reads as a
-    # Workspace still starting (it waits and answers then).
-    assert out == {'success': False, 'message': WORKSPACE_STARTING}
-    assert 'is not ready (' in WORKSPACE_STARTING and 'App ' in WORKSPACE_STARTING
+    assert await runtime._prepare_shell('chat', memory) is None
     assert shell.calls == [('run_command', {'command': 'true', 'timeout': 15})]
-    assert not (memory.extra_data or {}).get('running')
-    # A plain chat whose shell was never bound binds it on its first command
-    # (a turn without commands does not wait for the Workspace).
-    unbound = Shell(fail=True, bound=False)
+    # A plain chat whose shell was never bound binds it on its first command.
+    unbound = Shell(bound=False)
     runtime = runtime_with(unbound, memory)
     assert await runtime._prepare_shell('chat', memory) is None and unbound.calls == []
+    # A shell that cannot be prepared never fails the run.
+    broken = Shell(fail=True)
+    assert await runtime_with(broken, memory)._prepare_shell('chat', memory) is None
+
+
+@pytest.mark.asyncio
+async def test_a_run_that_cannot_start_keeps_the_users_message():
+    memory = Memory('chat')
+    runtime = runtime_with(Shell(), memory)
+    saved = []
+    runtime.memory_manager = SimpleNamespace(get_memory=lambda chat_id, *a: memory,
+                                             save_one=lambda chat_id: saved.append(chat_id))
+    runtime._nats_adapter = None
+
+    async def broken_team(chat_id):
+        raise RuntimeError('team could not be built')
+    runtime.get_team_for_chat = broken_team
+    out = await runtime.chat(chat_id='chat', message=[{'role': 'user', 'content': 'hello there'}])
+    assert out['success'] is False and out['kept'] is True and 'team could not be built' in out['message']
+    kept = memory.get_messages(None, for_llm=False)
+    assert [m['content'] for m in kept if m['role'] == 'user'] == ['hello there']
+    assert memory.extra_data.get('running') is False and saved == ['chat'] and runtime.threads == {}
 
 
 # ---- M2: the agent's folder ----

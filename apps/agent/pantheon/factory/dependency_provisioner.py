@@ -177,9 +177,19 @@ _REBIND = {401, 403, 404, 410, 502, 503}
 # A tool whose App is not running yet waits for it: a paused Workspace resumes
 # in about a minute (docs/apps/standalone-apps.md, "The Agent page before the
 # Workspace"). It asks the allocator again every PROVIDER_POLL_SECONDS, for up
-# to PROVIDER_WAIT_SECONDS; a refused bind allocates nothing.
-PROVIDER_WAIT_SECONDS = 300.0
+# to PROVIDER_WAIT_SECONDS; a refused bind allocates nothing. The chat offers
+# Start meanwhile and the page starts a paused Workspace by itself
+# ("Fixes after combined check 1"), so three minutes cover a cold start twice.
+PROVIDER_WAIT_SECONDS = 180.0
 PROVIDER_POLL_SECONDS = 3.0
+#: How long the probe a run asked for (`prepare`) may take before the tool
+#: call that needs it, the provider's own wait included.
+PREPARE_SECONDS = PROVIDER_WAIT_SECONDS + 30.0
+
+
+class ProviderNotStarted(DependencyCallError):
+    """The provider's computer did not start within PROVIDER_WAIT_SECONDS:
+    nothing ran, and asking again at once would only wait again."""
 
 
 class AllocatedToolProvider(DependencyToolProvider):
@@ -198,6 +208,9 @@ class AllocatedToolProvider(DependencyToolProvider):
         self._bound = None
         self._attempt = 0
         self._lock = asyncio.Lock()
+        # A probe to run before the next call (prepare), and its lock.
+        self._prepare_call = None
+        self._prepare_lock = asyncio.Lock()
 
     async def _current(self):
         async with self._lock:
@@ -244,10 +257,10 @@ class AllocatedToolProvider(DependencyToolProvider):
                 return await self._bind()
             except DependencyProviderStarting as error:
                 if time.monotonic() >= deadline:
-                    raise DependencyCallError(
+                    raise ProviderNotStarted(
                         f'{self.toolset_name} could not run: your Workspace did not start within '
-                        f'{round(PROVIDER_WAIT_SECONDS / 60)} minutes (it may be paused: open the Agent page '
-                        'or the desktop to start it). Nothing was executed.',
+                        f'{round(PROVIDER_WAIT_SECONDS / 60)} minutes (it may be paused: use Start Workspace in '
+                        'the chat or the computer menu, then try again). Nothing was executed.',
                         status=error.status, outcome_unknown=False) from error
 
     async def ready(self, name, args, *, timeout: float, every: float = 3.0):
@@ -260,12 +273,14 @@ class AllocatedToolProvider(DependencyToolProvider):
             try:
                 # A wait for the provider inside the call is bounded by this
                 # probe's own timeout.
-                return await asyncio.wait_for(self.call_tool(name, args),
+                return await asyncio.wait_for(self._call(name, args),
                                               max(0.1, deadline - time.monotonic()))
             except asyncio.TimeoutError:
                 self._check_open()
                 raise DependencyCallError(f'{self.toolset_name} did not answer within {timeout:.0f} s',
                                           outcome_unknown=False) from None
+            except ProviderNotStarted:
+                raise
             except DependencyCallError:
                 self._check_open()
                 if time.monotonic() >= deadline:
@@ -281,7 +296,42 @@ class AllocatedToolProvider(DependencyToolProvider):
         """The node the provider instance runs on (binding it if needed)."""
         return getattr(await self._current(), 'node_id', None)
 
+    def prepare(self, name, args):
+        """A probe (a call that may be repeated safely, such as `cd DIR`) to run
+        with ready() before the next call, instead of before the run: a turn
+        starts at once and only a tool that uses this provider waits for it
+        (docs/apps/standalone-apps.md, "Fixes after combined check 1"). The
+        latest one asked for wins; it stays asked for until it answers."""
+        if not isinstance(name, str) or name not in self._tools:
+            raise ValueError("Tool is not available in this dependency binding")
+        self._prepare_call = (name, dict(args))
+
+    @property
+    def preparing(self):
+        """The probe the next call runs first, or None."""
+        return self._prepare_call
+
+    async def _prepared(self):
+        if self._prepare_call is None:
+            return
+        async with self._prepare_lock:
+            pending = self._prepare_call
+            if pending is None:
+                return
+            await self.ready(*pending, timeout=PREPARE_SECONDS)
+            if self._prepare_call is pending:
+                self._prepare_call = None
+
     async def call_tool(self, name, args):
+        self._check_open()
+        if not isinstance(name, str) or name not in self._tools and name not in self._services:
+            raise ValueError("Tool is not available in this dependency binding")
+        # A probe the run asked for goes first; when it fails nothing else
+        # runs and the call reports why (it is asked for again next call).
+        await self._prepared()
+        return await self._call(name, args)
+
+    async def _call(self, name, args):
         self._check_open()
         if not isinstance(name, str) or name not in self._tools and name not in self._services:
             raise ValueError("Tool is not available in this dependency binding")

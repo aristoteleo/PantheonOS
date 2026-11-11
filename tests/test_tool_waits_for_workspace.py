@@ -119,3 +119,44 @@ async def test_the_wait_does_not_move_the_call_to_the_background(monkeypatch):
     [message] = await execute_tool_calls(agent, [call], {}, timeout=agent.tool_timeout, time_delta=.05)
     assert "moved to background" not in message["content"] and "ran x" in message["content"]
     assert not agent._bg_manager.list_tasks()
+
+
+# ---- Combined check 1: a run asks, the first call checks ----
+
+@pytest.mark.asyncio
+async def test_a_prepared_probe_runs_once_before_the_next_call(tmp_path, monkeypatch):
+    f = fixture(tmp_path, monkeypatch)
+    calls = []
+
+    def invoke(self, method, args, timeout_seconds):
+        calls.append(args)
+        return {'success': True, 'result': args}
+    monkeypatch.setattr('pantheonos.appkit.dependency_client.DependencyClient.invoke', invoke)
+    files = DependencyInstanceProvisioner(f.capability, consumer=f.consumer,
+                                          profiles=FILES).allocated('file_manager', owner_ref='agent-views')
+    files.prepare('read', {'path': 'probe'})
+    assert files.preparing == ('read', {'path': 'probe'}) and calls == []  # nothing runs when asked
+    await asyncio.gather(files.call_tool('read', {'path': 'a'}), files.call_tool('read', {'path': 'b'}))
+    paths = [c.get('path') or (c.get('args') or {}).get('path') for c in calls]
+    assert paths[0] == 'probe' and sorted(paths[1:]) == ['a', 'b'] and files.preparing is None
+    await files.call_tool('read', {'path': 'c'})
+    assert len(calls) == 4  # the probe ran once
+
+
+@pytest.mark.asyncio
+async def test_a_workspace_that_never_starts_fails_the_call_after_its_probe_without_running_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(provisioning, 'PROVIDER_POLL_SECONDS', 0.01)
+    monkeypatch.setattr(provisioning, 'PROVIDER_WAIT_SECONDS', 0.1)
+    monkeypatch.setattr(provisioning, 'PREPARE_SECONDS', 5.0)
+    f = fixture(tmp_path, monkeypatch)
+    bind, _ = starting_then_ready(f, [10 ** 6])
+    files = DependencyInstanceProvisioner(SimpleNamespace(bind=bind), consumer=f.consumer,
+                                          profiles=FILES).allocated('file_manager', owner_ref='agent-views')
+    files.prepare('read', {'path': 'probe'})
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    with pytest.raises(provisioning.ProviderNotStarted, match='Start Workspace') as failed:
+        await files.call_tool('read', {'path': 'a'})
+    # Ended by the provider wait (not retried until the probe's own deadline).
+    assert loop.time() - started < 1 and failed.value.outcome_unknown is False
+    assert files.preparing == ('read', {'path': 'probe'})  # asked again by the next call

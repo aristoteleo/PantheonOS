@@ -58,13 +58,6 @@ DEFAULT_TOOLSETS = []
 _BG_NOTIFICATION_MARKER = "<bg_task_notification>"
 
 
-#: How long a run waits for its conversation's shell (the Workspace starting).
-SHELL_READY_SECONDS = 120
-#: What a run says instead of running the model without its tools. Team Chat
-#: reads `App "…" is not ready (` as a Workspace still starting: the messages
-#: wait and are answered once it is ready.
-WORKSPACE_STARTING = ('Your Workspace is still starting, so this conversation\'s shell is not ready yet '
-                      '(App "shell" is not ready (starting)); nothing was sent to the model. Try again in a minute.')
 
 
 def _is_internal_notification(message: list[dict]) -> bool:
@@ -2422,43 +2415,59 @@ class AgentRuntime(AgentLifetime, ToolSet):
         except Exception:
             return None
 
-    async def _prepare_shell(self, chat_id: str, memory) -> str | None:
-        """Get the conversation's shell ready for a run on the Agent's own
-        node: bound (again, after a Workspace restart) and in the
-        conversation's working directory (a Team Chat or Canvas turn's
-        folder). None when ready (or when there is
-        nothing to prepare); the reason to give instead of running the model
-        without its tools when the Workspace is still starting after
-        SHELL_READY_SECONDS."""
+    async def _prepare_shell(self, chat_id: str, memory) -> None:
+        """Ask the conversation's shell on the Agent's own node to get ready
+        before its next command: bound again (after a Workspace restart) and in
+        the conversation's working directory (a Team Chat or Canvas turn's
+        folder). Nothing waits here: the run starts at once, and only the
+        first command of the run waits for the shell (a paused or starting
+        Workspace), with "Waiting for your Workspace to start" in the chat
+        (docs/apps/standalone-apps.md, "Fixes after combined check 1")."""
         extra = memory.extra_data or {}
         if extra.get("chat_node"):
-            return None  # it works on another node; the Workspace is not its place
+            return  # it works on another node; the Workspace is not its place
         try:
             team = await self.get_team_for_chat(chat_id)
             agent = team.team_agents[0]
         except Exception:
-            return None
+            return
         shell = getattr(agent, "providers", {}).get("shell")
-        if not callable(getattr(shell, "ready", None)):
-            return None
+        if not callable(getattr(shell, "prepare", None)):
+            return
         workdir = extra.get("chat_workdir") or ""
         if not workdir and not getattr(shell, "is_bound", False):
             # A plain chat whose shell was never bound binds it on its first
-            # command, as before: a turn that needs no command does not wait
-            # for the Workspace. One that was bound may be bound to a Shell
-            # App that ended (a Workspace restart): it is checked.
-            return None
+            # command. One that was bound may be bound to a Shell App that
+            # ended (a Workspace restart): its first command checks it.
+            return
         import shlex
         command = f"cd -- {shlex.quote(workdir)}" if workdir else "true"
         try:
-            await shell.ready("run_command", {"command": command, "timeout": 15}, timeout=SHELL_READY_SECONDS)
+            shell.prepare("run_command", {"command": command, "timeout": 15})
         except Exception as error:
-            from pantheonos.appkit.dependency_client import DependencyCallError
-            if isinstance(error, DependencyCallError):
-                logger.warning(f"Chat {chat_id}: the shell is not ready: {error}")
-                return WORKSPACE_STARTING
             logger.warning(f"Chat {chat_id}: preparing the shell failed: {error}")
-        return None
+
+    async def _keep_refused(self, chat_id: str, memory, message: list[dict], error: Exception) -> dict:
+        """A run that failed before it started: the user's message is kept in
+        the conversation (a reload shows it, a resend is the retry) and the
+        chat is told why, instead of the message silently vanishing."""
+        logger.error(f"Chat {chat_id}: the run could not start: {error}", exc_info=True)
+        reason = f"The message was kept, but the Agent could not start working on it: {error}"
+        try:
+            if not _is_internal_notification(message):
+                memory.add_messages([dict(m) for m in message if isinstance(m, dict) and m.get("role")])
+            memory.update_metadata({"running": False,
+                                    "last_activity_date": datetime.now(timezone.utc).isoformat()})
+            await run_func(self.memory_manager.save_one, chat_id)
+        except Exception as save_error:
+            logger.error(f"Chat {chat_id}: keeping the refused message failed: {save_error}")
+        if getattr(self, "_nats_adapter", None) is not None:
+            try:
+                await self._nats_adapter.publish(chat_id, "chat_finished", {
+                    "type": "chat_finished", "status": "error", "metadata": {"message": reason}})
+            except Exception:
+                pass
+        return {"success": False, "message": reason, "kept": True}
 
     def _setup_bg_auto_notify(self, chat_id: str, team):
         """Wire bg task completion to auto-trigger a new chat turn.
@@ -2790,156 +2799,162 @@ class AgentRuntime(AgentLifetime, ToolSet):
         except KeyError:
             return {"success": False, "message": f"Chat '{chat_id}' not found"}
         if not sub_agent:
-            # The conversation's shell, ready before the model runs (after a
-            # Workspace restart it is bound again), and in the conversation's
-            # working directory on its own node (a Team Chat agent's folder).
-            starting = await self._prepare_shell(chat_id, memory)
-            if starting:
-                return {"success": False, "message": starting}
-        memory.update_metadata({
-            "running": True,
-            "last_activity_date": datetime.now(timezone.utc).isoformat(),
-        })
+            # The conversation's shell gets ready before its first command
+            # (after a Workspace restart it is bound again), in the
+            # conversation's working directory on its own node (a Team Chat
+            # agent's folder). The run does not wait for it.
+            await self._prepare_shell(chat_id, memory)
+        try:
+            memory.update_metadata({
+                "running": True,
+                "last_activity_date": datetime.now(timezone.utc).isoformat(),
+            })
 
-        async def team_getter():
-            return await self.get_team_for_chat(chat_id)
+            async def team_getter():
+                return await self.get_team_for_chat(chat_id)
 
-        # Wire bg task auto-notification for this chat
-        # Resolve team early so we can set on_complete hooks before agent runs
-        team = await self.get_team_for_chat(chat_id)
-        self._setup_bg_auto_notify(chat_id, team)
+            # Wire bg task auto-notification for this chat
+            # Resolve team early so we can set on_complete hooks before agent runs
+            team = await self.get_team_for_chat(chat_id)
+            self._setup_bg_auto_notify(chat_id, team)
 
-        rename_candidate_task = None
-        rename_apply_task = None
-        rename_preferred_model = None
-        if self._enable_auto_chat_name:
-            from .special_agents import get_chat_name_generator
+            rename_candidate_task = None
+            rename_apply_task = None
+            rename_preferred_model = None
+            if self._enable_auto_chat_name:
+                from .special_agents import get_chat_name_generator
 
-            scope = getattr(getattr(self, "_environment", None), "model_scope", None)
-            chat_name_generator = get_chat_name_generator(scope) if scope is not None else get_chat_name_generator()
-        # Only a chat still under its default name gets a title generated.
-        if self._enable_auto_chat_name and not sub_agent and chat_name_generator._is_default_name(memory.name):
-            rename_preferred_model = await self._resolve_chat_name_preferred_model(memory)
-            rename_candidate_task = asyncio.create_task(
-                chat_name_generator.generate_name_candidate(
-                    message,
-                    preferred_model=rename_preferred_model,
+                scope = getattr(getattr(self, "_environment", None), "model_scope", None)
+                chat_name_generator = get_chat_name_generator(scope) if scope is not None else get_chat_name_generator()
+            # Only a chat still under its default name gets a title generated.
+            if self._enable_auto_chat_name and not sub_agent and chat_name_generator._is_default_name(memory.name):
+                rename_preferred_model = await self._resolve_chat_name_preferred_model(memory)
+                rename_candidate_task = asyncio.create_task(
+                    chat_name_generator.generate_name_candidate(
+                        message,
+                        preferred_model=rename_preferred_model,
+                    )
                 )
-            )
-            self._background_tasks.add(rename_candidate_task)
-            rename_candidate_task.add_done_callback(self._background_tasks.discard)
-            rename_apply_task = asyncio.create_task(
-                self._background_rename_chat(
-                    memory,
-                    messages=message,
-                    preferred_model=rename_preferred_model,
-                    candidate_task=rename_candidate_task,
+                self._background_tasks.add(rename_candidate_task)
+                rename_candidate_task.add_done_callback(self._background_tasks.discard)
+                rename_apply_task = asyncio.create_task(
+                    self._background_rename_chat(
+                        memory,
+                        messages=message,
+                        preferred_model=rename_preferred_model,
+                        candidate_task=rename_candidate_task,
+                    )
                 )
+                self._background_tasks.add(rename_apply_task)
+                rename_apply_task.add_done_callback(self._background_tasks.discard)
+
+            # Anchor the run to THIS chat's project root (workspace root) so the task
+            # brain, image output, and file tools all live under it — never the global
+            # home. Previously workdir was set ONLY for "isolated" chats with an
+            # explicit workspace_path; a "project"-mode chat (no workspace_path) left
+            # workdir empty, so the task brain fell back to the global brain dir and the
+            # agent saw home paths and wrote files into the wrong project.
+            project = memory.extra_data.get("project", {})
+            workspace_path = project.get("workspace_path") if isinstance(project, dict) else None
+            project_dir = await self._project_dir_for_chat(chat_id)
+            if project_dir:
+                context_variables = context_variables or {}
+                context_variables["workdir"] = project_dir
+                # `project_root` is the IMMUTABLE anchor for this chat's project. Unlike
+                # `workdir` — which proxy_toolset pops/overwrites per endpoint-toolset
+                # call to steer the endpoint's cwd — `project_root` is never mutated, so
+                # LOCAL toolsets (task brain, register_output) always resolve to the
+                # right project instead of silently falling back to the global home.
+                context_variables["project_root"] = project_dir
+
+            # Set up a designated image output directory so agents save images
+            # to a known location and claw channels can detect them cheaply.
+            from pantheon.image_detection import (
+                IMAGE_OUTPUT_DIR, DEFAULT_MAX_SIZE_BYTES, snapshot_images, diff_snapshots, encode_images_to_uris,
             )
-            self._background_tasks.add(rename_apply_task)
-            rename_apply_task.add_done_callback(self._background_tasks.discard)
+            image_output_path: str | None = None
+            img_root = project_dir or workspace_path
+            if self._environment.image_output_dir is not None:
+                image_output_path = self._environment.image_output_dir(chat_id)
+            elif img_root:
+                import os
+                image_output_path = os.path.join(img_root, IMAGE_OUTPUT_DIR)
+            if image_output_path:
+                Path(image_output_path).mkdir(mode=0o700, parents=True, exist_ok=True)
+                context_variables = context_variables or {}
+                context_variables["image_output_dir"] = image_output_path
 
-        # Anchor the run to THIS chat's project root (workspace root) so the task
-        # brain, image output, and file tools all live under it — never the global
-        # home. Previously workdir was set ONLY for "isolated" chats with an
-        # explicit workspace_path; a "project"-mode chat (no workspace_path) left
-        # workdir empty, so the task brain fell back to the global brain dir and the
-        # agent saw home paths and wrote files into the wrong project.
-        project = memory.extra_data.get("project", {})
-        workspace_path = project.get("workspace_path") if isinstance(project, dict) else None
-        project_dir = await self._project_dir_for_chat(chat_id)
-        if project_dir:
+            # Pre-snapshot: only scan this composition's dedicated quick-preview dir.
+            # Deliverable figures are surfaced via the Output panel — register_output plus
+            # the live preview of the task's declared output_dir — NOT this inline channel,
+            # which exists mainly for claw channels that have no Output panel.
+            pre_image_snapshot = snapshot_images(image_output_path) if image_output_path else {}
+
+            # Expose the chat id to tools. `client_id` in the tool context is the
+            # UI connection id (stable across chats), not the chat id — toolsets
+            # that need the chat id (e.g. live_view, to publish on the chat's
+            # NATS stream) must read `chat_id` instead.
             context_variables = context_variables or {}
-            context_variables["workdir"] = project_dir
-            # `project_root` is the IMMUTABLE anchor for this chat's project. Unlike
-            # `workdir` — which proxy_toolset pops/overwrites per endpoint-toolset
-            # call to steer the endpoint's cwd — `project_root` is never mutated, so
-            # LOCAL toolsets (task brain, register_output) always resolve to the
-            # right project instead of silently falling back to the global home.
-            context_variables["project_root"] = project_dir
+            context_variables["chat_id"] = chat_id
+            # The conversation's working node (docs/agent/agent-core.md); its note reaches
+            # the model when the node is first known or changes. Its working
+            # directory goes with it, on the Agent's own node too.
+            chat_node = (memory.extra_data or {}).get("chat_node")
+            if chat_node:
+                context_variables["chat_node"] = chat_node
+            chat_workdir = (memory.extra_data or {}).get("chat_workdir")
+            if chat_workdir:
+                context_variables["chat_workdir"] = chat_workdir
+            if not sub_agent:
+                message = await self._with_environment_note(chat_id, memory, message, project_dir)
+                # What the user said to sub-agents directly since the lead's last turn.
+                notes = take_sub_agent_notes(memory)
+                if notes:
+                    from pantheon.agent_nodes import with_note
+                    message = with_note(message, notes)
 
-        # Set up a designated image output directory so agents save images
-        # to a known location and claw channels can detect them cheaply.
-        from pantheon.image_detection import (
-            IMAGE_OUTPUT_DIR, DEFAULT_MAX_SIZE_BYTES, snapshot_images, diff_snapshots, encode_images_to_uris,
-        )
-        image_output_path: str | None = None
-        img_root = project_dir or workspace_path
-        if self._environment.image_output_dir is not None:
-            image_output_path = self._environment.image_output_dir(chat_id)
-        elif img_root:
-            import os
-            image_output_path = os.path.join(img_root, IMAGE_OUTPUT_DIR)
-        if image_output_path:
-            Path(image_output_path).mkdir(mode=0o700, parents=True, exist_ok=True)
-            context_variables = context_variables or {}
-            context_variables["image_output_dir"] = image_output_path
+            thread = Thread(
+                team_getter,  # Pass team getter
+                memory,
+                message,
+                context_variables=context_variables,
+                sub_agent=sub_agent,
+                sub_agent_profile=profile,
+                agent_for=lambda context: self._sub_agent_for(chat_id, context),
+            )
 
-        # Pre-snapshot: only scan this composition's dedicated quick-preview dir.
-        # Deliverable figures are surfaced via the Output panel — register_output plus
-        # the live preview of the task's declared output_dir — NOT this inline channel,
-        # which exists mainly for claw channels that have no Output panel.
-        pre_image_snapshot = snapshot_images(image_output_path) if image_output_path else {}
+            if team_turn and chat_id in self.threads:
+                # Another run started while this one got ready: never two runs.
+                from .command_gateway import TEAM_BUSY
+                return {"success": False, "busy": True, "message": TEAM_BUSY}
+            self.threads[chat_id] = thread
+            if team_turn:
+                # From now on the conversation's commands are the turn's.
+                team_turns.start(chat_id)
 
-        # Expose the chat id to tools. `client_id` in the tool context is the
-        # UI connection id (stable across chats), not the chat id — toolsets
-        # that need the chat id (e.g. live_view, to publish on the chat's
-        # NATS stream) must read `chat_id` instead.
-        context_variables = context_variables or {}
-        context_variables["chat_id"] = chat_id
-        # The conversation's working node (docs/agent/agent-core.md); its note reaches
-        # the model when the node is first known or changes. Its working
-        # directory goes with it, on the Agent's own node too.
-        chat_node = (memory.extra_data or {}).get("chat_node")
-        if chat_node:
-            context_variables["chat_node"] = chat_node
-        chat_workdir = (memory.extra_data or {}).get("chat_workdir")
-        if chat_workdir:
-            context_variables["chat_workdir"] = chat_workdir
-        if not sub_agent:
-            message = await self._with_environment_note(chat_id, memory, message, project_dir)
-            # What the user said to sub-agents directly since the lead's last turn.
-            notes = take_sub_agent_notes(memory)
-            if notes:
-                from pantheon.agent_nodes import with_note
-                message = with_note(message, notes)
+            # Wire the steer queue so the running agent loop can pull in user
+            # messages that arrive mid-run (message queue feature). Attach to every
+            # team agent, mirroring _setup_bg_auto_notify, so whichever agent is
+            # active after a transfer drains the same queue.
+            for agent in team.agents.values():
+                if hasattr(agent, "_steer_queue"):
+                    agent._steer_queue = thread.steer_queue
 
-        thread = Thread(
-            team_getter,  # Pass team getter
-            memory,
-            message,
-            context_variables=context_variables,
-            sub_agent=sub_agent,
-            sub_agent_profile=profile,
-            agent_for=lambda context: self._sub_agent_for(chat_id, context),
-        )
+            # Add NATS streaming hooks if enabled
+            if self._nats_adapter is not None:
+                chunk_hook, step_hook = self._nats_adapter.create_hooks(chat_id)
+                thread.add_chunk_hook(chunk_hook)
+                thread.add_step_message_hook(step_hook)
 
-        if team_turn and chat_id in self.threads:
-            # Another run started while this one got ready: never two runs.
-            from .command_gateway import TEAM_BUSY
-            return {"success": False, "busy": True, "message": TEAM_BUSY}
-        self.threads[chat_id] = thread
-        if team_turn:
-            # From now on the conversation's commands are the turn's.
-            team_turns.start(chat_id)
-
-        # Wire the steer queue so the running agent loop can pull in user
-        # messages that arrive mid-run (message queue feature). Attach to every
-        # team agent, mirroring _setup_bg_auto_notify, so whichever agent is
-        # active after a transfer drains the same queue.
-        for agent in team.agents.values():
-            if hasattr(agent, "_steer_queue"):
-                agent._steer_queue = thread.steer_queue
-
-        # Add NATS streaming hooks if enabled
-        if self._nats_adapter is not None:
-            chunk_hook, step_hook = self._nats_adapter.create_hooks(chat_id)
-            thread.add_chunk_hook(chunk_hook)
-            thread.add_step_message_hook(step_hook)
-
-        await self.attach_hooks(
-            chat_id, process_chunk, process_step_message, wait=False
-        )
+            await self.attach_hooks(
+                chat_id, process_chunk, process_step_message, wait=False
+            )
+        except Exception as error:
+            # Nothing ran yet: the user's message stays in the conversation
+            # with the reason, never dropped (combined check 1, H1).
+            if "thread" in locals() and self.threads.get(chat_id) is locals()["thread"]:
+                del self.threads[chat_id]
+            return await self._keep_refused(chat_id, memory, message, error)
 
         try:
             await thread.run()
