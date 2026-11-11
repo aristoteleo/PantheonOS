@@ -18,13 +18,30 @@ type fakeProcesses struct {
 	alive      map[int]bool
 	ignoreTERM map[int]bool
 	signals    []string
+	// reused: pids whose process ended and whose pid now runs another one.
+	reused map[int]bool
+}
+
+func (f *fakeProcesses) ticks(pid int) uint64 {
+	if f.reused[pid] {
+		return uint64(9000 + pid)
+	}
+	return uint64(1000 + pid)
 }
 
 func (f *fakeProcesses) install(t *testing.T) {
-	scan, signal, exists, grace, kill := scanAppProcesses, signalStray, strayExists, strayGrace, strayKillWait
+	scan, signal, exists, grace, kill, start := scanAppProcesses, signalStray, strayExists, strayGrace, strayKillWait, strayStartTicks
 	t.Cleanup(func() {
-		scanAppProcesses, signalStray, strayExists, strayGrace, strayKillWait = scan, signal, exists, grace, kill
+		scanAppProcesses, signalStray, strayExists, strayGrace, strayKillWait, strayStartTicks = scan, signal, exists, grace, kill, start
 	})
+	strayStartTicks = func(pid int) (uint64, error) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if !f.alive[pid] && !f.reused[pid] {
+			return 0, errProcessGone
+		}
+		return f.ticks(pid), nil
+	}
 	strayGrace, strayKillWait = 200*time.Millisecond, 200*time.Millisecond
 	scanAppProcesses = func(string) (processTable, error) {
 		f.mu.Lock()
@@ -32,6 +49,9 @@ func (f *fakeProcesses) install(t *testing.T) {
 		out := processTable{parent: f.table.parent, group: f.table.group}
 		for _, p := range f.table.apps {
 			if f.alive[p.PID] {
+				if p.Start == 0 {
+					p.Start = f.ticks(p.PID)
+				}
 				out.apps = append(out.apps, p)
 			}
 		}
@@ -86,8 +106,8 @@ func TestReapStraysKeepsRecordedProcessesAndEndsTheRest(t *testing.T) {
 		table: processTable{
 			parent: map[int]int{leader: self, 101: leader, 102: 101, 103: self + 7, 200: self, 201: self, 300: self + 7},
 			group:  map[int]int{leader: leader, 101: leader, 102: 102, 103: 103, 200: 200, 201: 201, 300: 300},
-			apps: []appProcess{{leader, running, "backend"}, {101, running, "backend"}, {102, running, "backend"},
-				{103, running, "backend"}, {200, running, "backend"}, {201, running, "backend"}, {300, other, "backend"}},
+			apps: []appProcess{{leader, running, "backend", 0}, {101, running, "backend", 0}, {102, running, "backend", 0},
+				{103, running, "backend", 0}, {200, running, "backend", 0}, {201, running, "backend", 0}, {300, other, "backend", 0}},
 		},
 		alive:      map[int]bool{leader: true, 101: true, 102: true, 103: true, 200: true, 201: true, 300: true},
 		ignoreTERM: map[int]bool{201: true},
@@ -125,7 +145,7 @@ func TestStartEndsStrayOfEarlierGenerationFirst(t *testing.T) {
 	id := m.instanceID(d, "s")
 	procs := &fakeProcesses{
 		table: processTable{parent: map[int]int{400: 1}, group: map[int]int{400: 400},
-			apps: []appProcess{{400, id, "backend"}}},
+			apps: []appProcess{{400, id, "backend", 0}}},
 		alive: map[int]bool{400: true}, ignoreTERM: map[int]bool{},
 	}
 	procs.install(t)
@@ -144,6 +164,46 @@ func TestStartEndsStrayOfEarlierGenerationFirst(t *testing.T) {
 	defer func() { signalStray = signal }()
 	if op := submit(t, m, d, "start2", "start", "s", 2); op.State != "failed" {
 		t.Fatal("started beside a live stray", op.State)
+	}
+}
+
+// A stray that ignores SIGTERM and exits during the grace, its pid taken by
+// another process: the SIGKILL after the grace is not sent to that pid
+// (Fast Agent check 1), and the reap succeeds.
+func TestReapStraysNeverSignalsAReusedPid(t *testing.T) {
+	m, _, d := setup(t)
+	submit(t, m, d, "install", "install", "s", 0)
+	id := m.instanceID(d, "s")
+	procs := &fakeProcesses{
+		table: processTable{parent: map[int]int{500: 1}, group: map[int]int{500: 500},
+			apps: []appProcess{{500, id, "backend", 0}}},
+		alive: map[int]bool{500: true}, ignoreTERM: map[int]bool{500: true}, reused: map[int]bool{},
+	}
+	procs.install(t)
+	signal := signalStray
+	signalStray = func(pid int, kill bool) error {
+		err := signal(pid, kill)
+		if !kill {
+			// It exits after the TERM after all; a new process gets its pid.
+			procs.mu.Lock()
+			procs.reused[pid] = true
+			procs.mu.Unlock()
+		}
+		return err
+	}
+	m.serial.Lock()
+	err := m.reapStrays(context.Background(), "")
+	m.serial.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := procs.sent(); len(got) != 1 || got[0] != "TERM:500" {
+		t.Fatal("signals", got)
+	}
+	// A process whose start time could not be read is never signalled.
+	procs.table.apps[0].Start = 0
+	if sameStray(appProcess{PID: 500}) {
+		t.Fatal("an unidentified process counts as the stray")
 	}
 }
 

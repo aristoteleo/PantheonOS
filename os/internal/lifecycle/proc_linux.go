@@ -55,7 +55,7 @@ func scanProcesses(dataRoot string) (processTable, error) {
 		if err != nil || pid <= 0 {
 			continue
 		}
-		ppid, pgrp, _, err := processStat(pid)
+		ppid, pgrp, start, err := processStat(pid)
 		if err != nil {
 			continue
 		}
@@ -69,7 +69,7 @@ func scanProcesses(dataRoot string) (processTable, error) {
 			if !ok || strings.Contains(file, string(filepath.Separator)) || !strings.HasSuffix(file, ".log") || !instanceRE.MatchString(instance) {
 				continue
 			}
-			table.apps = append(table.apps, appProcess{PID: pid, Instance: instance, Component: strings.TrimSuffix(file, ".log")})
+			table.apps = append(table.apps, appProcess{PID: pid, Instance: instance, Component: strings.TrimSuffix(file, ".log"), Start: start})
 			break
 		}
 	}

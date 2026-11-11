@@ -22,6 +22,10 @@ type appProcess struct {
 	PID       int
 	Instance  string
 	Component string
+	// Start is the process's start time in clock ticks when it was scanned:
+	// every signal checks it again, so a pid reused by another process in
+	// the grace period is never signalled (0: unknown, never signalled).
+	Start uint64
 }
 
 type processTable struct {
@@ -36,7 +40,19 @@ var (
 	strayExists      = processExists
 	strayGrace       = 10 * time.Second
 	strayKillWait    = killWait
+	strayStartTicks  = processStartTicks
 )
+
+// sameStray reports whether p's pid still runs the process that was scanned:
+// a pid is reused once its process exits, and a SIGKILL after the grace must
+// not reach whatever got the pid meanwhile.
+func sameStray(p appProcess) bool {
+	if p.Start == 0 {
+		return false
+	}
+	ticks, err := strayStartTicks(p.PID)
+	return err == nil && ticks == p.Start
+}
 
 // reapStrays ends App processes the ledger does not run, so no new
 // generation starts beside an old one that holds the instance's locks and
@@ -98,13 +114,16 @@ func (m *Manager) findStrays(ctx context.Context, only string) ([]appProcess, er
 func endStrays(ctx context.Context, strays []appProcess) error {
 	sort.Slice(strays, func(i, j int) bool { return strays[i].PID < strays[j].PID })
 	for _, p := range strays {
+		if !sameStray(p) {
+			continue
+		}
 		log.Printf("[lifecycle] instance %s: ending stray %s process %d (not a running recorded resource)", p.Instance, p.Component, p.PID)
 		_ = signalStray(p.PID, false)
 	}
 	alive := func() []appProcess {
 		var left []appProcess
 		for _, p := range strays {
-			if strayExists(p.PID) {
+			if strayExists(p.PID) && sameStray(p) {
 				left = append(left, p)
 			}
 		}
@@ -122,6 +141,10 @@ func endStrays(ctx context.Context, strays []appProcess) error {
 	}
 	left := wait(strayGrace)
 	for _, p := range left {
+		// Checked again right before the signal (alive checked it a moment ago).
+		if !sameStray(p) {
+			continue
+		}
 		log.Printf("[lifecycle] instance %s: stray process %d ignored SIGTERM; killing", p.Instance, p.PID)
 		_ = signalStray(p.PID, true)
 	}

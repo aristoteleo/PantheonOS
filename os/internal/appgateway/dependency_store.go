@@ -55,6 +55,13 @@ var (
 // consumer check still requires the exact consumer generation to be live).
 const dependencyTombstoneRetention = 24 * time.Hour
 
+// dependencyTombstoneFloor is the shortest a tombstone is kept: an owner whose
+// share is full even after the day-old tombstones went loses its own
+// tombstones older than this at once, rather than being refused until they
+// age out (Fast Agent check 1). It is more than three times the longest
+// retry that relies on this journal alone (about 17 minutes, above).
+const dependencyTombstoneFloor = time.Hour
+
 // dependencyPruneInterval bounds how often writes prune when not at capacity.
 const dependencyPruneInterval = 10 * time.Minute
 
@@ -324,6 +331,21 @@ func (s *dependencyStore) prune(cutoff int64, fleet string) int {
 	return removed
 }
 
+// count splits fleet's records into unexpired grants and expired ones (tombstones).
+func (s *dependencyStore) count(fleet string, now int64) (live, expired int) {
+	for _, v := range s.records {
+		if v.Fleet != fleet {
+			continue
+		}
+		if v.Expires > now {
+			live++
+		} else {
+			expired++
+		}
+	}
+	return live, expired
+}
+
 // admit makes room for one new record of fleet: it prunes expired records
 // past the retention every dependencyPruneInterval, and at once when the
 // owner's share or the journal is full. A full share refuses that owner only;
@@ -339,7 +361,15 @@ func (s *dependencyStore) admit(fleet string) error {
 		}
 	}
 	if s.fleets[fleet] >= maxDependencyRecordsPerFleet {
-		log.Printf("[appgateway] DEPENDENCY JOURNAL FULL for owner %s: %d unexpired records (share %d); refusing its new grants", fleet, s.fleets[fleet], maxDependencyRecordsPerFleet)
+		if n := s.prune(now.Add(-dependencyTombstoneFloor).Unix(), fleet); n > 0 {
+			log.Printf("[appgateway] dependency journal: owner %s at its share; pruned %d of its records expired over %s ago; %d remain",
+				fleet, n, dependencyTombstoneFloor, s.fleets[fleet])
+		}
+	}
+	if s.fleets[fleet] >= maxDependencyRecordsPerFleet {
+		live, recent := s.count(fleet, now.Unix())
+		log.Printf("[appgateway] DEPENDENCY JOURNAL FULL for owner %s: %d records (share %d): %d unexpired grants, %d expired within the last %s; refusing its new grants",
+			fleet, s.fleets[fleet], maxDependencyRecordsPerFleet, live, recent, dependencyTombstoneFloor)
 		return fmt.Errorf("dependency journal capacity reached for this owner")
 	}
 	if len(s.records) >= maxDependencyRecords {
