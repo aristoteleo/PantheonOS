@@ -288,3 +288,12 @@ def test_a_backend_that_does_not_start_reverts_to_the_previous_version(tmp_path)
     assert updates.current_commit(app_of(manager)) == old and launched(manager) == old
     assert new in app_of(manager)['install']['auto_update']['failed']
     assert step(manager, store) == ('failed', None)
+
+
+def test_an_app_built_from_source_is_not_refused_for_its_unbuilt_entry(world):
+    manager, store, _ = world
+    new = store.release('1.1.0', manifest={'id': 'demo', 'name': 'Demo', 'version': '1.1.0', 'apiVersion': 2, 'surface': 'dom',
+                                           'entry': {'frontend': 'dist/main.js'},
+                                           'build': {'argv': ['python3', 'build.py'], 'timeout_seconds': 60}})
+    decision, result = step(manager, store)
+    assert decision == 'update' and result['success'] and updates.current_commit(app_of(manager)) == new

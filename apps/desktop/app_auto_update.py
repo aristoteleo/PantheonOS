@@ -205,7 +205,8 @@ def _check(manager, app: dict, commit: str):
         return  # node-managed runtimes are not launched from a snapshot
     resolved = manager.versions.resolve(app['id'], app['scope'], commit, app['repository_id'])
     root = Path(resolved['dir']).resolve()
-    for name in ('frontend', 'backend'):
+    # An App with a build step makes its entry files when it is built.
+    for name in () if manifest.get('build') else ('frontend', 'backend'):
         entry = (manifest.get('entry') or {}).get(name)
         if not isinstance(entry, str) or not entry or ':' in entry or entry.startswith(('http://', 'https://')):
             continue
