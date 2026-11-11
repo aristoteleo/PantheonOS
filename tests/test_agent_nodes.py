@@ -45,7 +45,7 @@ class FakeFleet:
                 {"node_id": "mac", "name": "Mac", "os": "darwin", "shell": "posix", "status": "online",
                  "caps": ["fs:local", "proc"], "file_roots": ["/Users/me"]},
                 {"node_id": "pod", "name": "brain", "os": "linux", "shell": "posix", "status": "online",
-                 "caps": [], "file_roots": []},
+                 "caps": [], "file_roots": [], "is_self": True},
                 {"node_id": "off", "name": "Laptop", "os": "windows", "shell": "powershell", "status": "offline",
                  "caps": ["fs:local", "proc"], "file_roots": ["C:/Users/me"]}]}
         if name == "node_call":
@@ -260,6 +260,7 @@ async def test_a_named_node_is_checked_before_anything_waits_for_the_workspace()
     agent = await starting_agent()
     reply = await asyncio.wait_for(route(agent, "shell__run_command", {"command": "ls"}, "本地"), 1)
     assert "not one of your nodes" in reply["error"] and "Mac" in reply["error"] and "Workspace" in reply["error"]
+    assert "brain" not in reply["error"]  # the Agent's own computer is not offered
     assert "offline" in (await asyncio.wait_for(route(agent, "shell__run_command", {"command": "ls"}, "off"), 1))["error"]
     # The Workspace, by id or name, runs as usual (its own wait), never through the Fleet App.
     assert await asyncio.wait_for(route(agent, "shell__run_command", {"command": "ls"}, "ws"), 1) is None

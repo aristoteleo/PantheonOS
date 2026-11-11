@@ -138,8 +138,9 @@ def _node(nodes: list[dict], node_id: str) -> dict | None:
     return found
 
 
-def _names(nodes: list[dict], host: str | None = None) -> str:
-    return ", ".join(sorted(display_name(n) for n in nodes if n.get("node_id") != host)) or "none"
+def _names(nodes: list[dict]) -> str:
+    """The names to offer the model: not the computer the Agent itself runs on."""
+    return ", ".join(sorted(display_name(n) for n in nodes if not n.get("is_self"))) or "none"
 
 
 def display_name(node: dict) -> str:
