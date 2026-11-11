@@ -18,7 +18,11 @@ func TestAllocatorSaysProviderNotRunningYet(t *testing.T) {
 	 "consumer": {"$app": "agent", "late": true},
 	 "bindings": {"shell": {"app_id": "shell", "provider": {"$app": "shell", "late": true, "component": "backend", "port": "http"},
 	            "methods": {"run_command": {"arguments": ["command", "shell_id"], "bound": {}}}}}}}}}}`
-	for _, intent := range []deployments.Intent{deployments.Running, deployments.Stopped} {
+	shellStates := []deployments.AppStatus{{State: "waiting", Reason: "waiting for node sandbox to return"},
+		// Placed and starting, not serving yet: still "not running yet".
+		{NodeID: "sandbox", InstanceID: "i-shell", Revision: revShell, Generation: 2, State: "starting"}}
+	for i, intent := range []deployments.Intent{deployments.Running, deployments.Running, deployments.Stopped} {
+		shell := shellStates[i%2]
 		store := storeWith(t, map[string]deployments.AppSpec{
 			"allocator": {Hosted: "dependency-binding", Scope: "allocator", Intent: deployments.Running, Config: map[string]json.RawMessage{"backend": json.RawMessage(policies)}},
 			"agent":     {Package: "agent", Scope: "agent", Intent: deployments.Running},
@@ -27,7 +31,7 @@ func TestAllocatorSaysProviderNotRunningYet(t *testing.T) {
 		d, _ := store.Get(fleetID, "general-team")
 		if err := store.SetStatus(fleetID, "general-team", d.Revision, deployments.Status{Apps: map[string]deployments.AppStatus{
 			"agent": {NodeID: "brain", InstanceID: "i-agent", Revision: revAgent, Generation: 3, State: "ready"},
-			"shell": {State: "waiting", Reason: "waiting for node sandbox to return"},
+			"shell": shell,
 		}}); err != nil {
 			t.Fatal(err)
 		}

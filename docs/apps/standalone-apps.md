@@ -1412,9 +1412,10 @@ which pauses when idle and takes about a minute to resume.
    state (unchanged; this is already so). Loading the page still starts a
    paused Workspace (`GET /api/chatroom` wakes every node of the session).
 2. *A tool that needs the Workspace waits for it, in the chat.* When a
-   binding's provider App is not running yet, the controller's allocator
-   answers exactly `dependency provider not running yet` (any other failure
-   stays the generic one). The Agent's allocated toolset then waits for it:
+   binding's provider App is meant to run but is not ready yet (not placed,
+   or placed and still starting), the controller's allocator answers exactly
+   `dependency provider not running yet` before journaling anything (any
+   other failure stays the generic one). The Agent's allocated toolset then waits for it:
    it asks again every 3 s for up to 5 minutes, and the chat shows the
    activity "Waiting for your Workspace to start" under the message, then
    "Running tools" once it runs. The model sees nothing but the tool's

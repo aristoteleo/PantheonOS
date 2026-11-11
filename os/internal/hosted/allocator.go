@@ -283,6 +283,17 @@ func intendedToRun(d deployments.Deployment, raw json.RawMessage) bool {
 	return ok && app.Intent != "stopped"
 }
 
+// providerReady reports whether a policy's provider reference that names an
+// App of the deployment is ready (an exact identity is taken as it is).
+func providerReady(d deployments.Deployment, raw json.RawMessage) bool {
+	var ref map[string]any
+	if json.Unmarshal(raw, &ref) != nil {
+		return false
+	}
+	name, ok := ref["$app"].(string)
+	return !ok || d.Status.Apps[name].State == "ready"
+}
+
 // validatePolicy is the former _binding_policy check of one binding.
 func validatePolicy(alias string, b bindingPolicy) error {
 	if !nameRE.MatchString(alias) || !nameRE.MatchString(b.AppID) || b.Methods == nil {
@@ -500,11 +511,12 @@ func (a *Allocator) bind(ctx context.Context, c *Call, p policy, ownerRef, opera
 			return nil, err
 		}
 		provider, err := a.resolveIdentity(c.Fleet, c.Deployment, b.Provider, true)
-		if errors.Is(err, errNotRunning) {
-			// Only an App of this deployment that is meant to run.
-			if d, e := a.Store.Get(c.Fleet, c.Deployment); e == nil && intendedToRun(d, b.Provider) {
-				return nil, errProviderStarting
-			}
+		// A provider App of this deployment that is meant to run but is not
+		// ready yet (not running, or still starting and not serving): the
+		// consumer waits for it. Checked before anything is journaled.
+		if d, e := a.Store.Get(c.Fleet, c.Deployment); e == nil && intendedToRun(d, b.Provider) &&
+			(errors.Is(err, errNotRunning) || err == nil && !providerReady(d, b.Provider)) {
+			return nil, errProviderStarting
 		}
 		if err != nil {
 			return nil, err
