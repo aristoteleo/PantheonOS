@@ -47,6 +47,7 @@ var (
 //     (grantTTL, 15 minutes), then prepares a new start; the node accepts a
 //     preparation's configuration once;
 //   - model access derives operation ids from 30 s windows.
+//
 // The longest retry that relies on this journal alone is therefore one grant
 // lifetime plus the allocator's maintenance deadline, about 17 minutes. A day
 // is a margin of more than 80 times, and it also covers a controller that was
