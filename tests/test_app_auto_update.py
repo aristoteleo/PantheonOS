@@ -210,3 +210,77 @@ def test_run_pass_uses_store_heads_and_broadcasts(world, monkeypatch):
     assert result['outcomes'] == {f"demo@{app_of(manager)['repository_id']}": 'updated'}
     assert launched(manager) == new
     assert sent and sent[0][0] == 'store.updates' and sent[0][1]['notices'][0]['version'] == '1.1.0'
+
+
+class FakeProcess:
+    def __init__(self, pending=False):
+        self.pending = {'call': object()} if pending else {}
+        self.proc = type('P', (), {'returncode': None})()
+
+
+class FakeSupervisor:
+    def __init__(self, fail=False):
+        self.procs, self.calls, self.stopped, self.fail = {}, [], [], fail
+
+    async def stop(self, key):
+        self.stopped.append(key)
+        self.procs.pop(key, None)
+
+    async def call(self, app_id, method, args, timeout, *, pinned=None):
+        commit = pinned['revision']['commit']
+        self.calls.append(commit)
+        if self.fail and len(self.calls) == 1:
+            raise RuntimeError('backend exited')
+        self.procs[f"{app_id}@{pinned['repository_id']}:{commit}"] = FakeProcess()
+        return {}
+
+
+def backend_world(tmp_path):
+    manager = AppStoreManager([(tmp_path / 'user' / 'apps', 'user')])
+    store = Store(tmp_path / 'store')
+    manifest = lambda v: {'id': 'demo', 'name': 'Demo', 'version': v, 'apiVersion': 2, 'surface': 'dom',
+                          'entry': {'frontend': 'index.js', 'backend': 'backend.py'}}
+    store.release('1.0.1', manifest=manifest('1.0.1'), extra={'backend.py': 'print(1)'})
+    manager.install(store.download())
+    return manager, store, manifest
+
+
+class BackendDesktop:
+    def __init__(self, supervisor):
+        self._apps_supervisor = supervisor
+
+    def _fleet_resolver(self):
+        return None
+
+
+@pytest.mark.parametrize('busy', [False, True])
+def test_an_idle_backend_moves_to_the_new_version_and_a_busy_one_waits(tmp_path, busy):
+    manager, store, manifest = backend_world(tmp_path)
+    app = app_of(manager)
+    old = updates.current_commit(app)
+    supervisor = FakeSupervisor()
+    supervisor.procs[f"demo@{app['repository_id']}:{old}"] = FakeProcess(pending=busy)
+    new = store.release('1.1.0', manifest=manifest('1.1.0'))
+    step(manager, store)
+    moved = asyncio.run(updates.restart_backends(BackendDesktop(supervisor), manager, app_of(manager)))
+    if busy:
+        assert moved == [] and supervisor.stopped == [] and supervisor.calls == []
+    else:
+        assert moved == ['desktop:1.1.0'] and supervisor.calls == [new]
+        assert supervisor.stopped == [f"demo@{app['repository_id']}:{old}"]
+
+
+def test_a_backend_that_does_not_start_reverts_to_the_previous_version(tmp_path):
+    manager, store, manifest = backend_world(tmp_path)
+    app = app_of(manager)
+    old = updates.current_commit(app)
+    supervisor = FakeSupervisor(fail=True)
+    supervisor.procs[f"demo@{app['repository_id']}:{old}"] = FakeProcess()
+    new = store.release('1.1.0', manifest=manifest('1.1.0'))
+    step(manager, store)
+    moved = asyncio.run(updates.restart_backends(BackendDesktop(supervisor), manager, app_of(manager)))
+    assert moved == ['reverted:1.0.1']
+    assert supervisor.calls == [new, old]  # the old version runs again
+    assert updates.current_commit(app_of(manager)) == old and launched(manager) == old
+    assert new in app_of(manager)['install']['auto_update']['failed']
+    assert step(manager, store) == ('failed', None)
