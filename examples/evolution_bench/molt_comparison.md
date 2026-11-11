@@ -142,5 +142,18 @@ Test cases: the official generators, seeds 0-149 shown to every method during se
 - 2026-11-11: step 1 started, one 16-CPU job per task on `normal` (`portfolio/main_measure.sbatch`:
   public server -> `main_measure.py`, = `abl_measure.py` plus the cut; then held-out server ->
   `holdout_measure.py`); jobs in `$EVO/main_measure_jobs.txt`.
+- 2026-11-11, step 1 redone on other hardware, decided with the user before any statistic was
+  computed: the first attempt's jobs all landed on old Intel nodes (Broadwell E5-2640v4, Xeon 5118),
+  slower than most servers the runs were scored on (AMD EPYC 7543 and 7502; some Xeon 5118, one
+  EPYC 9754). There some programs that passed during their run exceeded the CPU-time limit on every
+  case and read 0 (e.g. SimpleTES AHC046 seed 1's best: "150/150 cases rejected -- TLE CPU limit
+  exceeded" on a 5118, recorded 1.4532 during the run; the next program on the same server read
+  exactly its recorded 1.4529), leaving five runs of four methods without a pick (Molt AHC071 s1
+  and AHC073 s1, SimpleTES and OpenEvolve AHC046, AIDE AHC073 s0). Rule added: step 1 runs on the
+  fastest CPU among the run servers (EPYC 7543, `--constraint=CPU_SKU:7543`; the others were Xeon
+  5118, EPYC 7502, and Zen 4c parts of similar single-core speed: the EPYC 8224P of AHC058 seeds
+  0-1 and the EPYC 9754 that served part of AHC024 a and AHC070 b), so no program fails only
+  because the measuring machine is slower than the one that scored it. All six tasks were
+  re-measured from scratch; the first attempt is kept in `results/main/intel_attempt/`.
 - An AIDE run (AHC046 seed 3) was killed at 35 evaluations by the 8 GB memory limit and restarted
   from scratch with 16 GB; the killed run is kept as `ahc046_aide_s3.oom8g`.
