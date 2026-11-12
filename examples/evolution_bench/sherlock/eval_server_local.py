@@ -40,8 +40,10 @@ class EvalServer:
         try:
             t0 = time.time()
             wt = os.environ.get("EVAL_WARMUP_TASK", "ahc039")   # the wave's task: its seed is the warm-up read
-            seed = (BENCH / "tasks" / wt / "solution.cpp").read_text()
-            m = self._run(wt, {"solution.cpp": seed}, "full")
+            cfg = BENCH / "tasks" / wt / "task.json"
+            fname = (json.loads(cfg.read_text()).get("evolve") if cfg.exists() else None) or "solution.cpp"
+            seed = (BENCH / "tasks" / wt / fname).read_text()
+            m = self._run(wt, {fname: seed}, "full")
             self.warmup = {"task": wt, "score": m.get("combined_score"), "seconds": round(time.time() - t0, 1),
                            "host": socket.gethostname()}
         except Exception as e:  # noqa: BLE001

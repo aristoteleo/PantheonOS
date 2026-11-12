@@ -1,0 +1,7 @@
+{
+  "evolve": "solution.py",
+  "inner_fidelity": "low",
+  "eval_timeout": 900,
+  "serialize_evals": true,
+  "note": "Single-cell label projection across batches on scIB atlases; inputs from tasks/_bio/prep_bio.py. Public: pancreas + lung; holdout (final scores only): immune_human. See molt_biology.md."
+}
