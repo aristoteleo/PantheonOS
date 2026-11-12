@@ -23,6 +23,11 @@ RAW, OUT = Path(sys.argv[1]), Path(sys.argv[2])
 SCIB = {"pancreas": ("tech", "celltype"), "lung": ("batch", "cell_type"),
         "immune_human": ("batch", "final_annotation")}
 N_HVG = 2000
+# Molecular cross-validation needs UMI counts: on deep full-length read counts (Smart-seq2, SMARTer,
+# Fluidigm C1) the input alone already predicts the held-back 10 % and every smoother scores far
+# below "no denoising" (pilot 2026-11-12: ALRA -3.7 on all-protocol pancreas). The denoising task
+# keeps UMI batches only, as the OpenProblems denoising datasets are.
+NON_UMI = {"pancreas": {"fluidigmc1", "smarter", "smartseq2"}, "immune_human": {"Villani"}}
 
 
 def load_scib(name):
@@ -52,9 +57,10 @@ def lognorm(counts):
 
 
 def hvg(a, batch=True):
-    """Top N_HVG genes by seurat_v3 on counts (batch-aware where batches exist)."""
-    x = a.copy()
-    sc.pp.highly_variable_genes(x, n_top_genes=N_HVG, flavor="seurat_v3",
+    """Top N_HVG genes by scanpy's cell_ranger flavour on log-normalised counts, batch-aware where
+    batches exist (scIB's own HVG selection)."""
+    x = ad.AnnData(X=lognorm(a.X), obs=a.obs.copy(), var=a.var[[]].copy())
+    sc.pp.highly_variable_genes(x, n_top_genes=N_HVG, flavor="cell_ranger",
                                 batch_key="batch" if batch and "batch" in x.obs else None)
     return a[:, x.var["highly_variable"].values].copy()
 
@@ -98,6 +104,7 @@ def denoise(name, a):
                                                                      compression="gzip")
     sp.save_npz(d / f"{name}.test.npz", sp.csr_matrix(te))
     return {"cells": int(keep.sum()), "genes": a.n_vars, "train_counts": float(tr.sum()),
+            "batches": sorted(map(str, a.obs["batch"].unique())) if "batch" in a.obs else None,
             "test_counts": float(te.sum())}
 
 
@@ -128,7 +135,8 @@ if __name__ == "__main__":
     for name in SCIB:
         info[f"integration/{name}"] = integration(name)
         info[f"labelproj/{name}"] = labelproj(name)
-        info[f"denoise/{name}"] = denoise(name, load_scib(name))
+        a = load_scib(name)
+        info[f"denoise/{name}"] = denoise(name, a[~a.obs["batch"].isin(NON_UMI.get(name, set())).values].copy())
     p = sc.read_10x_h5(RAW / "pbmc10k_v3.h5")
     p.var_names_make_unique()
     p.X = sp.csr_matrix(p.X, dtype=np.float32)

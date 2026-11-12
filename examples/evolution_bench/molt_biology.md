@@ -24,7 +24,7 @@ variable genes, seeded count split); the downloads and the prepared files live o
 | task | a program writes | score | public datasets | held-out datasets |
 |---|---|---|---|---|
 | `bio_integration` | `integrate(adata) -> embedding` | scIB total (scib-metrics, 0.6 bio + 0.4 batch, no min-max scaling) | pancreas, lung | immune |
-| `bio_denoise` | `denoise(adata) -> matrix` | molecular cross-validation (90/10 count split), MSE + Poisson, 0 = no denoising, 1 = perfect | pancreas, lung | PBMC 10k, immune |
+| `bio_denoise` | `denoise(adata) -> matrix` | molecular cross-validation (90/10 count split), MSE + Poisson, 0 = no denoising, 1 = perfect | pancreas (UMI batches), lung | PBMC 10k, immune (UMI batches) |
 | `bio_labelproj` | `annotate(reference, query) -> labels` | mean of accuracy and macro F1 on whole held-back batches | pancreas, lung | immune |
 
 OpenProblems' perturbation-prediction task is left out: its data is on Kaggle behind an account.
@@ -65,6 +65,19 @@ Headroom = best reference's public score - start's public score. A task is used 
    references >= 0.4 (public improvements carry over to unseen datasets).
 5. Movement: the better of the two short runs gains >= 0.25 x headroom over the start on the
    public datasets. Only the better run is used, never the difference between the two.
+
+Construction fixes before the counted pilot reads (2026-11-12; a first pilot run found them, its
+reads are kept in `biodata/pilot_try1.json` and not counted):
+
+- HVG selection: scanpy's `cell_ranger` flavour on log-normalised counts, batch-aware (scIB's own
+  choice; `seurat_v3` needs an extra package).
+- scib-metrics 0.6.2 fails under umap-learn 0.6.0 (numba typing error in `compute_membership_strengths`);
+  umap-learn pinned to 0.5.7. annoy (Scanorama) rebuilt on an EPYC 7543: built on a Zen4 node with
+  `-march=native` it died with SIGILL. The ComBat reference copied combat's read-only output.
+- Denoising uses UMI batches only. On deep full-length read counts (pancreas Smart-seq2 / SMARTer /
+  Fluidigm C1, immune Villani) the input already predicts the held-back counts and every smoother
+  scored far below "no denoising" (ALRA -3.7 on all-protocol pancreas): molecular cross-validation
+  is a UMI-data method, and the OpenProblems denoising datasets are UMI data.
 
 A task that fails is reported with the reason. Whether to repair it (once, documented) or drop it
 is decided with the user before the main runs.

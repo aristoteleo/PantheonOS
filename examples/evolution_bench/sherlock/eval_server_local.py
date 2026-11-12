@@ -24,7 +24,14 @@ from pathlib import Path
 
 BENCH = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BENCH))
-from remote_eval import server_token  # noqa: E402
+try:
+    from remote_eval import server_token  # noqa: E402
+except ImportError:   # an evaluation-only env (e.g. the single-cell one) without PantheonOS's deps
+    import hashlib
+
+    def server_token() -> str:   # must equal remote_eval.server_token
+        key = os.environ.get("OPENROUTER_API_KEY", "")
+        return hashlib.sha256(f"evolve-eval:{key}".encode()).hexdigest()[:32]
 
 CASE_WORKERS = os.environ.get("AHC_CASE_WORKERS", "24")
 
