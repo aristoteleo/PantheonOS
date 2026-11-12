@@ -79,6 +79,23 @@ reads are kept in `biodata/pilot_try1.json` and not counted):
   scored far below "no denoising" (ALRA -3.7 on all-protocol pancreas): molecular cross-validation
   is a UMI-data method, and the OpenProblems denoising datasets are UMI data.
 
+### Pilot result (2026-11-12, EPYC 7543; `biodata/pilot.json`, runs in `results/biopilot/`)
+
+| task | start public (3 reads) | best reference public | headroom | read spread | rho public vs held-out | public read | best short run | verdict |
+|---|---|---|---|---|---|---|---|---|
+| `bio_integration` | 0.5572 / 0.5573 / 0.5572 | ComBat 0.6656 | 0.108 | 0.0001 | 0.8 | 43-116 s | SimpleTES 0.687 (20 evals) | used |
+| `bio_denoise` | 0 / 0 / 0 | kNN smoothing 0.2432 | 0.243 | 0 | ~0.95 (ALRA, start tie at 0 on held-out) | 4 s | SimpleTES 0.334, Molt 0.327 (50 evals) | used |
+| `bio_labelproj` | 0.8273 x 3 | MLP 0.8535 | 0.026 (rule 3 fails) | 0 | 0.2 (rule 4 fails) | 12 s | not run | fails 3, 4 |
+
+Held-out references: integration ComBat 0.634, Harmony 0.673, Scanorama 0.628, start 0.547; denoising
+MAGIC 0.262, kNN smoothing 0.277, ALRA 0, start 0; label projection start 0.881 (above every
+reference: logistic regression 0.875, MLP 0.864, Harmony + kNN 0.860).
+
+The start programs carry `# EVOLVE-BLOCK-START` / `# EVOLVE-BLOCK-END` around the whole file, as the
+AHC whole-file seeds do: ShinkaEvolve refuses every edit outside such a block (smoke test 2026-11-12:
+9 proposals, 0 children without the markers; 4 children, best 0.269, with them). The short Molt /
+SimpleTES runs started from the unmarked file (comments only, same program).
+
 A task that fails is reported with the reason. Whether to repair it (once, documented) or drop it
 is decided with the user before the main runs.
 

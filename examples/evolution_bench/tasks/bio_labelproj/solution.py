@@ -1,3 +1,4 @@
+# EVOLVE-BLOCK-START
 """Label projection: name the cell type of every query cell from the labelled reference.
 Starting point: 15-nearest-neighbour vote in a PCA fitted on the reference."""
 import numpy as np
@@ -14,3 +15,4 @@ def annotate(reference, query):
     knn = KNeighborsClassifier(n_neighbors=15).fit(pca.transform(dense(reference.X)),
                                                    reference.obs["label"].astype(str).values)
     return knn.predict(pca.transform(dense(query.X)))
+# EVOLVE-BLOCK-END

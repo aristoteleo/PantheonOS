@@ -8,8 +8,8 @@ EVO = Path("/scratch/users/wzxu/evolve")
 SPECS = EVO / "PantheonOS-hoff/examples/evolution_bench/sherlock/specs"
 MODEL = "deepseek/deepseek-v4.1-flash"
 EVALS, USD = 100, 1.0
-SERVERS = {"bio_integration": ("biopint", 8240), "bio_denoise": ("biopden", 8241),
-           "bio_labelproj": ("bioplab", 8242)}
+# bio_labelproj failed rules 3-4 on the reference reads (headroom 0.026, transfer rho 0.2): no runs
+SERVERS = {"bio_integration": ("biopint", 8240), "bio_denoise": ("biopden", 8241)}
 
 rows = []
 for task, (server, _) in SERVERS.items():
