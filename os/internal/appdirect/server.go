@@ -281,6 +281,12 @@ func (s *Server) handler(q Request) http.Handler {
 				http.Error(w, "App connection unavailable", 502)
 			},
 		}
+		// The engine may answer as soon as it has read the request body, while
+		// the transport is still waiting for its final EOF read. Without full
+		// duplex, net/http drains and closes the request body when the response
+		// headers are written; the transport's next read then fails, and it
+		// closes the engine connection mid-response (a truncated body).
+		_ = http.NewResponseController(w).EnableFullDuplex()
 		proxy.ServeHTTP(w, r)
 	})
 }
