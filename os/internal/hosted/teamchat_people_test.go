@@ -124,7 +124,21 @@ func newSharedSpace(t *testing.T, with ...func(*TeamChat)) *sharedSpace {
 	call(t, h, mine, "post", map[string]any{"cid": s.ownerDM, "text": "zanzibar in my DM"})
 	call(t, h, mine, "task_create", map[string]any{"id": s.secretMsg})
 	call(t, h, mine, "post", map[string]any{"cid": "general", "text": "hello team"})
+	// The owner's DM wakes Writer. Let that turn end here, so a test's own
+	// steps start from a quiet space and never count its prompt as theirs.
+	eventually(t, "Writer's turn for the owner's DM", func() bool {
+		return s.nodes.promptCount() >= 1 && s.idle(t, s.writer)
+	})
 	return s
+}
+
+// idle: an agent has no turn running and nothing queued. Wakes are queued
+// while a post is handled, so right after a post this says whether the post
+// woke the agent.
+func (s *sharedSpace) idle(t *testing.T, mid string) bool {
+	t.Helper()
+	st := call(t, s.h, s.b, "space_get", map[string]any{})["agent_status"].(map[string]any)[mid].(map[string]any)
+	return st["state"] == "ready" && st["queue"] == float64(0)
 }
 
 // T31: a member sees public channels and their own conversations; never the
@@ -332,7 +346,9 @@ func TestAnOnlyMeAgentIsNotUsableByAMember(t *testing.T) {
 	s.nodes.mu.Unlock()
 	callAs(t, h, b, alice, "post", map[string]any{"cid": s.team, "text": "anyone around?"})
 	eventually(t, "shared's turn", func() bool { return s.nodes.promptCount() == before+1 })
-	time.Sleep(150 * time.Millisecond)
+	if !s.idle(t, s.writer) {
+		t.Fatal("writer was woken by a member's post in an all-agents channel")
+	}
 	s.nodes.mu.Lock()
 	for _, send := range s.nodes.sends[before:] {
 		if strings.Contains(str(send["cwd"]), "writer") {
@@ -358,11 +374,11 @@ func TestAnOnlyMeAgentIsNotUsableByAMember(t *testing.T) {
 			root = m.(map[string]any)["id"].(string)
 		}
 	}
+	eventually(t, "writer's turn to end", func() bool { return s.idle(t, s.writer) })
 	n := s.nodes.promptCount()
 	reply := callAs(t, h, b, alice, "post", map[string]any{"cid": "general", "root": root, "text": "and then?"})["message"].(map[string]any)["id"].(string)
 	callAs(t, h, b, alice, "edit", map[string]any{"id": reply, "text": "@writer and then?"})
-	time.Sleep(200 * time.Millisecond)
-	if s.nodes.promptCount() != n {
+	if !s.idle(t, s.writer) || s.nodes.promptCount() != n {
 		t.Fatal("a member's thread reply or edit woke an Only me agent")
 	}
 }
