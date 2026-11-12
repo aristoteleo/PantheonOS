@@ -18,6 +18,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aristoteleo/pantheonos/os/internal/apptransport"
@@ -248,7 +249,9 @@ func (h *Host) invoke(ctx context.Context, b apptransport.Binding, payload json.
 		if ctx.Err() != nil {
 			return fail(http.StatusGatewayTimeout, "timed out")
 		}
-		log.Printf("[hosted] %s %s.%s: %v", b.Fleet, name, q.Method, err)
+		if !errors.Is(err, errProviderStarting) || startingLog.due(b.Fleet+"|"+name+"|"+q.Method, time.Now()) {
+			log.Printf("[hosted] %s %s.%s: %v", b.Fleet, name, q.Method, err)
+		}
 		return fail(http.StatusBadRequest, err.Error())
 	}
 	body, err := json.Marshal(map[string]any{"success": true, "result": result})
@@ -286,4 +289,32 @@ func fail(status int, reason string) (int, json.RawMessage) {
 // Python tools returned rather than raised.
 func Failure(err error) map[string]any {
 	return map[string]any{"success": false, "error": strings.TrimSpace(err.Error())}
+}
+
+// StartingLogEvery: a tool waiting for its provider asks every 3 s, and each
+// "dependency provider not running yet" was a log line (about 100 per
+// five-minute wait, combined check 2); one per owner and method per period.
+const StartingLogEvery = 5 * time.Minute
+
+type logLimiter struct {
+	mu   sync.Mutex
+	last map[string]time.Time
+}
+
+var startingLog = &logLimiter{}
+
+func (l *logLimiter) due(key string, now time.Time) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.last == nil {
+		l.last = map[string]time.Time{}
+	}
+	if at, ok := l.last[key]; ok && now.Sub(at) < StartingLogEvery {
+		return false
+	}
+	if len(l.last) > 4096 {
+		l.last = map[string]time.Time{}
+	}
+	l.last[key] = now
+	return true
 }
