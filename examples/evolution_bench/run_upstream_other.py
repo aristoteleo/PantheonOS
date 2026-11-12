@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Run upstream OpenEvolve, ShinkaEvolve, AIDE or CORAL on a bench AHC task, from a given program, on the bench's eval server.
+"""Run upstream OpenEvolve, ShinkaEvolve, AIDE or CORAL on a bench task (C++ AHC or Python), from a given program, on the bench's eval server.
 
     python run_upstream_other.py --optimizer openevolve|shinka|aide|coral --task ahc058 --seed-file F --evals 120 \
         --eval-server URL --output OUT [--seed 0] [--max-llm-calls 600] [--max-llm-usd 2] [--inspiration-file F]
@@ -13,7 +13,7 @@ bench's pinned and patched checkouts under /opt). What is matched to the other a
     (a sitecustomize on PYTHONPATH, so worker processes carry it), and is logged with its cost
   * the task text (tasks/<task>/objective.md) and the evaluation (the block's eval server)
   * the budget: --evals children after the start program; --max-llm-calls is a safety cap
-Every evaluation is logged with its program (evals.jsonl, progs/<sha>.cpp), the shape the
+Every evaluation is logged with its program (evals.jsonl, progs/<sha>.<ext>), the shape the
 re-measurement reads; summary.json carries the arms' fields (seed / best score, llm usage, seconds).
 """
 from __future__ import annotations
@@ -28,6 +28,22 @@ from pathlib import Path
 
 HERE = Path(__file__).parent.resolve()
 
+# The evolved file and its language come from the task's task.json ("evolve"); C++ unless it says .py.
+# Set in __main__ before anything is written.
+EVOLVE, EXT, LANG, LANG_NAME = "solution.cpp", ".cpp", "cpp", "C++"
+
+
+def set_language(task: str) -> None:
+    global EVOLVE, EXT, LANG, LANG_NAME
+    cfg = HERE / "tasks" / task / "task.json"
+    EVOLVE = (json.loads(cfg.read_text()).get("evolve") if cfg.exists() else None) or "solution.cpp"
+    EXT = Path(EVOLVE).suffix
+    LANG, LANG_NAME = {".py": ("python", "Python")}.get(EXT, ("cpp", "C++"))
+
+
+def evaluator_src(a) -> str:
+    return EVALUATOR.format(url=a.eval_server, task=a.task, out=str(a.output), file=EVOLVE, ext=EXT)
+
 EVALUATOR = r'''
 """Score a program on the bench's eval server; log it. Standard library only."""
 import hashlib, json, os, sys, time, urllib.request
@@ -35,12 +51,14 @@ import hashlib, json, os, sys, time, urllib.request
 URL = {url!r}
 TASK = {task!r}
 OUT = {out!r}
+FILE = {file!r}
+EXT = {ext!r}
 TOKEN = hashlib.sha256(("evolve-eval:" + os.environ.get("OPENROUTER_API_KEY", "")).encode()).hexdigest()[:32]
 
 
 def score(code):
     body = json.dumps({{"token": TOKEN, "task": TASK, "fidelity": "full",
-                       "files": {{"solution.cpp": code}}}}).encode()
+                       "files": {{FILE: code}}}}).encode()
     err = None
     for attempt in range(3):
         try:
@@ -57,7 +75,7 @@ def score(code):
     sc = m.get("combined_score") if b.get("success") else None
     sha = hashlib.sha256(code.encode()).hexdigest()[:16]
     os.makedirs(os.path.join(OUT, "progs"), exist_ok=True)
-    p = os.path.join(OUT, "progs", sha + ".cpp")
+    p = os.path.join(OUT, "progs", sha + EXT)
     if not os.path.exists(p):
         open(p, "w").write(code)
     with open(os.path.join(OUT, "evals.jsonl"), "a") as f:
@@ -193,7 +211,7 @@ def write_summary(out: Path, stopped_on: str = "done") -> None:
     ok = [r for r in rows if r["score"] is not None]
     a = ARGS
     (out / "summary.json").write_text(json.dumps({
-        "task": a.task, "evolve": "solution.cpp", "method": f"{a.optimizer}_upstream", "model": a.model,
+        "task": a.task, "evolve": EVOLVE, "method": f"{a.optimizer}_upstream", "model": a.model,
         "seed": a.seed, "seed_file": a.seed_file, "eval_server": a.eval_server,
         "seed_combined_score": rows[0]["score"] if rows else None,
         "best_combined_score": max((r["score"] for r in ok), default=None),
@@ -203,15 +221,15 @@ def write_summary(out: Path, stopped_on: str = "done") -> None:
 
 
 def run_openevolve(a, work: Path, task_text: str) -> None:
-    (work / "initial_program.cpp").write_text(Path(a.seed_file).read_text())
-    (work / "evaluator.py").write_text(EVALUATOR.format(url=a.eval_server, task=a.task, out=str(a.output)) + OE_SUFFIX)
-    # the bench's OpenEvolve settings (bioopt-bench modal_optimizer.run_openevolve), C++ instead of Python
+    (work / f"initial_program{EXT}").write_text(Path(a.seed_file).read_text())
+    (work / "evaluator.py").write_text(evaluator_src(a) + OE_SUFFIX)
+    # the bench's OpenEvolve settings (bioopt-bench modal_optimizer.run_openevolve), in the task's language
     (work / "config.yaml").write_text(f"""
 max_iterations: {a.evals}
 checkpoint_interval: 5
 random_seed: {a.seed}
-language: cpp
-file_suffix: .cpp
+language: {LANG}
+file_suffix: {EXT}
 diff_based_evolution: true
 max_code_length: 120000
 llm:
@@ -236,15 +254,15 @@ evaluator:
   parallel_evaluations: 2
 """)
     os.chdir(work)
-    sys.argv = ["openevolve-run.py", "initial_program.cpp", "evaluator.py", "--config", "config.yaml",
+    sys.argv = ["openevolve-run.py", f"initial_program{EXT}", "evaluator.py", "--config", "config.yaml",
                 "--iterations", str(a.evals), "--output", "out"]
     import runpy
     runpy.run_path("/opt/openevolve/openevolve-run.py", run_name="__main__")
 
 
 def run_shinka(a, work: Path, task_text: str) -> None:
-    (work / "initial.cpp").write_text(Path(a.seed_file).read_text())
-    (work / "evaluate.py").write_text(EVALUATOR.format(url=a.eval_server, task=a.task, out=str(a.output)) + SHINKA_SUFFIX)
+    (work / f"initial{EXT}").write_text(Path(a.seed_file).read_text())
+    (work / "evaluate.py").write_text(evaluator_src(a) + SHINKA_SUFFIX)
     os.chdir(work)
     # Shinka resolves a model's provider from its pricing table; without a row it never calls the
     # model (bioopt-bench measured 3.4 h of zero LLM calls). Rates are a self-report only.
@@ -257,7 +275,7 @@ def run_shinka(a, work: Path, task_text: str) -> None:
     from shinka.core import ShinkaEvolveRunner, EvolutionConfig
     from shinka.database import DatabaseConfig
     from shinka.launch import LocalJobConfig
-    # the bench's pinned Shinka settings (optimizers/shinka/shinka_config.yaml), C++, two evaluations
+    # the bench's pinned Shinka settings (optimizers/shinka/shinka_config.yaml), the task's language, two evaluations
     # in flight like the other arms
     import dataclasses
 
@@ -269,7 +287,7 @@ def run_shinka(a, work: Path, task_text: str) -> None:
         return cls(**{k: v for k, v in kw.items() if k in names})
 
     evo = only(EvolutionConfig,
-        num_generations=a.evals + 1, language="cpp", init_program_path="initial.cpp",
+        num_generations=a.evals + 1, language=LANG, init_program_path=f"initial{EXT}",
         results_dir="results/run", task_sys_msg=task_text, llm_models=[a.model],
         llm_kwargs={"temperatures": [1.0], "max_tokens": 32768},
         patch_types=["diff", "full", "cross"], patch_type_probs=[0.6, 0.3, 0.1],
@@ -296,7 +314,7 @@ def _score_in_process(a):
     """The arms' score() in this process: the seed's own read, so evals.jsonl row 0 is the start program
     for AIDE and CORAL as it is for OpenEvolve and Shinka, which evaluate their initial program first."""
     ns: dict = {}
-    exec(EVALUATOR.format(url=a.eval_server, task=a.task, out=str(a.output)), ns)
+    exec(evaluator_src(a), ns)
     return ns["score"]
 
 
@@ -335,7 +353,7 @@ AIDE_BENCH = r"""
 from pathlib import Path
 
 
-def submit(path="solution.cpp"):
+def submit(path=FILE):
     p = Path(path)
     if not p.exists():
         print("SUBMIT ERROR: %s does not exist." % p); print("Validation metric: 0.0"); return 0.0
@@ -353,12 +371,12 @@ AIDE_HOWTO = """
 
 ## How you are scored — read this, it is the only path to a number
 
-There are no test cases on this machine. Write the complete C++ program to `solution.cpp`, then submit it:
+There are no test cases on this machine. Write the complete LANG_NAME program to `EVOLVE`, then submit it:
 
 ```python
 import sys; sys.path.insert(0, "./input")   # bench.py and the starting program are in ./input
 import bench
-bench.submit("solution.cpp")                 # prints "Validation metric: <score>"
+bench.submit("EVOLVE")                 # prints "Validation metric: <score>"
 ```
 
 Your `runfile.py` must have exactly this shape: write the program out, then submit. It does not
@@ -368,14 +386,14 @@ compile or run the program itself:
 import sys
 sys.path.insert(0, "./input")
 PROGRAM = r'''
-<the complete C++ source of solution.cpp>
+<the complete LANG_NAME source of EVOLVE>
 '''
-open("solution.cpp", "w").write(PROGRAM)
+open("EVOLVE", "w").write(PROGRAM)
 import bench
-bench.submit("solution.cpp")
+bench.submit("EVOLVE")
 ```
 
-Read `./input/seed_program.cpp` ONCE to see the starting point (it scores SEED_SCORE), then put your
+Read `./input/seed_programEXT` ONCE to see the starting point (it scores SEED_SCORE), then put your
 improved version in `PROGRAM`. Do not loop over it or print it. Higher is better.
 """
 
@@ -385,11 +403,12 @@ def run_aide(a, work: Path, task_text: str) -> str:
     s0, _ = _score_in_process(a)(seed)
     data = work / "data"
     data.mkdir(exist_ok=True)
-    (data / "seed_program.cpp").write_text(seed)
-    (data / "bench.py").write_text(EVALUATOR.format(url=a.eval_server, task=a.task, out=str(a.output)) + AIDE_BENCH)
-    # the bench's AIDE task text (bioopt-bench modal_optimizer.run_aide), C++ instead of a Python method
+    (data / f"seed_program{EXT}").write_text(seed)
+    (data / "bench.py").write_text(evaluator_src(a) + AIDE_BENCH)
+    # the bench's AIDE task text (bioopt-bench modal_optimizer.run_aide), a whole program instead of a method
     desc = work / "task.md"
-    desc.write_text(task_text.rstrip() + AIDE_HOWTO.replace("SEED_SCORE", "%.6f" % s0))
+    howto = AIDE_HOWTO.replace("SEED_SCORE", "%.6f" % s0).replace("LANG_NAME", LANG_NAME)
+    desc.write_text(task_text.rstrip() + howto.replace("EVOLVE", EVOLVE).replace("EXT", EXT))
     env = {**os.environ,
            # AIDE reads the metric with a tool call, which its OpenRouter backend cannot do; with
            # OPENAI_BASE_URL set it routes the model to its OpenAI backend aimed at OpenRouter
@@ -416,7 +435,7 @@ TOKEN = TOKEN_VALUE
 class Grader(TaskGrader):
     # the vendored commit's interface: evaluate(self) with self.args / self.codebase_path / self.fail / self.score
     def evaluate(self):
-        pf = self.args.get("program_file", "solution.cpp")
+        pf = self.args.get("program_file", FILE)
         path = Path(self.codebase_path) / pf
         if not path.exists():
             return self.fail(pf + " not found in the workspace")
@@ -464,7 +483,7 @@ def run_coral(a, work: Path, task_text: str) -> str:
     seed = Path(a.seed_file).read_text()
     _score_in_process(a)(seed)
     (work / "seed").mkdir(exist_ok=True)
-    (work / "seed" / "solution.cpp").write_text(seed)
+    (work / "seed" / EVOLVE).write_text(seed)
     g = work / "grader" / "src" / "coral_grader"
     g.mkdir(parents=True, exist_ok=True)
     (work / "grader" / "pyproject.toml").write_text(
@@ -474,7 +493,7 @@ def run_coral(a, work: Path, task_text: str) -> str:
     (g / "__init__.py").write_text("from .grader import Grader\n__all__ = ['Grader']\n")
     # the grader runs in CORAL's own venv, whose environment may not carry the key: bake the token in
     token = _h.sha256(("evolve-eval:" + os.environ.get("OPENROUTER_API_KEY", "")).encode()).hexdigest()[:32]
-    (g / "grader.py").write_text(EVALUATOR.format(url=a.eval_server, task=a.task, out=str(a.output))
+    (g / "grader.py").write_text(evaluator_src(a)
                                  + CORAL_GRADER.replace("TOKEN_VALUE", repr(token)))
     # reasoning off through the gateway, as the bench's CORAL (DeepSeek thinking does not survive
     # claude-code's Anthropic-format path) and as every other arm here
@@ -498,7 +517,7 @@ task:
 {desc}
 
     Only a call to the grader gives a real score: there are no test cases on this machine.
-    Iterate: edit solution.cpp, submit, read the score, improve.
+    Iterate: edit {EVOLVE}, submit, read the score, improve.
 agents:
   count: {a.coral_agents}
   runtime: claude_code
@@ -516,7 +535,7 @@ grader:
   timeout: 1800
   direction: maximize
   args:
-    program_file: "solution.cpp"
+    program_file: "{EVOLVE}"
 """)
     env = {**os.environ, "ANTHROPIC_API_KEY": os.environ["OPENROUTER_API_KEY"], "DISABLE_TELEMETRY": "1",
            "IS_SANDBOX": "1",
@@ -537,7 +556,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--optimizer", required=True, choices=["openevolve", "shinka", "aide", "coral"])
     ap.add_argument("--task", required=True)
-    ap.add_argument("--seed-file", required=True)
+    ap.add_argument("--seed-file", default=None, help="start program (default: the task's own)")
     ap.add_argument("--evals", type=int, default=120)
     ap.add_argument("--eval-server", required=True)
     ap.add_argument("--output", required=True)
@@ -555,6 +574,9 @@ if __name__ == "__main__":
     a.output.mkdir(parents=True, exist_ok=True)
     work = a.output / "work"
     work.mkdir(exist_ok=True)
+    set_language(a.task)
+    if not a.seed_file:
+        a.seed_file = str(HERE / "tasks" / a.task / EVOLVE)
     task_text = (HERE / "tasks" / a.task / "objective.md").read_text()
     if a.inspiration_file:
         task_text = task_text.rstrip() + "\n\n" + Path(a.inspiration_file).read_text().strip() + "\n"
