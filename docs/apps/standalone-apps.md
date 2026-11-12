@@ -2223,6 +2223,43 @@ needs it. Being open, reconnecting, polling or looking things up never does.
   small Start; the Store's paused notice with Start; chip never "Workspace"
   before "Workspace · Paused" (10 loads).
 
+### As built, and staging verification (combined check 3 follow-ups, 2026-11-12)
+
+**Found while fixing.** A page that bound to the Agent's instance just before
+its pod was recreated waited for "another" instance forever: the node starts
+the same instance again (a new generation), and `presetSuccessor` only
+accepted a different instance id. A newer generation of the same instance is
+now its successor (P4 failed 2 of 4 tries before, 0 of 3 after).
+
+**Code.** PantheonOS `66242576` (criteria) and this section; Hub `8f331aa`
+(`GET /api/chatroom?nodes=agent`); UI `60b71a24`, `73da7e0c`, `615ef48c`,
+`a1cddfca` (the Agent's computer asked for at load), `752662e3` (successor
+generation). Live on staging: hub image `2865d698`, Agent App 0.9.137,
+frontend #68. Controller unchanged (`2a2061a0`).
+
+**Verification (acct4).**
+
+- P1 PASS 3/3: an Agent page loaded with the Workspace running and left idle,
+  OS Mode's Pause (the Workspace Details' Pause) in another tab, that tab
+  closed: the Workspace stayed paused 7.4, 7.4 and 7.2 minutes (checked every
+  ~27 s); the Agent page sent no `/api/chatroom` in all three.
+- P2 PASS: in that page, a shell command: wait line at 10.1 s, the page's one
+  explicit wake (`GET /api/chatroom`, Hub `waking node 'workspace'`) at the
+  same second, answered at 46.5 s, ran once.
+- P3 PASS: no further `/api/chatroom` from the page in the 3.5 minutes after.
+- P4 PASS: Agent pod deleted, Workspace paused, page loaded: pod created 1.4 s
+  after load (`?nodes=agent`), chat usable at 16.4, 32.3, 18.0 s (three runs;
+  was 28-36 s), Workspace stayed paused, 0 Workspace wakes.
+- P5 PASS: Coding Agents trigger "Workspace · Paused", row "Workspace · Cloud
+  workspace · Paused · Start" (label 138 px, Start 48 px), pane "Your
+  Workspace is paused" with Start Workspace; OS Mode Store: one notice "Your
+  Workspace is paused …" with Start Workspace, no "desktop is not running";
+  chip on 10 new-chat loads: "Workspace · Paused" (6) or "Checking…" then
+  "Workspace · Paused" (4), never plain "Workspace".
+- Left by design: opening OS Mode (the desktop, the Workspace's own UI)
+  still connects to the Workspace and asks the Hub for it, as before; a
+  node-level pause is not undone by that load.
+
 ## Open decisions
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and
