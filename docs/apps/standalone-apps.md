@@ -1910,10 +1910,11 @@ warm (acct4) found one High, two Medium and several Low issues.
 3. *The wait has a way out and an end.* While a tool waits for the Workspace,
    the chat's wait line has a "Start Workspace" button (the page's host
    `computers` capability), and the page starts a paused Workspace by itself
-   once when a wait begins. The wait ends after 3 minutes (was 5) with "your
-   Workspace did not start within 3 minutes (it may be paused: use Start
-   Workspace …). Nothing was executed."; the probe of design point 1 is not
-   retried past that.
+   once when a wait begins. The wait still ends after 5 minutes (a cold
+   Workspace took 3 minutes to come up on staging) with "your Workspace did
+   not start within 5 minutes (it may be paused: use Start Workspace …).
+   Nothing was executed."; the probe of design point 1 is not retried past
+   that.
 4. *The warm page and the picker within 5 s* (see M2's findings below).
 5. Lows: the top bar's light theme works; the pill and the composer picker
    read the same computer list (one source, refreshed together); a stopped

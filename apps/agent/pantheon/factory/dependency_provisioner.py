@@ -179,8 +179,9 @@ _REBIND = {401, 403, 404, 410, 502, 503}
 # Workspace"). It asks the allocator again every PROVIDER_POLL_SECONDS, for up
 # to PROVIDER_WAIT_SECONDS; a refused bind allocates nothing. The chat offers
 # Start meanwhile and the page starts a paused Workspace by itself
-# ("Fixes after combined check 1"), so three minutes cover a cold start twice.
-PROVIDER_WAIT_SECONDS = 180.0
+# ("Fixes after combined check 1"). A cold Workspace has taken three minutes
+# on staging (Modal sandbox creation), so the wait stays five.
+PROVIDER_WAIT_SECONDS = 300.0
 PROVIDER_POLL_SECONDS = 3.0
 #: How long the probe a run asked for (`prepare`) may take before the tool
 #: call that needs it, the provider's own wait included.
