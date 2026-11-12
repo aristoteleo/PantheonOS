@@ -1955,6 +1955,44 @@ warm (acct4) found one High, two Medium and several Low issues.
 - Out of scope: the cold path B (pod deleted, about 40 s to the first answer)
   stays as documented above; that is the owner's decision.
 
+### Follow-ups asked during the fixes (2026-11-12)
+
+**The Agent window opens the Agent page.** The desktop's Agent window had no
+"Open in New Tab": `hasOwnTab` only knew packaged Apps and the ready built-ins.
+The Agent (`agent`, `pkg:agent`) now has its own tab, and its URL is the
+Agent page: `/c/<chat id>` of the conversation the window shows (its `chatId`
+argument or saved state, `rootSurface.rootChatUrl`), else `/`. The App menu,
+the Dock and the Launchpad offer it as for other Apps; the App page's "All
+Apps" list leaves the Agent out (its page is the Agent page itself).
+
+- O1: the Agent window's App menu (and its Dock icon) shows "Open in New Tab";
+  it opens the Agent page on the same conversation.
+
+**OS Mode's menu bar uses the App page's computers indicator.** The desktop's
+menu bar still had the green "Connected" pill whose popover ("Cloud sandbox")
+showed the Workspace's CPU and memory, path, tasks, uptime and restarts,
+Restart / Pause (or Resume), Copy diagnostics, with an empty header strip at
+its top. It is replaced by the same `FleetIndicator` the App page's top bar
+uses (one component, one data source: the Fleet's node list and the page's
+Workspace state in `hostComputers.ts`): node dots and "N/M online", a popover
+listing the Workspace and the owner's computers with their states (Offline
+included), Start for a paused Workspace, Add a computer and Open Fleet. The
+Workspace row has "Details", which opens the former panel's content in place
+(meters, path, tasks, uptime, restarts, error, Restart / Pause or Resume,
+Copy diagnostics, the note), so nothing of it is lost. While the desktop's
+Workspace starts, restarts or stops, the pill says so as the old one did
+("Workspace starting · 3/9"), and a lost connection is red "Reconnecting…".
+
+- O2: OS Mode at 1440 and 390 px, dark and light theme: the pill shows dots and
+  "N/M online" (the label is dropped below 520 px, dots stay), no
+  "Connected" text, nothing overflows the menu bar.
+- O3: its popover lists the Workspace and the account's computers with their
+  states, Add a computer and Open Fleet; the Workspace's Details show the
+  meters, path, tasks, uptime, Restart, Pause and Copy diagnostics, with no
+  empty strip at the top.
+- O4: the App page's pill and OS Mode's pill read the same data (same count
+  after a state change).
+
 ## Open decisions
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and
