@@ -663,6 +663,7 @@ type tcLive struct {
 	lineCID     string
 	lineRoot    string
 	dispatching bool
+	kicked      bool // a kick came while dispatching: look at the queue again
 	watching    bool
 	retries     int
 	retryAt     time.Time

@@ -252,17 +252,29 @@ func (t *TeamChat) dispatch(ctx context.Context, fid, mid string) {
 	}
 	l := fl.liveOf(mid)
 	if l.dispatching {
+		// The running dispatch may already have looked (say, while a turn
+		// was still ending) and be about to return: it looks once more.
+		// Dropping this kick would leave the wake queued until the sweep.
+		l.kicked = true
 		fl.mu.Unlock()
 		return
 	}
 	l.dispatching = true
 	fl.mu.Unlock()
-	defer func() {
+	for {
+		for i := 0; i < 3 && t.tryStart(ctx, fl, mid); i++ {
+		}
+		closed := t.isClosed()
+		// Look for a kick and stop dispatching in one step: a kick that
+		// comes after this either sees dispatching false or is seen here.
 		fl.mu.Lock()
-		l.dispatching = false
+		if closed || !l.kicked {
+			l.dispatching, l.kicked = false, false
+			fl.mu.Unlock()
+			return
+		}
+		l.kicked = false
 		fl.mu.Unlock()
-	}()
-	for i := 0; i < 3 && t.tryStart(ctx, fl, mid); i++ {
 	}
 }
 
