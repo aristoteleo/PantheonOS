@@ -2167,6 +2167,62 @@ answers). Live on staging: controller `2a2061a0`, Agent App 0.9.136, frontend
 - In OS Mode with the Workspace paused, the card's Start Workspace woke it
   (Hub `waking node 'workspace'` within a second of the click).
 
+## Follow-ups after combined check 3 (2026-11-12)
+
+**What was wrong.** An idle Agent page undid an OS Mode Pause (1 of 3 tries;
+check 2 saw it too): about 27 s after the Pause, the page's own connection
+(the desktop's Workspace store, which the App page shares) reconnected and
+called `GET /api/chatroom`, which wakes every node, and the Workspace started
+again. The same store asked `/api/chatroom` again about 90 s after a tool had
+started the Workspace (tunnel refresh). Lows: Coding Agents' paused Workspace
+row drew no label and a full-width Start, and its trigger said "No computer
+runs coding agents"; OS Mode's Store said "desktop is not running yet; it
+starts with your Agent deployment" for a paused Workspace; the chip painted
+"Workspace" first and "Workspace · Paused" a moment later (7/20).
+
+**Rule.** Nothing starts the Workspace but the user's Start or a tool that
+needs it. Being open, reconnecting, polling or looking things up never does.
+
+**Design.**
+
+1. *The Agent page holds the Workspace back for good*
+   (`workspace.keepWithoutWorkspace`): its connection is the App bus and the
+   Agent's own instance; its reconnects, liveness and lookups never ask
+   `/api/chatroom` (the store's `getMyChatroom` refuses on a held page), and
+   it sends no sign-in prewarm. Loading the Agent page no longer starts a
+   paused Workspace (this replaces A3); the first tool that needs it starts
+   it (the wait line's auto-start) or the user's Start does.
+2. *Explicit wakes only.* Start and a waiting tool call `Hub.wakeWorkspace()`
+   (or the node restart for a paused node), the only Workspace wake allowed
+   from a held page.
+3. *The Agent's own computer without the Workspace.* When the Agent's pod is
+   away (the lookup says its computer is coming back), the page asks
+   `GET /api/chatroom?nodes=agent` (Hub): the topology's service pod only,
+   the Workspace untouched; at most every 30 s.
+4. *The first visit's surface* is decided from the Agent deployment (a read)
+   instead of `/api/chatroom`.
+5. Lows: Coding Agents shows "Workspace · Paused" in its trigger, a labelled
+   row with a small Start, and a "Your Workspace is paused" pane with Start
+   Workspace; Workspace Apps that cannot answer while it is paused say "Your
+   Workspace is paused. Start it with Start Workspace …", and the Store shows
+   one "Your Workspace is paused" notice with Start Workspace; the chip says
+   "Checking…" (neutral dot) until the page has said how the Workspace is.
+
+**Acceptance criteria (staging, acct4).**
+
+- P1: OS Mode Pause (release) in one tab with an idle Agent page open in
+  another (loaded while the Workspace ran): the Workspace stays paused for
+  at least 5 minutes, three times; no `GET /api/chatroom` from the page.
+- P2: G1 still holds: a tool in that page after the pause starts the
+  Workspace by itself and runs once; Start in the picker wakes it.
+- P3: no further `/api/chatroom` from the page in the 3 minutes after a
+  tool started the Workspace.
+- P4: Agent pod deleted, Workspace paused: loading the Agent page brings the
+  Agent back (`?nodes=agent`) and the Workspace stays paused.
+- P5 (Lows): Coding Agents trigger "Workspace · Paused", labelled row with a
+  small Start; the Store's paused notice with Start; chip never "Workspace"
+  before "Workspace · Paused" (10 loads).
+
 ## Open decisions
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and
