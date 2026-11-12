@@ -2124,6 +2124,49 @@ Workspace starts, restarts or stops, the pill says so as the old one did
   Store detail updates by itself within a minute of the update toast (browser);
   Coding Agents lists "Workspace · Paused".
 
+### As built, and staging verification (combined check 2 fixes, 2026-11-12)
+
+**Found while fixing.** The desktop's Pause (`POST /api/chatroom/release`) keeps
+the Agent's pod and stops the Workspace without marking it paused: the Hub's
+pod status then says `has_assignment: true` with the Workspace node
+`NotFound`. That counts as paused too, and a resume of anything but a paused
+node asks the Hub's entry (`GET /api/chatroom`) to bring it back.
+
+**Code.** PantheonOS `d01b3881` (criteria), `5ba373e6` (controller log); UI
+`ac877922` (Hub decides paused, wait-line recheck, OS Mode card/pill/Details,
+chip, Coding Agents, Store notices, smaller first paint), `27024c5e` and
+`a4fcddbd` (released or stopped Workspace), `3aadf1ad` (chip before the page
+answers). Live on staging: controller `2a2061a0`, Agent App 0.9.136, frontend
+#65. Hub and agents images unchanged.
+
+**Verification (acct4).**
+
+- G1 PASS, a page opened with the Workspace up, then paused from outside, no
+  reload: node pause, wait line at 13.1 s and 9.0 s (two runs), the Hub woke
+  the Workspace in the same second (`waking node 'workspace'`), the command
+  ran once and answered at 38.2 s both times; the desktop's Pause (release):
+  wait line at 8.0 s, the page's `GET /api/chatroom` 0.8 s later, answered at
+  50.2 s. Start in the picker of a long-open page with the Workspace paused:
+  the Hub woke it 0.7 s after the click.
+- G2 PASS: OS Mode, Workspace node-paused: pill "0/1 online", card "Your
+  Workspace is paused" with Start Workspace, popover "Workspace · Paused ·
+  Start · Details", Details "The Workspace is paused." with Resume and Copy
+  diagnostics (no tasks, no uptime).
+- G3 PASS: 10 first-visit loads (new browser each), warm pod, Workspace
+  paused: usable 2.62-4.15 s (p50 2.81 s), picker 2.68-4.26 s; the Agent's
+  first-paint bundle 1.57 MB to 1.0 MB gzip.
+- G4: chip "Workspace · Paused" 10/10 new-chat loads after 3 s (once "No
+  computer" for the first moment before the page answered, fixed in
+  `3aadf1ad`); Coding Agents' computer menu "Workspace · Cloud workspace ·
+  Paused · Start"; controller "not running yet" lines: one per wait (2 in 30
+  minutes with two waits); Store detail open on a test App across its
+  auto-update (1.0.0 to 1.1.0): "v1.1.0 is available" 42 s after the publish,
+  then "Up to date (v1.1.0)" in the same 3 s sample as the toast "… updated to
+  v1.1.0" (402 s); after `3aadf1ad`, 5 more new-chat loads: chip "Workspace"
+  for a moment, then "Workspace · Paused", never "No computer".
+- In OS Mode with the Workspace paused, the card's Start Workspace woke it
+  (Hub `waking node 'workspace'` within a second of the click).
+
 ## Open decisions
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and
