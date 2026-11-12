@@ -2060,6 +2060,70 @@ Workspace starts, restarts or stops, the pill says so as the old one did
 - O4: the App page's pill and OS Mode's pill read the same data (same count
   after a state change).
 
+## Fixes after combined check 2 (2026-11-12)
+
+**What was wrong.**
+
+- *H: Start and auto-start did nothing in a page that had seen the Workspace
+  up.* After a pause made elsewhere (a node pause, OS Mode's Pause in another
+  tab), the page's Workspace store still said ready. The host's `computers`
+  capability asked that store first: `workspace()` answered ready or starting,
+  `startWorkspace()` returned at once without asking the Hub to resume, and
+  the wait line's auto-start saw "not paused". The tool waited its 5 minutes
+  and did not run (2/2); a reload fixed it.
+- *M: OS Mode said "Workspace starting…"* (pill and the "Your workspace is
+  starting…" card) for a paused Workspace indefinitely, with no Start, while
+  the Agent page said "Paused · Start".
+- *M: a first visit in a new browser* was over 5 s in 2 of 10 loads, spent
+  downloading the Agent's 1.6 MB (gzip) first-paint bundle.
+- Lows: the new-chat chip said "Workspace" or "No computer" by timing for the
+  same paused Workspace; Workspace Details showed an uptime for a paused
+  Workspace; the controller logged "dependency provider not running yet"
+  every 3 s while a tool waited; the Store detail line stayed on the old
+  version after an update it never saw pending; Coding Agents' computer menu
+  left out a paused Workspace.
+
+**Design.**
+
+1. *The Hub decides paused.* `hostComputers.workspaceState()` and
+   `startWorkspace()` read the Hub's pod status every time: paused (the
+   sandbox released or its node paused) is paused whatever the page's store
+   says, and Start always asks the Hub to resume it then; the store only adds
+   that a running Workspace is connected. The wait line asks again every 15 s
+   while a tool waits (and starts a paused Workspace, at most once a minute),
+   the picker every 10 s, the pill every 10 s.
+2. *OS Mode reads the same.* The pill drops "Workspace starting…" and its row
+   says Paused with Start when the Hub says paused; the setup card says "Your
+   Workspace is paused" with Start Workspace instead of "starting"; Workspace
+   Details shows no tasks or uptime of the last run, and Resume.
+3. *A smaller first paint.* highlight.js with 22 common languages (was all
+   190, 1.9 MB), Mermaid and the Team canvas (Vue Flow) loaded when first
+   used: the Agent's first-paint bundle 1.57 MB to 1.0 MB gzip.
+4. Lows: a paused Workspace is the chip's computer ("Workspace · Paused"; tools
+   start it), "No computer" only when there is nothing to start; Coding
+   Agents lists the paused Workspace with Start; the controller logs a
+   provider-not-running refusal once per owner and method every 5 minutes; the
+   Store detail reads its line again on the Store's update notice and every
+   minute.
+
+**Acceptance criteria (staging, acct4).**
+
+- G1 (H): an Agent page opened with the Workspace running; the Workspace
+  paused from outside (node pause, and the release OS Mode's Pause makes);
+  without reloading, a shell command: the page starts the Workspace by itself
+  (Hub logs a wake within seconds of the wait line) and the command runs once.
+  Start clicked in that state makes a Hub request.
+- G2 (M): OS Mode with the Workspace node-paused: pill count (not "starting"),
+  popover "Workspace · Paused" with Start, card "Your Workspace is paused";
+  the Agent page agrees.
+- G3 (M): 10 first-visit loads (new browser each), warm pod, Workspace paused:
+  usable within 5 s each.
+- G4 (Lows): chip "Workspace · Paused" on 10/10 new-chat loads with the
+  Workspace paused; Details without uptime when paused; controller "not running
+  yet" lines at most one per 5 minutes per owner and method during a wait;
+  Store detail updates by itself within a minute of the update toast (browser);
+  Coding Agents lists "Workspace · Paused".
+
 ## Open decisions
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and
