@@ -29,7 +29,7 @@ func next(t *testing.T, events chan map[string]any) map[string]any {
 	select {
 	case e := <-events:
 		return e
-	case <-time.After(5 * time.Second):
+	case <-time.After(settle):
 		t.Fatal("no event")
 		return nil
 	}

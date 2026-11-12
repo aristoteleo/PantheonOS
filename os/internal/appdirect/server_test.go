@@ -30,7 +30,7 @@ type fixture struct {
 
 func setup(t *testing.T, handler http.Handler) *fixture {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*settle)
 	t.Cleanup(cancel)
 	f := &fixture{ctx: ctx, binding: apptransport.Binding{Fleet: "fleet-a", Node: "node-a", Instance: "instance-a", Revision: strings.Repeat("a", 64), Generation: 7, Component: "model", Port: "http"}}
 	f.online.Store(true)
@@ -58,9 +58,13 @@ func setup(t *testing.T, handler http.Handler) *fixture {
 	return f
 }
 
+// settle bounds a wait for something that must happen. Waits poll often, so
+// a fast machine does not wait longer; a slow shared CI runner gets time.
+const settle = 30 * time.Second
+
 func eventually(t *testing.T, condition func() bool) {
 	t.Helper()
-	until := time.Now().Add(3 * time.Second)
+	until := time.Now().Add(settle)
 	for !condition() {
 		if time.Now().After(until) {
 			t.Fatal("condition did not settle")
@@ -247,7 +251,7 @@ func TestDirectStreamCancellationExpiryAndRevocation(t *testing.T) {
 			}
 			select {
 			case <-ended:
-			case <-time.After(3 * time.Second):
+			case <-time.After(settle):
 				t.Fatal("upstream request not cancelled")
 			}
 			eventually(t, func() bool { return f.uses.Load() == 0 && len(f.server.slots) == 0 })

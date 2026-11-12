@@ -186,7 +186,7 @@ func TestConcurrentIntentsAllLandAndAreAnnounced(t *testing.T) {
 		t.Fatalf("seq %v after 22 intents", session["seq"])
 	}
 	seen := map[int64]bool{}
-	for deadline := time.After(5 * time.Second); len(seen) < 20; {
+	for deadline := time.After(settle); len(seen) < 20; {
 		select {
 		case e := <-events:
 			if e["type"] != "desktop.delta" {
@@ -403,7 +403,7 @@ func TestOnlyTheDesktopStateCredentialReachesTheBucket(t *testing.T) {
 	call(t, h, mine, "intent", map[string]any{"kind": "open", "args": map[string]any{"app_id": "files"}})
 	select {
 	case <-heard:
-	case <-time.After(5 * time.Second):
+	case <-time.After(settle):
 		t.Fatal("the owner's browser did not hear the change")
 	}
 

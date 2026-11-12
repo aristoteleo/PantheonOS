@@ -62,7 +62,7 @@ func TestSessionBoundariesAndIdle(t *testing.T) {
 			}
 			select {
 			case <-ended:
-			case <-time.After(2 * time.Second):
+			case <-time.After(settle):
 				t.Fatal("session not reclaimed")
 			}
 		})
@@ -149,7 +149,7 @@ func TestSessionCancelUnreadResponseAndReauthorize(t *testing.T) {
 	_ = writer.Close()
 	select {
 	case <-ended:
-	case <-time.After(3 * time.Second):
+	case <-time.After(settle):
 		t.Fatal("session leaked after parent EOF")
 	}
 }

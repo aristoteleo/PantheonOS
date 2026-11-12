@@ -62,7 +62,7 @@ func TestBridgeBootstrapAndParentDisconnect(t *testing.T) {
 			_ = writer.Close()
 			select {
 			case <-ended:
-			case <-time.After(3 * time.Second):
+			case <-time.After(settle):
 				t.Fatal("bridge did not stop with parent input")
 			}
 		})

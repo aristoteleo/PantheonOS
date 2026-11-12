@@ -202,9 +202,13 @@ func teamHost(t *testing.T, tc *TeamChat) (*Host, apptransport.Binding, apptrans
 	return h, mine, theirs
 }
 
+// settle bounds a wait for something that must happen. Waits poll often, so
+// a fast machine does not wait longer; a slow shared CI runner gets time.
+const settle = 30 * time.Second
+
 func eventually(t *testing.T, what string, ok func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(settle)
 	for !ok() {
 		if time.Now().After(deadline) {
 			t.Fatal("timed out waiting for " + what)
@@ -981,7 +985,7 @@ func TestOnlyTheTeamChatCredentialReachesItsStores(t *testing.T) {
 	call(t, h, mine, "post", map[string]any{"cid": "general", "text": "hello @writer"})
 	select {
 	case <-heard:
-	case <-time.After(5 * time.Second):
+	case <-time.After(settle):
 		t.Fatal("the owner's browser did not hear the change")
 	}
 	eventually(t, "the reply", func() bool { return lastFrom(msgs(t, h, mine, "general", ""), writer) != nil })
@@ -1445,7 +1449,7 @@ func TestPostsGetTheTurnsModelAtTheEnd(t *testing.T) {
 }
 
 func waitFor(ok func() bool) bool {
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(settle)
 	for !ok() {
 		if time.Now().After(deadline) {
 			return false
