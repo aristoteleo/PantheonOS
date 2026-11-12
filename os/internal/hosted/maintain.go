@@ -13,8 +13,9 @@ import (
 // DeferLogEvery is how often a maintenance deferral that goes on (the same
 // error for the same journal) is logged again: a provider that is away (a
 // paused Workspace answers "nats: no responders") deferred every pass, about
-// 5,000 lines an hour on staging (combined check 1).
-const DeferLogEvery = 10 * time.Minute
+// 5,000 lines an hour on staging (combined check 1); with about sixteen owners
+// waiting at once, a reminder every 10 minutes was still about 100 lines an hour.
+const DeferLogEvery = time.Hour
 
 type deferral struct {
 	err        string

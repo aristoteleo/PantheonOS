@@ -1922,8 +1922,8 @@ warm (acct4) found one High, two Medium and several Low issues.
    available" once the App is on that version; the desktop Agent window names
    the computer, and a restored window whose conversation is gone opens a new
    conversation; `/app/<id>` at 390 px keeps the OS Mode icon; the
-   controller's "maintenance deferred" line is logged once per state change
-   (and at most every 10 minutes while it lasts); the controller host's
+   controller's "maintenance deferred" line is logged once per owner and kind
+   when it starts or changes, then once an hour while it lasts; the controller host's
    journald is capped (`SystemMaxUse=500M`).
 
 **Acceptance criteria (staging, acct4).**
@@ -1954,6 +1954,73 @@ warm (acct4) found one High, two Medium and several Low issues.
   Agent turn, Coding Agents.
 - Out of scope: the cold path B (pod deleted, about 40 s to the first answer)
   stays as documented above; that is the owner's decision.
+
+### As built, and staging verification (2026-11-12)
+
+**What else was found while fixing.**
+
+- *H1 had a second cause in the page.* Once the Workspace had been ready, the
+  page sent the Agent's calls through the Workspace's Desktop service
+  (`PackagedApp.handleCall`, `rpc_transport: fleet`). After a pause every call
+  went to a paused service ("desktop is not running yet") and the frame's
+  messages never reached the Agent, in any conversation, until a reload. The
+  Agent's calls now always go to its own instance; other Apps fall back to
+  their own connection when the Desktop service is not running.
+- *A cold Workspace took about three minutes* on staging (Modal sandbox
+  creation 2.5-4 min, image prewarmed), so the provider wait stays 5 minutes.
+- *A deleted conversation* was reported to the App as "Request failed with
+  status code 400": the host now passes an App's own refusal (`{error}`) on,
+  and the Agent says `Chat '<id>' not found` when a history is opened.
+
+**Code.** PantheonOS `019582ed` (run without the shell wait, kept message,
+provider wait), `b9680568` (offline known nodes, deferral log, history not
+found), `59875ab7` (wait stays 5 min), `ff34d1ee` and the hourly reminder
+(deferral log per owner and kind); UI `ae0dbe36`, `8246598f` (the Agent never through the Desktop
+service), `9b57fa95`/`dbf09ad4` (OS Mode indicator, Agent window tab),
+`67d27cea`, `bcb4e512` (deleted conversation), `77d36b82` (test). Live on
+staging: controller `52eaf1b6`, journald cap on the controller host, Agent App
+0.9.134 (followed by acct4 through the System Apps follower), frontend #62.
+Hub image and agents image unchanged.
+
+**Verification (acct4).**
+
+- F1 PASS: chat that ran `echo G1-OK-42; pwd`, Workspace paused (`running`
+  empty), "What is 17 times 3?" answered `51` 7.0 s after sending, no wait
+  line; after a reload the question and the answer are in the conversation.
+- F2 PASS (unit): `test_a_run_that_cannot_start_keeps_the_users_message`.
+- F3 PASS: node-paused Workspace, shell command in the same page: "Waiting for
+  your Workspace to start" at 9 s, the page started the Workspace by itself at
+  the same second (Hub: `waking node 'workspace'`), the command ran once
+  (36.4 s) and answered `G2-OK-49`. "Start Workspace" showed beside the wait
+  line in the earlier runs (13-21 s). The 5-minute end is unit-tested
+  (`ProviderNotStarted`, no retry past it).
+- F4: warm pod, Workspace paused. A returning browser (cache, root
+  remembered), 6 loads: usable 2.2-2.7 s (p50 2.5 s), picker 2.3-2.8 s; the
+  first load in that browser 4.7 s. A new browser every load (no cache, first
+  visit), 11 loads: usable p50 3.25 s, picker 3.0-3.7 s for 9 of 11; two loads
+  5.5 and 6.3 s, both spent downloading the Agent's 1.6 MB (gzip) GUI from a
+  new instance origin (1.5 s for one file). Before: page 1.4 s, usable p50
+  3.8 s. Taken: a first visit asks the Hub before drawing either page (page
+  shown 0.8 s, was 1.4 s), deployment reads reused for 700 ms, the Agent's GUI
+  loads beside its stylesheet.
+- F5: top bar in light theme `rgb(251, 251, 253)` (was `#0b0d12`); OS Mode icon
+  on `/app/team-chat` at 390 px; a stopped test node listed "Offline" in the
+  pill and the picker, both "0/2 online"; the desktop Agent window's badge
+  "Agent computer"; a restored window on a deleted conversation opened a new
+  one; Store detail line followed by a unit test (read every 15 s while
+  pending); controller deferral lines: 5,734 in the hour before; per owner and kind
+  every 10 minutes gave 32 lines in 17 minutes, so the reminder is hourly
+  (controller `52eaf1b6`); journal 480.6 MB (cap 500 MB), disk 73 %.
+- F6: Team Chat Pantheon agent on the Workspace answered "OK" 36.9 s after the
+  mention and was deleted with its conversation; Coding Agents lists the
+  Workspace and the Pantheon Agent; the picker and pill (C1, C2) as above.
+- O1 PASS: the desktop Agent window on a conversation, App > Open in New Tab
+  opened `/c/ab41df62-…` showing that conversation.
+- O2/O3 PASS at 1440 and 390 px, dark and light: pill with dots (label hidden
+  below 520 px), no "Connected", no horizontal overflow; popover lists
+  "Workspace · Starting…" with Details (tasks, uptime, Restart, Pause, Copy
+  diagnostics, no empty strip) and the test node; O4: same rows and count as
+  the App page's pill.
 
 ### Follow-ups asked during the fixes (2026-11-12)
 
