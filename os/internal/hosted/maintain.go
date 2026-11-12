@@ -20,42 +20,58 @@ type deferral struct {
 	err        string
 	logged     time.Time
 	suppressed int
+	paths      map[string]bool // the journals deferred now
 }
 
-// deferLog logs one journal's maintenance deferral when it starts or its error
-// changes, and then once every DeferLogEvery with how many passes it skipped;
-// a pass that succeeds again is logged once (deferResolved).
+// deferLog logs an owner's maintenance deferrals of one kind (bindings,
+// sessions) once when they start or their error changes, then once every
+// DeferLogEvery with how many passes and journals it skipped, however many
+// journals share it; the owner's last deferred journal maintained again is
+// logged once (deferResolved).
 func (a *Allocator) deferLog(fleet, kind, path string, err error, now time.Time) {
-	key := fleet + "|" + kind + "|" + path
+	key := fleet + "|" + kind
 	a.mu.Lock()
 	if a.deferred == nil {
-		a.deferred = map[string]deferral{}
+		a.deferred = map[string]*deferral{}
 	}
-	d, seen := a.deferred[key]
+	d := a.deferred[key]
 	text := err.Error()
-	if seen && d.err == text && now.Sub(d.logged) < DeferLogEvery {
-		d.suppressed++
+	if d == nil {
+		d = &deferral{paths: map[string]bool{}}
 		a.deferred[key] = d
+	}
+	d.paths[path] = true
+	if d.err == text && now.Sub(d.logged) < DeferLogEvery {
+		d.suppressed++
 		a.mu.Unlock()
 		return
 	}
-	skipped := d.suppressed
-	a.deferred[key] = deferral{err: text, logged: now}
+	repeat, skipped, since, journals := d.err == text, d.suppressed, now.Sub(d.logged), len(d.paths)
+	d.err, d.logged, d.suppressed = text, now, 0
 	a.mu.Unlock()
-	if seen && d.err == text {
-		log.Printf("[hosted] %s %s maintenance still deferred (%d passes in %s): %v", fleet, kind, skipped+1, now.Sub(d.logged).Round(time.Second), err)
+	if repeat {
+		log.Printf("[hosted] %s %s maintenance still deferred (%d passes over %d journals in %s): %v",
+			fleet, kind, skipped+1, journals, since.Round(time.Second), err)
 		return
 	}
 	log.Printf("[hosted] %s %s maintenance deferred: %v", fleet, kind, err)
 }
 
 func (a *Allocator) deferResolved(fleet, kind, path string) {
-	key := fleet + "|" + kind + "|" + path
+	key := fleet + "|" + kind
 	a.mu.Lock()
-	_, seen := a.deferred[key]
-	delete(a.deferred, key)
+	d := a.deferred[key]
+	if d == nil || !d.paths[path] {
+		a.mu.Unlock()
+		return
+	}
+	delete(d.paths, path)
+	done := len(d.paths) == 0
+	if done {
+		delete(a.deferred, key)
+	}
 	a.mu.Unlock()
-	if seen {
+	if done {
 		log.Printf("[hosted] %s %s maintenance resumed", fleet, kind)
 	}
 }

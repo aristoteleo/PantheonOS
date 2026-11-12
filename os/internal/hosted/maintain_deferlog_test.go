@@ -31,12 +31,18 @@ func TestMaintenanceDeferralIsLoggedOncePerChange(t *testing.T) {
 	if !strings.Contains(out.String(), "still deferred (200 passes") {
 		t.Fatalf("the reminder does not say how long: %s", out.String())
 	}
-	a.deferLog("f1", "binding", "/j/a", errors.New("other"), start.Add(DeferLogEvery+2*time.Second))
-	a.deferLog("f1", "binding", "/j/b", gone, start.Add(DeferLogEvery+2*time.Second))
+	// Many journals of the owner with the same error: still one line per period.
+	for j := 0; j < 40; j++ {
+		a.deferLog("f1", "binding", "/j/"+string(rune('b'+j)), gone, start.Add(DeferLogEvery+2*time.Second))
+	}
+	a.deferLog("f1", "binding", "/j/a", errors.New("other"), start.Add(DeferLogEvery+3*time.Second)) // changed: logged
 	a.deferResolved("f1", "binding", "/j/a")
-	a.deferResolved("f1", "binding", "/j/c") // never deferred: nothing
+	a.deferResolved("f1", "binding", "/j/zz") // never deferred: nothing
+	for j := 0; j < 40; j++ {
+		a.deferResolved("f1", "binding", "/j/"+string(rune('b'+j)))
+	}
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
-	if len(lines) != 5 || !strings.HasSuffix(lines[4], "binding maintenance resumed") {
+	if len(lines) != 4 || !strings.HasSuffix(lines[3], "binding maintenance resumed") {
 		t.Fatalf("lines: %q", lines)
 	}
 }

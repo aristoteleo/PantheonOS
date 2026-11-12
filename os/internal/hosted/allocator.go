@@ -39,7 +39,7 @@ type Allocator struct {
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex
 	// deferred: the maintenance deferrals logged, by journal (deferLog).
-	deferred map[string]deferral
+	deferred map[string]*deferral
 }
 
 // Grants is the controller's dependency grant authority (the App gateway).
