@@ -15,6 +15,6 @@ echo "[$(date)] host=$(hostname) $(grep -m1 'model name' /proc/cpuinfo)"
 ulimit -n $(ulimit -Hn)
 run() { apptainer exec --bind /scratch,/home/groups,/lscratch --env XDG_CACHE_HOME=$SCRATCH/.cache,NUMBA_CACHE_DIR=$SCRATCH/.cache/numba,EVAL_TMP=$L_SCRATCH_JOB "$EVO/py312.sif" "$PY" "$@"; }
 [ -s "$BIO/prep/prep_info.json" ] || run "$T/_bio/prep_bio.py" "$BIO" "$BIO/prep" || { echo "prep failed"; exit 1; }
-run "$T/_bio/pilot_bio.py" "$BIO/pilot.json" "$@"
+run "$T/_bio/pilot_bio.py" "$BIO/pilot.json" "--extra=$BIO/pilot_extra" "$@"
 echo "[$(date)] done"
 

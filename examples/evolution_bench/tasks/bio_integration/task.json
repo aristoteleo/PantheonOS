@@ -3,5 +3,5 @@
   "inner_fidelity": "low",
   "eval_timeout": 900,
   "serialize_evals": true,
-  "note": "Single-cell batch integration on scIB atlases (figshare 12420968), scored with scib-metrics; inputs from tasks/_bio/prep_bio.py. Public: pancreas + lung; holdout (final scores only): immune_human. See molt_biology.md."
+  "note": "Single-cell batch integration scored with scib-metrics; inputs from tasks/_bio/prep_bio.py. Splits (disjoint studies) in tasks/_bio/biocommon.py: a search sees train only; valid picks a run's final program; test gives the final score. See molt_biology.md."
 }

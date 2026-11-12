@@ -18,10 +18,12 @@ Your output is rescaled to the held-back total and compared with the held-back c
 
 Each is normalised so that returning the input unchanged scores 0 and predicting the held-back
 counts exactly scores 1; a dataset scores their mean (floored at 0). The score is the mean over
-several real datasets (different tissues and protocols). Higher is better. A program that errors,
+several real datasets (human and mouse, different tissues and UMI protocols, about 4,000 cells
+each). Higher is better. A program that errors,
 exceeds the time limit (300 s per dataset, 8 CPU threads, no GPU) or returns a wrong shape or
 negative values scores 0.
 
 **Rules.** Available: numpy, scipy, pandas, scikit-learn, scanpy, anndata, igraph, leidenalg,
 pynndescent, numba, jax (CPU). No network, no other packages, nothing read from disk except the
-input given. The method must be general: it will also be scored on datasets it has never seen.
+input given. The method must be general: the final score comes from datasets it has never seen -- other
+tissues, other species (so other gene names) and other protocols, including single-nucleus data.

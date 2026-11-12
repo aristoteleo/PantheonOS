@@ -18,11 +18,12 @@ with its default metric sets and no min-max scaling:
 - bio conservation: isolated labels, KMeans NMI / ARI, label silhouette, cLISI;
 - batch correction: batch silhouette (or BRAS), iLISI, kBET, graph connectivity, PCR comparison.
 
-total = 0.6 x bio + 0.4 x batch, averaged over the datasets (several real atlases, 10^4 cells
-each, different tissues and batch structures). Higher is better; the starting program (plain PCA,
+total = 0.6 x bio + 0.4 x batch, averaged over the datasets (real atlases of about 8,000 cells
+each: human and mouse, different tissues, batches that are donors, labs or technologies). Higher is better; the starting program (plain PCA,
 no correction) is the "unintegrated" baseline. A program that errors, exceeds the time limit
 (300 s per dataset, 8 CPU threads, no GPU) or returns a wrong shape scores 0.
 
 **Rules.** Available: numpy, scipy, pandas, scikit-learn, scanpy, anndata, igraph, leidenalg,
 pynndescent, numba, jax (CPU). No network, no other packages, nothing read from disk except the
-input given. The method must be general: it will also be scored on atlases it has never seen.
+input given. The method must be general: the final score comes from atlases it has never seen -- other
+tissues, other species (so other gene names) and other protocols, including single-nucleus data.

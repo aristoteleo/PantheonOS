@@ -1,4 +1,4 @@
-"""Shared harness of the single-cell tasks (bio_integration, bio_denoise, bio_labelproj).
+"""Shared harness of the single-cell tasks (bio_integration, bio_denoise).
 
 A program (`solution.py`) runs in its own process -- fresh interpreter, capped threads, a wall-clock
 limit per dataset, its own temporary directory -- and hands back an array file; the evaluator
@@ -7,7 +7,8 @@ input files.
 
 Environment:
   BIO_DATA           prepared inputs (prep_bio.py output); default $SCRATCH/evolve/biodata/prep
-  BIO_SPLIT          "public" (search) or "holdout" (final measurement only)
+  BIO_SPLIT          "train" (what a search sees), "valid" (picks a run's final program) or
+                     "test" (final scores only); see SPLITS
   BIO_SOLVE_SECONDS  wall-clock limit per dataset (default 300)
   BIO_THREADS        BLAS/OpenMP/numba threads a program may use (default 8)
 """
@@ -23,9 +24,17 @@ import time
 from pathlib import Path
 
 DATA = Path(os.environ.get("BIO_DATA") or Path(os.environ.get("SCRATCH", "/tmp")) / "evolve/biodata/prep")
-SPLIT = os.environ.get("BIO_SPLIT", "public")
+SPLIT = os.environ.get("BIO_SPLIT", "train")
 SOLVE_SECONDS = int(os.environ.get("BIO_SOLVE_SECONDS", "300"))
 THREADS = os.environ.get("BIO_THREADS", "8")
+
+# Three disjoint sets of studies (molt_biology.md). train: the fitness every method searches on.
+# valid: read once per run, to pick its final program among its best on train. test: read only for
+# that pick -- tissues, species and protocols absent from train and valid.
+_TRAIN = ["pancreas", "lung", "hypomap"]            # human pancreas (CEL-seq / inDrop / SMART), human lung (10x / Drop-seq), mouse hypothalamus
+_VALID = ["immune_human", "tms_muscle"]             # human bone marrow + blood, mouse skeletal muscle
+_TEST = ["kidney_dkd", "heart", "zebrafish_5dpf", "gtex"]   # human kidney nuclei, human heart cells + nuclei, zebrafish larva, 8 human tissues (nuclei)
+SPLITS = {t: {"train": _TRAIN, "valid": _VALID, "test": _TEST} for t in ("integration", "denoise")}
 
 _RUNNER = r'''
 import importlib.util, json, sys, time
@@ -38,10 +47,7 @@ spec.loader.exec_module(mod)
 t = time.time()
 res = getattr(mod, fn)(*inputs)
 secs = time.time() - t
-if fn == "annotate":
-    json.dump([str(x) for x in list(res)], open(out, "w"))
-else:
-    np.save(out, np.asarray(res, dtype=np.float32))
+np.save(out, np.asarray(res, dtype=np.float32))
 print("SOLVE_SECONDS", round(secs, 2))
 '''
 

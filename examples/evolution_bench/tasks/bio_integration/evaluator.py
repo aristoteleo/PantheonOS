@@ -6,7 +6,8 @@ the batch in `obs["batch"]`; cell types are never given. The embedding is scored
 scib-metrics' Benchmarker (default bio-conservation and batch-correction metrics, no min-max
 scaling, so a score does not depend on what else is benchmarked): total = 0.6 bio + 0.4 batch.
 
-combined_score = mean total over the split's datasets (public: pancreas, lung; holdout: immune).
+combined_score = mean total over the split's datasets (train / valid / test are disjoint studies,
+see _bio/biocommon.py; a search only ever sees train).
 Any dataset failing (error, time limit, bad shape) scores the program 0.
 """
 import os
@@ -18,9 +19,9 @@ import numpy as np
 
 HERE = Path(os.environ.get("TASK_DIR") or globals().get("__file__", ".")).resolve()
 sys.path.insert(0, str(HERE.parent / "_bio"))
-from biocommon import DATA, SPLIT, fail, fidelity_of, run_program  # noqa: E402
+from biocommon import DATA, SPLIT, SPLITS, fail, fidelity_of, run_program  # noqa: E402
 
-DATASETS = {"public": ["pancreas", "lung"], "holdout": ["immune_human"]}
+DATASETS = SPLITS["integration"]   # train / valid / test: disjoint studies, see _bio/biocommon.py
 N_JOBS = int(os.environ.get("BIO_THREADS", "8"))
 
 

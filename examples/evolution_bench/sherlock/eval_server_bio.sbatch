@@ -18,6 +18,6 @@ set -a; . "$HOME/.evolve_env"; set +a
 rm -f "$EVO/eval_server_$NAME.url"
 echo "[$(date)] bio eval server $NAME task=$TASK host=$(hostname) port=$PORT job=$SLURM_JOB_ID $(grep -m1 'model name' /proc/cpuinfo)"
 exec apptainer exec --bind /scratch,/home/groups,/lscratch \
-  --env PYTHONUNBUFFERED=1,EVAL_TMP=$L_SCRATCH_JOB,EVAL_WARMUP_TASK=$TASK,BIO_SPLIT=${BIO_SPLIT:-public},XDG_CACHE_HOME=$SCRATCH/.cache,NUMBA_CACHE_DIR=$SCRATCH/.cache/numba \
+  --env PYTHONUNBUFFERED=1,EVAL_TMP=$L_SCRATCH_JOB,EVAL_WARMUP_TASK=$TASK,BIO_SPLIT=${BIO_SPLIT:-train},XDG_CACHE_HOME=$SCRATCH/.cache,NUMBA_CACHE_DIR=$SCRATCH/.cache/numba \
   "$EVO/py312.sif" "$GROUP_HOME/wzxu/venv-bio/bin/python" \
   "$REPO/examples/evolution_bench/sherlock/eval_server_local.py" --port "$PORT" --url-file "$EVO/eval_server_$NAME.url"

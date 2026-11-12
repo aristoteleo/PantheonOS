@@ -22,9 +22,9 @@ import numpy as np
 
 HERE = Path(os.environ.get("TASK_DIR") or globals().get("__file__", ".")).resolve()
 sys.path.insert(0, str(HERE.parent / "_bio"))
-from biocommon import DATA, SPLIT, fail, fidelity_of, run_program  # noqa: E402
+from biocommon import DATA, SPLIT, SPLITS, fail, fidelity_of, run_program  # noqa: E402
 
-DATASETS = {"public": ["pancreas", "lung"], "holdout": ["pbmc10k", "immune_human"]}
+DATASETS = SPLITS["denoise"]   # train / valid / test: disjoint studies, see _bio/biocommon.py
 
 
 def _losses(pred: np.ndarray, test: np.ndarray) -> tuple[float, float]:
