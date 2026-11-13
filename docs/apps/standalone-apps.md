@@ -2338,6 +2338,57 @@ proxy fixes included), frontend #71. Controller unchanged (`9701b190`).
   your workspace…"); Coding Agents trigger "Workspace" with a "Paused" tag, not
   cut; chip "Workspace · Paused" 4.1 s after an outside pause.
 
+## Fixes after combined check 5 (2026-11-13)
+
+**What was wrong.**
+
+- *H: a message lost after two Agent pod recreations in a row.* After the
+  first recreation the page followed the new generation on its connect (the
+  check-4 fix). After the second one its gateway connection was still valid,
+  so no connect happened: every call went to the old generation, the node
+  rejected it (502, "node rejected App service") for good, and a message sat on
+  "Waiting for model" with the failure only in App messages.
+- *M: deleting a chat with the Workspace paused did nothing, silently.* The
+  Agent refused (`success: false` inside a 200: the controller answers a
+  retirement `retiring` while the Workspace's providers are away, and the
+  Agent required `retired`), and the chat list ignored the refusal.
+- Lows: a red "Your Workspace is paused…" line in the Store beside the card;
+  Coding Agents cut the name to "Worksp…" beside its Paused tag; the chip
+  kept "Paused" with Start for ~12 s after Start; the paused card could sit
+  under a window.
+
+**Design.**
+
+1. *Calls follow the generation too.* A call the gateway answers 502 asks the
+   deployment for the instance's current generation (up to 10 s); when it is
+   newer, the page connects at it and sends the call again once (the node
+   rejected it before the App saw it). A 502 from the same generation is not
+   resent.
+2. *A send never fails silently.* A message that did not reach the Agent says
+   so in its own conversation ("Your message was not sent … send it again"),
+   ends "Waiting for model", and offers its text back to the composer.
+3. *Deleting a chat with the Workspace paused works.* A `retiring` receipt is
+   accepted: the controller holds the retirement in its journal and finishes
+   it when the Workspace is back; the conversation goes now. Any refusal the
+   Agent still returns is shown in the chat list, never reported as done.
+4. Lows: the Store's errors that only say the Workspace is paused are not
+   shown in red (the card or the notice says it, with Start); Coding Agents
+   keeps "Workspace" and the Paused tag whole; for 45 s after its own Start the
+   page reads a "paused" answer as starting; the card sits above every window.
+
+**Acceptance criteria (staging, acct4).**
+
+- R1 (H): an open Agent page; the Agent pod deleted, ready, deleted again 10 s
+  later; a message sent then is answered (no 502 for good), twice; a unit test
+  covers two recreations in a row.
+- R2 (H): a send that fails shows its failure in the conversation with the
+  text offered back (unit test of the path; live when it can be provoked).
+- R3 (M): with the Workspace paused, Select → Delete → Confirm on a chat that
+  ran a shell command: the chat is gone after a reload, three times.
+- R4 (Lows): no red paused line in the Store; Coding Agents shows "Workspace"
+  and "Paused" whole; chip "Starting…" within 2 s of Start; the card's Start
+  clickable with a window over its corner.
+
 ## Open decisions
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and
