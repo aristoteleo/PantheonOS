@@ -85,6 +85,7 @@ type Gateway struct {
 	shareResolver         ShareResolver
 	memberCheck           MemberCheck
 	shareTarget           ShareTargetResolver
+	appConn               func(net.Conn) net.Conn // wraps each connection to an App (tests)
 }
 
 // SetHosted serves Apps the controller hosts itself (bindings on node) in
@@ -457,7 +458,13 @@ func (g *Gateway) proxyApp(w http.ResponseWriter, r *http.Request, access Attach
 	// An App RPC runs up to 600 s (timeout_s) and the App ends it then; the
 	// gateway waits a little longer so a long call is not cut at the proxy.
 	transport := &http.Transport{DisableKeepAlives: true, ResponseHeaderTimeout: 660 * time.Second,
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return g.dial(ctx, access) }}
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			conn, err := g.dial(ctx, access)
+			if err == nil && g.appConn != nil {
+				conn = g.appConn(conn)
+			}
+			return conn, err
+		}}
 	defer transport.CloseIdleConnections()
 	proxy := &httputil.ReverseProxy{Transport: transport, FlushInterval: -1,
 		Rewrite: func(p *httputil.ProxyRequest) {
@@ -512,7 +519,16 @@ func (g *Gateway) proxyApp(w http.ResponseWriter, r *http.Request, access Attach
 			http.Error(w, "App connection unavailable; reconnect through Atrium", 502)
 		},
 	}
+	// The App may answer before the transport has read all of the request
+	// body. Without full duplex, net/http drains and closes the request body
+	// when the response headers are written; the transport's next read then
+	// fails, and it closes the App connection mid-response (a truncated body).
+	_ = http.NewResponseController(w).EnableFullDuplex()
 	proxy.ServeHTTP(w, r)
+	// In full duplex net/http no longer drains a body left unread before the
+	// handler returns; it would then drain it after the handler, which breaks
+	// the caller's connection for its next request. Drain it here.
+	_ = r.Body.Close()
 }
 
 func (g *Gateway) connect(w http.ResponseWriter, r *http.Request) {
