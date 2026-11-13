@@ -2260,6 +2260,58 @@ frontend #68. Controller unchanged (`2a2061a0`).
   still connects to the Workspace and asks the Hub for it, as before; a
   node-level pause is not undone by that load.
 
+## Fixes after combined check 4 (2026-11-13)
+
+**What was wrong.**
+
+- *H: the Agent page's own entry started a Workspace the desktop's Pause had
+  stopped.* `GET /api/chatroom?nodes=agent` assigned only the Agent's pod,
+  but its tail then called the topology's `update_activity`, which kicks the
+  other nodes. The desktop's Pause is a release: it leaves no pause mark, so
+  the kick created the Workspace again about a second after every Agent page
+  load (4/4). A node-level pause is marked and was not woken, which is what
+  the follow-up's P4 and its unit test (a mocked `update_activity`) covered.
+- *M: an open Agent page failed with "Request failed with status code 409"
+  after its pod was recreated.* The node starts the same instance again at a
+  new generation; the page kept connecting with the old one, which the Hub
+  refuses (409), and Retry sent it again. Restored OS Mode Agent windows did
+  the same on every load.
+- Lows: Workspace Details showed the Agent pod's age as the Workspace's
+  uptime; OS Mode showed three paused messages at once (the card, the
+  Store's notice and a red line in Files); Coding Agents' trigger cut
+  "Workspace · Paused" to "Workspace · Paus…"; the chip said "Workspace" while
+  the page had no answer, and for about 24 s after a pause made elsewhere
+  (the Fleet keeps the node listed online that long).
+
+**Design.**
+
+1. `?nodes=agent` records the activity on the Agent's own pod pool only; the
+   topology's activity (which kicks every node) stays with the plain entry.
+2. A connect refused with 409 for this exact instance asks the deployment
+   for the instance's current generation (for up to 45 s while the new one
+   is not listed yet) and connects again with it; the window keeps the new
+   generation, so restored windows do not start stale.
+3. Lows: the Workspace's uptime is its own node's age from the Hub's status;
+   on the desktop the card is the one paused message (the Store's notice only
+   on its App page; Files shows a quiet line, not a red error); Coding Agents
+   shows "Workspace" and a "Paused" tag that is never cut; the chip believes
+   the Hub's paused over the Fleet's list, and keeps "Checking…" while the
+   page has no answer.
+
+**Acceptance criteria (staging, acct4).**
+
+- Q1 (H): OS Mode Pause (release), wait until nothing runs, open `/` in a
+  fresh tab, three times: the Workspace stays paused (no "waking node
+  'workspace'", `running` empty for 3 minutes); a Hub test drives the real
+  `TopologyPool.update_activity`.
+- Q2 (M): an open Agent page, the Agent pod deleted: the page reconnects by
+  itself (no 409 card), or its Retry works; an OS Mode desktop with a
+  restored Agent window loads without the 409 card after a pod recreation.
+- Q3 (Lows): Details uptime matches the Workspace node's age; OS Mode with a
+  paused Workspace and the Store and Files open shows one paused message (the
+  card); Coding Agents trigger not truncated; chip "Workspace · Paused" within
+  10 s of an outside pause.
+
 ## Open decisions
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and
