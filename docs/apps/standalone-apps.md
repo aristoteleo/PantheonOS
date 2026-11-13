@@ -2312,6 +2312,32 @@ frontend #68. Controller unchanged (`2a2061a0`).
   card); Coding Agents trigger not truncated; chip "Workspace · Paused" within
   10 s of an outside pause.
 
+### As built, and staging verification (combined check 4 fixes, 2026-11-13)
+
+**Code.** PantheonOS `7e9a5294` (criteria) and this section; Hub `bd5d1bc`
+(`?nodes=agent` records activity on the service pod only; the test drives the
+real `TopologyPool.update_activity` and fails on the old code); UI `b2d59224`
+(409 generation follow, uptime, one paused message, Coding Agents tag, chip),
+`603ef81f` and `441aa829` (no "starting" notices on the desktop, in Coding
+Agents or the Store while the Hub says paused). Live on staging: hub image
+`b6aaba5f`, Agent App 0.9.138 (built on runtime `c1e9f015`, the full-duplex
+proxy fixes included), frontend #71. Controller unchanged (`9701b190`).
+
+**Verification (acct4).**
+
+- Q1 PASS 3/3: the Workspace started, OS Mode Pause (release), nothing running,
+  `/` loaded in a fresh browser (usable 2.8, 4.3, 3.1 s): `running` stayed
+  empty for the 3 minutes after each load (27/27 reads).
+- Q2 PASS: an Agent page and an OS Mode desktop with an Agent window open, the
+  Agent pod deleted: over the next 200 s neither showed a 409; the page then
+  answered a one-word message in 7.1 s; a fresh OS Mode load afterwards showed
+  the Agent window without the 409 card.
+- Q3 PASS: Details uptime "5 min" with the Workspace node 324 s old (the Agent
+  pod was 260 s); OS Mode with the Workspace paused and the Store open: one
+  message, the card "Your Workspace is paused" (no Store notice, no "Starting
+  your workspace…"); Coding Agents trigger "Workspace" with a "Paused" tag, not
+  cut; chip "Workspace · Paused" 4.1 s after an outside pause.
+
 ## Open decisions
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and
