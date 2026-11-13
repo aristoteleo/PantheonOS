@@ -484,3 +484,23 @@ async def test_failed_retirement_retries_same_owner_after_restart(tmp_path, endp
         assert restored.store.retirements() == {'chat': 'retired'}
     finally:
         await restored.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_a_retirement_the_controller_finishes_later_lets_the_conversation_go(tmp_path, endpoint, scopes):
+    # Combined check 5: with the Workspace paused the controller answers
+    # 'retiring' (it finishes the retirement from its journal when the
+    # provider is back); deleting the conversation must not fail on it.
+    f, p = factory(tmp_path, endpoint, scopes())
+    await f({'member': RECIPE}, conversation_id='chat')
+    p.retire = AsyncMock(return_value={'state': 'retiring', 'resources': {'shell': 'closing'}})
+    try:
+        receipts = await f.retire('chat')
+        assert [r['state'] for r in receipts.values()] == ['retiring']
+        assert f.store.retirements() == {'chat': 'retired'}
+        p.retire.return_value = {'state': 'refused'}
+        await f({'member': RECIPE}, conversation_id='other')
+        with pytest.raises(RuntimeError, match='did not start'):
+            await f.retire('other')
+    finally:
+        await f.shutdown()

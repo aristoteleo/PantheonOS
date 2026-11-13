@@ -226,8 +226,12 @@ class ProvisionedAgentInstanceFactory:
         receipts = {}
         for identity in sorted(identities):
             receipt = await self.provisioner.retire(identity)
-            if not isinstance(receipt, dict) or receipt.get('state') != 'retired':
-                raise RuntimeError('Agent resource retirement is still pending; retry deletion')
+            # 'retiring': the controller holds the retirement in its journal
+            # and finishes it when the provider is back (a paused Workspace),
+            # so the conversation can go now. Combined check 5: deleting a
+            # conversation with the Workspace paused failed every time.
+            if not isinstance(receipt, dict) or receipt.get('state') not in {'retired', 'retiring'}:
+                raise RuntimeError('Agent resource retirement did not start; retry deletion')
             receipts[identity] = receipt
         await asyncio.to_thread(self.store.finish_retirement, conversation_id)
         for provider in providers:
