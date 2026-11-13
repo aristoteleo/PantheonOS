@@ -2363,7 +2363,9 @@ proxy fixes included), frontend #71. Controller unchanged (`9701b190`).
    deployment for the instance's current generation (up to 10 s); when it is
    newer, the page connects at it and sends the call again once (the node
    rejected it before the App saw it). A 502 from the same generation is not
-   resent.
+   resent. A new generation may sit behind a new gateway origin: the call
+   accepts it, and the App's frame is then reloaded on the current instance,
+   but only once no call is in flight (a reload must not cut a send off).
 2. *A send never fails silently.* A message that did not reach the Agent says
    so in its own conversation ("Your message was not sent … send it again"),
    ends "Waiting for model", and offers its text back to the composer.
@@ -2388,6 +2390,54 @@ proxy fixes included), frontend #71. Controller unchanged (`9701b190`).
 - R4 (Lows): no red paused line in the Store; Coding Agents shows "Workspace"
   and "Paused" whole; chip "Starting…" within 2 s of Start; the card's Start
   clickable with a window over its corner.
+
+### As built, and staging verification (combined check 5 fixes, 2026-11-13)
+
+**Code.** PantheonOS `043d7578` (criteria), `51afcc91` (a `retiring` receipt
+lets the conversation go; test) and this section; UI `0174114c` (calls follow
+the generation on a 502, failed-send message with its text offered back, a
+refused delete shown in the chat list, the Lows), `fe57e01c` (a new
+generation's new gateway origin is accepted; the frame reload waits for calls
+in flight) and `a81dfb4a` (the Store's bottom notice does not repeat the pause
+in red). Built on frontend #72 (`2e6a387b`). Live on staging: Agent App
+0.9.139, frontend #75; hub image `b6aaba5f` and controller `9701b190`
+unchanged.
+
+**Verification (acct4).**
+
+- R1 PASS 2/2: an Agent page open on acct4, the Agent pod deleted, ready,
+  deleted again 10 s later, ready (generations 29 → 32 → 35, then 35 → 38 →
+  41): a one-word message sent in the same page was answered in 7.1 s both
+  times, with no lasting 502 and no reload by hand. After the second recreation
+  the page reloads its App frame once, by itself, within about 10 s (the frame
+  was stable for the next 60 s); a click that lands on that reload goes
+  nowhere, and the harness waits for it. Unit tests: two recreations in a row
+  (new generation and new gateway origin each time), a call rejected by its
+  own instance not resent, the frame reload deferred while a call is in
+  flight.
+- R2: unit tests (`ChatManager`: a send rejected before it reaches the Agent
+  adds the "was not sent" message, clears "Waiting for model" and offers the
+  text back; `appService`: a call rejected by its own instance is not resent).
+  Not provoked live: after the fix no send failed in any run.
+- R3 PASS 3/3: Workspace paused (node pause, nothing running), three chats that
+  had each run a shell command, Select → Delete → Confirm: no error line, all
+  three gone after a reload. Before the fix the Agent answered `success:
+  false` ("Conversation retirement is incomplete") and the list ignored it.
+- R4 PASS (Workspace paused): OS Mode with the Store open, no red text about
+  the pause (before: the bottom notice, rgb(216, 80, 80)); Coding Agents
+  shows "Workspace" (69/69 px) and "Paused" (45/45 px) whole; picker Start on
+  the Agent page: the dot reads starting and the row "Starting…" 0.44 s after
+  the click (before: "Paused" for ~12 s); the card's Start, with 6 of 14
+  windows overlapping the card, is what the click hits (z-index 400000).
+
+**Found on the way.** A recreated Agent pod's new generation is served from
+a new gateway origin; the check-4 connect refused it ("App gateway returned
+an unexpected origin"), so after the second recreation no call could reach
+the Agent at all. Accepting the origin after a generation move fixed that;
+the frame reload it triggers made test harness clicks land on a detaching
+frame ("Frame was detached"). The first R4 pass also found the Store's
+bottom operation notice still showing the pause in red; fixed in
+`a81dfb4a`.
 
 ## Open decisions
 
