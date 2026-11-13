@@ -2,6 +2,7 @@ package appdirect
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -330,4 +332,58 @@ func TestDirectServerRejectsRelayedStreamBeforeReadingGrant(t *testing.T) {
 	if !stream.reset {
 		t.Fatal("relayed connection was not rejected")
 	}
+}
+
+// An engine that answers without reading the request (an error, say) leaves
+// the request body unread when the direct handler returns. In full duplex
+// net/http does not drain it while the answer is written; the handler drains
+// it before it returns, so the direct connection is not broken after the
+// answer ("invalid concurrent Body.Read call") and the next request on it
+// goes through.
+func TestDirectUnreadRequestKeepsTheConnection(t *testing.T) {
+	const unread = "unread request body "
+	f := setup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/busy" {
+			http.Error(w, "busy", http.StatusTooManyRequests)
+			return
+		}
+		data, _ := io.ReadAll(r.Body)
+		_, _ = w.Write(data)
+	}))
+	// The link to the engine takes the request's first bytes and then stays
+	// busy, so the request is still unread when the engine's answer is passed on.
+	busy := make(chan struct{})
+	t.Cleanup(func() { close(busy) })
+	f.server.engineConn = func(c net.Conn) net.Conn { return &holdWrite{Conn: c, mark: []byte(unread), hold: busy} }
+	conn := f.dial(t, f.grant(t))
+	req, _ := http.NewRequest("POST", "http://engine.test/busy", strings.NewReader(strings.Repeat(unread, 3200)))
+	if res, _ := exchange(t, conn, req); res.StatusCode != http.StatusTooManyRequests {
+		t.Fatal(res.Status)
+	}
+	req, _ = http.NewRequest("POST", "http://engine.test/echo", strings.NewReader("next"))
+	if res, body := exchange(t, conn, req); res.StatusCode != 200 || body != "next" {
+		t.Fatal("the next request on the connection failed", res.Status, body)
+	}
+}
+
+// holdWrite is a slow link to the engine: the write that carries mark
+// returns only once hold is closed, as if the link were still busy with it.
+type holdWrite struct {
+	net.Conn
+	mark []byte
+	hold <-chan struct{}
+	once sync.Once
+}
+
+func (c *holdWrite) Write(p []byte) (int, error) {
+	n, err := c.Conn.Write(p)
+	if bytes.Contains(p, c.mark) {
+		c.once.Do(func() {
+			select {
+			case <-c.hold:
+			case <-time.After(30 * time.Second):
+			}
+		})
+	}
+	return n, err
 }

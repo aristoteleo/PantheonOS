@@ -64,6 +64,7 @@ type Server struct {
 	grants          map[[32]byte]Request
 	dependencyCheck DependencyCheck
 	slots           chan struct{}
+	engineConn      func(net.Conn) net.Conn // wraps each connection to the engine (tests)
 }
 
 func New(ctx context.Context, plane *dataplane.Plane, acquire Acquire, available func() bool) *Server {
@@ -252,7 +253,13 @@ func (s *Server) handler(q Request) http.Handler {
 		// No inherited proxy environment, keepalive replay or redirects. Host and
 		// identity headers come from the grant, never from caller-supplied values.
 		transport := &http.Transport{DisableKeepAlives: true, ResponseHeaderTimeout: 120 * time.Second,
-			DialContext: (&net.Dialer{Timeout: 5 * time.Second}).DialContext}
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, network, addr)
+				if err == nil && s.engineConn != nil {
+					conn = s.engineConn(conn)
+				}
+				return conn, err
+			}}
 		defer transport.CloseIdleConnections()
 		proxy := &httputil.ReverseProxy{Transport: transport, FlushInterval: -1,
 			Rewrite: func(p *httputil.ProxyRequest) {
@@ -288,6 +295,10 @@ func (s *Server) handler(q Request) http.Handler {
 		// closes the engine connection mid-response (a truncated body).
 		_ = http.NewResponseController(w).EnableFullDuplex()
 		proxy.ServeHTTP(w, r)
+		// In full duplex net/http no longer drains a body left unread before the
+		// handler returns; it would then drain it after the handler, which breaks
+		// the caller's connection for its next request. Drain it here.
+		_ = r.Body.Close()
 	})
 }
 
