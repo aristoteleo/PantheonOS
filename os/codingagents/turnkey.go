@@ -117,5 +117,15 @@ func (g *RouteGateway) passModel(w http.ResponseWriter, r *http.Request, grant r
 		},
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<20)
+	// The model service may answer before the transport has read all of the
+	// request body. Without full duplex, net/http drains and closes the
+	// request body when the answer's headers are written; the transport's
+	// next read then fails, and it closes the model service's connection
+	// mid-answer (a truncated answer).
+	_ = http.NewResponseController(w).EnableFullDuplex()
 	proxy.ServeHTTP(w, r)
+	// In full duplex net/http no longer drains a body left unread before the
+	// handler returns; it would then drain it after the handler, which breaks
+	// the caller's connection for its next request. Drain it here.
+	_ = r.Body.Close()
 }
