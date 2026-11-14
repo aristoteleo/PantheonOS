@@ -2690,6 +2690,44 @@ frontend #79; hub image `543e4da7` and controller `9701b190` unchanged.
 - U2 (L): a not-sent notice created in one tab appears in another tab open on
   the same chat within a few seconds, without a reload.
 
+### As built, and staging verification (combined check 8 fixes, 2026-11-14)
+
+**Root cause (M).** The pages' auto-start resumes a node-paused Workspace with
+`POST nodes/workspace/restart`, sent only when the Hub's status says the node
+is paused. The second call came from the other tab on the chat (the only
+other client; its auto-start acted on a status read before the first resume
+landed). For a node that is not paused, the Hub's restart is release then
+provision; the release of the 41-s-old sandbox did not confirm, so the call
+failed before provisioning and the sandbox exited.
+
+**Code.** PantheonOS `893e177d` (criteria) and this section; Hub `9501535`
+(a wake, or a restart within 120 s of the node's start, keeps a node that is
+not paused) and `ef2e972` (also while it is still being provisioned, the
+window counting from the node coming up); UI `0d79c397` (the auto-start sends
+`wake=1`, once across the user's tabs; another tab's outbox reaches this
+tab's Agent through `storage` events; a host copy never brings back an entry
+the frame let go) and `252c1061` (those entries also go into what a frame
+loaded later starts with). Live on staging: hub image `bcc2b4ab`, Agent App
+0.9.143, frontend #81; controller unchanged (`9701b190`).
+
+**Verification (acct4).**
+
+- U1 PASS (Hub tests fail on the old code: two restarts 40 s apart, a wake on
+  a running node, a restart while provisioning). Live, through the Hub API
+  with no model calls: the Workspace node-paused, woken with `wake=1`; a
+  plain restart 5 s later answered "already running or starting" (log: "still
+  starting; kept running"); the sandbox took 2.3 min to create; a plain
+  restart 86 s after it was up and a wake on it both answered "already
+  running"; the same sandbox (`sb-SMmCe…`) ran throughout and 60 s after.
+  Found on the way (first live run, before `ef2e972`): with the window
+  counted from the restart call, a sandbox that took 4 min to create was torn
+  down by a restart 31 s after it was up; that is what `ef2e972` fixed.
+- U2 PASS: two tabs on one chat; an outbox entry written by one tab appeared
+  in the other without a reload within its first 250 ms poll. During an
+  Agent outage the other tab shows "Reconnecting" (no frame to hand it to);
+  it showed the not-sent notice as its conversation came back (79.5 s and
+  127 s after the send, the pod back at ~60 s), still without a reload.
+
 ## Open decisions
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and
