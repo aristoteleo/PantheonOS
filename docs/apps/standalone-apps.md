@@ -2608,6 +2608,48 @@ frontend #77; controller unchanged (`9701b190`).
 - T5: the OS Mode window's entries for the deleted chat are gone after the
   window's Agent connects.
 
+### As built, and staging verification (combined check 7 fixes, 2026-11-14)
+
+**Code.** PantheonOS `f30ca4e6` (criteria), `9e045060` (the Agent's queue in
+the conversation's metadata `pending_messages`, flushed before a `queued`
+answer; a shutdown keeps it, the Stop button still drops it; the next start
+runs what the history lacks and `get_pending_messages` lists it until then)
+and this section; UI `bb2a7d54` (only the history clears an outbox entry; a
+look at the history, the Agent's queue and whether the conversation runs
+decides each; no count cap; a deleted chat's entries go; the Agent page keeps
+the outbox in localStorage per user, merged across tabs; Coding Agents' Paused
+tag and pane while the Fleet still lists a paused Workspace) and `f9d7a2be`
+(a chat holding only not-sent entries is looked at too on connect; the history
+probe passes the Agent's "not found" on). Live on staging: Agent App 0.9.142,
+frontend #79; hub image `543e4da7` and controller `9701b190` unchanged.
+
+**Verification (acct4).**
+
+- T1 PASS (unit): the page waits for a queued message (no notice while the
+  Agent queues it or the conversation runs), clears it only from the history,
+  shows it as not sent when it is in neither with the conversation idle; the
+  Agent keeps a queued message on disk before answering and across a real
+  App-host termination (the test failed on the old code), runs it on start
+  and skips an id the history has; a continuation overtaken by a shutdown
+  keeps its messages.
+- T2 PASS, 3 runs (the pod deleted without waiting; a long answer, then a
+  follow-up every 3 s through the old pod's last seconds), counted in the
+  Agent's conversation file: 21 messages, 18 in the file exactly once, 3 (sent
+  after the old pod was gone) shown as not sent with their text; none in
+  neither, none twice. In the third run the long turn was cut off with five
+  follow-ups queued behind it: all five were in the file and answered by the
+  new Agent 16 s after it was up (the queue kept across the shutdown).
+- T3 PASS: a message sent while the Agent's pod was gone, its tab closed 2 s
+  later; the chat opened in a new tab after the Agent was back: "not sent (the
+  Agent restarted before it got it)" with the text after 12 s, and the message
+  is not in the conversation file.
+- T4 PASS: Coding Agents opened 53 s after a node pause: "Workspace" with its
+  Paused tag and the "Your Workspace is paused" pane with Start.
+- T5 PASS: the OS Mode window's two entries for the deleted chat were gone once
+  its Agent connected, and after a desktop reload.
+- Not provoked: the self-retry after "Node is not in this user's Fleet" (no
+  outage long enough happened in this round; it is covered by its unit test).
+
 ## Open decisions
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and
