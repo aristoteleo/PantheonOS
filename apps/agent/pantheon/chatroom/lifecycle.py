@@ -2,8 +2,9 @@
 
 Stop closes admission to internal chat producers as well as remote callers,
 then interrupts the work in progress as the Stop button does: each run ends at
-its next check and keeps what it saved, messages queued behind it are dropped,
-and tools adopted into the background are cancelled. An update or a move does
+its next check and keeps what it saved, messages queued behind it stay queued
+on disk for the next start (which runs them), and tools adopted into the
+background are cancelled. An update or a move does
 not wait for a task to finish. Runs still end (and save) before observers,
 plugins and event connections are disposed. The supervisor owns the hard stop
 deadline; exceeding it is not a clean drain and never authorizes tool replay.
@@ -68,11 +69,19 @@ def admitted_chat(method):
 class AgentLifetime:
     def _continue_accepted_chat(self, thread, chat_id, messages):
         """Run user steer messages left after a run, once its save is done."""
+        from .thread import PENDING_MESSAGES, keep_pending
+        memory = getattr(thread, "memory", None)
+        # Still queued until their run takes them: on disk with the next save.
+        if memory is not None:
+            keep_pending(memory, messages)
+
         async def run():
             await thread._done.wait()
             if getattr(self, "_agent_stopping", False):
-                # Stop interrupts; messages queued behind a run are dropped,
-                # as on the Stop button.
+                # A shutdown: they stay queued on disk and the next start runs
+                # them (combined check 7; they were dropped before).
+                if memory is not None:
+                    await memory.flush()
                 return
             if getattr(self, "_agent_save_error", None) is not None:
                 # A failed drain is explicit; never execute more tools after a
@@ -83,6 +92,11 @@ class AgentLifetime:
                 await self.chat(chat_id=chat_id, message=messages)
             finally:
                 _accepted_continuation.reset(permission)
+            # Taken by their run (in the history now): no longer queued.
+            if memory is not None and chat_id not in getattr(self, "threads", {}):
+                have = {m.get("id") for m in memory.get_messages(for_llm=False) if isinstance(m, dict)}
+                keep_pending(memory, [m for m in (memory.extra_data or {}).get(PENDING_MESSAGES) or []
+                                      if isinstance(m, dict) and m.get("id") not in have])
 
         pending = getattr(self, "_agent_continuations", None)
         if pending is None:

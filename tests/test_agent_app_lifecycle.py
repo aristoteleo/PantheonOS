@@ -456,7 +456,8 @@ async def test_real_app_host_interrupts_chat_and_background_tool(tmp_path, queue
             await until(lambda: (tmp_path / "tool-entered").exists(), process, tmp_path)
             # Stopping does not wait for the run or its background tool: the
             # run is interrupted and saved, the tool cancelled, and a message
-            # queued behind the run dropped, as on the Stop button.
+            # queued behind the run kept on disk for the next start (combined
+            # check 7: it was dropped, and lost).
             process.terminate()
             assert (await asyncio.wait_for(pending, 10))["success"] is True
             assert await asyncio.to_thread(process.wait, 15) == 0, (tmp_path / "host.log").read_text()
@@ -470,6 +471,8 @@ async def test_real_app_host_interrupts_chat_and_background_tool(tmp_path, queue
             assert memory.extra_data["running"] is False
             contents = [m.get("content") for m in memory.get_messages()]
             assert "stopped" in contents and "finished" not in contents
+            kept = [m.get("content") for m in memory.extra_data.get("pending_messages") or []]
+            assert kept == (["accepted steer"] if queued else [])
         finally:
             (tmp_path / "release-run").touch()
             (tmp_path / "release-tool").touch()

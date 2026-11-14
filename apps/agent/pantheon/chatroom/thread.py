@@ -12,6 +12,11 @@ from pantheonos.utils.log import logger
 #: until the lead's next turn.
 SUB_AGENT_NOTES = "sub_agent_notes"
 
+#: Where a conversation keeps the user's messages queued behind its running
+#: turn, on disk: a shutdown keeps them, and the next start runs them
+#: (combined check 7: a follow-up queued in the old pod's last seconds was lost).
+PENDING_MESSAGES = "pending_messages"
+
 
 def _text(message: list[dict]) -> str:
     parts = []
@@ -35,6 +40,17 @@ def add_sub_agent_note(memory: Memory, agent: str, context: str, message: list[d
     notes.append({"agent": agent, "context": context, "asked": _clip(_text(message), 500),
                   "answered": _clip(str(answer or ""), 1500), "started": started})
     memory.set_metadata(SUB_AGENT_NOTES, notes[-10:])
+
+
+def keep_pending(memory: Memory, messages: list[dict]) -> None:
+    """Keep `messages` as the conversation's queued messages (none: forget)."""
+    try:
+        if messages:
+            memory.set_metadata(PENDING_MESSAGES, [dict(m) for m in messages if isinstance(m, dict)])
+        else:
+            memory.delete_metadata(PENDING_MESSAGES)
+    except Exception as e:  # noqa: BLE001 — the queue itself still works
+        logger.warning(f"Could not keep the queued messages of {getattr(memory, 'id', '?')}: {e}")
 
 
 def take_sub_agent_notes(memory: Memory) -> str | None:
@@ -77,6 +93,13 @@ class SteerQueue:
         # Called with (context, messages) for messages a sub-agent run ended
         # without reading; the thread continues the sub-agent with them.
         self.on_unread: Callable[[str, list[dict]], None] | None = None
+        # Called after this queue's own messages changed (the conversation's
+        # queue: the thread keeps them on disk).
+        self.on_change: Callable[[], None] | None = None
+
+    def _changed(self):
+        if self.on_change is not None:
+            self.on_change()
 
     def put(self, messages: list[dict]):
         """Enqueue one or more user messages."""
@@ -84,11 +107,14 @@ class SteerQueue:
             self._messages.extend(messages)
         else:
             self._messages.append(messages)
+        self._changed()
 
     def drain(self) -> list[dict]:
         """Atomically take and clear all pending messages."""
         msgs = self._messages
         self._messages = []
+        if msgs:
+            self._changed()
         if self._conversation is not None:
             msgs = msgs + self._conversation.drain()
         return msgs
@@ -111,7 +137,9 @@ class SteerQueue:
         for queue in self._queues():
             before = len(queue._messages)
             queue._messages = [m for m in queue._messages if m.get("id") != message_id]
-            found = found or len(queue._messages) < before
+            if len(queue._messages) < before:
+                found = True
+                queue._changed()
         return found
 
     def update(self, message_id: str, text: str) -> bool:
@@ -124,6 +152,7 @@ class SteerQueue:
                     m["content"] = text
                     m["_llm_content"] = text
                     found = True
+                    queue._changed()
         return found
 
     def open_run(self, context: str, *, shared: bool = False) -> "SteerQueue":
@@ -203,11 +232,17 @@ class Thread:
         # leftovers after the run are flushed by room.chat().
         self.steer_queue = SteerQueue()
         self.steer_queue.on_unread = self._continue_beside
+        self.steer_queue.on_change = self._keep_pending
         # Suggestions now handled in room.py
 
     def inject_user_messages(self, message: list[dict]):
         """Queue user message(s) to be picked up mid-run by the agent loop."""
         self.steer_queue.put(message)
+
+    def _keep_pending(self):
+        """The conversation's queue, as it is now, in its metadata (persisted
+        with the next save; the caller flushes when it must be on disk)."""
+        keep_pending(self.memory, list(self.steer_queue._messages))
 
     def message_sub_agent(self, context: str, message: list[dict], profile: str | None = None) -> dict:
         """A message the user sent one sub-agent while this thread runs. A

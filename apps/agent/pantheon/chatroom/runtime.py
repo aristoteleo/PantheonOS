@@ -26,8 +26,8 @@ from pantheonos.toolset import ToolSet, tool
 from pantheonos.utils.log import log_startup_profile, logger
 from pantheonos.utils.misc import generate_service_id, run_func
 from .special_agents import get_suggestion_generator
-from .thread import Thread, take_sub_agent_notes
-from .lifecycle import AgentLifetime, admitted_chat
+from .thread import PENDING_MESSAGES, Thread, keep_pending, take_sub_agent_notes
+from .lifecycle import AgentLifetime, _accepted_continuation, admitted_chat
 
 # The sub-agent runs of a conversation the user closed (memory metadata).
 CLOSED_SUB_AGENTS = "closed_sub_agents"
@@ -212,6 +212,8 @@ class AgentRuntime(AgentLifetime, ToolSet):
 
         self.speech_to_text_model = speech_to_text_model
         self.threads: dict[str, Thread] = {}
+        # Messages queued behind a run when the Agent last stopped, by chat, until their run takes them.
+        self._pending_recovery: dict[str, list[dict]] = {}
         self.check_before_chat = check_before_chat
 
         # Default team (bypasses template system when set)
@@ -334,6 +336,57 @@ class AgentRuntime(AgentLifetime, ToolSet):
         # Report this Agent's activity; the platform aggregates App/node health.
         if hasattr(self, 'worker') and self.worker and hasattr(self.worker, 'set_activity_callback'):
             self.worker.set_activity_callback(self._get_activity_status)
+
+        await self._recover_pending_messages()
+
+    async def _recover_pending_messages(self):
+        """Run the messages that were queued behind a run when the Agent last
+        stopped (a shutdown keeps them, see chat()). Found before the Agent
+        answers anyone, so `get_pending_messages` lists them until their run
+        takes them; ids the history already has are skipped (combined check 7)."""
+        manager = getattr(self, "memory_manager", None)
+        if manager is None or not hasattr(manager, "list_memory_metadata"):
+            return
+        try:
+            metadata = await run_func(manager.list_memory_metadata)
+        except Exception as e:  # noqa: BLE001 — recovery must not block start
+            logger.warning(f"Could not look for queued messages: {e}")
+            return
+        for meta in metadata:
+            pending = (meta.get("extra_data") or {}).get(PENDING_MESSAGES)
+            chat_id = meta.get("id")
+            if not pending or not isinstance(pending, list) or not chat_id or chat_id in self.threads:
+                continue
+            try:
+                memory = await run_func(manager.get_memory, chat_id)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Could not open {chat_id} to run its queued messages: {e}")
+                continue
+            have = {m.get("id") for m in memory.get_messages(for_llm=False) if isinstance(m, dict)}
+            remaining = [m for m in pending if isinstance(m, dict) and m.get("id") not in have]
+            if not remaining:
+                keep_pending(memory, [])
+                continue
+            logger.info(f"Chat {chat_id}: running {len(remaining)} message(s) queued when the Agent last stopped")
+            self._pending_recovery[chat_id] = remaining
+            self._track_background(asyncio.create_task(self._run_recovered(chat_id, memory, remaining)))
+
+    async def _run_recovered(self, chat_id: str, memory, messages: list[dict]):
+        permission = _accepted_continuation.set(self)
+        try:
+            result = await self.chat(chat_id=chat_id, message=messages)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Chat {chat_id}: queued messages did not run: {e}")
+            result = None
+        finally:
+            _accepted_continuation.reset(permission)
+            self._pending_recovery.pop(chat_id, None)
+        # Their run took them (the history has them now): no longer queued.
+        # Kept when it did not start (the Agent stopping again), for the next start.
+        if isinstance(result, dict) and result.get("success") is not False:
+            have = {m.get("id") for m in memory.get_messages(for_llm=False) if isinstance(m, dict)}
+            left = [m for m in (memory.extra_data or {}).get(PENDING_MESSAGES) or [] if m.get("id") not in have]
+            keep_pending(memory, left if chat_id in self.threads else [])
 
 
 
@@ -2557,7 +2610,8 @@ class AgentRuntime(AgentLifetime, ToolSet):
         """
         thread = self.threads.get(chat_id, None)
         if thread is None or not hasattr(thread, "steer_queue"):
-            return {"success": True, "messages": []}
+            # Queued when the Agent last stopped, waiting for their run.
+            return {"success": True, "messages": list(self._pending_recovery.get(chat_id, []))}
         # Peek without draining — the agent loop is the only consumer. Filter
         # out any internal notifications defensively (should not be enqueued).
         pending = [
@@ -2789,6 +2843,17 @@ class AgentRuntime(AgentLifetime, ToolSet):
             # so the running agent loop can pick it up mid-run (message queue).
             running_thread = self.threads[chat_id]
             running_thread.inject_user_messages(message)
+            # On disk before the answer: a pod that goes away now keeps it.
+            flush = getattr(getattr(running_thread, "memory", None), "flush", None)
+            try:
+                if flush is not None:
+                    await flush(strict=True)
+            except Exception as e:  # noqa: BLE001
+                logger.error(f"Chat {chat_id}: a queued message could not be saved: {e}")
+                for m in message:
+                    if isinstance(m, dict) and m.get("id"):
+                        running_thread.steer_queue.remove(m["id"])
+                return {"success": False, "message": "The message could not be saved; send it again."}
             logger.info(
                 f"Chat {chat_id} busy; queued {len(message)} steer message(s)"
             )
@@ -2966,7 +3031,14 @@ class AgentRuntime(AgentLifetime, ToolSet):
             # If the user STOPPED the run, discard the queue instead of flushing
             # — Stop should halt everything, not continue with queued messages.
             leftover = thread.steer_queue.drain()
-            if leftover and thread._stop_flag:
+            if leftover and thread._stop_flag and getattr(self, "_agent_stopping", False):
+                # A shutdown, not the user's Stop: kept on disk for the next
+                # start, which runs them (combined check 7).
+                keep_pending(thread.memory, leftover)
+                await thread.memory.flush()
+                logger.info(f"Chat {chat_id}: Agent stopping; kept {len(leftover)} queued message(s) for its next start")
+                leftover = []
+            elif leftover and thread._stop_flag:
                 logger.info(
                     f"Chat {chat_id} stopped; discarding {len(leftover)} queued message(s)"
                 )
