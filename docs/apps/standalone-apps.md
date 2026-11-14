@@ -2497,6 +2497,55 @@ bottom operation notice still showing the pause in red; fixed in
   well inside a minute of the next `/api/chatroom` (log "recreating now"),
   not at the 5-minute timeout.
 
+### As built, and staging verification (combined check 6 fixes, 2026-11-14)
+
+**Code.** PantheonOS `3b1e0b92` (criteria), `da730303` (the Agent App's
+`persistState` gains `outbox`) and this section; UI `18bb14ba` (the outbox:
+`chatOutbox.ts`, `UnsentMessages.vue`, ChatManager, the Agent page keeping it,
+the host's latest durable state flushed before a module-failure reload) and
+`39d73272` (a deployment-bound App whose preparation failed tries again by
+itself); Hub `af4a4fc` (a young "starting" row whose pod is NotFound or Failed
+recreates it). Live on staging: hub image `543e4da7`, Agent App 0.9.140,
+frontend #77; controller unchanged (`9701b190`).
+
+**Verification (acct4, an Agent page and an OS Mode desktop open).**
+
+- S1 PASS (unit): a failed send keeps its text through a reload; a send in
+  flight at a reload is done when the history has it, shown as not sent after
+  the 20 s grace when it does not; the Agent page keeps and hands back the
+  outbox; the Hub branch (NotFound, Failed recreate; Pending, Running,
+  Unknown, an error wait), each test failing on the old code.
+- S2 PASS, 4 runs, never neither:
+  - 3 recreations, sent 60 s after the last (the checker's run 3): answered in
+    6.0 s; the message and its answer in a fresh view.
+  - 2 recreations, sent right after the last deletion (run 4): "not sent
+    (status code 409)" with the text at 10 s; the frame reloaded by itself at
+    +105 s and the notice with its text was still there 20 s later.
+  - 3 recreations, sent right after the last deletion (run 5): "not sent
+    (status code 502)" with the text at 12 s, still there 4 minutes on.
+  - 2 recreations, sent right after (first run): the Agent was away 14 minutes
+    (below); once back, the reloaded frame showed "not sent (the Agent
+    restarted before it got it)" with the text 4 s after it loaded, 19
+    minutes after the send.
+  - A full reload of the Agent page kept both not-sent notices with their
+    texts.
+- S3 PASS: the Agent pod deleted, one assignment (row "starting", new pod
+  Pending), the pod deleted again: the next assignment logged "is starting in
+  the DB (age=9s) but the provider has it NotFound; recreating now" and the pod
+  existed again the same second (before: at the 5-minute timeout).
+
+**Found on the way.**
+
+- After a long outage of the Agent's computer the page stayed on "Node is not
+  in this user's Fleet" with Retry until a click; a deployment-bound App now
+  tries again by itself after 10, 20 and 30 s, then every minute (`39d73272`).
+- Recreating the Agent pod in quick succession sometimes left the new pod
+  Pending for 6 to 40 minutes: DigitalOcean's volume driver reported
+  "MountDevice failed ... waiting for device" for the workspace volume after a
+  successful attach. The Hub recreated the pod at once each time; the wait is
+  in the volume layer, outside this round. The outbox kept every message sent
+  meanwhile.
+
 ## Open decisions
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and
