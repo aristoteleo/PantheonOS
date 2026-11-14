@@ -2546,6 +2546,68 @@ frontend #77; controller unchanged (`9701b190`).
   in the volume layer, outside this round. The outbox kept every message sent
   meanwhile.
 
+## Fixes after combined check 7 (2026-11-14)
+
+**What was wrong.**
+
+- *H: a follow-up queued behind a running turn was lost when the pod went
+  away.* The page marked an outbox entry done when the chat call answered
+  `success: true`, which it also answers for a message only queued behind a
+  running turn. The Agent kept that queue in memory only, and its shutdown
+  stops runs as the Stop button does, dropping what is queued behind them: a
+  follow-up sent in the last seconds of the old pod's grace reached neither
+  the history nor a notice (bursts 7 and 8, a targeted run).
+- *M: the Agent page's outbox lived in the tab (sessionStorage) and held 20
+  entries in all*: a message sent during an outage and the tab closed was gone
+  without a trace, and a burst of failures evicted earlier notices.
+- *L: Coding Agents opened ~40 s after a node pause* showed "Workspace"
+  without its Paused tag over a cached project view.
+- Two not-sent entries of a deleted chat stayed in an OS Mode window's state.
+
+**Design.**
+
+1. *Only the history says a message landed.* The page no longer clears an
+   entry on the call's answer or on the stream's echo. It looks at the
+   conversation's history (and the Agent's queue) after the call and again as
+   the run goes on; an entry is done when the history has its id. One the
+   Agent still queues is waiting, not lost; one in neither, with the
+   conversation idle and the 20 s grace over, is shown as not sent.
+2. *The Agent's queue is durable.* A follow-up queued behind a running turn is
+   written to the conversation's metadata (`pending_messages`) and flushed to
+   disk before the call answers; the queue keeps that list current as the run
+   takes messages in. A Stop by the user still drops what is queued (the page
+   shows those as not sent); a shutdown keeps it. When the Agent starts, a
+   conversation with queued messages runs them (ids the history already has
+   are skipped, so nothing runs twice), and `get_pending_messages` lists them
+   until then, so the page waits rather than offers a resend.
+3. *The Agent page keeps the outbox in localStorage, per user*, merged across
+   tabs (an entry another tab added is kept; one this tab saw go is removed),
+   and a frame checks every kept entry against its conversation's history when
+   it connects. No count cap evicts an unresolved entry: entries go when the
+   history has them, when put back or dismissed, when their conversation is
+   deleted (its history answers "not found"), or after 7 days.
+4. *Coding Agents* reads the Workspace as paused when its node has left the
+   Fleet, whatever the Hub's status says for the first seconds.
+
+**Acceptance criteria (staging, acct4).**
+
+- T1 (H): unit tests: a queued answer does not clear the entry; the page shows
+  a not-sent notice only for an id in neither the history nor the Agent's
+  queue with the conversation idle; the Agent persists a queued message
+  before answering, keeps it on shutdown, drops it on Stop, runs it on start
+  and skips an id the history has (no duplicate).
+- T2 (H, live): a long answer running, the Agent pod deleted, follow-ups every
+  ~3 s through the old pod's last seconds: every follow-up is answered or
+  shown as not sent with its text, never neither (checked against the
+  Agent's conversation file); no message twice in the history.
+- T3 (M, live): a message sent during an outage, the tab closed at once, the
+  chat opened later in a new tab: the not-sent notice with its text, or the
+  message in the history.
+- T4 (L, live): Coding Agents opened ~40 s after a node pause shows the Paused
+  tag.
+- T5: the OS Mode window's entries for the deleted chat are gone after the
+  window's Agent connects.
+
 ## Open decisions
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and
