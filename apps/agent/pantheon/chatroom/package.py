@@ -91,8 +91,9 @@ def source_manifest(version, dependencies=None):
         'description': 'Versioned Agent conversations, execution and private configuration.',
         'entry': {'frontend': 'frontend/index.js', 'backend': 'backend/__init__.py', 'terminal': 'terminal.py'},
         'placement': {'requires': ['dom']},
-        # The chat shown and its unsent drafts, kept by the host (a page's per-viewer storage) across a reload.
-        'persistState': ['chatId', 'drafts'],
+        # The chat shown, its unsent drafts and its outbox (messages on their way or not sent), kept by the host
+        # (a page's per-viewer storage) across a reload of the page or of the App's frame.
+        'persistState': ['chatId', 'drafts', 'outbox'],
         'dataSchema': {'id': 'pantheon-agent', 'version': 1, 'accepts': [1]},
         'dependencies': {
             'dependency-binding': {'range': '^0.1.1', 'uses': ['dependency-binding@1']},

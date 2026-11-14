@@ -47,7 +47,7 @@ def release(tmp_path_factory):
         dependencies={'shell': {'range': '^0.6.0', 'uses': ['shell@1'], 'binding': 'runtime'}})
     manifest = json.loads((root / 'app.json').read_text())
     assert manifest['execution']['rpc_transport'] == 'fleet'
-    assert manifest['persistState'] == ['chatId', 'drafts']
+    assert manifest['persistState'] == ['chatId', 'drafts', 'outbox']
     assert manifest['caps']['agentDataInitialization'] == {'protocol': 1, 'dataDirectory': 'agent'}
     from pantheon.chatroom.data_format import FORMAT_ID, FORMAT_VERSION
     assert manifest['dataSchema'] == {'id': FORMAT_ID, 'version': FORMAT_VERSION, 'accepts': [FORMAT_VERSION]}
