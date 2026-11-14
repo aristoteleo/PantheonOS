@@ -2650,6 +2650,46 @@ frontend #79; hub image `543e4da7` and controller `9701b190` unchanged.
 - Not provoked: the self-retry after "Node is not in this user's Fleet" (no
   outage long enough happened in this round; it is covered by its unit test).
 
+## Fixes after combined check 8 (2026-11-14)
+
+**What was wrong.**
+
+- *M: a second restart call killed a Workspace that had just started.* With the
+  Workspace node-paused and two tabs on one chat, a shell command's auto-start
+  in one tab resumed it (`POST nodes/workspace/restart`); 41 s later another
+  restart call arrived, most likely the other tab's auto-start acting on a
+  status read from before the resume. For a node that is not paused the Hub's
+  restart is "release, then provision again": the release of the fresh sandbox
+  did not confirm in time, the call failed (400) before provisioning, and the
+  sandbox exited, leaving nothing running.
+- *L: a tab left open on a chat did not show a not-sent notice another tab
+  created* until it was reloaded.
+
+**Design.**
+
+1. *The Hub never tears down a node a restart is not meant for.* A restart
+   with `?wake=1` (the pages' auto-start: "bring it back if paused") only
+   provisions a node that is not paused, it never releases it; and any
+   restart within 120 s of the node's last start by the Hub is the same no-op
+   (it covers pages that do not send `wake`). A paused node is woken as before,
+   and an explicit restart long after a start still rebuilds.
+2. *Pages wake only a paused node, once across tabs.* The auto-start sends
+   `wake=1`, and a tab that sees another tab of the user asked within the last
+   30 s (a timestamp in localStorage) does not ask again.
+3. *Tabs share not-sent notices live.* The Agent page listens for the other
+   tabs' writes of the outbox (`storage` events) and hands the merged outbox to
+   its Agent, which adopts and shows it without a reload.
+
+**Acceptance criteria (staging, acct4).**
+
+- U1 (M): a Hub test: two restarts 40 s apart leave the node running (one
+  release); a wake never releases a node that is not paused. Live: the
+  Workspace resumed from a node pause, a second restart call (no `wake`) 40 s
+  later answers "already running" and the Workspace keeps running; a `wake`
+  call on the running Workspace changes nothing.
+- U2 (L): a not-sent notice created in one tab appears in another tab open on
+  the same chat within a few seconds, without a reload.
+
 ## Open decisions
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and
