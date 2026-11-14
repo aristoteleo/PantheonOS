@@ -2415,10 +2415,10 @@ unchanged.
   (new generation and new gateway origin each time), a call rejected by its
   own instance not resent, the frame reload deferred while a call is in
   flight.
-- R2: unit tests (`ChatManager`: a send rejected before it reaches the Agent
-  adds the "was not sent" message, clears "Waiting for model" and offers the
-  text back; `appService`: a call rejected by its own instance is not resent).
-  Not provoked live: after the fix no send failed in any run.
+- R2: unit test of `appService` (a call rejected by its own instance is not
+  resent); the "was not sent" path itself had no ChatManager test in this round
+  (added with the outbox after combined check 6). Not provoked live: after the
+  fix no send failed in any run.
 - R3 PASS 3/3: Workspace paused (node pause, nothing running), three chats that
   had each run a shell command, Select → Delete → Confirm: no error line, all
   three gone after a reload. Before the fix the Agent answered `success:
@@ -2438,6 +2438,64 @@ the frame reload it triggers made test harness clicks land on a detaching
 frame ("Frame was detached"). The first R4 pass also found the Store's
 bottom operation notice still showing the pause in red; fixed in
 `a81dfb4a`.
+
+## Fixes after combined check 6 (2026-11-13)
+
+**What was wrong.**
+
+- *H: a sent message could still vanish without a trace.* After a generation
+  move the Agent's frame is reloaded (its gateway origin changed, or the
+  backend was replaced, or a lazy module of the old origin failed to load).
+  Everything the frame held went with it: a message on its way, and the
+  "not sent" line and text of one that had failed. The message was in no fresh
+  view either (it had not reached the Agent).
+- *M: the Agent pod deleted while the Hub's row still said "starting".* Every
+  `/api/chatroom` answered "starting (age=92..296s), recovered to memory"
+  without looking at the pod; the pod came back only at the 5-minute creation
+  timeout, and sends in between failed ("nats: no responders").
+
+**Design.**
+
+1. *An outbox outside the frame.* Every send is kept in an outbox until the
+   Agent's history has its id (the chat call answers, the stream echoes it, or
+   a history load shows it). The frame hands the outbox to its host as durable
+   state (`outbox`, a `persistState` key of the Agent App, like `drafts`); the
+   Agent page keeps it in the tab's storage and an OS Mode window in its saved
+   state, and both hand it back to a frame loaded again.
+2. *The history decides after a reload.* A frame takes the outbox from its
+   first state; entries no send of its own owns are checked against each
+   conversation's history once the Agent is connected: there, the entry is
+   done; absent and older than 20 s, it is shown as not sent; younger, it is
+   looked at again when the 20 s are over (a call in flight at the reload may
+   land a moment later). An entry that turns up in a later history load is
+   done, notice and all.
+3. *A not-sent message is shown from the outbox, not from the loaded
+   messages*, under the conversation: why, its text, "Put it back to send
+   again" (into the composer, where drafts already survive a reload) and
+   "Dismiss". Failures in the frame (a 502, a refusal, no answer within the
+   grace) go the same way.
+4. *The Hub looks at a "starting" pod before it waits for it.* Creation runs
+   under the user's lock, so a "starting" row seen by another request has its
+   pod object already. When the provider says NotFound or Failed, the
+   assignment recreates the pod at once; Pending, Running or an unreadable
+   status keeps waiting, as before.
+
+**Acceptance criteria (staging, acct4).**
+
+- S1 (H): unit tests: a failed send survives a reload of the frame with its
+  text; a send in flight at a reload is done when the history has it and shown
+  as not sent (text kept) when it does not, after the grace; the Agent page
+  keeps and hands back the outbox.
+- S2 (H, live): an Agent page open, 2–3 Agent pod recreations in a row, a
+  message sent at the times the checker used (right after the last deletion;
+  60 s after it): after the frame's own reload, the conversation has either the
+  answer or a "not sent" notice with the message's text, never neither; three
+  runs.
+- S3 (M): unit test (a young "starting" row whose pod the provider reports
+  NotFound or Failed recreates it; Pending, Running, Unknown or an error keep
+  waiting); live: the Agent pod deleted while the row says starting comes back
+  well inside a minute of the next `/api/chatroom` (log "recreating now"),
+  not at the 5-minute timeout.
 
 ## Open decisions
 
