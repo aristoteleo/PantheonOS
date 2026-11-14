@@ -2634,9 +2634,9 @@ frontend #79; hub image `543e4da7` and controller `9701b190` unchanged.
   keeps its messages.
 - T2 PASS, 3 runs (the pod deleted without waiting; a long answer, then a
   follow-up every 3 s through the old pod's last seconds), counted in the
-  Agent's conversation file: 21 messages, 18 in the file exactly once, 3 (sent
-  after the old pod was gone) shown as not sent with their text; none in
-  neither, none twice. In the third run the long turn was cut off with five
+  Agent's conversation file: 21 messages, 16 in the file exactly once, 5 (sent
+  once the old pod could not take them) shown as not sent with their text;
+  none in neither, none twice. In the third run the long turn was cut off with five
   follow-ups queued behind it: all five were in the file and answered by the
   new Agent 16 s after it was up (the queue kept across the shutdown).
 - T3 PASS: a message sent while the Agent's pod was gone, its tab closed 2 s
