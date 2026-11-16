@@ -1,0 +1,15 @@
+Molt2Patch: unlaunched source-edit prototype
+
+Problem observed in PUBLIC Scout traces: a shared template's single OFF/ON flag bundled rollout depth, analytic tail and candidate-count changes. Its control roughly reproduced the original score, but it was a model rewrite. That does not isolate the named conceptual component.
+
+This revision keeps the native Molt search, planning and protected-branch policy. The separate experimenter now proposes a question AND an exact source edit in one model response. It can decline. The control is the actual anchor's complete file mapping, byte-for-byte. Treatment is one validated unique contiguous before/after substitution in one existing file. No new files or full-file replacement. Each snippet is limited to min(4096,max(32,half the source UTF-8 byte length)); overlapping ambiguous matches are rejected.
+
+Producing the pair makes NO second model/template call. Two evaluated programs consume the existing candidate slots. At most2 questions/pairs per search; native work retains priority and may prevent activation. The existing diagnostic/dollar upper bounds, lineage/role/frontier gates and ordinary provider/model path remain inherited. CLI name:molt2_patch; constructor:Molt2Patch.
+
+Both arms are actually evaluated, even though the store deduplicates the raw control onto the anchor's existing identity. The new control reading becomes an additional observation of that program. It does not advance native probation callbacks. Only a fully valid positive treatment beating the recorded anchor can be admitted to an eligible live branch; a retired branch cannot reset the native stall clock. Raw source, exact edit, control/treatment measurements, failures and full question/reply are retained. Missing/failed measurements remain inconclusive.
+
+Evidence describes THIS source edit in THIS source/task context. A contiguous patch can contain several conceptual changes. Syntax localization is not semantic isolation, an equivalence proof, a statistical significance test or a universal mechanism claim. One control reread only checks consistency under the existing tolerance.
+
+205 selected offline tests pass, including36 new cases, the real evolve driver with an80-evaluation ceiling, actual raw-control remeasurement, C++ compilation/output checks, stale sources/lineage, partial measurements, duplicate callbacks, generation failures, checkpoint recovery and retired-branch admission. Rapid native planning can legitimately suppress experiments; a second driver fixture retains that counterexample.
+
+All seven previous method files, including vanilla Molt, SimpleTES and source6b Scout, are byte-identical. Only a new method, its tests, exports and CLI registration were added. Source6b's running18-search study is untouched. No real model call, task benchmark or paid search has been run for this prototype; there is no performance or novelty result. Any later evaluation needs its own frozen matched protocol, real-model contract check and full-cohort financial admission under the unchanged40USD guard.

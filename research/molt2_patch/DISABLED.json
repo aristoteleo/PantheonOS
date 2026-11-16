@@ -1,0 +1,13 @@
+{
+  "status": "unlaunched_offline_prototype",
+  "real_model_calls": 0,
+  "real_benchmark_evaluations": 0,
+  "current18_study_unchanged": true,
+  "future_requirements": [
+    "Finish and preserve current18-source6b study.",
+    "Separate explicit protocol/source/runtime/budget freeze and actual model-contract check before any paid evaluation.",
+    "No favorable seed/task dropping or relaxed success claim.",
+    "Keep40USD shared cap and all unknown charges; no unapproved financial change.",
+    "Use appropriate untouched reserved data for any subsequent method selection."
+  ]
+}

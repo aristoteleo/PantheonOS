@@ -1,0 +1,28 @@
+{
+  "status": "passed",
+  "recorded_utc": "2026-11-16T22:05:20.051221+00:00",
+  "selected_offline_tests_passed": 205,
+  "patch_test_cases": 36,
+  "real_model_calls": 0,
+  "real_benchmark_evaluations": 0,
+  "synthetic_cpp_smoke": "Compile and execute raw control and exact edit with g++/C++20; expected outputs1 and2.",
+  "core_driver": "Actual evolve loop at native stall windows2 and12. Both stay within80 total evaluations; experiments activate at12, native priority prevents them at2. Raw control actually remeasured despite genome dedup; no template SDK call.",
+  "previous_method_files_byte_identical": [
+    "molt.py",
+    "simpletes.py",
+    "molt2.py",
+    "molt2_factorial.py",
+    "molt2_discovery.py",
+    "molt2_decision.py",
+    "molt2_scout.py"
+  ],
+  "parent_source_commit": "6b0ee76dcdd27a963a875d4e99b81bfb87d6ed60",
+  "source_basis": "Observed public Scout template hypothesis bundled several conceptual changes despite one flag. Prepare exact-source-edit alternative without changing current source6b or reading current reserved outcomes.",
+  "scope": "Offline implementation/integration only. Does not establish real-model schema reliability, benchmark performance, semantic/conceptual isolation, novelty or superiority.",
+  "files_sha256": {
+    "pantheon/evolution/methods/molt2_patch.py": "0388d642c01b735ca5dd6be240e8854d1f73234b01f5b9aeb0d0bdff2343249c",
+    "tests/test_molt2_patch.py": "29b636f076cbc45d0cd407dc748fea1e0fd570f1def4316458cc5d145db8e685",
+    "pantheon/evolution/methods/__init__.py": "553d385c75e35a4c2ab37bdb607ee886b29ec6fe206eee1e98dcb109a953e155",
+    "examples/evolution_bench/run_bench.py": "fc24e560d96e345b5068e0993846331bffbbbef1aac81624635501fec5a40749"
+  }
+}
