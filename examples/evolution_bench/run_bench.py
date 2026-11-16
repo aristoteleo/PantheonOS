@@ -79,6 +79,10 @@ def build_method(name: str, seed: int, judge=None, norm: str = "minmax", sched=N
         from pantheon.evolution.methods import Molt
         return Molt(num_chains=2, k_candidates=2, num_inspirations=2,
                     selector=(ln_opts or {}).get("tes_selector") or "rpucg", seed=seed)
+    if name == "molt2_factorial":
+        from pantheon.evolution.methods import Molt2Factorial
+        return Molt2Factorial(num_chains=2, k_candidates=2, num_inspirations=2,
+                             selector=(ln_opts or {}).get("tes_selector") or "rpucg", seed=seed)
     if name in ("molt2", "molt2_conservative", "molt2_explore"):
         from pantheon.evolution.methods import Molt2
         presets = {"molt2": {},
@@ -175,6 +179,9 @@ async def main(a) -> None:
                "family_cycles": a.ln_family_cycles, "family_keep": a.ln_family_keep}
     method = build_method(a.method, a.seed, judge=judge, norm=a.norm, sched=sched, ln_opts=ln_opts,
                           low_fidelity=(a.inner_fidelity or cfg.get("inner_fidelity")) == "low")
+
+    if a.method == "molt2_factorial":
+        method.max_eval_calls = a.max_eval_calls or None
 
     variator = method.default_variator(
         evaluator=evaluator, model=a.model, timeout=a.mutation_timeout,
@@ -445,7 +452,7 @@ if __name__ == "__main__":
     p.add_argument("--task", required=True)
     p.add_argument("--method", default="agent_map_elites",
                    choices=["agent_map_elites", "map_elites", "simpletes", "idea_code", "annealed",
-                            "pantheon_evo", "hypothesis_bandit", "lab_notebook", "molt", "molt_noredesign", "molt_noprotect", "molt_noprobation", "molt_periodic", "simpletes4", "molt_overlap", "molt_gated", "molt2", "molt2_conservative", "molt2_explore"])
+                            "pantheon_evo", "hypothesis_bandit", "lab_notebook", "molt", "molt_noredesign", "molt_noprotect", "molt_noprobation", "molt_periodic", "simpletes4", "molt_overlap", "molt_gated", "molt2", "molt2_conservative", "molt2_explore", "molt2_factorial"])
     p.add_argument("--iterations", type=int, default=40)
     p.add_argument("--model", default="openai/gpt-5.6-luna")
     p.add_argument("--eval-server", default=os.environ.get("EVAL_SERVER_URL", ""),

@@ -1,0 +1,38 @@
+Development-only Molt2 factorial prototype
+
+Base: 85d221d664be3d830b11b14be552ed68733f57e6. Vanilla methods and v1 source unchanged.
+CLI: python examples/evolution_bench/run_bench.py --task TASK --method molt2_factorial --seed SEED --workers 2 --max-eval-calls 80 [ordinary model and budget flags]
+No paid model calls or task evaluations were launched to construct this prototype.
+
+One model template, four normal driver evaluations in fixed order00,10,01,11.
+Two real module/file-scope flags produce immutable source states; all other bytes
+must match. Python names cannot be reassigned or shadowed. C++ declarations must
+be canonical static constexpr bool at file scope and cannot be shadowed by normal
+bool/int/auto declarations. Compiler validation remains necessary; this lexical
+checker is not a proof of program semantics, mechanism independence or flag reachability.
+
+Recorded conditional contrasts: A=y10-y00, B=y01-y00,
+interaction=y11-y10-y01+y00. Missing/invalid/nonfinite/full-timeout values are never
+zero-imputed. All effects are withheld if full source contrast fails. Anchor00
+agreement is separately diagnostic; confounded effects remain labelled, not support.
+No evaluator labels, hidden inputs or heldout scores are accessed by the method.
+
+All observed executable source states, full SHA256s, IDs, context fingerprint,
+score/error metadata and complete multiline mechanism comments are checkpointed.
+Ordinary mutations receive code-linked observations (including negative and
+inconclusive states), rather than an LLM surrogate's confidence or universal law.
+A competitive usable arm can enter its original protected chain even if the
+mechanism explanation is confounded. Fitness credit and evidential support differ.
+
+Two original chains remain protected; at most one experiment open. Default
+experiment fraction.35 applies to reserved arm evaluation slots: four per factorial
+versus ordinary k=2, including unsuccessful generation reservations. Warmup6usable
+measurements and interval3base batches remain. CLI max-eval-calls conservatively
+reserves seed+all dispatched arms, including pending work; near cap it falls back
+to ordinary2/1arm batches rather than launching incomplete factorial work.
+Stopped/resumed pending experiments are archived interrupted_unresolved, with
+partial executable states preserved, no invented outcomes and no automatic retries.
+
+Offline validation: tests/test_molt2.py plus tests/test_molt2_factorial.py.
+Potential gains remain hypotheses. Fresh development can inform a frozen variant;
+confirmation/heldout outcomes must not be used for further tuning or broad superiority claims.
