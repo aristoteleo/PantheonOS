@@ -79,6 +79,10 @@ def build_method(name: str, seed: int, judge=None, norm: str = "minmax", sched=N
         from pantheon.evolution.methods import Molt
         return Molt(num_chains=2, k_candidates=2, num_inspirations=2,
                     selector=(ln_opts or {}).get("tes_selector") or "rpucg", seed=seed)
+    if name == "molt2_scout":
+        from pantheon.evolution.methods import Molt2Scout
+        return Molt2Scout(num_chains=2,k_candidates=2,num_inspirations=2,
+                          selector=(ln_opts or {}).get("tes_selector") or "rpucg",seed=seed)
     if name == "molt2_decision":
         from pantheon.evolution.methods import Molt2Decision
         return Molt2Decision(num_chains=2,k_candidates=2,num_inspirations=2,
@@ -190,7 +194,7 @@ async def main(a) -> None:
 
     if a.method == "molt2_factorial":
         method.max_eval_calls = a.max_eval_calls or None
-    if a.method in ("molt2_discovery", "molt2_decision"):
+    if a.method in ("molt2_discovery", "molt2_decision", "molt2_scout"):
         method.slots.total = a.max_eval_calls or 80
         method.run_usd_cap = a.max_llm_usd or .5
 
@@ -463,7 +467,7 @@ if __name__ == "__main__":
     p.add_argument("--task", required=True)
     p.add_argument("--method", default="agent_map_elites",
                    choices=["agent_map_elites", "map_elites", "simpletes", "idea_code", "annealed",
-                            "pantheon_evo", "hypothesis_bandit", "lab_notebook", "molt", "molt_noredesign", "molt_noprotect", "molt_noprobation", "molt_periodic", "simpletes4", "molt_overlap", "molt_gated", "molt2", "molt2_conservative", "molt2_explore", "molt2_factorial", "molt2_discovery", "molt2_decision"])
+                            "pantheon_evo", "hypothesis_bandit", "lab_notebook", "molt", "molt_noredesign", "molt_noprotect", "molt_noprobation", "molt_periodic", "simpletes4", "molt_overlap", "molt_gated", "molt2", "molt2_conservative", "molt2_explore", "molt2_factorial", "molt2_discovery", "molt2_decision", "molt2_scout"])
     p.add_argument("--iterations", type=int, default=40)
     p.add_argument("--model", default="openai/gpt-5.6-luna")
     p.add_argument("--eval-server", default=os.environ.get("EVAL_SERVER_URL", ""),

@@ -1,0 +1,27 @@
+{
+  "recorded_utc": "2026-11-16T15:32:00.944634+00:00",
+  "status": "offline_tests_passed_not_performance_validated",
+  "parent_commit": "da67a33eb87dad923d75f09dfe15720020006281",
+  "selected_evolution_tests_passed": 160,
+  "scout_tests_included": 22,
+  "cli_help_verified": true,
+  "unchanged_prior_methods": [
+    "molt",
+    "simpletes",
+    "molt2",
+    "molt2_factorial",
+    "molt2_discovery",
+    "molt2_decision"
+  ],
+  "real_model_calls": 0,
+  "task_evaluations": 0,
+  "reserved_inputs_or_results_read": false,
+  "source_sha256": {
+    "pantheon/evolution/methods/molt2_scout.py": "0d47062821cafe381c36d9520e0e5985a72caa82b6d32d43b06f24e06f5feb0e",
+    "tests/test_molt2_scout.py": "072a7859cfcbd08aaa161004664ffebff6dba7005621284b013eb26b615930c2",
+    "examples/evolution_bench/run_bench.py": "eda640956cb8e1f4311da88bda89c7f75b43a37e8de77fd632760ef011ce2016",
+    "pantheon/evolution/methods/__init__.py": "d8e9e4c3993e5fe74c84b78342240ddc5359ba48532761b60e1efca7d9afd0b1"
+  },
+  "test_command": "PYTHONPATH=. python -m pytest -q tests/test_evolution_molt.py tests/test_molt2.py tests/test_molt2_factorial.py tests/test_molt2_discovery.py tests/test_molt2_decision.py tests/test_molt2_scout.py",
+  "warnings": "Two pre-existing unknown pytest asyncio configuration options; tests use asyncio.run and none were skipped."
+}
