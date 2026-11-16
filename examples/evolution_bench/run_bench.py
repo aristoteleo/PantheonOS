@@ -79,6 +79,14 @@ def build_method(name: str, seed: int, judge=None, norm: str = "minmax", sched=N
         from pantheon.evolution.methods import Molt
         return Molt(num_chains=2, k_candidates=2, num_inspirations=2,
                     selector=(ln_opts or {}).get("tes_selector") or "rpucg", seed=seed)
+    if name in ("molt2", "molt2_conservative", "molt2_explore"):
+        from pantheon.evolution.methods import Molt2
+        presets = {"molt2": {},
+                   "molt2_conservative": {"experiment_interval": 5, "experiment_fraction": .20},
+                   "molt2_explore": {"experiment_interval": 1, "experiment_fraction": .50}}
+        return Molt2(num_chains=2, k_candidates=2, num_inspirations=2,
+                     selector=(ln_opts or {}).get("tes_selector") or "rpucg", seed=seed,
+                     **presets[name])
     if name == "simpletes":
         return SimpleTES(num_chains=2, k_candidates=2, num_inspirations=2,
                          selector=(ln_opts or {}).get("tes_selector") or "rpucg", seed=seed)
@@ -437,7 +445,7 @@ if __name__ == "__main__":
     p.add_argument("--task", required=True)
     p.add_argument("--method", default="agent_map_elites",
                    choices=["agent_map_elites", "map_elites", "simpletes", "idea_code", "annealed",
-                            "pantheon_evo", "hypothesis_bandit", "lab_notebook", "molt", "molt_noredesign", "molt_noprotect", "molt_noprobation", "molt_periodic", "simpletes4", "molt_overlap", "molt_gated"])
+                            "pantheon_evo", "hypothesis_bandit", "lab_notebook", "molt", "molt_noredesign", "molt_noprotect", "molt_noprobation", "molt_periodic", "simpletes4", "molt_overlap", "molt_gated", "molt2", "molt2_conservative", "molt2_explore"])
     p.add_argument("--iterations", type=int, default=40)
     p.add_argument("--model", default="openai/gpt-5.6-luna")
     p.add_argument("--eval-server", default=os.environ.get("EVAL_SERVER_URL", ""),

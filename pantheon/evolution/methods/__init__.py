@@ -19,6 +19,7 @@ PantheonEvo = HypothesisBandit
 from .simpletes import PUCTSelector, RPUCGSelector, Selector, SimpleTES
 from .lab_notebook import LabNotebook
 from .molt import Molt
+from .molt2 import Molt2
 
 __all__ = [
     "AgentMapElites",
@@ -30,5 +31,5 @@ __all__ = [
     "PantheonEvo",
     "SimpleTES", "Selector", "PUCTSelector", "RPUCGSelector",
     "LabNotebook",
-    "Molt",
+    "Molt", "Molt2",
 ]
