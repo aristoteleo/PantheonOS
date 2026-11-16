@@ -349,3 +349,69 @@ async def test_without_any_open_conversation_a_listing_team_is_built_once():
         reply = await asyncio.wait_for(runtime.get_chat_node(""), 1)
         assert reply["success"] and len(reply["nodes"]) == 3
     assert built == [LISTING_CONVERSATION]
+
+
+# ---- A paused Workspace and the owner's other computers ----
+
+class PausedFleet(FakeFleet):
+    def __init__(self, workspace="offline", mac="online"):
+        super().__init__()
+        self.status = {"ws": workspace, "mac": mac}
+
+    async def call_tool(self, name, args):
+        reply = await super().call_tool(name, args)
+        if name == "fleet_list_nodes":
+            for node in reply["nodes"]:
+                node["status"] = self.status.get(node["node_id"], node["status"])
+        return reply
+
+
+async def paused_agent(**status):
+    agent = await agent_on()
+    agent.providers["fleet"] = PausedFleet(**status)
+    return agent
+
+
+@pytest.mark.asyncio
+async def test_a_paused_workspace_with_another_computer_on_asks_instead_of_waiting():
+    agent = await paused_agent()
+    files = agent.providers["file_manager"].toolset
+    answer = await agent.call_tool("file_manager__read_file", {"file_path": "/a"})
+    assert answer["success"] is False and answer["workspace"] == "paused" and answer["computers"] == ["Mac"]
+    assert "Nothing ran" in answer["error"] and "Mac (darwin)" in answer["error"] and "ask which" in answer["error"]
+    assert 'node="workspace"' in answer["error"] and 'node="Mac"' in answer["error"]
+    assert files.calls == []  # nothing ran on the Workspace, nothing waits for it
+    # The user chose the Workspace: named, the call runs there (waiting for it to start).
+    assert (await agent.call_tool("file_manager__read_file", {"file_path": "/b", "node": "workspace"}))["content"] == "local"
+    # The user chose the computer: its file service.
+    read = await agent.call_tool("file_manager__read_file", {"file_path": "/Users/me/notes.txt", "node": "Mac"})
+    assert read["node_id"] == "mac" and files.calls == ["/b"]
+
+
+@pytest.mark.asyncio
+async def test_no_question_when_the_workspace_runs_or_no_other_computer_is_on_or_something_waits(monkeypatch):
+    for status in ({"workspace": "online"}, {"workspace": "offline", "mac": "offline"}):
+        agent = await paused_agent(**status)
+        assert (await agent.call_tool("file_manager__read_file", {"file_path": "/a"}))["content"] == "local"
+    # A call already waits for the Workspace (it is starting): this one joins it.
+    from pantheon import agent_tools
+    agent = await paused_agent()
+    monkeypatch.setattr(agent_tools, "_providers_waiting", 1)
+    assert (await agent.call_tool("file_manager__read_file", {"file_path": "/a"}))["content"] == "local"
+
+
+@pytest.mark.asyncio
+async def test_a_workspace_that_came_up_since_the_cached_list_is_not_asked_about():
+    agent = await paused_agent()
+    from pantheon.agent_nodes import list_nodes
+    await list_nodes(agent)  # cached: paused
+    agent.providers["fleet"].status["ws"] = "online"
+    assert (await agent.call_tool("file_manager__read_file", {"file_path": "/a"}))["content"] == "local"
+
+
+@pytest.mark.asyncio
+async def test_a_conversation_on_another_computer_is_never_asked():
+    agent = await paused_agent()
+    read = await agent.call_tool("file_manager__read_file", {"file_path": "/Users/me/notes.txt"},
+                                 context_variables={"chat_node": "mac"})
+    assert read["node_id"] == "mac"

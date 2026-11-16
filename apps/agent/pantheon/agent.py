@@ -1192,14 +1192,23 @@ class Agent:
             if saved is not None:
                 return saved
         if self.tool_exposure == "core":
-            from .agent_nodes import NODE_TOOLS, route
+            from .agent_nodes import NODE_TOOLS, WORKSPACE_NAME, paused_workspace_choice, route
 
             if prefixed_name in NODE_TOOLS:
                 # The conversation's working node, or one the call names; the
                 # conversation's working directory goes with its own node.
                 cv = context_variables or {}
                 named = args.pop("node", "")
-                node = named or cv.get("chat_node") or ""
+                # The Workspace by name: this conversation's default computer,
+                # asked for on purpose (a paused one starts and the call waits).
+                wants_workspace = isinstance(named, str) and named.strip().lower() == WORKSPACE_NAME
+                if wants_workspace:
+                    named = ""
+                node = named or ("" if wants_workspace else cv.get("chat_node")) or ""
+                if not node and not wants_workspace:
+                    choice = await paused_workspace_choice(self)
+                    if choice is not None:
+                        return choice
                 workdir = (cv.get("chat_workdir") or "") if not named or named == cv.get("chat_node") else ""
                 if node:
                     routed = await route(self, prefixed_name, args, str(node), str(workdir))

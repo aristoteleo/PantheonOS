@@ -1102,9 +1102,44 @@ class AgentRuntime(AgentLifetime, ToolSet):
             host = getattr(getattr(self, "_environment", None), "host_node", None)
             nodes = [summarize(n, default) for n in listed
                      if n.get("node_id") != host or n.get("node_id") == default]
+            from pantheon.agent_tools import workspace_wanted
             return {"success": True, "supported": True, "default_node_id": default,
                     "node_id": chosen or default, "workdir": workdir, "nodes": nodes,
-                    "fleet": fleet_of(agent) is not None}
+                    "fleet": fleet_of(agent) is not None,
+                    # A tool call waits for the Workspace to start: the page starts a paused one.
+                    "workspace_wanted": workspace_wanted()}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool
+    async def list_node_files(self, node_id: str, path: str = "") -> dict:
+        """The files of one of the owner's other computers, for the chat's
+        files panel: path "" lists the folders that computer shares, a path
+        lists that folder. Read only, through the computer's file service."""
+        try:
+            agent = await self._listing_agent("")
+            from pantheon.agent_nodes import _node, display_name, fleet_of, list_nodes
+            fleet = fleet_of(agent)
+            if fleet is None:
+                return {"success": False, "error": "This Agent cannot reach other computers."}
+            node = _node(await asyncio.wait_for(list_nodes(agent), timeout=10), node_id)
+            if node is None:
+                return {"success": False, "error": "That computer is not one of your computers."}
+            name = display_name(node)
+            if node.get("status") == "offline":
+                return {"success": False, "error": f"{name} is offline.", "offline": True}
+            roots = [str(r) for r in node.get("file_roots") or []]
+            if not path and len(roots) > 1:
+                # Its shared folders are the top level.
+                return {"success": True, "name": name, "path": "", "roots": roots,
+                        "files": [{"name": r, "path": r, "type": "directory", "size": 0} for r in roots]}
+            target = path or (roots[0] if roots else "")
+            reply = await fleet.call_tool("node_call", {"node_id": node["node_id"], "method": "list_files",
+                                                        "args": {"sub_dir": target} if target else {}})
+            if not isinstance(reply, dict) or not reply.get("success"):
+                return {"success": False, "error": (reply or {}).get("error") if isinstance(reply, dict)
+                        else "Invalid reply"}
+            return {"success": True, "name": name, "path": target, "roots": roots, "files": reply.get("files") or []}
         except Exception as e:
             return {"success": False, "error": str(e)}
 

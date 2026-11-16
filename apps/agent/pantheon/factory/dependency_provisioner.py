@@ -209,11 +209,23 @@ class AllocatedToolProvider(DependencyToolProvider):
         self._bound = None
         self._attempt = 0
         self._lock = asyncio.Lock()
+        # A call holds the lock while it waits for the provider's computer.
+        self._starting = False
         # A probe to run before the next call (prepare), and its lock.
         self._prepare_call = None
         self._prepare_lock = asyncio.Lock()
 
     async def _current(self):
+        if self._starting and self._lock.locked():
+            # Another call of this toolset already waits for the computer:
+            # this one waits for it too (the same wait, said the same way),
+            # not as time of its own running.
+            from pantheon.agent_tools import waiting_for_provider
+            async with waiting_for_provider():
+                return await self._current_locked()
+        return await self._current_locked()
+
+    async def _current_locked(self):
         async with self._lock:
             self._check_open()
             if self._bound is None:
@@ -224,8 +236,12 @@ class AllocatedToolProvider(DependencyToolProvider):
                     # Workspace): wait for it here, shown in the chat, rather
                     # than failing the call for the model to give up on.
                     from pantheon.agent_tools import waiting_for_provider
-                    async with waiting_for_provider():
-                        self._bound = await self._wait_for_provider()
+                    self._starting = True
+                    try:
+                        async with waiting_for_provider():
+                            self._bound = await self._wait_for_provider()
+                    finally:
+                        self._starting = False
             return self._bound
 
     async def _bind(self):

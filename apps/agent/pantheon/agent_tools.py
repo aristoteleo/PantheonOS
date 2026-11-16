@@ -71,6 +71,22 @@ class _Stopped:
 # wait or 0]. That time does not count toward the call's foreground timeout.
 _provider_wait: ContextVar[list | None] = ContextVar("provider_wait", default=None)
 
+#: How long a foreground call waits for its computer to start before it goes
+#: on in the background: the agent answers ("your Workspace is starting") and
+#: is told when the call has run, rather than holding the turn for minutes.
+PROVIDER_FOREGROUND_SECONDS = 12.0
+
+# Tool calls of this Agent waiting for a computer to start now, foreground or
+# background. The page asks (get_chat_node: workspace_wanted) and starts a
+# paused Workspace: the chat's status line alone does not carry it (a second
+# call's "running tools" replaced the first one's wait).
+_providers_waiting = 0
+
+
+def workspace_wanted() -> bool:
+    """A tool call of this Agent is waiting for its computer (the Workspace) to start."""
+    return _providers_waiting > 0
+
 
 def _provider_waited(cell: list | None) -> float:
     if not cell:
@@ -99,22 +115,20 @@ async def waiting_for_provider():
     """Around a tool's wait for the computer that runs its App to start: the
     chat shows "Waiting for your Workspace to start" meanwhile, and the wait
     does not count toward the call's foreground timeout."""
+    global _providers_waiting
     cell = _provider_wait.get()
     started = time.monotonic()
     if cell is not None:
         cell[1] = started
-    await _report_activity("waiting_for_workspace")
-
-    def done():
+    _providers_waiting += 1
+    try:
+        await _report_activity("waiting_for_workspace")
+        yield
+    finally:
+        _providers_waiting -= 1
         if cell is not None:
             cell[0] += time.monotonic() - started
             cell[1] = 0.0
-    try:
-        yield
-    except BaseException:
-        done()
-        raise
-    done()
     await _report_activity("running_tools")
 
 
@@ -428,7 +442,10 @@ async def _foreground(agent, call, func_name, tool_call_id, params, context_vari
             steer_pending = steer is not None and len(steer) > 0
             timed_out = timeout is not None and elapsed - _provider_waited(wait_cell) >= timeout
             steer_background = steer_pending and elapsed >= STEER_BG_MIN_SECONDS
-            if allow_timeout and (timed_out or steer_background):
+            # Still waiting for its computer to start: the call goes on in
+            # the background and the agent answers meanwhile.
+            provider_background = bool(wait_cell[1]) and time.monotonic() - wait_cell[1] >= PROVIDER_FOREGROUND_SECONDS
+            if allow_timeout and (timed_out or steer_background or provider_background):
                 # Keep the same output list so later prints keep accumulating.
                 stdout_buffer.extend(agent._tool_output_buffers.pop(tool_call_id, []))
                 bg_task = agent._bg_manager.adopt(
@@ -436,7 +453,14 @@ async def _foreground(agent, call, func_name, tool_call_id, params, context_vari
                     existing_task=call_task, output_buffer=stdout_buffer)
                 adopted = True
                 status = _job_status(agent, bg_task.task_id)
-                if steer_background and not timed_out:
+                if provider_background and not timed_out:
+                    result = (f"Tool '{func_name}' has not run yet: the computer it runs on (the user's Workspace) "
+                              "was paused and is starting, which usually takes one to three minutes. The call goes "
+                              f"on in the background (task_id='{bg_task.task_id}') and runs once the Workspace is "
+                              "up; you are told when it finishes. Tell the user now that their Workspace is "
+                              "starting and that you will continue when it is up, then end your turn. Do not "
+                              "wait for it, poll it, repeat the call, or try to start the Workspace yourself.")
+                elif steer_background and not timed_out:
                     result = (f"Tool '{func_name}' was moved to background execution so you can respond to a "
                               f"new user message that just arrived. task_id='{bg_task.task_id}'. Use {status} "
                               f"to check its progress/results later.")

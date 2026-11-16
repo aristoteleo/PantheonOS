@@ -22,7 +22,8 @@ NODE_TOOLS = frozenset({
 
 NODE_PARAM = {
     "type": "string",
-    "description": "Fleet node id to act on. Empty: this conversation's node.",
+    "description": ("Fleet node id or name to act on. Empty: this conversation's node. "
+                    '"workspace": the user\'s Workspace, started if it is paused.'),
 }
 
 #: Largest text a node's file service reads or writes in one call.
@@ -188,6 +189,51 @@ async def route(agent, name: str, args: dict, node_id: str, workdir: str = "") -
     if name == "shell__run_command":
         return await _run(fleet, node, args, workdir)
     return await _files(fleet, node, name.split("__", 1)[1], args)
+
+
+#: What the model passes as ``node`` to mean the Workspace itself, started if it is paused.
+WORKSPACE_NAME = "workspace"
+
+
+def _usable(node: dict) -> bool:
+    """One of the owner's computers a conversation can work on now."""
+    caps = node.get("caps") or []
+    return (not node.get("is_self") and not is_workspace(node) and node.get("status") != "offline"
+            and ("proc" in caps or bool(node.get("file_roots")) or "fs:local" in caps))
+
+
+async def paused_workspace_choice(agent) -> dict | None:
+    """The answer to a call that would run on a paused Workspace while other
+    computers of the owner are on: nothing runs and nothing starts; the model
+    says how things stand and asks the user which they want (docs/apps/
+    standalone-apps.md, "A paused Workspace and the owner's other computers").
+    None: run as usual (the Workspace runs, something already waits for it, or
+    there is no other computer, so the call waits for the Workspace)."""
+    from .agent_tools import workspace_wanted
+
+    if workspace_wanted() or fleet_of(agent) is None:
+        return None
+    nodes = await list_nodes(agent)
+    if any(is_workspace(n) and n.get("status") != "offline" for n in nodes) or not any(_usable(n) for n in nodes):
+        return None
+    # The list is cached for half a minute: a Workspace that came up since is not paused.
+    agent._fleet_nodes_cache = None
+    nodes = await list_nodes(agent)
+    if any(is_workspace(n) and n.get("status") != "offline" for n in nodes):
+        return None
+    others = [n for n in nodes if _usable(n)]
+    if not others:
+        return None
+    listed = ", ".join(f"{display_name(n)} ({n.get('os') or 'unknown OS'})" for n in others)
+    first = display_name(others[0])
+    return {"success": False, "workspace": "paused", "computers": [display_name(n) for n in others],
+            "error": ("Nothing ran: the user's Workspace (this conversation's default computer) is paused. "
+                      f"These computers of theirs are on now: {listed}. Tell the user how things stand and ask which "
+                      "they want: start the Workspace (one to three minutes), or work on one of those computers "
+                      "now. Do not choose for them unless they already said. Then: for the Workspace, repeat the "
+                      f'call with node="{WORKSPACE_NAME}" (it starts, and the call runs once it is up); for a '
+                      f'computer, pass its name as node on your calls (node="{first}"). '
+                      "Do not retry without node, and do not probe with other commands.")}
 
 
 async def _call_files(fleet, node_id: str, method: str, args: dict) -> dict:

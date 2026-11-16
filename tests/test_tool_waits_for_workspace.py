@@ -111,14 +111,67 @@ class Waits(ToolSet):
 
 
 @pytest.mark.asyncio
-async def test_the_wait_does_not_move_the_call_to_the_background(monkeypatch):
+async def test_a_short_wait_does_not_move_the_call_to_the_background(monkeypatch):
     monkeypatch.setattr(agent_module, "TOOL_FOREGROUND_SECONDS", .2)
     agent = Agent(name="a", instructions="", model="gpt-4o-mini")
     await agent.toolset(Waits(0.6))
     call = {"id": "c1", "type": "function", "function": {"name": "waits__run", "arguments": json.dumps({"command": "x"})}}
     [message] = await execute_tool_calls(agent, [call], {}, timeout=agent.tool_timeout, time_delta=.05)
-    assert "moved to background" not in message["content"] and "ran x" in message["content"]
+    assert "background" not in message["content"] and "ran x" in message["content"]
     assert not agent._bg_manager.list_tasks()
+
+
+@pytest.mark.asyncio
+async def test_a_long_wait_goes_on_in_the_background_and_the_agent_answers(monkeypatch):
+    """A Workspace that takes minutes to start: the call is not held in the
+    turn; the model is told to say so, and the call runs once it is up."""
+    from pantheon import agent_tools
+    monkeypatch.setattr(agent_tools, "PROVIDER_FOREGROUND_SECONDS", .15)
+    agent = Agent(name="a", instructions="", model="gpt-4o-mini")
+    await agent.toolset(Waits(0.6))
+    call = {"id": "c1", "type": "function", "function": {"name": "waits__run", "arguments": json.dumps({"command": "x"})}}
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    [message] = await execute_tool_calls(agent, [call], {}, timeout=agent.tool_timeout, time_delta=.05)
+    assert loop.time() - started < .5
+    assert "Workspace" in message["content"] and "is starting" in message["content"] and "has not run yet" in message["content"]
+    [task] = agent._bg_manager.list_tasks()
+    assert task.task_id in message["content"] and task.status == "running"
+    assert agent_tools.workspace_wanted()  # the page starts a paused Workspace on this
+    for _ in range(100):
+        if task.status != "running":
+            break
+        await asyncio.sleep(.02)
+    assert task.status == "completed" and "ran x" in str(task.result)
+    assert not agent_tools.workspace_wanted()
+
+
+@pytest.mark.asyncio
+async def test_a_second_call_of_the_toolset_waits_for_the_same_workspace(tmp_path, monkeypatch):
+    """Two calls in one turn: the second waits for the first one's bind. That
+    is the Workspace's wait too (not its own running time, and not a status
+    that replaces "Waiting for your Workspace to start")."""
+    monkeypatch.setattr(provisioning, 'PROVIDER_POLL_SECONDS', 0.02)
+    f = fixture(tmp_path, monkeypatch)
+    bind, _ = starting_then_ready(f, [5])
+    files = DependencyInstanceProvisioner(SimpleNamespace(bind=bind), consumer=f.consumer,
+                                          profiles=FILES).allocated('file_manager', owner_ref='agent-views')
+    replies(monkeypatch, [{'success': True, 'result': 'one'}, {'success': True, 'result': 'two'}])
+    chunks = []
+    token = _RUN_CONTEXT.set(AgentRunContext(agent=None, memory=None, process_chunk=chunks.append))
+    try:
+        first = asyncio.create_task(files.call_tool('read', {'path': 'a'}))
+        await asyncio.sleep(0.03)
+        second = asyncio.create_task(files.call_tool('read', {'path': 'b'}))
+        await asyncio.sleep(0.02)
+        from pantheon import agent_tools
+        assert agent_tools._providers_waiting == 2
+        assert sorted(await asyncio.gather(first, second)) == ['one', 'two']
+        assert agent_tools._providers_waiting == 0
+    finally:
+        _RUN_CONTEXT.reset(token)
+    activities = [c['activity'] for c in chunks]
+    assert activities.count('waiting_for_workspace') == 2 and activities[-1] == 'running_tools'
 
 
 # ---- Combined check 1: a run asks, the first call checks ----
