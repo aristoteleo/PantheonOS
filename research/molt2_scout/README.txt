@@ -11,6 +11,10 @@ Architecture:
 - A separately metered experimenter can ask one component question per executed
   intervention, at most twice. It may decline. Every question is bound to an
   actual native direction/child and an established full-validity source anchor.
+  The anchor must be that child or its source descendant: no ancestor or other
+  branch substitutes. Recheck before charging a question, accepting its reply,
+  queueing a probe and dispatching its evaluation. Native protected probation
+  remains unchanged; questions wait until a target is established and competitive.
 - Only anchors within the native probation-margin fraction of the observed
   fully valid frontier are eligible. Recheck at probe dispatch; an obsolete
   question loses its spent question call and gets no free replacement.
@@ -38,6 +42,15 @@ Decision replication. Preserve its original primary results and independent
 runtime audit. Do not treat saved older controls as fresh corrected-harness
 searches. Fresh paid launches need budget admission under the shared ledger.
 
-Offline validation:160 selected evolution tests passed (including22 Scout tests),
+Offline validation:166 selected evolution tests passed (including28 Scout tests),
 CLI --help exposes the alias, and Molt/SimpleTES/all prior Molt2 source files are
 byte-identical to parent da67a33. No model/network/task calls in the tests.
+
+Revision from public-only development evidence: all17 audited Decision probes
+on seeds300-302 targeted ancestors of the owned native child. This motivated
+the stricter target rule, not a claim that ancestry caused the score gap.
+Six new tests exercise real distinct native children, accepted descendants,
+ancestor exclusion, probation, frontier relevance and stale queued lineage.
+Original Scout v1 is preserved at commit5c5417ad41f130b3ce4b99359da59ef73d5dde22
+and its test receipt at TEST_EVIDENCE_v1.json. No paid run is launched.
+Source ancestry alone is not semantic equivalence or proof of causal utility.

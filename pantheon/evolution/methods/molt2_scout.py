@@ -54,14 +54,24 @@ class Molt2Scout(Molt2Discovery):
         if owner.get('native_child_id',ind.id)!=ind.id:return None
         if owner.get('native_child_source_sha256',source_sha(ind.genome.files))!=source_sha(ind.genome.files):return None
         return ind
+    def _targets_owner_branch(self,ctx,anchor,owner):
+        child=self._owner_child(ctx,owner)
+        if child is None or anchor is None:return False
+        pending=[anchor.id];seen=set()
+        while pending:
+            ident=pending.pop()
+            if ident==child.id:return True
+            if ident in seen:continue
+            seen.add(ident);ind=ctx.store.get(ident)
+            if ind is not None:pending.extend(ind.parent_ids)
+        return False
     def _opportunity(self,ctx):
         if self.requests or self.scout_questions>=2 or self.probe_calls+2>self.max_probe_calls or not self._science_idle():return None
         scored=[(self._full_score(i),i) for i in ctx.store if hasattr(i.genome,'files')]
         scored=[(score,ind) for score,ind in scored if score is not None]
         eligible=[(score,ind) for score,ind in scored if self._eligible_anchor(ind.id)]
         if not eligible:return None
-        score,anchor=max(eligible,key=lambda pair:pair[0]);frontier=max(x[0] for x in scored)
-        if frontier-score>self.probation_margin*max(abs(frontier),1e-12):return None
+        frontier=max(x[0] for x in scored)
         for index in reversed(range(len(self.interventions))):
             if index in self.scouted_interventions:continue
             for child in reversed(self.interventions[index].get('children',[])):
@@ -69,7 +79,10 @@ class Molt2Scout(Molt2Discovery):
                 ind=self._owner_child(ctx,owner)
                 if ind is not None:
                     owner.update(native_child_id=ind.id,native_child_source_sha256=source_sha(ind.genome.files))
-                    return anchor,owner
+                    relevant=[(score,anchor) for score,anchor in eligible
+                              if frontier-score<=self.probation_margin*max(abs(frontier),1e-12)
+                              and self._targets_owner_branch(ctx,anchor,owner)]
+                    if relevant:return max(relevant,key=lambda pair:pair[0])[1],owner
         return None
     def _question_prompt(self,ctx,anchor,owner):
         code=json.dumps(anchor.genome.files,ensure_ascii=False)
@@ -81,6 +94,7 @@ class Molt2Scout(Molt2Discovery):
         if len(code)>20000:code=code[:20000]+'\n[code projection truncated; full source hash is authoritative]'
         return ('# Component experiment decision\nNative architecture planning has already executed the direction below. Do not propose new architecture directions here.\n'
                 'Use public-development feedback only. Never access hidden inputs, scoring code or external data.\n'
+                'The anchor is the executed native child or a verified source descendant, not an ancestor substituted for the new implementation.\n'
                 'Decide if one OFF/ON component contrast on the exact established anchor would inform a specific next edit. You may decline.\n'
                 'Return JSON {"experiment":null,"reason":"..."} or {"experiment":{"anchor_id":"exact supplied ID","mechanism":"one component","decision_to_inform":"specific choice","predicted_contrast":"expected measured difference","falsifier":"what would count against it","expected_cost":{"candidate_evaluations":2,"template_model_calls":1}}}.\n'
                 'A failed implementation is not evidence against an abstract algorithm family. Do not describe unmeasured effects as established.\n'
@@ -100,7 +114,7 @@ class Molt2Scout(Molt2Discovery):
     async def _question(self,ctx,anchor,owner):
         index=owner.get('intervention')
         if self.scout_questions>=2 or index in self.scouted_interventions or self.probe_calls+2>self.max_probe_calls:return False
-        if self._owner_child(ctx,owner) is None or not self._eligible_anchor(anchor.id) or self._full_score(anchor) is None:return False
+        if not self._targets_owner_branch(ctx,anchor,owner) or not self._eligible_anchor(anchor.id) or self._full_score(anchor) is None:return False
         if not self.reserve_probe_call():return False
         self.scout_questions+=1;self.scouted_interventions.add(index)
         prompt=self._question_prompt(ctx,anchor,owner);anchor_hash=source_sha(anchor.genome.files)
@@ -125,7 +139,7 @@ class Molt2Scout(Molt2Discovery):
         cost=request.get('expected_cost') if isinstance(request,dict) else None
         if not valid or request['anchor_id']!=anchor.id or not isinstance(cost,dict) or cost!={'candidate_evaluations':2,'template_model_calls':1} or any(type(v) is not int for v in cost.values()):
             record['status']='malformed';return False
-        if source_sha(anchor.genome.files)!=anchor_hash or self.fingerprint!=record['evaluation_fingerprint'] or hashlib.sha256(ctx.objective.encode()).hexdigest()!=record['objective_sha256'] or self._owner_child(ctx,owner) is None:
+        if source_sha(anchor.genome.files)!=anchor_hash or self.fingerprint!=record['evaluation_fingerprint'] or hashlib.sha256(ctx.objective.encode()).hexdigest()!=record['objective_sha256'] or not self._targets_owner_branch(ctx,anchor,owner):
             record['status']='stale_context';return False
         accepted=self.queue_evidence_request(ctx,request,owner);record['status']='queued' if accepted else 'rejected_context'
         return accepted
@@ -136,9 +150,9 @@ class Molt2Scout(Molt2Discovery):
         if opportunity:await self._question(ctx,*opportunity)
         return await Molt2Discovery.ask(self,ctx,n)
     def queue_evidence_request(self,ctx,request,owner):
-        if not self._eligible_anchor(request.get('anchor_id')) or self._owner_child(ctx,owner) is None:return False
+        if not self._eligible_anchor(request.get('anchor_id')):return False
         anchor=ctx.store.get(request.get('anchor_id'))
-        if self._full_score(anchor) is None:return False
+        if self._full_score(anchor) is None or not self._targets_owner_branch(ctx,anchor,owner):return False
         return super().queue_evidence_request(ctx,request,owner)
     def _probe_item(self,ctx):
         kept=[]
@@ -147,7 +161,9 @@ class Molt2Scout(Molt2Discovery):
         for request in self.requests:
             ident=request['context']['anchor_id'];score=self._full_score(ctx.store.get(ident))
             relevant=score is not None and frontier is not None and frontier-score<=self.probation_margin*max(abs(frontier),1e-12)
-            if self._eligible_anchor(ident) and relevant:kept.append(request)
+            if not self._targets_owner_branch(ctx,ctx.store.get(ident),request['owner']):
+                self.rejected_requests.append({**request,'reason':'anchor_no_longer_in_owner_branch'})
+            elif self._eligible_anchor(ident) and relevant:kept.append(request)
             else:self.rejected_requests.append({**request,'reason':'anchor_no_longer_established_valid_or_frontier_relevant'})
         self.requests=kept
         return super()._probe_item(ctx)
