@@ -195,3 +195,38 @@ def test_normal_cpp_conditionals_accepted():
     code='static constexpr bool MOLT2_A = false;\nstatic constexpr bool MOLT2_B = false;\nint f(){ int x=0; if constexpr(MOLT2_A) x+=1; return x+(MOLT2_B?2:0); }\n'
     arms,_=toggle_factorial({'solution.cpp':code},'solution.cpp')
     assert len(arms)==4
+
+def test_prompt_projection_bounds_multibyte_annotations_errors_and_keeps_raw():
+    m,ctx,_=fixture();item=experiment(m,ctx);resolve(m,ctx,item)
+    record=copy.deepcopy(m.evidence[-1]);record['hypotheses']={'HYPOTHESIS_A':'机制🧬'*20000,'HYPOTHESIS_B':'alternative\n' *10000,'FALSIFIER':'failure '*10000};record['errors']=['timeout🧬'*20000]*4
+    m.evidence=[copy.deepcopy(record) for _ in range(12)];original=json.dumps(m.state_dict(),ensure_ascii=False,sort_keys=True)
+    wire=m._memory();projection=json.loads(wire)
+    assert len(wire)<=24000 and len(wire.encode('utf-8'))<=24000
+    assert 0<projection['included_records']<8 and projection['omitted_older_records']==12-projection['included_records']
+    assert json.dumps(m.state_dict(),ensure_ascii=False,sort_keys=True)==original
+    for row in projection['records']:
+        for key in ['effects','anchor_score','states','context_sha256','evaluation_fingerprint','anchor_source_sha256']:
+            assert row[key]==record[key]
+        assert '[TRUNCATED IN PROMPT' in row['hypotheses']['HYPOTHESIS_A']
+        metadata=row['prompt_text_truncations']['hypotheses.HYPOTHESIS_A']
+        assert metadata['original_chars']==len(record['hypotheses']['HYPOTHESIS_A']) and len(metadata['sha256'])==64
+        assert row['prompt_text_truncations']['errors_serialized_json']['original_utf8_bytes']>2048
+
+def test_short_normal_multiline_memory_is_unchanged():
+    m,ctx,_=fixture();item=experiment(m,ctx);resolve(m,ctx,item)
+    raw=copy.deepcopy(m.evidence[-1]);projection=json.loads(m._memory());row=projection['records'][0]
+    assert row['hypotheses']==raw['hypotheses'] and 'second line preserved' in row['hypotheses']['HYPOTHESIS_A']
+    assert row['errors']==raw['errors'] and 'prompt_text_truncations' not in row
+    assert projection['omitted_older_records']==0 and m.evidence[-1]==raw
+
+def test_prompt_projection_retains_newest_complete_numeric_records():
+    m,ctx,_=fixture();item=experiment(m,ctx);resolve(m,ctx,item);raw=m.evidence[-1]
+    m.evidence=[]
+    for i in range(8):
+        e=copy.deepcopy(raw);e['anchor_id']=f'anchor-{i}';e['hypotheses']={'HYPOTHESIS_A':'x'*10000,'HYPOTHESIS_B':'y'*10000};e['errors']=['z'*10000]*4;m.evidence.append(e)
+    p=json.loads(m._memory());n=p['included_records'];assert 0<n<8
+    assert [e['anchor_id'] for e in p['records']]==[f'anchor-{i}' for i in range(8-n,8)]
+    for e in p['records']:assert e['effects']==raw['effects'] and e['states']==raw['states']
+
+def test_no_observations_adds_no_prompt_memory():
+    m,_,_=fixture();assert m._memory()==''

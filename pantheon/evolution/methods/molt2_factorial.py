@@ -158,8 +158,43 @@ class Molt2Factorial(Molt2):
             out.extend(base)
         return out
     def _memory(self):
+        """Bound only the prompt projection; preserve the complete raw evidence ledger.
+
+        The 24k ceiling is incremental memory, not the complete prompt/context.
+        UTF-8 bytes are bounded too, so multibyte text cannot evade the ceiling.
+        """
+        if not self.evidence:return ''
+        limit=24000
         keys=('hypotheses','status','anchor_id','anchor_source_sha256','anchor_score','anchor_reproduced','effects','evaluation_fingerprint','context_sha256','states','errors','scope')
-        return '\n'.join(json.dumps({k:e.get(k) for k in keys},ensure_ascii=False) for e in self.evidence[-self.memory_size:])
+        recent=self.evidence[-self.memory_size:]
+        projected=[]
+        def shorten(text,cap,label,book):
+            if not isinstance(text,str) or len(text.encode('utf-8'))<=cap:return text
+            prefix=text.encode('utf-8')[:cap].decode('utf-8',errors='ignore')
+            book[label]={'original_chars':len(text),'original_utf8_bytes':len(text.encode('utf-8')),'sha256':hashlib.sha256(text.encode('utf-8')).hexdigest()}
+            return prefix+' ... [TRUNCATED IN PROMPT; full text in raw evidence]'
+        for e in recent:
+            row=copy.deepcopy({k:e.get(k) for k in keys});truncations={}
+            if isinstance(row['hypotheses'],dict):
+                row['hypotheses']={k:shorten(v,768,'hypotheses.'+k,truncations) for k,v in row['hypotheses'].items()}
+            error_text=json.dumps(row['errors'],ensure_ascii=False,sort_keys=True)
+            if len(error_text.encode('utf-8'))>2048:
+                row['errors']=[shorten(error_text,2048,'errors_serialized_json',truncations)]
+            if truncations:row['prompt_text_truncations']=truncations
+            projected.append(row)
+        selected=[]
+        def render(rows):
+            return json.dumps({'projection':'bounded incremental evidence memory; full raw ledger remains archived',
+                'limit_chars_and_utf8_bytes':limit,'raw_evidence_records':len(self.evidence),
+                'recent_records_considered':len(recent),'included_records':len(rows),
+                'omitted_older_records':len(self.evidence)-len(rows),
+                'omission_policy':'Keep newest complete projected records; stop at first record that does not fit. Numeric/source/context fields are never partially omitted within a retained record.',
+                'records':rows},ensure_ascii=False,sort_keys=True)
+        for row in reversed(projected):
+            trial=[row]+selected;wire=render(trial)
+            if len(wire)>limit or len(wire.encode('utf-8'))>limit:break
+            selected=trial
+        return render(selected)
     async def on_measured(self,ctx,ind,m):
         p=self.pending_experiments.get(m.batch_id)
         if p is None:return await super().on_measured(ctx,ind,m)

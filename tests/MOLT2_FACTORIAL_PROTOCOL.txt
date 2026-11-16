@@ -20,6 +20,12 @@ No evaluator labels, hidden inputs or heldout scores are accessed by the method.
 
 All observed executable source states, full SHA256s, IDs, context fingerprint,
 score/error metadata and complete multiline mechanism comments are checkpointed.
+The incremental evidence prompt projection is capped at24000characters AND UTF-8
+bytes. Long annotations/errors are explicitly truncated with original SHA256,
+character/byte lengths; newest complete projected records are retained and omitted
+records counted. Numeric outcomes and source/context hashes within retained records
+are preserved. This is NOT a ceiling on the entire prompt: native parent code still
+uses the original prompting path. Complete raw evidence/source state stays intact.
 Ordinary mutations receive code-linked observations (including negative and
 inconclusive states), rather than an LLM surrogate's confidence or universal law.
 A competitive usable arm can enter its original protected chain even if the
