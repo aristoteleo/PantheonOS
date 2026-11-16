@@ -8,7 +8,8 @@ One model template, four normal driver evaluations in fixed order00,10,01,11.
 Two real module/file-scope flags produce immutable source states; all other bytes
 must match. Python names cannot be reassigned or shadowed. C++ declarations must
 be canonical static constexpr bool at file scope and cannot be shadowed by normal
-bool/int/auto declarations. Compiler validation remains necessary; this lexical
+bool/int/auto declarations. Flag names in preprocessing directives are rejected,
+including line-spliced uses; normal C++ conditionals are required. Compiler validation remains necessary; this lexical
 checker is not a proof of program semantics, mechanism independence or flag reachability.
 
 Recorded conditional contrasts: A=y10-y00, B=y01-y00,

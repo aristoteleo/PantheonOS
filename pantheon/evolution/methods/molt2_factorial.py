@@ -29,6 +29,13 @@ def toggle_factorial(files,path):
     spans={next(f for f in FLAGS if f in m['head']):m for m in matches}
     if len(spans)!=2:raise ValueError('Require both A and B')
     if not path.endswith('.py'):
+        # Preprocessor conditionals cannot inspect constexpr variables: undefined
+        # identifiers become zero irrespective of the harness's true/false bits.
+        # Join escaped newlines before checking complete logical directives.
+        logical=re.sub(r'\\\r?\n','',code)
+        directive_text=re.sub(r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'', ' ',logical)
+        if re.search(r'^[ \t]*(?:#|%:)[^\n]*\bMOLT2_[AB]\b',directive_text,re.M):
+            raise ValueError('Factorial flags must use normal C++ conditions, never preprocessor directives')
         # Canonical declarations must be real file-scope statements, not a comment,
         # string, nested scope or shadowed local. Compiler checks remaining syntax.
         lexical=re.sub(r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'',lambda m:' '*(len(m[0])),code)
@@ -70,6 +77,10 @@ Python: exactly module-level `MOLT2_A = 0` and `MOLT2_B = 0`, no later writes or
 C++: exactly file-scope `static constexpr bool MOLT2_A = false;` and
 `static constexpr bool MOLT2_B = false;`, no other declarations of these names.
 Both flags must actually control their respective mechanisms, not comments/strings.
+Use normal C++ if/if constexpr/conditional expressions. Never use either flag in
+a preprocessor directive (#if, #ifdef, #define, etc.): constexpr bindings are not macros.
+C++: use normal if/if constexpr or conditional operators; NEVER use these flags in
+#if, #ifdef, #ifndef, #elif, #define, or any other preprocessor directive.
 The harness alone flips the two literals. All four programs must work standalone.
 Comment annotations may span multiple lines. Include MOLT2_HYPOTHESIS_A: and
 MOLT2_HYPOTHESIS_B: with mechanisms and predictions, then MOLT2_FALSIFIER:.

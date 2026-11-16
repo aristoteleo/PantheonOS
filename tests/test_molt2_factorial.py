@@ -172,3 +172,26 @@ def test_eval_cap_includes_pending_four_arm_reservation():
             if item.meta.get('molt2_experiment'):resolve(m,ctx,item);seen+=1
     assert seen==1 and m.seed_eval_slots+m.base_eval_slots+m.experiment_eval_slots==13
     assert not m.pending_experiments and not m.open
+
+@pytest.mark.parametrize('directive',[
+ '#if MOLT2_A\nint a=1;\n#endif',
+ '#ifdef MOLT2_B\nint b=1;\n#endif',
+ '#if defined(MOLT2_A)\nint a=1;\n#endif',
+ '#define AXIS MOLT2_A',
+ '#if MOLT2_\\\nA\nint a=1;\n#endif',
+ '%:if MOLT2_B\nint b=1;\n%:endif',
+])
+def test_reject_cpp_preprocessor_flag_uses(directive):
+    code='static constexpr bool MOLT2_A = false;\nstatic constexpr bool MOLT2_B = false;\n'+directive+'\nint f(){ return MOLT2_A + MOLT2_B; }\n'
+    with pytest.raises(ValueError,match='preprocessor'):
+        toggle_factorial({'solution.cpp':code},'solution.cpp')
+
+def test_reject_flags_used_only_in_preprocessor():
+    code='static constexpr bool MOLT2_A = false;\nstatic constexpr bool MOLT2_B = false;\n#if MOLT2_A\nint a=1;\n#endif\n#ifdef MOLT2_B\nint b=1;\n#endif\n'
+    with pytest.raises(ValueError,match='preprocessor'):
+        toggle_factorial({'solution.cpp':code},'solution.cpp')
+
+def test_normal_cpp_conditionals_accepted():
+    code='static constexpr bool MOLT2_A = false;\nstatic constexpr bool MOLT2_B = false;\nint f(){ int x=0; if constexpr(MOLT2_A) x+=1; return x+(MOLT2_B?2:0); }\n'
+    arms,_=toggle_factorial({'solution.cpp':code},'solution.cpp')
+    assert len(arms)==4
