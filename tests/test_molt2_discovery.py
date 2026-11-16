@@ -12,7 +12,10 @@ def fixture(**kw):
     _,ctx,seed=make();m=Molt2Discovery(num_chains=2,k_candidates=2,num_inspirations=2,selector='rpucg',**kw);run(m.start(ctx,[seed]));return m,ctx,seed
 
 def request(m,ctx,seed):
-    m.queue_evidence_request(ctx,dict(anchor_id=seed.id,mechanism='Different representation-local choice',decision_to_inform='whether to retain this component',predicted_contrast='ON improves fixed development objective',falsifier='ON fails to improve',expected_cost='two evaluations'),{'planning_call_id':0})
+    for intervention in m.interventions:
+        for child in intervention.get('children',[]):
+            if child.get('child')=='native-child':child['child']=seed.id
+    m.queue_evidence_request(ctx,dict(anchor_id=seed.id,mechanism='Different representation-local choice',decision_to_inform='whether to retain this component',predicted_contrast='ON improves fixed development objective',falsifier='ON fails to improve',expected_cost='two evaluations'),{'native_direction_id':'i0/d0','intervention':0})
 
 def ready(m):
     # Exact actual Molt intervention schema: _plan creates children[],
@@ -132,6 +135,10 @@ def test_actual_driver_native_cohort_probation_and_pair_within80(monkeypatch):
     assert len(natives)+len(probes)==80 and not m.probes
     assert all(k==1 for diagnostic,k in wire if diagnostic)
     assert any(e['delta'] is not None for e in m.evidence)
+    for evidence in m.evidence:
+        owner=evidence['owner'];entries=m.interventions[owner['intervention']]['children']
+        assert any(x['direction']==owner['native_direction_id'] and x['child']==evidence['native_child_id'] for x in entries)
+        assert len(evidence['native_child_source_sha256'])==64
 
 def test_native_direction_prompt_identical_without_memory():
     from pantheon.evolution.variators.completion import EvolveBlock
@@ -143,15 +150,20 @@ def test_native_direction_prompt_identical_without_memory():
     assert upgraded.build_block_prompt(ctx,item,'solution.py',eb)==p
     assert 'I/O REFERENCE' in p and 'redesign' in p and 'Independent architecture' in p
 
-def test_planner_request_ownership_survives_duplicate_native_directions(monkeypatch):
-    m,ctx,seed=fixture();m._planning_ctx=ctx
+def test_planner_requests_only_follow_native_validated_kept_directions(monkeypatch):
+    m,ctx,seed=fixture()
     r=dict(anchor_id=seed.id,mechanism='component',decision_to_inform='retain?',predicted_contrast='positive',falsifier='notpositive')
-    async def fake(self,prompt):return json.dumps({'directions':[{'type':'redesign','evidence_request':r}]})
-    monkeypatch.setattr(Molt,'_llm',fake)
-    run(m._llm('# Dynamic branch intervention portfolio\n'));run(m._llm('# Dynamic branch intervention portfolio\n'))
-    assert len(m.requests)==2
-    assert m.requests[0]['owner']['planning_call_id']!=m.requests[1]['owner']['planning_call_id']
-    assert m.requests[0]['experiment_id']!=m.requests[1]['experiment_id']
+    async def fake(self,prompt):
+        if prompt.startswith('You are removing'):
+            pool=json.loads(prompt.split('Candidate directions:\n\n',1)[1]);return json.dumps({'kept_direction_ids':[next(iter(pool))]})
+        return json.dumps({'directions':[{'type':'redesign','target_branch_id':seed.id,'task':'kept proposal','evidence_request':r},
+          {'type':'exploration','target_branch_id':'not-live','evidence_request':r}]})
+    monkeypatch.setattr(Molt,'_llm',fake);run(m._plan(ctx))
+    assert len(m.requests)==1 and len(m.pending)==1
+    assert m.requests[0]['owner']['native_direction_id']==m.pending[0]['id']
+    assert m.requests[0]['owner']['intervention']==m.pending[0]['intervention']
+    assert m.requests[0]['owner']['native_direction_type']=='redesign'
+
 
 def test_hard_probe_call_cap_and_observed_dollar_gate(monkeypatch):
     from pantheon.evolution.methods.molt2_discovery import PROBE
@@ -250,3 +262,21 @@ def test_resume_keeps_custom_diagnostic_caps_and_rejects_future_schema():
     assert new.max_probe_calls==2 and new.probe_usd_threshold==.025 and new.native_usd_headroom==.15
     state['discovery']['schema']=2
     with pytest.raises(ValueError,match='schema'):new.load_state_dict(state)
+
+def test_discarded_or_invalid_target_requests_are_never_queued(monkeypatch):
+    m,ctx,seed=fixture();r=dict(anchor_id=seed.id,mechanism='discarded component',decision_to_inform='retain?',predicted_contrast='positive',falsifier='notpositive')
+    async def fake(self,prompt):
+        if prompt.startswith('You are removing'):
+            pool=json.loads(prompt.split('Candidate directions:\n\n',1)[1]);return json.dumps({'kept_direction_ids':[next(iter(pool))]})
+        return json.dumps({'directions':[{'type':'exploration','target_branch_id':seed.id,'task':'kept native without request'},
+          {'type':'exploration','target_branch_id':seed.id,'task':'discarded','evidence_request':r},
+          {'type':'redesign','target_branch_id':'invalid-target','evidence_request':r}]})
+    monkeypatch.setattr(Molt,'_llm',fake);run(m._plan(ctx))
+    assert len(m.pending)==1 and m.pending[0]['task']=='kept native without request'
+    assert not m.requests
+
+def test_kept_but_never_produced_native_direction_cannot_spend_probe():
+    m,ctx,seed=fixture();ready(m);request(m,ctx,seed)
+    m.interventions[0]['children']=[{'direction':'i0/d0','child':None,'not_produced':True}]
+    assert m._probe_item(ctx) is None
+    assert m.rejected_requests[-1]['reason']=='native_direction_not_executed' and m.slots.probe==0

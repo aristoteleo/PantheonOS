@@ -6,6 +6,10 @@ Design source /home/erwinpi/molt2-lab/research/MOLT_WITH_MATCHED_EVIDENCE_DESIGN
 CLI --method molt2_discovery with the existing --max-eval-calls80,
 --max-llm-calls400,--max-llm-usd.50 and normal model/provider settings.
 Original molt.py/simpletes.py/molt2.py/molt2_factorial.py remain byte-identical.
+Probe requests are collected only AFTER native live-target validation and direction
+deduplication. Each request owns a stable native direction/intervention ID and can
+be serviced only after that direction produced an actual recorded child. Requests
+from discarded/invalid/unexecuted decisions cannot spend diagnostic slots.
 This method subclasses Molt; its variator subclasses MoltVariator, preserving
 planned direction/I/O reference/probation prompts. With no evidence the native
 planned block prompt is byte-identical. Native planner defaults are unchanged.

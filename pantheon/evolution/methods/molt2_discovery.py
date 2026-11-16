@@ -137,7 +137,16 @@ class Molt2Discovery(Molt):
         return Molt2Factorial._memory(projection)
     async def _plan(self,ctx):
         self._planning_ctx=ctx
-        try:await super()._plan(ctx)
+        already_pending={d.get('id') for d in self.pending}
+        try:
+            await super()._plan(ctx)
+            # Native Molt has now validated live targets, deduplicated directions,
+            # and assigned immutable native direction/intervention ownership.
+            for d in self.pending:
+                if d.get('id') in already_pending:continue
+                request=d.get('evidence_request')
+                if isinstance(request,dict):
+                    self.queue_evidence_request(ctx,request,{'native_direction_id':d['id'],'intervention':d['intervention'],'native_direction_type':d.get('type')})
         finally:self._planning_ctx=None
     async def _llm(self,prompt):
         planning=self._planning_ctx is not None and prompt.startswith('# Dynamic branch intervention portfolio')
@@ -152,10 +161,6 @@ class Molt2Discovery(Molt):
             ds=parsed.get('directions',[])
             if not isinstance(ds,list):
                 parsed['directions']=[];return json.dumps(parsed)
-            for i,d in enumerate(ds):
-                if not isinstance(d,dict):continue
-                request=d.get('evidence_request')
-                if isinstance(request,dict):self.queue_evidence_request(self._planning_ctx,request,{'intervention':len(self.interventions),'planning_call_id':call_id,'direction_index':i,'native_direction_type':d.get('type')})
         return reply
     def queue_evidence_request(self,ctx,request,owner):
         if any(not isinstance(request.get(k),str) or not request[k].strip() for k in ('anchor_id','mechanism','decision_to_inform','predicted_contrast','falsifier')):return False
@@ -177,6 +182,13 @@ class Molt2Discovery(Molt):
         if not self._can_probe():return None
         while self.requests:
             row=self.requests.pop(0);context=row['context'];anchor=ctx.store.get(context['anchor_id'])
+            owner=row['owner'];intervention=owner.get('intervention');direction_id=owner.get('native_direction_id')
+            native_children=self.interventions[intervention].get('children',[]) if isinstance(intervention,int) and 0<=intervention<len(self.interventions) else []
+            native_child=next((x.get('child') for x in native_children if x.get('direction')==direction_id and x.get('child') and not x.get('not_produced')),None)
+            native_program=ctx.store.get(native_child) if native_child else None
+            if native_program is None:
+                self.rejected_requests.append({**row,'reason':'native_direction_not_executed'});continue
+            row['native_child_id']=native_child;row['native_child_source_sha256']=source_sha(native_program.genome.files)
             chains=[c for c,ch in enumerate(self.chains) if not self._retired(c) and context['anchor_id'] in ch]
             if anchor is None or source_sha(anchor.genome.files)!=context['anchor_source_sha256'] or context['evaluation_fingerprint']!=self.fingerprint or context['objective_sha256']!=hashlib.sha256(ctx.objective.encode()).hexdigest() or chains!=context['chains'] or not chains:
                 self.rejected_requests.append({**row,'reason':'stale_anchor_or_context'});continue
