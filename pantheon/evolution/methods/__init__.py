@@ -21,6 +21,7 @@ from .lab_notebook import LabNotebook
 from .molt import Molt
 from .molt2 import Molt2
 from .molt2_factorial import Molt2Factorial
+from .molt2_discovery import Molt2Discovery
 
 __all__ = [
     "AgentMapElites",
@@ -32,5 +33,5 @@ __all__ = [
     "PantheonEvo",
     "SimpleTES", "Selector", "PUCTSelector", "RPUCGSelector",
     "LabNotebook",
-    "Molt", "Molt2", "Molt2Factorial",
+    "Molt", "Molt2", "Molt2Factorial", "Molt2Discovery",
 ]

@@ -1,0 +1,73 @@
+Molt2 discovery: native architecture search plus optional paired instrumentation
+Development prototype; no paid run, scientific evaluation or heldout feedback.
+Parent commit b6a113a0728c95c497e8865fbbf280e9631d7d04.
+Design source /home/erwinpi/molt2-lab/research/MOLT_WITH_MATCHED_EVIDENCE_DESIGN.txt.
+
+CLI --method molt2_discovery with the existing --max-eval-calls80,
+--max-llm-calls400,--max-llm-usd.50 and normal model/provider settings.
+Original molt.py/simpletes.py/molt2.py/molt2_factorial.py remain byte-identical.
+This method subclasses Molt; its variator subclasses MoltVariator, preserving
+planned direction/I/O reference/probation prompts. With no evidence the native
+planned block prompt is byte-identical. Native planner defaults are unchanged.
+
+A planner direction may additionally carry evidence_request with anchor_id,
+mechanism,decision_to_inform,predicted_contrast,falsifier,expected_cost. These
+requests retain independent planning-call/direction ownership before native
+deduplication. They never replace integration/exploration/redesign directions.
+Malformed request metadata is ignored without removing a valid native direction.
+Malformed non-object planner replies are safely treated as empty directions.
+
+Native pending directions, due planner rounds, open cohorts and probation take
+priority. After a native cohort has produced children and no sprout remains on
+probation, one residual worker may run a decision-linked matched probe. No request
+means all available capacity goes to native search. A busy architecture portfolio
+can legitimately yield zero probes; no claim all tasks will use instrumentation.
+
+One model template supplies a real MOLT2_TREATMENT flag; deterministic OFF/ON
+copies differ only at its binding. Source SHA256s, IDs, anchor/protocol/objective/
+branch context, complete requests/comments, executable states and complete metric/
+artifact dictionaries are archived. Missing/invalid/mismatched scores have no
+invented zero delta. Control agreement is a diagnostic, not semantic proof.
+Timed reads are fixed OFF thenON, not randomized/repeated; small effects do not
+establish causality. Per-case output is retained only when the evaluator supplies
+it; aggregate-only evaluators do not acquire per-case evidence automatically.
+
+At most8diagnostic candidate slots (4pairs) under80total, leaving at least72native
+candidate slots INCLUDING the initial seed. Hard atomic process-local reservations
+include pending/failed-generation work, so actual evaluations can be fewer than
+reserved slots. Unused diagnostic allowance returns to native work. One experiment
+is open at once. Diagnostics do not age native stall/probation clocks or invoke
+native direction callbacks; one explicit admission path may add a competitive arm
+and update a genuine frontier improvement once. Fitness admission is separate
+from mechanistic support. Closed batch callbacks are ignored idempotently.
+
+At most4diagnostic provider completion calls (including retries) are allowed.
+Observed diagnostic charge gating is.05USD, with.10USD observed native headroom
+under.50USD. Concurrent native charges are conservatively included in the probe
+upper-bound observation. This is NOT a guaranteed pre-call per-probe dollar cap:
+unknown future provider prices can exceed a soft threshold on one request. No
+prices are guessed. All calls follow the ordinary variator SDK path and caller's
+existing atomic shared40USD global reservation guard. That external guard is not
+installed by this method; a future standalone launcher must retain it. Native
+run_bench model/evaluation cap behavior remains in force as well.
+
+Locally applicable memory requires matching protocol/objective and actual anchor
+source plus a matching lineage context. Traversal STOPS at native full-redesign
+metadata and known sprout origins; old negative component evidence is not applied
+to a new architecture merely because Molt keeps a descent edge. An exact source
+anchor remains a valid recorded context; same-family ordinary descendants can use
+its observations. Planner catalog history remains contextual, not a global ban.
+The prompt-only projection uses the tested24kcharacter AND UTF-8byte cap, with
+explicit truncation length/hashes and omitted record counts. Full raw state is
+unchanged; this is NOT a bound on the complete prompt containing native parent code.
+
+Checkpoint schema1 separately stores requests, pending arms/reservations, evidence
+and completion IDs. Resume closes orphaned partial probes as interrupted_unresolved
+with sources intact and no fabricated score or automatic paid retry. Native Molt
+has its unchanged interruption semantics for native directions.
+
+Offline tests include an actual core.evolve80evaluation simulation using native
+4planners and probation5: redesign opens/graduates a protected sprout and a real
+decision request produces two measured OFF/ON arms while preserving >=72native
+and <=8diagnostic capacity. This demonstrates feasible scheduling, not superiority.
+No hardcoded task names, algorithms, expected wins or heldout data are present.
