@@ -415,3 +415,31 @@ async def test_a_conversation_on_another_computer_is_never_asked():
     read = await agent.call_tool("file_manager__read_file", {"file_path": "/Users/me/notes.txt"},
                                  context_variables={"chat_node": "mac"})
     assert read["node_id"] == "mac"
+
+
+@pytest.mark.asyncio
+async def test_a_command_for_another_computer_never_waits_for_a_released_workspace():
+    """A released Workspace is gone from the list, so it is not known as the
+    default: a call that names the other computer must not bind the Files App
+    (which waits for the Workspace) to find out whether that computer is it."""
+    agent = await agent_on()
+    fleet = agent.providers["fleet"]
+    original = fleet.call_tool
+
+    async def without_workspace(name, args):
+        reply = await original(name, args)
+        if name == "fleet_list_nodes":
+            reply["nodes"] = [n for n in reply["nodes"] if n["node_id"] != "ws"]
+        return reply
+    fleet.call_tool = without_workspace
+    files = agent.providers["file_manager"]
+    waited = []
+
+    async def bound_node():
+        waited.append(1)
+        raise AssertionError("waited for the Workspace")
+    files.node_id = None
+    files.bound_node = bound_node
+    files._bound = None
+    ran = await agent.call_tool("shell__run_command", {"command": "uname", "node": "Mac"})
+    assert ran["node_id"] == "mac" and ran["output"] == "Darwin\n" and waited == []

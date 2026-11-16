@@ -80,6 +80,12 @@ async def known_default(agent, nodes: list[dict] | None = None) -> str | None:
     return workspaces[0] if len(workspaces) == 1 else None
 
 
+def _listed_workspace_fleet(agent) -> bool:
+    """The Agent's Files App is one allocated on the owner's Workspace (bound
+    on demand), as opposed to one that runs on a fixed node of its own."""
+    return getattr(agent.providers.get("file_manager"), "bound_node", None) is not None
+
+
 def fleet_of(agent):
     """The Fleet App an Agent reaches other nodes through: its own, or (a
     sub-agent) the one it was lent by the agent that starts it."""
@@ -177,7 +183,12 @@ async def route(agent, name: str, args: dict, node_id: str, workdir: str = "") -
         return {"success": False, "error": f"Node {node_id} is not one of your nodes. Your nodes: {_names(nodes)}. "
                                            "Leave node empty to work on this conversation's node."}
     node_id = node["node_id"]
-    if node_id == default or (default is None and node_id == await default_node(agent)):
+    # A listed computer that is not a Workspace is never the Files App's node
+    # to find out by binding it: that waited for a released Workspace (gone
+    # from the list, so not known as the default) before running a command
+    # meant for the other computer.
+    if node_id == default or (default is None and (is_workspace(node) or not _listed_workspace_fleet(agent))
+                              and node_id == await default_node(agent)):
         # The conversation's own node, named rather than given by id.
         return None
     if node.get("status") == "offline":
