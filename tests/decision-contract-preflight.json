@@ -1,0 +1,125 @@
+{
+  "scope": "setup planner contract only, no fitness evaluation or optimizer feedback",
+  "real_api_calls": 2,
+  "reported_total_usd": 0.030122285999999998,
+  "receipts": [
+    {
+      "task": "ahc024",
+      "run_id": "decision-contract-preflight-024",
+      "status": "response_received",
+      "actual_provider": "Wafer",
+      "reported_cost_usd": 0.016894746,
+      "finish_reason": "stop",
+      "original_prompt_sha256": "202a11b93c1ee035028f345b9088084a21d3e9181c1b219c387fbe4396ba940a",
+      "revised_prompt_sha256": "d02e2a6c1ac732788de3503e07bfda399cf0fc87e3371642b8ba93778a79c9e8",
+      "helper_sha256": "6253fc464c63b9cfbc3e6140e8e3a643ce59b5b773804000c110ad586302c041",
+      "compliance": {
+        "parseable_direction_list": true,
+        "direction_count": 2,
+        "field_present_count": 2,
+        "null_count": 1,
+        "nonnull_count": 1,
+        "schema_valid_nonnull_count": 1,
+        "directions": [
+          {
+            "index": 0,
+            "field_present": true,
+            "null": false,
+            "nonnull": true,
+            "required_fields_valid": true,
+            "anchor_id": "efbf7cf9",
+            "eligible_anchor_valid": true,
+            "expected_cost_valid": true,
+            "target_live": true,
+            "type": "integration"
+          },
+          {
+            "index": 1,
+            "field_present": true,
+            "null": true,
+            "nonnull": false,
+            "required_fields_valid": false,
+            "anchor_id": null,
+            "eligible_anchor_valid": false,
+            "expected_cost_valid": false,
+            "target_live": true,
+            "type": "redesign"
+          }
+        ],
+        "contract_pass": true
+      },
+      "eligible_anchor_count": 7,
+      "ledger_receipts": [
+        {
+          "stamp": "1794822693258186489-8903af4a",
+          "run_id": "decision-contract-preflight-024",
+          "cost_usd": 0.016894746,
+          "conservative_charge_usd": 0.016894746,
+          "provider": "Wafer",
+          "error": null
+        }
+      ]
+    },
+    {
+      "task": "ahc058",
+      "run_id": "decision-contract-preflight-058",
+      "status": "response_received",
+      "actual_provider": "Wafer",
+      "reported_cost_usd": 0.01322754,
+      "finish_reason": "stop",
+      "original_prompt_sha256": "d6d26d46193098434ee181a65f37350f880eac33d4a8caadced3890cc9d9e37b",
+      "revised_prompt_sha256": "e4489304237952d579d93c5d32dd10e02d956dcb74ae433d438cf9e689855f6a",
+      "helper_sha256": "6253fc464c63b9cfbc3e6140e8e3a643ce59b5b773804000c110ad586302c041",
+      "compliance": {
+        "parseable_direction_list": true,
+        "direction_count": 2,
+        "field_present_count": 2,
+        "null_count": 1,
+        "nonnull_count": 1,
+        "schema_valid_nonnull_count": 1,
+        "directions": [
+          {
+            "index": 0,
+            "field_present": true,
+            "null": false,
+            "nonnull": true,
+            "required_fields_valid": true,
+            "anchor_id": "0443aed5",
+            "eligible_anchor_valid": true,
+            "expected_cost_valid": true,
+            "target_live": true,
+            "type": "integration"
+          },
+          {
+            "index": 1,
+            "field_present": true,
+            "null": true,
+            "nonnull": false,
+            "required_fields_valid": false,
+            "anchor_id": null,
+            "eligible_anchor_valid": false,
+            "expected_cost_valid": false,
+            "target_live": true,
+            "type": "redesign"
+          }
+        ],
+        "contract_pass": true
+      },
+      "eligible_anchor_count": 9,
+      "ledger_receipts": [
+        {
+          "stamp": "1794822798336064982-ba600d8a",
+          "run_id": "decision-contract-preflight-058",
+          "cost_usd": 0.01322754,
+          "conservative_charge_usd": 0.01322754,
+          "provider": "Wafer",
+          "error": null
+        }
+      ]
+    }
+  ],
+  "all_contracts_pass": true,
+  "no_evaluation_or_optimization": true,
+  "no_heldout_access": true,
+  "helper_path": "/home/erwinpi/molt2-decision-engine/pantheon/evolution/methods/decision_prompt.py"
+}

@@ -1,0 +1,66 @@
+Molt2 Decision: instrument-contract and scheduling revision (development only)
+Parent engine961d72554ed80a5e82fc9ef5e11671cd0b14776d. Newmethodmolt2_decision.
+No optimizer launch or scientific evaluation was made during implementation.
+All existing native Molt/SimpleTES and prior prototype source files are unchanged.
+
+Motivation is observed PUBLIC runtime evidence: predecessor optional measurement
+appendix appeared in16actual planner prompts, yet0/30returned directions requested
+evidence. That is an instrument-compliance problem, not evidence of superiority
+or failure of the underlying pairing hypothesis. Existing running Discovery961d
+is untouched. This revision is a separate source branch and prospective variant.
+
+Planner contract
+Pure helper pantheon/evolution/methods/decision_prompt.py takes
+build_decision_planner_prompt(native_prompt,eligible_anchor_ids,memory='')->str.
+It edits the actual native rendered JSON example to include the explicit nullable
+evidence_request field on EVERY direction, then asks >=1 concrete question per
+portfolio when eligible BASE/ESTABLISHED live anchors exist. A request names an
+exacteligibleanchor, mechanism, decision_to_inform,predicted_contrast,falsifier,
+expected_cost={candidate_evaluations:2,template_model_calls:1}. Null is explicit
+for directions with no useful question. The original required-redesign portfolio
+remains intact; a question is not a new fourth architecture type or a completed
+measurement. No algorithm/task-specific move is hardcoded.
+
+Malformed planner replies retain predecessor safe-empty handling. Contract failures
+are recorded, not repaired by fabricated questions or automatic paid retries.
+Valid native architecture directions still run even when instrumentation fails.
+Only native validated/dedup-kept directions own requests; actual native child and
+context/source SHA are required before a diagnostic is dispatched.
+
+Scheduling change
+After initial native cohort drains (no pending/open_dirs), an established/base
+anchor can receive a residual paired probe while OTHER sprouts are on probation.
+The probed anchor must not itself belong to any active probationary chain.
+Due native planning has priority whenever native Molt would actually permit it;
+max_sprouts-blocked planning cannot indefinitely block a residual instrument.
+One native batch receives priority when capacity permits, and only one probe can
+be open. Native attempt/probation clocks never age twice from OFF/ON feedback.
+Hard80candidate-slot cap (including seed/pending/failure reservations), <=8probe
+slots/at least72native capacity, modelcall ceiling4diagnostic calls and inherited
+financial/headroom rules remain. Unused allowance returns to native work.
+$.05diagnostic spend is an observed/conservative gate, not a guaranteed pre-call
+price ceiling. Ordinary SDK calls retain the caller's shared40USD reservation guard.
+
+Observed OFF/ON differences remain conditional template contrasts; literal source
+symmetry and aggregate anchor agreement do not prove semantic isolation or universal
+causality. No repetitions/randomized order are newly introduced. Old component
+memory cannot cross a full-redesign structural boundary merely by shared lineage.
+Raw evidence and complete source states remain archived; prompt projection is bounded.
+
+Validation
+Four native planners/multiple active sprouts in an actual core.evolve simulation
+produce a measured pair BEFORE all sprouts graduate, inside80total slots; source
+hashes, native ownership, reverse delivery/failure/resume, unchanged prior methods,
+context boundaries and hard caps are tested. No paid optimizer calls in these tests.
+A separate peer agent is authorized for at most TWO guarded real planner setup
+calls with saved public024/058 prompts, matching Wafer/model/reasoning. Setupcost
+is shared-ledger spend but separate from comparative searches. Actual compliance
+receipts are in decision-contract-preflight.json; success is only instrument
+compliance, not optimizer performance or validation/generalization evidence.
+
+Actual guarded setup preflights BOTH complied: two requests total, Wafer,
+reported total0.030122286USD, charged to shared ledger and labelled setup-only.
+Each returned2directions with explicit nullable fields, one valid eligible-anchor
+question and one null. Compact receipts and exact helper/prompt hashes are in
+decision-contract-preflight.json. This is two examples of compliance, not a guarantee
+of all future model replies or evidence of optimizer-score improvement.
