@@ -1,0 +1,17 @@
+{
+  "status": "passed",
+  "recorded_utc": "2026-11-16T19:16:33.553368+00:00",
+  "offline_tests_passed": 169,
+  "real_model_calls": 0,
+  "task_evaluations": 0,
+  "preserved_method_files": [
+    "molt.py",
+    "simpletes.py",
+    "molt2.py",
+    "molt2_factorial.py",
+    "molt2_discovery.py",
+    "molt2_decision.py"
+  ],
+  "revision_basis": "Two public-source preflight declines in preserved source610. No fresh Scout optimization or reserved evaluation exists. Add parent/child/anchor whole-program public observations and clarify why an integrated component can still need causal isolation. All scheduling, targeting, decline option, budgets and native Molt planner unchanged.",
+  "scope": "Offline provenance/schema integration only; no activation, optimization, novelty or superiority established."
+}

@@ -84,6 +84,31 @@ class Molt2Scout(Molt2Discovery):
                               and self._targets_owner_branch(ctx,anchor,owner)]
                     if relevant:return max(relevant,key=lambda pair:pair[0])[1],owner
         return None
+    def _public_observations(self,ctx,anchor,owner):
+        """Observed whole-program context, never attributed component effects."""
+        import math
+        child=self._owner_child(ctx,owner)
+        requested=[('anchor',anchor),('executed_child',child)]
+        for role,ind in (('child_parent',child),('anchor_parent',anchor)):
+            if ind is not None:
+                requested.extend((role,ctx.store.get(ident)) for ident in ind.parent_ids[:4])
+        records={}
+        for role,ind in requested:
+            if ind is None or not hasattr(ind.genome,'files'):continue
+            if ind.id in records:
+                records[ind.id]['roles'].append(role);continue
+            observation={'individual_id':ind.id,'roles':[role],'source_sha256':source_sha(ind.genome.files),'public_score':None,'measurement_status':'no_fully_valid_full_observation'}
+            for measurement in ind.measurements:
+                if getattr(measurement,'fidelity',None)!='full' or measurement.metrics.get('validity')!=1:continue
+                score=usable_score(measurement,self.score_key)
+                if score is None:continue
+                observation.update(public_score=score,measurement_status='first_fully_valid_full_observation')
+                for name in ('num_cases','num_accepted','eval_time'):
+                    value=measurement.metrics.get(name)
+                    if type(value) in (int,float) and math.isfinite(value):observation[name]=value
+                break
+            records[ind.id]=observation
+        return {'interpretation':'Observational whole-program readings only; differences cannot establish component causality. Missing observations remain null. No hidden inputs or heldout results.','programs':list(records.values())}
     def _question_prompt(self,ctx,anchor,owner):
         code=json.dumps(anchor.genome.files,ensure_ascii=False)
         directions=self.interventions[owner['intervention']].get('directions',[])
@@ -95,10 +120,12 @@ class Molt2Scout(Molt2Discovery):
         return ('# Component experiment decision\nNative architecture planning has already executed the direction below. Do not propose new architecture directions here.\n'
                 'Use public-development feedback only. Never access hidden inputs, scoring code or external data.\n'
                 'The anchor is the executed native child or a verified source descendant, not an ancestor substituted for the new implementation.\n'
+                'A whole-program score does not establish which integrated component helped. A component already present but never isolated can be worth testing.\n'
+                'You do not need an existing OFF/ON result to propose gathering one. Identify a bounded toggle whose result changes a keep/remove/simplify or time-allocation choice; decline if none is worth its cost.\n'
                 'Decide if one OFF/ON component contrast on the exact established anchor would inform a specific next edit. You may decline.\n'
                 'Return JSON {"experiment":null,"reason":"..."} or {"experiment":{"anchor_id":"exact supplied ID","mechanism":"one component","decision_to_inform":"specific choice","predicted_contrast":"expected measured difference","falsifier":"what would count against it","expected_cost":{"candidate_evaluations":2,"template_model_calls":1}}}.\n'
                 'A failed implementation is not evidence against an abstract algorithm family. Do not describe unmeasured effects as established.\n'
-                'Task:\n'+ctx.objective[:6000]+'\nExecuted native owner:\n'+json.dumps(owner)+'\nExecuted direction context:\n'+direction_projection+'\nChild first fully valid public score: '+str(observed_child_score)+'\nAnchor ID: '+anchor.id+'\nSource SHA256: '+source_sha(anchor.genome.files)+'\nAnchor code:\n'+code+'\nContext-scoped prior evidence:\n'+self._memory(ctx,[anchor.id]))
+                'Task:\n'+ctx.objective[:6000]+'\nExecuted native owner:\n'+json.dumps(owner)+'\nExecuted direction context:\n'+direction_projection+'\nChild first fully valid public score: '+str(observed_child_score)+'\nObserved public program context (not component effects):\n'+json.dumps(self._public_observations(ctx,anchor,owner),ensure_ascii=False)+'\nAnchor ID: '+anchor.id+'\nSource SHA256: '+source_sha(anchor.genome.files)+'\nAnchor code:\n'+code+'\nContext-scoped prior evidence:\n'+self._memory(ctx,[anchor.id]))
     async def _experiment_llm(self,prompt):
         from openai import AsyncOpenAI
         from pantheon.utils.llm_providers import detect_provider

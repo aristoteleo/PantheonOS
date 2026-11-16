@@ -54,3 +54,5 @@ ancestor exclusion, probation, frontier relevance and stale queued lineage.
 Original Scout v1 is preserved at commit5c5417ad41f130b3ce4b99359da59ef73d5dde22
 and its test receipt at TEST_EVIDENCE_v1.json. No paid run is launched.
 Source ancestry alone is not semantic equivalence or proof of causal utility.
+
+Public-evidence context revision: source610 setup produced2 legitimate declines,0 queued questions. Preserve that attempt; add exact public parent/child/anchor observations (first valid full readings; missing remains null) and distinguish unisolated components from whole-program success. Optional decline and every controller policy/budget remain unchanged.169 offline tests pass; no paid-call or performance claim for this revision.
