@@ -372,4 +372,6 @@ def summarize(node: dict, default: str | None) -> dict:
             # Another node's files go through its file service (shared
             # folders); its commands need process execution.
             "files": own or bool(node.get("file_roots")) or "fs:local" in caps,
+            # The folders it shares: where a files panel on it starts.
+            "file_roots": [str(r) for r in node.get("file_roots") or []],
             "commands": own or "proc" in caps}
