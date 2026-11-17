@@ -576,8 +576,11 @@ type ServiceCaller interface {
 
 // nodeFileMethods are the Files service methods an owner's Agent may call on
 // any of the owner's nodes through node_call.
+// file_transfer is the service's bounded chunk dispatch (open, read and write
+// chunks, close): what a file panel needs to show images and move large files.
 var nodeFileMethods = map[string]bool{"read_file": true, "write_file": true, "stat_path": true, "list_files": true,
-	"manage_path": true, "get_cwd": true}
+	"manage_path": true, "get_cwd": true, "create_directory": true, "delete_path": true, "move_file": true,
+	"file_transfer": true}
 
 // nodeCodingAgentMethods are the Coding Agents methods node_call forwards
 // (service "coding_agent"): the Pantheon Agent hands tasks to them.
@@ -604,7 +607,7 @@ func (f *Fleet) nodeCall(ctx context.Context, c *Call) (any, error) {
 			return map[string]any{"success": false, "error": "Call a Coding Agents method (agents_detect, agent_send, agent_stop, agent_conversation, agent_conversations) on one of your nodes"}, nil
 		}
 	} else if a.NodeID == "" || !nodeFileMethods[a.Method] {
-		return map[string]any{"success": false, "error": "Call a Files method (read_file, write_file, stat_path, list_files, manage_path, get_cwd) on one of your nodes"}, nil
+		return map[string]any{"success": false, "error": "Call a Files method (read_file, write_file, stat_path, list_files, manage_path, create_directory, delete_path, move_file, file_transfer, get_cwd) on one of your nodes"}, nil
 	}
 	if a.Args == nil {
 		a.Args = map[string]any{}

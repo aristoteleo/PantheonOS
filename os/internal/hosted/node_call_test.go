@@ -75,9 +75,17 @@ func TestNodeCallReachesANodesFileServiceAndRunOnNodeTakesCwd(t *testing.T) {
 	if out := call("node_call", `{"node_id": "n_mac", "method": "read_file", "args": {"file_path": "/missing"}}`); out["success"] != false || !strings.Contains(out["error"].(string), "not found") {
 		t.Fatalf("%v", out)
 	}
-	// Only Files methods.
-	if out := call("node_call", `{"node_id": "n_mac", "method": "file_transfer"}`); out["success"] != false {
-		t.Fatalf("%v", out)
+	// Only Files methods: another name never reaches the node.
+	sent := len(bus.subjects)
+	if out := call("node_call", `{"node_id": "n_mac", "method": "run_python"}`); out["success"] != false || len(bus.subjects) != sent {
+		t.Fatalf("%v %v", out, bus.subjects)
+	}
+	// The service's chunk dispatch and its folder changes are Files methods too (a file panel on that node).
+	for _, method := range []string{"file_transfer", "create_directory", "delete_path", "move_file"} {
+		sent = len(bus.subjects)
+		if call("node_call", `{"node_id": "n_mac", "method": "`+method+`", "args": {}}`); len(bus.subjects) != sent+1 {
+			t.Fatalf("%s did not reach the node's file service", method)
+		}
 	}
 	// run_on_node passes cwd and keeps the end of long output.
 	out = call("run_on_node", `{"node_id": "n_mac", "code": "ls", "cwd": "/Users/me", "max_output": 10}`)
