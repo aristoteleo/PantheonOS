@@ -173,7 +173,7 @@ async def test_chat_name_generator_uses_provider_low_from_preferred_model(monkey
         preferred_model="anthropic/claude-opus-4-8",
     )
 
-    assert result == "🧬Single-cell Analysis"
+    assert result == "Single-cell Analysis"  # the emoji a model still adds is dropped
     assert generator._name_agent is not None
     assert generator._name_agent.models == ["anthropic/claude-haiku-4-5"]
     assert resolver_calls == [("low", "anthropic/claude-opus-4-8")]

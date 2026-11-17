@@ -12,6 +12,7 @@ individual helper calls are stateless so conversations cannot share history.
 """
 
 import asyncio
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -47,6 +48,17 @@ def _model_cache_key(model: str | list[str] | None) -> str:
     if isinstance(model, list):
         return "\n".join(model)
     return model or ""
+
+
+
+_LEADING_EMOJI = re.compile(
+    "^(?:[\U0001F000-\U0001FAFF\u2190-\u21FF\u2300-\u27BF\u2B00-\u2BFF\u3030\u303D\u3297\u3299]"
+    "[\uFE0E\uFE0F\u200D\U0001F3FB-\U0001F3FF]*)+\\s*")
+
+
+def strip_leading_emoji(title: str) -> str:
+    """A chat title without the emoji some titles start with."""
+    return _LEADING_EMOJI.sub("", title).strip() or title
 
 
 class SummaryGenerator:
@@ -567,14 +579,15 @@ class ChatNameGenerator:
                 model_scope=self.model_scope,
                 model=helper_model,
                 instructions=(
-                    "You are a helpful assistant that generates chat titles with relevant icons. "
+                    "You are a helpful assistant that generates chat titles. "
                     "Generate a concise (3-6 words) title based on the user's intent. "
                     "Specific rules:\n"
-                    "- Start the title with a single relevant emoji (any suitable emoji) WITHOUT a space. The emoji should be highly relevant to the topic (e.g., 🧬, 💻, 📊, 🐞, 📝, etc.).\n"
+                    "- Plain words only: no emoji, no icon, no symbol in front.\n"
+                    "- Write it in the language the user wrote in.\n"
                     "- Be specific to the technical task or topic.\n"
                     "- Avoid generic words like 'Chat', 'Question', 'Help', 'Analysis'.\n"
                     "- Do not use file extensions unless relevant.\n"
-                    "- Return ONLY the emoji and the title text, no quotes or preamble."
+                    "- Return ONLY the title text, no quotes or preamble."
                 ),
             )
             self._name_agent_model = helper_model_key
@@ -600,7 +613,8 @@ class ChatNameGenerator:
                 )
             if response:
                 content = getattr(response, "content", None) or str(response)
-                name = str(content).strip()
+                # A plain title: the model may still put an emoji in front.
+                name = strip_leading_emoji(str(content).strip())
                 # Simple cleaning
                 if name and len(name) > 3 and len(name) < 100:
                     return name
