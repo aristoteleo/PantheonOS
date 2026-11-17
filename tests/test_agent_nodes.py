@@ -443,3 +443,22 @@ async def test_a_command_for_another_computer_never_waits_for_a_released_workspa
     files._bound = None
     ran = await agent.call_tool("shell__run_command", {"command": "uname", "node": "Mac"})
     assert ran["node_id"] == "mac" and ran["output"] == "Darwin\n" and waited == []
+
+
+@pytest.mark.asyncio
+async def test_the_files_panel_reads_a_text_file_on_another_computer():
+    from types import SimpleNamespace
+    from pantheon.chatroom.runtime import AgentRuntime
+
+    leader = await agent_on()
+    runtime = AgentRuntime.__new__(AgentRuntime)
+    runtime.chat_teams = {"chat": SimpleNamespace(team_agents=[leader])}
+    read = await runtime.read_node_file("mac", "/Users/me/notes.txt")
+    assert read == {"success": True, "name": "Mac", "path": "/Users/me/notes.txt",
+                    "content": "alpha\nbeta\nbeta\n", "truncated": False}
+    name, args = leader.providers["fleet"].calls[-1]
+    assert name == "node_call" and args["node_id"] == "mac" and args["args"]["max_chars"] == 256 * 1024
+    missing = await runtime.read_node_file("mac", "/Users/me/none.txt")
+    assert missing == {"success": False, "error": "not found"}
+    assert (await runtime.read_node_file("off", "C:/Users/me/a.txt"))["offline"] is True
+    assert (await runtime.read_node_file("nobody", "/x"))["success"] is False

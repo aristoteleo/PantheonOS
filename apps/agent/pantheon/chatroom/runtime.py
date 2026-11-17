@@ -1144,6 +1144,33 @@ class AgentRuntime(AgentLifetime, ToolSet):
             return {"success": False, "error": str(e)}
 
     @tool
+    async def read_node_file(self, node_id: str, path: str) -> dict:
+        """A text file on one of the owner's other computers, for the chat's
+        files panel to show (read only, at most 256 KiB of it), through the
+        computer's file service: only what that computer shares can be read."""
+        try:
+            agent = await self._listing_agent("")
+            from pantheon.agent_nodes import _MAX_TEXT, _call_files, _node, display_name, fleet_of, list_nodes
+            fleet = fleet_of(agent)
+            if fleet is None:
+                return {"success": False, "error": "This Agent cannot reach other computers."}
+            node = _node(await asyncio.wait_for(list_nodes(agent), timeout=10), node_id)
+            if node is None:
+                return {"success": False, "error": "That computer is not one of your computers."}
+            name = display_name(node)
+            if node.get("status") == "offline":
+                return {"success": False, "error": f"{name} is offline.", "offline": True}
+            if not path:
+                return {"success": False, "error": "Give the file's path."}
+            reply = await _call_files(fleet, node["node_id"], "read_file", {"file_path": path, "max_chars": _MAX_TEXT})
+            if reply.get("success") is False or not isinstance(reply.get("content"), str):
+                return {"success": False, "error": reply.get("error") or "This file cannot be shown as text."}
+            return {"success": True, "name": name, "path": path, "content": reply["content"],
+                    "truncated": bool(reply.get("truncated"))}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool
     async def set_chat_node(self, chat_id: str, node_id: str = "", workdir: str = "") -> dict:
         """Switch the conversation's working node ("" = back to the default),
         optionally with a working directory there: where its commands start
