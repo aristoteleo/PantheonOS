@@ -1111,12 +1111,27 @@ class AgentRuntime(AgentLifetime, ToolSet):
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    # What the files panel may call on one of the owner's other computers: the
+    # same Files methods it calls on the Workspace. file_transfer methods go
+    # through the computer's own chunk dispatch.
+    _NODE_VIEW_FILE_METHODS = frozenset({"get_cwd", "list_files", "stat_path", "read_file", "write_file",
+                                         "create_directory", "delete_path", "move_file"})
+    _NODE_VIEW_TRANSFER_METHODS = frozenset({"capabilities", "open_file_for_read", "open_file_for_write", "read_chunk",
+                                             "read_chunk_at", "write_chunk", "close_file"})
+
     @tool
-    async def list_node_files(self, node_id: str, path: str = "") -> dict:
-        """The files of one of the owner's other computers, for the chat's
-        files panel: path "" lists the folders that computer shares, a path
-        lists that folder. Read only, through the computer's file service."""
+    async def call_node_view_service(self, node_id: str, service: str, method: str, args: dict | None = None) -> dict:
+        """One Files call on one of the owner's other computers, for the
+        chat's files panel and file viewer: the panel works there as it does on
+        the Workspace (list, read, write, upload, rename, delete). The
+        computer's file service answers, so only folders it shares are reached."""
         try:
+            if service == "file_manager" and method in self._NODE_VIEW_FILE_METHODS:
+                call = {"method": method, "args": dict(args or {})}
+            elif service == "file_transfer" and method in self._NODE_VIEW_TRANSFER_METHODS:
+                call = {"method": "file_transfer", "args": {"method": method, "args": dict(args or {})}}
+            else:
+                return {"success": False, "error": "This file operation is not available on another computer."}
             agent = await self._listing_agent("")
             from pantheon.agent_nodes import _node, display_name, fleet_of, list_nodes
             fleet = fleet_of(agent)
@@ -1125,48 +1140,10 @@ class AgentRuntime(AgentLifetime, ToolSet):
             node = _node(await asyncio.wait_for(list_nodes(agent), timeout=10), node_id)
             if node is None:
                 return {"success": False, "error": "That computer is not one of your computers."}
-            name = display_name(node)
             if node.get("status") == "offline":
-                return {"success": False, "error": f"{name} is offline.", "offline": True}
-            roots = [str(r) for r in node.get("file_roots") or []]
-            if not path and len(roots) > 1:
-                # Its shared folders are the top level.
-                return {"success": True, "name": name, "path": "", "roots": roots,
-                        "files": [{"name": r, "path": r, "type": "directory", "size": 0} for r in roots]}
-            target = path or (roots[0] if roots else "")
-            reply = await fleet.call_tool("node_call", {"node_id": node["node_id"], "method": "list_files",
-                                                        "args": {"sub_dir": target} if target else {}})
-            if not isinstance(reply, dict) or not reply.get("success"):
-                return {"success": False, "error": (reply or {}).get("error") if isinstance(reply, dict)
-                        else "Invalid reply"}
-            return {"success": True, "name": name, "path": target, "roots": roots, "files": reply.get("files") or []}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-
-    @tool
-    async def read_node_file(self, node_id: str, path: str) -> dict:
-        """A text file on one of the owner's other computers, for the chat's
-        files panel to show (read only, at most 256 KiB of it), through the
-        computer's file service: only what that computer shares can be read."""
-        try:
-            agent = await self._listing_agent("")
-            from pantheon.agent_nodes import _MAX_TEXT, _call_files, _node, display_name, fleet_of, list_nodes
-            fleet = fleet_of(agent)
-            if fleet is None:
-                return {"success": False, "error": "This Agent cannot reach other computers."}
-            node = _node(await asyncio.wait_for(list_nodes(agent), timeout=10), node_id)
-            if node is None:
-                return {"success": False, "error": "That computer is not one of your computers."}
-            name = display_name(node)
-            if node.get("status") == "offline":
-                return {"success": False, "error": f"{name} is offline.", "offline": True}
-            if not path:
-                return {"success": False, "error": "Give the file's path."}
-            reply = await _call_files(fleet, node["node_id"], "read_file", {"file_path": path, "max_chars": _MAX_TEXT})
-            if reply.get("success") is False or not isinstance(reply.get("content"), str):
-                return {"success": False, "error": reply.get("error") or "This file cannot be shown as text."}
-            return {"success": True, "name": name, "path": path, "content": reply["content"],
-                    "truncated": bool(reply.get("truncated"))}
+                return {"success": False, "error": f"{display_name(node)} is offline.", "offline": True}
+            reply = await fleet.call_tool("node_call", {"node_id": node["node_id"], **call})
+            return reply if isinstance(reply, dict) else {"success": False, "error": "Invalid reply"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 

@@ -446,19 +446,34 @@ async def test_a_command_for_another_computer_never_waits_for_a_released_workspa
 
 
 @pytest.mark.asyncio
-async def test_the_files_panel_reads_a_text_file_on_another_computer():
+async def test_the_files_panel_calls_the_file_service_of_another_computer():
     from types import SimpleNamespace
     from pantheon.chatroom.runtime import AgentRuntime
 
     leader = await agent_on()
     runtime = AgentRuntime.__new__(AgentRuntime)
     runtime.chat_teams = {"chat": SimpleNamespace(team_agents=[leader])}
-    read = await runtime.read_node_file("mac", "/Users/me/notes.txt")
-    assert read == {"success": True, "name": "Mac", "path": "/Users/me/notes.txt",
-                    "content": "alpha\nbeta\nbeta\n", "truncated": False}
-    name, args = leader.providers["fleet"].calls[-1]
-    assert name == "node_call" and args["node_id"] == "mac" and args["args"]["max_chars"] == 256 * 1024
-    missing = await runtime.read_node_file("mac", "/Users/me/none.txt")
-    assert missing == {"success": False, "error": "not found"}
-    assert (await runtime.read_node_file("off", "C:/Users/me/a.txt"))["offline"] is True
-    assert (await runtime.read_node_file("nobody", "/x"))["success"] is False
+    fleet = leader.providers["fleet"]
+    read = await runtime.call_node_view_service("mac", "file_manager", "read_file", {"file_path": "/Users/me/notes.txt"})
+    assert read["success"] and read["content"].startswith("alpha")
+    assert fleet.calls[-1] == ("node_call", {"node_id": "mac", "method": "read_file",
+                                             "args": {"file_path": "/Users/me/notes.txt"}})
+    # Chunked reads and writes go through that computer's own transfer dispatch.
+    seen = []
+
+    async def call_tool(name, args):
+        seen.append((name, args))
+        return {"success": True, "handle_id": "h"}
+    fleet.call_tool = call_tool
+    opened = await runtime.call_node_view_service("mac", "file_transfer", "open_file_for_read", {"file_path": "/Users/me/a.png"})
+    assert opened == {"success": True, "handle_id": "h"}
+    assert seen[-1] == ("node_call", {"node_id": "mac", "method": "file_transfer",
+                                      "args": {"method": "open_file_for_read", "args": {"file_path": "/Users/me/a.png"}}})
+    # Nothing else is passed on, and only the owner's computers that are on.
+    sent = len(seen)
+    for service, method in (("file_manager", "run_python"), ("file_transfer", "transfer_activity"), ("pty", "open")):
+        assert (await runtime.call_node_view_service("mac", service, method, {}))["success"] is False
+    assert len(seen) == sent
+    assert (await runtime.call_node_view_service("off", "file_manager", "list_files", {}))["offline"] is True
+    assert (await runtime.call_node_view_service("nobody", "file_manager", "list_files", {}))["success"] is False
+    assert len(seen) == sent
