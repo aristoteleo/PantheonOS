@@ -572,6 +572,47 @@ class FleetToolSet(ToolSet):
             return {'success': False, 'error': str(exc)}
 
     @tool
+    async def fleet_cloud(self, action: str = 'list', computer: str = '', gpu: str = 'none', gpu_count: int = 1,
+                          cpu: int = 0, memory_gib: int = 0, minutes: int = 240) -> dict:
+        """The owner's cloud computers: the machines the platform runs for them and bills to their monthly budget (the Cloud Workspace, Modal nodes).
+
+        action=list shows each with its state, price per hour and what can be done with it.
+        action=start with computer=workspace starts a paused Cloud Workspace (about a
+        minute; it then appears in fleet_list_nodes): do this when the work needs the
+        Workspace. action=stop with computer=workspace pauses it (files are kept); with
+        a Modal node's id (node-...) it stops and removes that node. action=add starts a
+        new Modal node (computer: a short name; gpu: none for CPU only, or H100, H200,
+        B200, A100-80GB, L40S; minutes: its time limit) and joins it to the Fleet.
+        A new Modal node costs money for its whole time limit: add one only when the
+        user asks, and stop only what the user asked to stop or what you added.
+        """
+        # A Fleet on the owner's own machine: the platform's Hub is asked with this
+        # node's fleet key when it has one (the hosted Fleet service does the rest).
+        import os
+        hub, key = os.environ.get('PANTHEON_HUB_URL', '').rstrip('/'), os.environ.get('FLEET_KEY', '')
+        if not hub or not key:
+            return {'success': False, 'error': 'This Fleet has no cloud computers (it is not connected to a platform account)'}
+        workspace = computer.strip().lower() in ('workspace', 'cloud workspace')
+        if action == 'list':
+            method, path = 'GET', '/api/computers'
+        elif action in ('start', 'stop') and workspace:
+            method, path = 'POST', f'/api/computers/workspace/{action}'
+        else:
+            return {'success': False, 'error': 'Here only the Cloud Workspace is started and stopped (computer=workspace); '
+                                               'Modal nodes are managed from Model Services'}
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=25) as client:
+                reply = await client.request(method, hub + path, headers={'Authorization': f'Bearer {key}'},
+                                             **({'json': {}} if method == 'POST' else {}))
+            body = reply.json()
+            if reply.status_code != 200:
+                return {'success': False, 'error': str(body.get('detail') or f'HTTP {reply.status_code}')[:500]}
+            return {'success': True, **body}
+        except Exception as exc:  # noqa: BLE001
+            return {'success': False, 'error': str(exc)}
+
+    @tool
     async def fleet_hpc(self, node_id: str, action: str = 'partitions', partition: str = '', cpus: int = 4,
                         mem_gb: int = 16, minutes: int = 240, gpus: int = 0, gpu_type: str = '', count: int = 1,
                         name: str = '', account: str = '', qos: str = '', job_id: str = '') -> dict:

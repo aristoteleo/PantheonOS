@@ -35,6 +35,10 @@ type Fleet struct {
 	JoinToken func(fleet string, ttl time.Duration) (string, error)
 	// Latest is the Fleet release the controller rolls out ("" = none).
 	Latest func() string
+	// Hub reaches the owner's Hub with the owner's credential (cloud computers).
+	Hub *Hub
+	// Revoke takes a node out of the fleet (a Modal node that was stopped).
+	Revoke func(fleet, node string) error
 
 	mu        sync.Mutex
 	apps      map[string]auth.AppsCredential
@@ -158,6 +162,8 @@ func (f *Fleet) Call(ctx context.Context, c *Call) (any, error) {
 		return f.nodeService(ctx, c)
 	case "fleet_update_nodes":
 		return f.updateNodes(ctx, c)
+	case "fleet_cloud":
+		return f.cloud(ctx, c)
 	case "fleet_hpc":
 		return f.hpc(ctx, c)
 	case "fleet_hpc_cluster":

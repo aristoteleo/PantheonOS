@@ -661,6 +661,11 @@ func Main(args []string) {
 				return token.SignJoin(refreshPriv, token.JoinPayload{FleetID: fleet, JTI: randID(), Exp: time.Now().Add(min(ttl, maxJoinTTL)).Unix()})
 			},
 			Latest: func() string { return currentLatestTag(*stateDir, *latestTag) },
+			Hub:    &hosted.Hub{Secrets: secrets},
+			Revoke: func(fleet, node string) error {
+				_, _, err := revokeNode(fleet, node, "")
+				return err
+			},
 		}
 		host.Register("fleet", fleetService)
 		host.Register("model-services-control", &hosted.ModelAccess{Store: store, Hub: &hosted.Hub{Secrets: secrets}})

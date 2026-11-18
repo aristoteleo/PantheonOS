@@ -213,3 +213,34 @@ async def test_a_workspace_that_never_starts_fails_the_call_after_its_probe_with
     # Ended by the provider wait (not retried until the probe's own deadline).
     assert loop.time() - started < 1 and failed.value.outcome_unknown is False
     assert files.preparing == ('read', {'path': 'probe'})  # asked again by the next call
+
+
+@pytest.mark.asyncio
+async def test_the_agent_asks_its_fleet_to_start_the_workspace_once_with_no_page_open():
+    """A tool that waits for the Workspace starts it itself (fleet_cloud): the first waiter asks,
+    later ones join the same wait, and a Fleet that cannot (an older controller) changes nothing."""
+    from pantheon import agent_tools
+
+    calls = []
+
+    class Fleet:
+        async def call_tool(self, name, args):
+            calls.append((name, args))
+            if len(calls) > 1:
+                raise RuntimeError('Method fleet_cloud not found on service fleet')
+            return {'success': True, 'computer': {'id': 'workspace', 'state': 'starting'}}
+    agent = SimpleNamespace(providers={'fleet': Fleet()})
+    token = _RUN_CONTEXT.set(AgentRunContext(agent=agent, memory=None, process_chunk=None))
+    try:
+        async with waiting_for_provider():
+            async with waiting_for_provider():
+                await asyncio.gather(*agent_tools._workspace_asks)
+            assert agent_tools.workspace_wanted()
+        assert calls == [('fleet_cloud', {'action': 'start', 'computer': 'workspace'})]
+        async with waiting_for_provider():  # a later wait asks again; its failure is not the call's
+            await asyncio.gather(*agent_tools._workspace_asks)
+        assert len(calls) == 2 and not agent_tools.workspace_wanted()
+    finally:
+        _RUN_CONTEXT.reset(token)
+    # No Fleet: nothing is asked (the page's own start remains).
+    assert agent_tools.ask_for_workspace(SimpleNamespace(providers={})) is None

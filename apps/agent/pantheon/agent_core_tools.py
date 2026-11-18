@@ -144,6 +144,12 @@ def as_command(name: str, args: Any) -> str:
         return "pantheon nodes list"
     if name == "fleet__fleet_node_info":
         return f"pantheon nodes info {q(a.get('node_id'))}"
+    if name == "fleet__fleet_cloud":
+        action = a.get("action") or "list"
+        if action == "list":
+            return "pantheon nodes cloud"
+        extra = "".join(f" {k}={q(a[k])}" for k in ("gpu", "gpu_count", "cpu", "memory_gib", "minutes") if a.get(k))
+        return f"pantheon nodes {action} {q(a.get('computer') or '')}".rstrip() + (extra if action == "add" else "")
     if name == "fleet__run_on_node":
         kind = a.get("kind") or "shell"
         return f"pantheon run --node {q(a.get('node_id'))}" + (f" --kind {kind}" if kind != "shell" else "") + f" -- {q(a.get('code'))}"

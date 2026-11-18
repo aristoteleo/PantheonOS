@@ -77,10 +77,41 @@ _provider_wait: ContextVar[list | None] = ContextVar("provider_wait", default=No
 PROVIDER_FOREGROUND_SECONDS = 12.0
 
 # Tool calls of this Agent waiting for a computer to start now, foreground or
-# background. The page asks (get_chat_node: workspace_wanted) and starts a
-# paused Workspace: the chat's status line alone does not carry it (a second
-# call's "running tools" replaced the first one's wait).
+# background. The Agent asks the owner's Fleet to start the Workspace itself
+# (ask_for_workspace: no page needs to be open); an open page asks too
+# (get_chat_node: workspace_wanted), which the Hub takes as the same start.
 _providers_waiting = 0
+_workspace_asks: set = set()
+
+
+def ask_for_workspace(agent=None) -> "asyncio.Task | None":
+    """Ask the owner's Fleet to start their Cloud Workspace (fleet_cloud), in
+    the background: a Workspace that runs or is starting is kept. None when
+    this Agent reaches no Fleet (the page's own start is then the only one)."""
+    from .agent_nodes import fleet_of
+
+    if agent is None:
+        from .agent import get_current_run_context
+
+        context = get_current_run_context()
+        agent = context.agent if context is not None else None
+    fleet = fleet_of(agent) if agent is not None else None
+    if fleet is None:
+        return None
+
+    async def ask():
+        try:
+            reply = await asyncio.wait_for(
+                fleet.call_tool("fleet_cloud", {"action": "start", "computer": "workspace"}), timeout=40)
+            if isinstance(reply, dict) and reply.get("success") is False:
+                logger.info(f"The Workspace was not started by the Agent: {reply.get('error')}")
+        except Exception as error:  # an older Fleet, or the Hub away: the page's start remains
+            logger.info(f"The Workspace was not started by the Agent: {error}")
+
+    task = asyncio.create_task(ask())
+    _workspace_asks.add(task)
+    task.add_done_callback(_workspace_asks.discard)
+    return task
 
 
 def workspace_wanted() -> bool:
@@ -122,6 +153,8 @@ async def waiting_for_provider():
         cell[1] = started
     _providers_waiting += 1
     try:
+        if _providers_waiting == 1:
+            ask_for_workspace()
         await _report_activity("waiting_for_workspace")
         yield
     finally:

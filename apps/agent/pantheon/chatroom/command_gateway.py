@@ -443,6 +443,9 @@ async def execute(agent, op: str, params: dict, live: LiveCall | None):
         return await tool('fleet__fleet_list_nodes', {})
     if op == 'nodes.info':
         return await tool('fleet__fleet_node_info', {'node_id': p['node']})
+    if op == 'nodes.cloud':
+        return await tool('fleet__fleet_cloud', {k: p[k] for k in (
+            'action', 'computer', 'gpu', 'gpu_count', 'cpu', 'memory_gib', 'minutes') if k in p})
     if op == 'run':
         return await tool('fleet__run_on_node', {k: p[k] for k in ('node_id', 'code', 'kind', 'timeout') if k in p})
     if op == 'coding_agent':

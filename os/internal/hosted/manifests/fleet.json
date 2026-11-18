@@ -128,6 +128,55 @@
         "hidden": true
       },
       {
+        "name": "fleet_cloud",
+        "description": "The owner's cloud computers: the machines the platform runs for them and bills to their monthly budget (the Cloud Workspace, Modal nodes).\n\n        action=list shows each with its state, price per hour and what can be done with it.\n        action=start with computer=workspace starts a paused Cloud Workspace (about a\n        minute; it then appears in fleet_list_nodes): do this when the work needs the\n        Workspace. action=stop with computer=workspace pauses it (files are kept); with\n        a Modal node's id (node-...) it stops and removes that node. action=add starts a\n        new Modal node (computer: a short name; gpu: none for CPU only, or H100, H200,\n        B200, A100-80GB, L40S; minutes: its time limit) and joins it to the Fleet.\n        A new Modal node costs money for its whole time limit: add one only when the\n        user asks, and stop only what the user asked to stop or what you added.\n        ",
+        "params": [
+          {
+            "name": "action",
+            "type": "str",
+            "required": false,
+            "default": "list"
+          },
+          {
+            "name": "computer",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "gpu",
+            "type": "str",
+            "required": false,
+            "default": "none"
+          },
+          {
+            "name": "gpu_count",
+            "type": "int",
+            "required": false,
+            "default": 1
+          },
+          {
+            "name": "cpu",
+            "type": "int",
+            "required": false,
+            "default": 0
+          },
+          {
+            "name": "memory_gib",
+            "type": "int",
+            "required": false,
+            "default": 0
+          },
+          {
+            "name": "minutes",
+            "type": "int",
+            "required": false,
+            "default": 240
+          }
+        ],
+        "hidden": false
+      },
+      {
         "name": "fleet_hpc",
         "description": "Start and manage Fleet nodes on an HPC cluster via a Fleet node on its Slurm login node.\n\n        node_id is the login node (its fleet_node_info runtimes has slurm-launcher=1).\n        partitions lists where jobs can run; launch submits `count` single-node\n        jobs, each joining the Fleet as its own node (labels hpc, slurm-job:<id>)\n        and leaving when the job ends; jobs lists them with Slurm state; cancel\n        stops one (only jobs started from this login node). The HPC allocation\n        is the user's own: launch only when the user asks.\n        Compute nodes come up once Slurm starts the job; watch fleet_list_nodes.\n        ",
         "params": [
@@ -728,6 +777,7 @@
         "tools": [
           "broadcast",
           "fleet_app_lifecycle",
+          "fleet_cloud",
           "fleet_hpc",
           "fleet_hpc_cluster",
           "fleet_hpc_service",

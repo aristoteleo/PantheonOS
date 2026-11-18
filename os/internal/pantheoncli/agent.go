@@ -167,6 +167,18 @@ func (r *runner) viaAgent(link *agentLink, group string) error {
 		if arg(0) == "info" {
 			return send("nodes.info", map[string]any{"node": arg(1)}, 60*time.Second)
 		}
+		// The owner's cloud computers (the Cloud Workspace, Modal nodes):
+		// cloud lists them; start/stop <computer>; add <name> gpu=… minutes=….
+		if action := arg(0); action == "cloud" || action == "start" || action == "stop" || action == "add" {
+			if action == "cloud" {
+				action = "list"
+			}
+			params := map[string]any{"action": action, "computer": arg(1)}
+			for k, v := range r.p.args {
+				params[k] = v
+			}
+			return send("nodes.cloud", params, 120*time.Second)
+		}
 		result, err := link.do(r.ctx, "nodes.list", nil, 60*time.Second)
 		if err != nil {
 			return err

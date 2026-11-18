@@ -2759,6 +2759,37 @@ billed machine.
    without it (an invite's Workspace step, a link whose computer is the
    Workspace).
 
+## The Agent manages the owner's cloud computers (2026-11-18)
+
+**Why.** Only a page could start the Workspace: the Agent set a flag
+(`workspace_wanted`) and an open page asked the Hub. With no page (the CLI, a
+background run, Team Chat) a tool waited until it timed out. Modal nodes had a
+separate path (Model Services) the Agent could not use for a bare node.
+
+**One capability.** The machines the platform runs for an owner and bills to
+them are their *cloud computers*: the Cloud Workspace and Modal nodes.
+
+1. *Hub*: `GET /api/computers` lists them (state, size, price per hour,
+   actions); `POST /api/computers/workspace/start|stop`. It takes the user's
+   session, the Agent's fleet-scoped key or an owner platform key. Start is
+   the one wake of "The Workspace starts only when asked".
+2. *Fleet service* (`fleet_cloud`, controller): `list`, `start`, `stop`, `add`
+   with the owner's Hub credential in the controller's custody (`owner-hub`).
+   `add` mints a join token and starts a Modal node through
+   `/api/model-services/modal-gpu`; `stop` of a `node-…` id stops it and
+   revokes its fleet record. A node that runs a model service stays with
+   Model Services.
+3. *Agent*: a tool that starts waiting for the Workspace asks the Fleet to
+   start it (`ask_for_workspace`), page or no page; the page's own start stays
+   and is the same wake. The model can also say so: `pantheon nodes cloud`,
+   `pantheon nodes start workspace`, `pantheon nodes stop <computer>`,
+   `pantheon nodes add <name> gpu=none minutes=60`.
+4. *Limits.* Adding a Modal node needs the account to be allowed and the
+   budget to cover its time limit (the Hub's checks, unchanged). The Agent is
+   told to add or stop machines only when the user asks. When other computers
+   of the owner are on, a call without `node` still asks the user which to use
+   before anything starts.
+
 ## Open decisions
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and
