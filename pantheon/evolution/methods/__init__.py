@@ -36,5 +36,7 @@ __all__ = [
     "PantheonEvo",
     "SimpleTES", "Selector", "PUCTSelector", "RPUCGSelector",
     "LabNotebook",
-    "Molt", "Molt2", "Molt2Factorial", "Molt2Discovery", "Molt2Decision", "Molt2Scout", "Molt2Patch",
+    "Molt", "Molt2", "Molt2Factorial", "Molt2Discovery", "Molt2Decision", "Molt2Scout", "Molt2Patch", "Molt2LNS",
 ]
+
+from .molt2_lns import Molt2LNS
