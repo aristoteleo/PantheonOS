@@ -132,3 +132,19 @@ def test_portfolio_not_replaced_before_all_active_families_have_refinement_feedb
  async def forbidden(prompt):raise AssertionError('Do not discard untested families')
  m._llm=forbidden
  run(m.ask(ctx,1));assert len(m.portfolios)==1
+
+
+@pytest.mark.parametrize('options',[{'operator_window':0},{'portfolio_size':0},{'max_planning_rounds':0},{'operator_exploration':float('nan')},{'operator_exploration':-1}])
+def test_invalid_strategy_configuration_rejected(options):
+ with pytest.raises(ValueError):make(**options)
+
+
+def test_both_registered_variants_keep_the_same_native_baselines():
+ import importlib.util
+ from pathlib import Path
+ path=Path(__file__).resolve().parents[1]/'examples/evolution_bench/run_bench.py'
+ spec=importlib.util.spec_from_file_location('lns_bench_test',path);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+ assert module.build_method('molt2_lns',0).portfolio_size==4
+ assert module.build_method('molt2_lns_depth',0).portfolio_size==2
+ assert module.build_method('simpletes',0).selector.name=='rpucg'
+ assert module.build_method('molt',0).stall_evals==12

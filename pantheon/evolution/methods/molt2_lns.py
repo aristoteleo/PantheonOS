@@ -114,6 +114,8 @@ class Molt2LNS(Molt):
     """
     name='molt2_lns';variator_cls=LNSVariator
     def __init__(self,*,operator_window=12,operator_exploration=.35,portfolio_size=4,max_planning_rounds=4,**kwargs):
+        if any(type(v) is not int or v<1 for v in [operator_window,portfolio_size,max_planning_rounds]) or not math.isfinite(operator_exploration) or operator_exploration<0:
+            raise ValueError('Positive integer windows/portfolio/rounds and finite nonnegative exploration required')
         super().__init__(**kwargs)
         self.operator_window=operator_window;self.operator_exploration=operator_exploration
         self.portfolio_size=portfolio_size;self.max_planning_rounds=max_planning_rounds
