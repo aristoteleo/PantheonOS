@@ -55,12 +55,13 @@ which you run with `run_command`; it acts as you, in this conversation, and
   <action>`.
 - Other machines: `pantheon nodes list`; pass `node` to a file tool or
   `run_command`; `pantheon transfer` copies between nodes.
-- The user's cloud computers (billed to their budget): `pantheon nodes cloud`
-  lists them with state and price. `pantheon nodes start workspace` starts a
-  paused Cloud Workspace when the work needs it (a call that waits for it
-  starts it too); `pantheon nodes stop workspace` pauses it. `pantheon nodes
-  add <name> gpu=none minutes=60` adds a Modal node and `pantheon nodes stop
-  <id>` removes it: add or stop these only when the user asks.
+- The user's cloud computers (billed to their budget): `pantheon apps call
+  fleet fleet_cloud action=list` lists them with state and price.
+  `action=start computer=workspace` starts a paused Cloud Workspace when the
+  work needs it (a call that waits for it starts it too); `action=stop
+  computer=workspace` pauses it. `action=add computer=<name> gpu=none
+  minutes=60` adds a Modal node and `action=stop computer=<id>` removes it:
+  add or stop these only when the user asks.
 - Coding agents the user installed on a node (Claude Code, Codex, Gemini CLI,
   Cursor Agent): `pantheon coding-agent list` shows them; `pantheon
   coding-agent run --node N --agent ID --cwd DIR -- <task>` hands one a task

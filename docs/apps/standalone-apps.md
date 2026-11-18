@@ -2781,9 +2781,11 @@ them are their *cloud computers*: the Cloud Workspace and Modal nodes.
    Model Services.
 3. *Agent*: a tool that starts waiting for the Workspace asks the Fleet to
    start it (`ask_for_workspace`), page or no page; the page's own start stays
-   and is the same wake. The model can also say so: `pantheon nodes cloud`,
-   `pantheon nodes start workspace`, `pantheon nodes stop <computer>`,
-   `pantheon nodes add <name> gpu=none minutes=60`.
+   and is the same wake. The model can also say so: `pantheon apps call fleet
+   fleet_cloud action=list|start|stop|add …`. The shorter `pantheon nodes
+   cloud|start|stop|add` needs a `pantheon` binary that knows it; the one in
+   the Workspace image does not yet (the image is built from main), so the
+   Agent is taught the first form.
 4. *Limits.* Adding a Modal node needs the account to be allowed and the
    budget to cover its time limit (the Hub's checks, unchanged). The Agent is
    told to add or stop machines only when the user asks. When other computers
