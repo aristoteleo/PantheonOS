@@ -2256,9 +2256,10 @@ frontend #68. Controller unchanged (`2a2061a0`).
   Workspace is paused …" with Start Workspace, no "desktop is not running";
   chip on 10 new-chat loads: "Workspace · Paused" (6) or "Checking…" then
   "Workspace · Paused" (4), never plain "Workspace".
-- Left by design: opening OS Mode (the desktop, the Workspace's own UI)
+- Left by design then: opening OS Mode (the desktop, the Workspace's own UI)
   still connects to the Workspace and asks the Hub for it, as before; a
-  node-level pause is not undone by that load.
+  node-level pause is not undone by that load. Changed on 2026-11-18: see
+  "The Workspace starts only when asked".
 
 ## Fixes after combined check 4 (2026-11-13)
 
@@ -2727,6 +2728,36 @@ loaded later starts with). Live on staging: hub image `bcc2b4ab`, Agent App
   Agent outage the other tab shows "Reconnecting" (no frame to hand it to);
   it showed the not-sent notice as its conversation came back (79.5 s and
   127 s after the send, the pod back at ~60 s), still without a reload.
+
+## The Workspace starts only when asked (2026-11-18)
+
+**Rule.** The rule of combined check 3 now holds for every page, OS Mode
+included: nothing starts the Workspace but the user's Start, or a tool or a
+page that needs it and asks for it. This replaces "Left by design: opening OS
+Mode still asks the Hub for it".
+
+**Why.** OS Mode used to be the Workspace's own UI, so opening it started the
+Workspace. The desktop (windows, settings, the App index), the Agent, Fleet
+and files on the owner's other computers no longer run on it, and it is the
+billed machine.
+
+**Design.**
+
+1. *One call starts it* (Hub): `POST /api/chatroom/nodes/workspace/restart?wake=1`.
+   A Workspace that runs or is starting is kept; restarts of one node run one
+   at a time, so a second Start finds the first one's start.
+2. *Nothing else does* (Hub, `TopologyPool`): an entry (`GET /api/chatroom`),
+   the sign-in prewarm, a heartbeat, a status read and an Agent restart only
+   re-check a Workspace that already runs. A whole restart restarts the nodes
+   that run and leaves one that is down.
+3. *Down is one state.* Paused, released, stopped while idle or never started:
+   the Hub reads it from the node pool's own record (`node_down`), so it does
+   not depend on the Hub's memory, and `pod-status` reports it as
+   `nodes.workspace.paused`. The pages already show that state with Start.
+4. *Pages.* `Hub.wakeWorkspace()` is that one call; every Start goes through
+   it, and so does a page that wants the Workspace in a connection opened
+   without it (an invite's Workspace step, a link whose computer is the
+   Workspace).
 
 ## Open decisions
 
