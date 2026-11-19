@@ -18,3 +18,23 @@ def test_all_files_included_and_fragmentation_never_silently_truncated():
 
 def test_marker_only_program_is_rejected_without_model_spending():
     with pytest.raises(ValueError):whole_program_regions({'a':'EVOLVE-BLOCK-START\nEVOLVE-BLOCK-END\n'})
+
+
+def test_global_operator_inherits_best_source_and_opens_all_nonmarker_regions():
+    import json
+    from test_molt2_lns import make, family, run
+    from pantheon.evolution.methods.molt2_lns_global import Molt2LNSGlobal
+    method, ctx, seed = make()
+    method.__class__ = Molt2LNSGlobal
+    async def llm(prompt):
+        return json.dumps({'families':[family('a',2),family('b',3),family('c',4)]})
+    method._llm = llm
+    run(method._make_portfolio(ctx))
+    portfolio = method.portfolios[-1]
+    arm = portfolio['explicit_global_arm']
+    operator = method.operators[arm]
+    assert portfolio['scope'] == operator['scope'] == 3
+    assert operator['initial_anchor'] == seed.id
+    assert operator['strategy']['name'] == 'coordinated_algorithm_rewrite'
+    assert operator['initial_regions'] == whole_program_regions(seed.genome.files)
+    assert len(portfolio['families']) == 3
