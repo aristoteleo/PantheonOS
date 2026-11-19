@@ -3061,6 +3061,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
             return await self._keep_refused(chat_id, memory, message, error)
 
         try:
+            run_started = time.monotonic()
             await thread.run()
 
             # Flush messages that arrived in the race window between the agent
@@ -3127,6 +3128,20 @@ class AgentRuntime(AgentLifetime, ToolSet):
                     )
                 else:
                     await self._nats_adapter.publish_chat_finished(chat_id)
+
+            # A run that took a while: the owner's devices are told it ended
+            # (owner_notify.py). Not a sub-agent's run, nor a Team Chat turn
+            # (Team Chat tells its own), nor one more queued message is about
+            # to continue.
+            if not sub_agent and not team_turn and not leftover:
+                try:
+                    from .owner_notify import answer_notification, notify_owner
+                    told = answer_notification(chat_id, getattr(memory, "name", "") or "", thread.response,
+                                               time.monotonic() - run_started, stopped=bool(thread._stop_flag))
+                    if told:
+                        notify_owner(await self._listing_agent(chat_id), told)
+                except Exception as error:
+                    logger.info(f"Chat {chat_id}: the owner was not notified: {error}")
 
             return thread.response
         except asyncio.CancelledError:

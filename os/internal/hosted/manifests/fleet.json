@@ -416,6 +416,36 @@
         "hidden": false
       },
       {
+        "name": "fleet_notify",
+        "description": "Send one notification to the owner's own devices (the browsers and home-screen web apps they turned notifications on in).\n\n        title and body are what it shows; url is the page of this deployment a tap\n        opens (a path such as /app/agent?chatId=...); notifications with one tag\n        replace each other. The owner's Agent uses it to say an answer is ready.\n        ",
+        "params": [
+          {
+            "name": "title",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "body",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "url",
+            "type": "str",
+            "required": false,
+            "default": "/"
+          },
+          {
+            "name": "tag",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ],
+        "hidden": true
+      },
+      {
         "name": "fleet_pick_node",
         "description": "Pick the best online Node matching requirements (for placement).\n\n        Filters by capability, then ranks. Use this to let the Fleet choose where\n        to run a Task or land a Transfer instead of hard-coding a node.\n\n        Args:\n            min_cpu: Minimum CPU cores required.\n            min_ram_gb: Minimum RAM in GB required.\n            need_gpu: If True, only Nodes with a GPU qualify.\n            label: If set, only Nodes carrying this label qualify.\n            prefer: Tie-breaker \u2014 \"idle\" (lowest CPU load, default),\n                \"most_cpu\", or \"most_ram\".\n\n        Returns:\n            dict: {\"success\", \"node_id\", \"name\", \"candidates\", \"reason\"} or\n            {\"success\": False, \"error\": ...} if nothing qualifies.\n        ",
         "params": [
@@ -785,6 +815,7 @@
           "fleet_list_apps",
           "fleet_list_nodes",
           "fleet_node_info",
+          "fleet_notify",
           "fleet_pick_node",
           "fleet_status",
           "fleet_update_nodes",

@@ -164,6 +164,8 @@ func (f *Fleet) Call(ctx context.Context, c *Call) (any, error) {
 		return f.updateNodes(ctx, c)
 	case "fleet_cloud":
 		return f.cloud(ctx, c)
+	case "fleet_notify":
+		return f.notify(ctx, c)
 	case "fleet_hpc":
 		return f.hpc(ctx, c)
 	case "fleet_hpc_cluster":

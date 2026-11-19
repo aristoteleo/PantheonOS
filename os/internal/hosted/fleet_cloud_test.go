@@ -88,3 +88,47 @@ func TestFleetCloudAsksTheOwnersHub(t *testing.T) {
 		t.Fatalf("no hub: %v", out)
 	}
 }
+
+// A notification for the owner's devices goes to the owner's Hub with the
+// owner's credential; the Hub's refusal comes back as a plain failure.
+func TestFleetNotifyAsksTheOwnersHub(t *testing.T) {
+	var got map[string]any
+	status := 200
+	hub := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method+" "+r.URL.Path != "POST /api/push/notify" || r.Header.Get("Authorization") != "Bearer pbk_owner" {
+			http.Error(w, "no", 401)
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.Header().Set("Content-Type", "application/json")
+		if status != 200 {
+			http.Error(w, `{"detail":"Too many notifications; try again in a minute"}`, status)
+			return
+		}
+		_, _ = w.Write([]byte(`{"devices":2,"sent":2}`))
+	}))
+	defer hub.Close()
+	f := &Fleet{Bus: &fakeBus{}, Hub: &Hub{Secrets: fakeSecrets{endpoint: hub.URL}, HTTP: hub.Client()}}
+	call := func(args string) map[string]any {
+		t.Helper()
+		out, err := f.Call(context.Background(), &Call{Fleet: fleetID, App: "fleet", Method: "fleet_notify", Args: json.RawMessage(args)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out.(map[string]any)
+	}
+	out := call(`{"title":"Notes","body":"The answer is ready.","url":"/app/agent?chatId=c1","tag":"agent.c1"}`)
+	if out["success"] != true || out["sent"] != float64(2) {
+		t.Fatalf("notify: %v", out)
+	}
+	if got["title"] != "Notes" || got["body"] != "The answer is ready." || got["url"] != "/app/agent?chatId=c1" || got["tag"] != "agent.c1" {
+		t.Fatalf("sent to the Hub: %v", got)
+	}
+	if out := call(`{"title":"  "}`); out["success"] != false {
+		t.Fatalf("no title: %v", out)
+	}
+	status = 429
+	if out := call(`{"title":"Notes"}`); out["success"] != false || !strings.Contains(out["error"].(string), "Too many") {
+		t.Fatalf("a refusal: %v", out)
+	}
+}

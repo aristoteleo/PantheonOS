@@ -612,6 +612,30 @@ class FleetToolSet(ToolSet):
         except Exception as exc:  # noqa: BLE001
             return {'success': False, 'error': str(exc)}
 
+    @tool(exclude=True)
+    async def fleet_notify(self, title: str, body: str = '', url: str = '/', tag: str = '') -> dict:
+        """Send one notification to the owner's own devices (the browsers and home-screen web apps they turned notifications on in).
+
+        title and body are what it shows; url is the page of this deployment a tap
+        opens (a path such as /app/agent?chatId=...); notifications with one tag
+        replace each other. The owner's Agent uses it to say an answer is ready.
+        """
+        import os
+        hub, key = os.environ.get('PANTHEON_HUB_URL', '').rstrip('/'), os.environ.get('FLEET_KEY', '')
+        if not hub or not key:
+            return {'success': False, 'error': 'This Fleet sends no notifications (it is not connected to a platform account)'}
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=15) as client:
+                reply = await client.post(hub + '/api/push/notify', headers={'Authorization': f'Bearer {key}'},
+                                          json={'title': title, 'body': body, 'url': url, 'tag': tag})
+            answer = reply.json()
+            if reply.status_code != 200:
+                return {'success': False, 'error': str(answer.get('detail') or f'HTTP {reply.status_code}')[:500]}
+            return {'success': True, **answer}
+        except Exception as exc:  # noqa: BLE001
+            return {'success': False, 'error': str(exc)}
+
     @tool
     async def fleet_hpc(self, node_id: str, action: str = 'partitions', partition: str = '', cpus: int = 4,
                         mem_gb: int = 16, minutes: int = 240, gpus: int = 0, gpu_type: str = '', count: int = 1,

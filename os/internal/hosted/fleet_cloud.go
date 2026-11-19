@@ -123,3 +123,30 @@ func (f *Fleet) removeModalNode(ctx context.Context, fleet, id string, hub func(
 	}
 	return map[string]any{"success": true, "computer": map[string]any{"id": id, "kind": "modal-node", "state": "stopped"}}
 }
+
+// notify sends one notification to the owner's own devices (the browsers and
+// home-screen web apps they turned notifications on in): the owner's Agent
+// says an answer is ready with no page open. The Hub decides what a device
+// may be told and how often; this only carries it there as the owner.
+func (f *Fleet) notify(ctx context.Context, c *Call) (any, error) {
+	var a struct {
+		Title string `json:"title"`
+		Body  string `json:"body"`
+		URL   string `json:"url"`
+		Tag   string `json:"tag"`
+	}
+	if err := c.Decode(&a); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(a.Title) == "" {
+		return Failure(errors.New("a notification needs a title")), nil
+	}
+	if f.Hub == nil {
+		return Failure(errors.New("this controller cannot reach the owner's Hub")), nil
+	}
+	var out map[string]any
+	if err := f.Hub.Request(ctx, c.Fleet, OwnerHubSecret, "POST", "/api/push/notify", a, &out); err != nil {
+		return Failure(err), nil
+	}
+	return merge(map[string]any{"success": true}, out), nil
+}
