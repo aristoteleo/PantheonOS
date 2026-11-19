@@ -43,7 +43,7 @@ def answer_notification(chat_id: str, name: str, response: dict | None, seconds:
             body = "The answer is ready."
     if len(body) > BODY:
         body = body[:BODY - 1].rstrip() + "…"
-    return {"title": title[:100], "body": body, "url": f"/app/agent?chatId={quote(chat_id, safe='')}",
+    return {"title": title[:100], "body": body, "url": f"/app/agent?chat={quote(chat_id, safe='')}",
             "tag": f"agent.{chat_id}"[:64]}
 
 

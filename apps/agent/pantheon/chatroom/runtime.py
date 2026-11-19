@@ -28,6 +28,7 @@ from pantheonos.utils.misc import generate_service_id, run_func
 from .special_agents import get_suggestion_generator
 from .thread import PENDING_MESSAGES, Thread, keep_pending, take_sub_agent_notes
 from .lifecycle import AgentLifetime, _accepted_continuation, admitted_chat
+from .owner_notify import answer_notification, notify_owner
 
 # The sub-agent runs of a conversation the user closed (memory metadata).
 CLOSED_SUB_AGENTS = "closed_sub_agents"
@@ -3135,7 +3136,6 @@ class AgentRuntime(AgentLifetime, ToolSet):
             # to continue.
             if not sub_agent and not team_turn and not leftover:
                 try:
-                    from .owner_notify import answer_notification, notify_owner
                     told = answer_notification(chat_id, getattr(memory, "name", "") or "", thread.response,
                                                time.monotonic() - run_started, stopped=bool(thread._stop_flag))
                     if told:
