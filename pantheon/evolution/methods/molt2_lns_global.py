@@ -30,6 +30,17 @@ def whole_program_regions(files):
 class Molt2LNSGlobal(Molt2LNSVNS2):
     name = 'molt2_lns_global'
 
+    def _global_family(self, original, masks):
+        family = {
+            'name':'coordinated_algorithm_rewrite',
+            'decision':'The joint choice of algorithm, representation, move set and acceptance/search policy.',
+            'hypothesis':'The local edit interfaces can block beneficial changes that require several components to change together.',
+            'replacement':'Use the complete inherited best program as a working reference. Infer a qualitatively different coordinated algorithm from the task and implement it across all approved regions. Preserve useful working parts where appropriate; do not merely tune constants.',
+            'preserve':'Task input/output contract, evaluation rules, source files and immutable markers.',
+            'regions':masks,
+        }
+        return family
+
     async def _make_portfolio(self, ctx):
         anchor = self._anchor(ctx)
         if anchor is None:
@@ -40,14 +51,7 @@ class Molt2LNSGlobal(Molt2LNSVNS2):
         if not self.portfolios or not self.portfolios[-1]['families']:
             return
         record = self.portfolios[-1]
-        family = {
-            'name':'coordinated_algorithm_rewrite',
-            'decision':'The joint choice of algorithm, representation, move set and acceptance/search policy.',
-            'hypothesis':'The local edit interfaces can block beneficial changes that require several components to change together.',
-            'replacement':'Use the complete inherited best program as a working reference. Infer a qualitatively different coordinated algorithm from the task and implement it across all approved regions. Preserve useful working parts where appropriate; do not merely tune constants.',
-            'preserve':'Task input/output contract, evaluation rules, source files and immutable markers.',
-            'regions':masks,
-        }
+        family = self._global_family(record['families'][-1], masks)
         index = len(record['families'])-1
         arm = f"round{record['round']}/family{index}"
         operator = self.operators[arm]

@@ -162,6 +162,17 @@ class Molt2LNS(Molt):
     def _global_best(self,ctx):
         return self._valid_score(self._anchor(ctx))
 
+    def _accept_families(self,files,families):
+        accepted=[];names=set();masks=set()
+        for family in families[:self.portfolio_size]:
+            try:
+                if not isinstance(family,dict) or any(not isinstance(family.get(k),str) or not family[k].strip() for k in ['name','decision','hypothesis','replacement','preserve']):raise ValueError('Missing family explanation')
+                regions=validate_regions(files,family.get('regions'),self.scope);name=family['name'].strip();key=json.dumps(regions,sort_keys=True)
+                if name.lower() in names or key in masks:raise ValueError('Duplicate name or identical edit region')
+                names.add(name.lower());masks.add(key);accepted.append({**family,'regions':regions})
+            except ValueError as exc:self.generation_audit.append({'status':'invalid_family','reason':str(exc),'family':family})
+        return accepted
+
     async def _make_portfolio(self,ctx):
         anchor=self._anchor(ctx)
         if anchor is None:return
@@ -184,14 +195,7 @@ class Molt2LNS(Molt):
                              'previous_families':[p['families'] for p in self.portfolios[-2:]]},ensure_ascii=False))
         reply=await self._llm(prompt);parsed=_json(reply);families=parsed.get('families',[]) if isinstance(parsed,dict) else []
         if not isinstance(families,list):families=[]
-        accepted=[];names=set();masks=set()
-        for family in families[:self.portfolio_size]:
-            try:
-                if not isinstance(family,dict) or any(not isinstance(family.get(k),str) or not family[k].strip() for k in ['name','decision','hypothesis','replacement','preserve']):raise ValueError('Missing family explanation')
-                regions=validate_regions(files,family.get('regions'),self.scope);name=family['name'].strip();key=json.dumps(regions,sort_keys=True)
-                if name.lower() in names or key in masks:raise ValueError('Duplicate name or identical edit region')
-                names.add(name.lower());masks.add(key);accepted.append({**family,'regions':regions})
-            except ValueError as exc:self.generation_audit.append({'status':'invalid_family','reason':str(exc),'family':family})
+        accepted=self._accept_families(files,families)
         number=len(self.portfolios);record={'round':number,'at_evaluations':len(self.seen_measurements),'anchor':anchor.id,
                  'anchor_source_hash':source_hash(files),'anchor_score':self._valid_score(anchor),'scope':self.scope,
                  'families':copy.deepcopy(accepted),'raw_reply':reply,'semantic_diversity_is_model_proposed_not_proven':True}
