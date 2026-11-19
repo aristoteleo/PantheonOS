@@ -966,8 +966,10 @@ def assemble(datasets, verbose=VERBOSE, view_match=False, knn=KNN,
 
 # Sketch-based acceleration of integration.
 def integrate_sketch(datasets_dimred, sketch_method='geosketch', N=10000,
-                     integration_fn=assemble, integration_fn_args={}):
+                     integration_fn=assemble, integration_fn_args=None):
 
+    if integration_fn_args is None:
+        integration_fn_args = {}
     from geosketch import gs, uniform
 
     if sketch_method.lower() == 'geosketch' or sketch_method.lower() == 'gs':

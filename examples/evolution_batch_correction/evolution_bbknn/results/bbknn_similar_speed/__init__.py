@@ -130,7 +130,7 @@ def bbknn(adata, batch_key='batch', use_rep='X_pca', key_added=None, copy=False,
 		f'    `.obsp[{conns_key!r}]`, weighted adjacency matrix'))
 	return adata if copy else None
 
-def ridge_regression(adata, batch_key, confounder_key=[], chunksize=1e8, copy=False, **kwargs):
+def ridge_regression(adata, batch_key, confounder_key=None, chunksize=1e8, copy=False, **kwargs):
 	'''
 	Perform ridge regression on scaled expression data, accepting both technical and 
 	biological categorical variables. The effect of the technical variables is removed 
@@ -156,6 +156,8 @@ def ridge_regression(adata, batch_key, confounder_key=[], chunksize=1e8, copy=Fa
 	kwargs
 		Any arguments to pass to `Ridge <https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.Ridge.html>`_.
 	'''
+	if confounder_key is None:
+		confounder_key = []
 	start = logg.info('computing ridge regression')
 	adata = adata.copy() if copy else adata
 	#just in case the arguments are not provided as lists, convert them to such
