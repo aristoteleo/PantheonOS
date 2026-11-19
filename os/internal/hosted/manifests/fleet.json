@@ -417,7 +417,7 @@
       },
       {
         "name": "fleet_notify",
-        "description": "Send one notification to the owner's own devices (the browsers and home-screen web apps they turned notifications on in).\n\n        title and body are what it shows; url is the page of this deployment a tap\n        opens (a path such as /app/agent?chatId=...); notifications with one tag\n        replace each other. The owner's Agent uses it to say an answer is ready.\n        ",
+        "description": "Send one notification to the owner's own devices (the phones and browsers they turned notifications on in).\n\n        title and body are what it shows; url is the page of this deployment a tap\n        opens (a path such as /app/agent?chat=<id>); notifications with one tag\n        replace each other. The owner is already told when a run that took a while\n        ends: call this only when the user asks to be notified about something.\n        ",
         "params": [
           {
             "name": "title",
@@ -443,7 +443,7 @@
             "default": ""
           }
         ],
-        "hidden": true
+        "hidden": false
       },
       {
         "name": "fleet_pick_node",

@@ -612,13 +612,14 @@ class FleetToolSet(ToolSet):
         except Exception as exc:  # noqa: BLE001
             return {'success': False, 'error': str(exc)}
 
-    @tool(exclude=True)
+    @tool
     async def fleet_notify(self, title: str, body: str = '', url: str = '/', tag: str = '') -> dict:
-        """Send one notification to the owner's own devices (the browsers and home-screen web apps they turned notifications on in).
+        """Send one notification to the owner's own devices (the phones and browsers they turned notifications on in).
 
         title and body are what it shows; url is the page of this deployment a tap
-        opens (a path such as /app/agent?chatId=...); notifications with one tag
-        replace each other. The owner's Agent uses it to say an answer is ready.
+        opens (a path such as /app/agent?chat=<id>); notifications with one tag
+        replace each other. The owner is already told when a run that took a while
+        ends: call this only when the user asks to be notified about something.
         """
         import os
         hub, key = os.environ.get('PANTHEON_HUB_URL', '').rstrip('/'), os.environ.get('FLEET_KEY', '')
