@@ -695,7 +695,9 @@ func Main(args []string) {
 			Key: teamKey, Nodes: hosted.FleetNodes(fleetService),
 			// The owner's Agent App (the Pantheon Agent's turns wait while it starts).
 			AgentApp: agentAppState(store),
-			Connect:  func() (*nats.Conn, error) { return connectTeamChat(authority, *natsURL) }}
+			// A DM, a mention or a followed thread reaches the owner's own devices through their Hub.
+			Push:    teamPush(&hosted.Hub{Secrets: secrets}),
+			Connect: func() (*nats.Conn, error) { return connectTeamChat(authority, *natsURL) }}
 		host.Register("team-chat", teamChat)
 		go teamChat.Run(context.Background())
 		// The Hub's change to a person of a space (docs/apps/team-chat.md,
@@ -1320,3 +1322,28 @@ func loadOrCreateKey(path string) ([]byte, error) {
 
 // teamFleetRE is a Fleet id as Team Chat takes it.
 var teamFleetRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// teamPush hands Team Chat's notifications to the owner's Hub, off the path
+// of the message that caused them: one sender, a bounded line, and a
+// notification that cannot be sent (no credential, notifications off at the
+// Hub, the line full) is dropped.
+func teamPush(hub *hosted.Hub) func(fleet string, n hosted.TeamPush) {
+	type job struct {
+		fleet string
+		n     hosted.TeamPush
+	}
+	line := make(chan job, 256)
+	go func() {
+		for j := range line {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			_ = hub.Request(ctx, j.fleet, hosted.OwnerHubSecret, "POST", "/api/push/notify", j.n, nil)
+			cancel()
+		}
+	}()
+	return func(fleet string, n hosted.TeamPush) {
+		select {
+		case line <- job{fleet, n}:
+		default:
+		}
+	}
+}

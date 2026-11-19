@@ -1409,6 +1409,11 @@ func (t *TeamChat) postEvent(ctx context.Context, fl *tcFleet, e *tcEvent, fileI
 		}
 	}
 	t.emit(fl, map[string]any{"type": "message", "message": msg})
+	if t.Push != nil {
+		if n, ok := pushFor(fl, c, m, e); ok {
+			t.Push(fl.fid, n)
+		}
+	}
 	if sender != nil {
 		// Writing is reading.
 		if e.Root != "" {

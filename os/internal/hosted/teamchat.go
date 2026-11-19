@@ -112,6 +112,9 @@ type TeamChat struct {
 	// known. A Pantheon Agent's turn waits while that App is not ready (a new
 	// account's first minutes, a Workspace that is starting again).
 	AgentApp func(fleet string) (state string, known bool)
+	// Push sends a notification to the owner's own devices (nil: none are
+	// sent). It must not block: a message is posted whether or not it works.
+	Push func(fleet string, n TeamPush)
 
 	mu     sync.Mutex
 	infoMu sync.Mutex // the stream handle caches its info
