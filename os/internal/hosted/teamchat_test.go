@@ -1536,3 +1536,56 @@ func TestMessagesWaitForTheAgentAppToBeReady(t *testing.T) {
 		t.Fatalf("after the long wait: %v", s)
 	}
 }
+
+// A person's message that names no one, right after an agent answered them in
+// a channel, wakes that agent (it decides whether it is for it); naming
+// someone, a later moment, or an agent's own message does not.
+func TestAFollowUpWakesTheAgentThatJustAnswered(t *testing.T) {
+	url := jetStream(t)
+	nodes := newFakeAgents()
+	nodes.hold = true
+	tc := teamOn(t, url, nodes)
+	now := time.Now()
+	tc.now = func() time.Time { return now }
+	h, mine, _ := teamHost(t, tc)
+	writer := makeAgent(t, h, mine, "Writer", "n_mac", "claude", nil)
+	coder := makeAgent(t, h, mine, "Coder", "n_ws", "codex", nil)
+	ch := call(t, h, mine, "conv_create", map[string]any{"kind": "channel", "name": "docs", "members": []string{writer, coder}})["conversation"].(map[string]any)["cid"].(string)
+	queue := func(mid string) any {
+		return call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[mid].(map[string]any)["queue"]
+	}
+
+	call(t, h, mine, "post", map[string]any{"cid": ch, "text": "@writer where is the draft?"})
+	eventually(t, "writer's turn", func() bool { return nodes.promptCount() == 1 })
+	token := tc.agentToken(fleetID, writer)
+	if r := tc.asTurn(context.Background(), fleetID, agentRequest{MID: writer, Token: token, Op: "post", Args: []string{"docs"}, Text: "In docs/draft.md."}); r.Code != 0 {
+		t.Fatalf("%v", r)
+	}
+	// The next question names no one: it follows up on Writer's answer.
+	call(t, h, mine, "post", map[string]any{"cid": ch, "text": "and which section is new?"})
+	time.Sleep(50 * time.Millisecond)
+	if q := queue(writer); q != float64(1) {
+		t.Fatalf("writer's queue after a follow-up: %v", q)
+	}
+	if q := queue(coder); q != float64(0) {
+		t.Fatalf("a follow-up woke another agent: %v", q)
+	}
+	// Naming someone else is not a follow-up, and neither is the next
+	// unaddressed line after it.
+	call(t, h, mine, "post", map[string]any{"cid": ch, "text": "@coder can you check it?"})
+	call(t, h, mine, "post", map[string]any{"cid": ch, "text": "no rush"})
+	time.Sleep(50 * time.Millisecond)
+	if q := queue(writer); q != float64(1) {
+		t.Fatalf("writer was woken after the person turned to coder: %v", q)
+	}
+	// Long after an answer, an unaddressed line wakes no one.
+	if r := tc.asTurn(context.Background(), fleetID, agentRequest{MID: writer, Token: token, Op: "post", Args: []string{"docs"}, Text: "Section 3."}); r.Code != 0 {
+		t.Fatalf("%v", r)
+	}
+	now = now.Add(tcFollowUpWindow + time.Minute)
+	call(t, h, mine, "post", map[string]any{"cid": ch, "text": "thinking out loud"})
+	time.Sleep(50 * time.Millisecond)
+	if q := queue(writer); q != float64(1) {
+		t.Fatalf("an old exchange woke writer: %v", q)
+	}
+}

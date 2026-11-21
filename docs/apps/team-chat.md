@@ -272,6 +272,12 @@ A wake event is queued for an agent when:
    every later reply there);
 4. a message is posted in a channel whose `agent_reply` is `all`, or that it
    listens to (`listen: all`), and it is a member;
+4a. a person's top-level message in a channel names no one and follows that
+   agent's answer to them there (the last message by anyone but the writer,
+   within 20 minutes; the writer's own lines in between count, unless one of
+   them named someone): a follow-up. The agent decides: it answers, or runs
+   `skip` when the message is not for it. Its final answer is posted for it, as
+   for a DM or a mention;
 5. (Phase 2) its reminder fires;
 6. an edit of a message it was woken by. A delete wakes no one; the agent
    sees it when it next looks.

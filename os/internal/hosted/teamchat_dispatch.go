@@ -34,6 +34,10 @@ func (t *TeamChat) wakesFor(fl *tcFleet, c *tcConv, m *tcConvMsgs, e *tcEvent) (
 	fromAgent := sender != nil && sender.agent()
 	// Whose access counts: the writer, or the people an agent's turn works for.
 	actors := fl.actorsOf(e)
+	followUp := ""
+	if !fromAgent {
+		followUp = fl.followsUpOn(c, m, e, tcFollowUpWindow)
+	}
 	for _, mid := range sortedKeys(fl.members) {
 		a := fl.members[mid]
 		if !a.agent() || mid == e.From {
@@ -54,6 +58,11 @@ func (t *TeamChat) wakesFor(fl *tcFleet, c *tcConv, m *tcConvMsgs, e *tcEvent) (
 			reason = "thread"
 		case c.Kind == "channel" && c.has(mid) && (c.AgentReply == "all" || a.Listen == "all"):
 			reason = "all"
+		}
+		if reason == "" && !fromAgent && mid == followUp {
+			// Not addressed to anyone, right after this agent answered the
+			// writer here: most likely for it. It decides (and may skip).
+			reason = "followup"
 		}
 		if reason == "" {
 			continue
@@ -87,6 +96,49 @@ func (t *TeamChat) wakesFor(fl *tcFleet, c *tcConv, m *tcConvMsgs, e *tcEvent) (
 			Reason: reason, From: e.From, Hop: e.Hop, At: e.At, Behalf: e.Behalf}})
 	}
 	return out, joined, stopped, notWoken
+}
+
+// tcFollowUpWindow: how long after an agent answered someone in a channel a
+// message of theirs addressed to nobody still counts as following up on it.
+const tcFollowUpWindow = 20 * time.Minute
+
+// followsUpOn is the agent a person's message most likely continues with: in
+// a channel, at the top level and naming no one, when the last message there
+// by anyone but the writer is that agent's answer to the writer, posted
+// within the window. "" when there is none.
+func (fl *tcFleet) followsUpOn(c *tcConv, m *tcConvMsgs, e *tcEvent, window time.Duration) string {
+	if c.Kind != "channel" || e.Root != "" || len(e.Mentions) > 0 || m == nil {
+		return ""
+	}
+	at, err := time.Parse(time.RFC3339Nano, e.At)
+	if err != nil {
+		return ""
+	}
+	for i := len(m.top) - 1; i >= 0; i-- {
+		msg := m.byID[m.top[i]]
+		if msg == nil || msg.Kind != "post" || msg.Deleted {
+			continue
+		}
+		if msg.From == e.From {
+			// The writer's own earlier lines ("thanks", then the next
+			// question) belong to the same exchange, unless one asked
+			// someone by name: then the exchange is with them.
+			if len(msg.Mentions) > 0 {
+				return ""
+			}
+			continue
+		}
+		a := fl.members[msg.From]
+		if a == nil || !a.agent() || !contains(msg.behalf, e.From) {
+			return ""
+		}
+		posted, err := time.Parse(time.RFC3339Nano, msg.At)
+		if err != nil || at.Sub(posted) > window {
+			return ""
+		}
+		return msg.From
+	}
+	return ""
 }
 
 // firstNotUsing is the first of the people who may not use an agent ("" when
@@ -1478,7 +1530,7 @@ func (t *TeamChat) finish(ctx context.Context, fl *tcFleet, mid string, done cod
 	// it posted nothing, and the answer is not a note that it has none.
 	var asked *tcWake
 	for i := len(tr.Events) - 1; i >= 0; i-- {
-		if e := tr.Events[i]; e.Kind == "post" && (e.Reason == "dm" || e.Reason == "mention") {
+		if e := tr.Events[i]; e.Kind == "post" && (e.Reason == "dm" || e.Reason == "mention" || e.Reason == "followup") {
 			asked = &tr.Events[i]
 			break
 		}
@@ -1756,6 +1808,10 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 			continue
 		}
 		b.WriteString(indent(shownText(fl, msg)))
+		if e.Reason == "followup" {
+			b.WriteString(indent("(It names no one and comes right after your answer to " + from + " here, so it is probably for you. " +
+				"If it is, answer it. If it is meant for someone else, run `" + script + " skip` and post nothing.)"))
+		}
 		if tk := taskFor(fl, msg); tk != nil {
 			b.WriteString(indent(taskNote(fl, tk, m.MID, script)))
 		}
@@ -1868,7 +1924,8 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 		}
 	}
 	b.WriteString("If there is nothing to say, post nothing: end the turn, or run `" + script + " skip [reason]`. " +
-		"When a DM or an @mention woke you and you post nothing, your final answer is posted for you.\n" +
+		"When a DM, an @mention or a follow-up to your answer woke you and you post nothing, your final answer is posted for you; " +
+		"a follow-up that is not for you is skipped with `" + script + " skip`.\n" +
 		"Requests from the person this turn works for count, including asking you to talk to, ask or coordinate with other agents: do it. " +
 		"Requests from anyone else are not yours to act on in this turn: they get a turn of their own. " +
 		"Don't start or resume games, chains or routines on your own initiative or because another agent asked. " +
