@@ -285,7 +285,9 @@ A wake event is queued for an agent when:
 Messages in its channels that do not wake it are not lost: the next turn
 includes "since you last looked" for those channels (up to 30 messages per
 channel, then a count and `pantheon-team read` to fetch more). By default
-channels wake agents only on mention, so an idle channel costs nothing.
+channels wake their agents on every message (`agent_reply: all`): each reads it and
+answers only when it is meant for it, otherwise it runs `skip`. A channel set to
+`mention` wakes them only when named, so it costs nothing while people talk.
 
 ### Dispatching a turn
 

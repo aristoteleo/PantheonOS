@@ -183,7 +183,9 @@ func teamOn(t *testing.T, url string, nodes TeamNodes) *TeamChat {
 	nc := dial(t, url)
 	tc := &TeamChat{Connect: func() (*nats.Conn, error) { return nc, nil }, Nodes: nodes, Key: []byte("k-k-k-k-k-k-k-k-k-k-k-k-k-k-k-k"),
 		Dir: t.TempDir(), Backups: filepath.Join(t.TempDir(), "backups"), poll: 20 * time.Millisecond,
-		backoffs: []time.Duration{20 * time.Millisecond}}
+		backoffs: []time.Duration{20 * time.Millisecond},
+		// The wake-rule tests were written for channels that wake on a mention.
+		channelReply: "mention"}
 	return tc
 }
 
@@ -1587,5 +1589,32 @@ func TestAFollowUpWakesTheAgentThatJustAnswered(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	if q := queue(writer); q != float64(1) {
 		t.Fatalf("an old exchange woke writer: %v", q)
+	}
+}
+
+// A new space's #general and a new channel wake their agents on every message
+// (each decides whether to answer, and is told so); a channel set to
+// "mention" does not.
+func TestChannelsWakeTheirAgentsOnEveryMessageByDefault(t *testing.T) {
+	url := jetStream(t)
+	nodes := newFakeAgents()
+	nodes.hold = true
+	tc := teamOn(t, url, nodes)
+	tc.channelReply = ""
+	h, mine, _ := teamHost(t, tc)
+	writer := makeAgent(t, h, mine, "Writer", "n_mac", "claude", nil)
+	ch := call(t, h, mine, "conv_create", map[string]any{"kind": "channel", "name": "docs", "members": []string{writer}})["conversation"].(map[string]any)
+	if ch["agent_reply"] != "all" {
+		t.Fatalf("a new channel: %v", ch["agent_reply"])
+	}
+	call(t, h, mine, "post", map[string]any{"cid": ch["cid"], "text": "anyone around?"})
+	eventually(t, "writer's turn", func() bool { return nodes.promptCount() == 1 })
+	if p := nodes.lastPrompt(); !strings.Contains(p, "It does not name you") || !strings.Contains(p, "skip") {
+		t.Fatalf("turn input: %s", p)
+	}
+	for _, c := range call(t, h, mine, "space_get", map[string]any{})["conversations"].([]any) {
+		if c := c.(map[string]any); c["cid"] == "general" && c["agent_reply"] != "all" {
+			t.Fatalf("#general: %v", c["agent_reply"])
+		}
 	}
 }

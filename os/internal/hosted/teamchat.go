@@ -140,6 +140,16 @@ type TeamChat struct {
 	// remTick is how often due reminders are looked for.
 	remTick time.Duration
 	uploads sync.Map // upload id -> *tcUpload
+	// channelReply: what a new channel's agent_reply is ("" = all: its agents
+	// read every message and each decides whether to answer).
+	channelReply string
+}
+
+func (t *TeamChat) defaultReply() string {
+	if t.channelReply != "" {
+		return t.channelReply
+	}
+	return "all"
 }
 
 func (t *TeamChat) clock() time.Time {
@@ -866,7 +876,7 @@ func (t *TeamChat) create(ctx context.Context, fl *tcFleet) error {
 	space := &tcSpace{ID: fl.fid, Name: "Team", Created: now, Settings: defaultSettings()}
 	owner := &tcMember{MID: tcOwner, Kind: "person", Handle: "owner", Name: "Owner", Created: now}
 	general := &tcConv{CID: "general", Kind: "channel", Name: "general", Members: []string{tcOwner},
-		AgentReply: "mention", Created: now, CreatedBy: tcOwner}
+		AgentReply: t.defaultReply(), Created: now, CreatedBy: tcOwner}
 	if err := t.put(ctx, fl, "member."+tcOwner, owner); err != nil {
 		return err
 	}

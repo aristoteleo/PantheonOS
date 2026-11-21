@@ -1105,7 +1105,9 @@ func (t *TeamChat) convCreate(ctx context.Context, fl *tcFleet, by, kind, name s
 			}
 		}
 		if agentReply == "" {
-			agentReply = "mention"
+			// By default the channel's agents read every message and each
+			// decides whether it is for it.
+			agentReply = t.defaultReply()
 		}
 		if agentReply != "mention" && agentReply != "all" {
 			return nil, &ArgumentError{"agent_reply is mention or all"}

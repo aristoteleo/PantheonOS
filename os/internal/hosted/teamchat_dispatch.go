@@ -1808,6 +1808,11 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 			continue
 		}
 		b.WriteString(indent(shownText(fl, msg)))
+		if e.Reason == "all" && c.Kind == "channel" {
+			b.WriteString(indent("(It does not name you: you read every message in " + where + ". Answer only when it is meant for you, " +
+				"asks something you can help with, or concerns your work; then post it with the command below. Otherwise run `" +
+				script + " skip` and post nothing: people talk to each other here too.)"))
+		}
 		if e.Reason == "followup" {
 			b.WriteString(indent("(It names no one and comes right after your answer to " + from + " here, so it is probably for you. " +
 				"If it is, answer it. If it is meant for someone else, run `" + script + " skip` and post nothing.)"))
