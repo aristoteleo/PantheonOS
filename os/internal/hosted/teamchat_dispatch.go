@@ -98,6 +98,76 @@ func (t *TeamChat) wakesFor(fl *tcFleet, c *tcConv, m *tcConvMsgs, e *tcEvent) (
 	return out, joined, stopped, notWoken
 }
 
+// tcCheckinWindow: how far back an agent's check-in looks: an older unread message is no longer news.
+const tcCheckinWindow = 30 * time.Minute
+
+// tcCheckinMax: the most messages one check-in hands an agent (the newest).
+const tcCheckinMax = 10
+
+// checkIn: every CheckinMinutes, an idle agent looks in on its "checkin" channels, as a teammate glances
+// at the chat. People's messages there since it last looked (at the top level, not those that already
+// woke it, from people who may use it) wake it to decide, each, whether to answer; with none, nothing
+// runs and nothing is spent. An agent working, waiting for Retry, stopped or held by a limit is not
+// interrupted: it looks once it is free. fl.mu is held.
+func (t *TeamChat) checkIn(ctx context.Context, fl *tcFleet) {
+	if fl.space == nil {
+		return
+	}
+	every := time.Duration(fl.space.Settings.CheckinMinutes) * time.Minute
+	now := t.clock()
+	for _, mid := range sortedKeys(fl.members) {
+		a := fl.members[mid]
+		if !a.agent() || a.State == "stopped" || a.Attention != nil || a.Removed != "" {
+			continue
+		}
+		l := fl.liveOf(mid)
+		if l.checkedIn.IsZero() {
+			// Its first look is a full interval from now (a new agent, or the service started again).
+			l.checkedIn = now
+			continue
+		}
+		if fl.turns[mid] != nil || len(fl.queues[mid]) > 0 || l.paused != "" || now.Sub(l.checkedIn) < every {
+			continue
+		}
+		var wakes []tcWake
+		for _, cid := range sortedKeys(fl.convs) {
+			c := fl.convs[cid]
+			if c.Kind != "channel" || c.AgentReply != "checkin" || c.Archived || !c.has(mid) {
+				continue
+			}
+			cm, err := t.convMsgs(ctx, fl, cid)
+			if err != nil {
+				continue
+			}
+			mark := fl.reads[mid+"."+cid]
+			for _, id := range cm.all {
+				msg := cm.byID[id]
+				if id <= mark || msg == nil || msg.Kind != "post" || msg.Deleted || msg.Root != "" || contains(msg.woke, mid) {
+					continue
+				}
+				from := fl.members[msg.From]
+				if from == nil || from.agent() || !fl.canUse(msg.From, a) {
+					continue
+				}
+				if at, err := time.Parse(time.RFC3339Nano, msg.At); err != nil || now.Sub(at) > tcCheckinWindow {
+					continue
+				}
+				wakes = append(wakes, tcWake{ID: msg.ID, Event: msg.ID, CID: cid, Kind: "post", Reason: "checkin", From: msg.From, At: msg.At})
+			}
+		}
+		if len(wakes) == 0 {
+			continue
+		}
+		if len(wakes) > tcCheckinMax {
+			wakes = wakes[len(wakes)-tcCheckinMax:]
+		}
+		l.checkedIn = now
+		for _, w := range wakes {
+			t.enqueue(ctx, fl, mid, w)
+		}
+	}
+}
+
 // tcFollowUpWindow: how long after an agent answered someone in a channel a
 // message of theirs addressed to nobody still counts as following up on it.
 const tcFollowUpWindow = 20 * time.Minute
@@ -1821,6 +1891,12 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 				"asks something you can help with, or concerns your work; then post it with the command below. Otherwise run `" +
 				script + " skip` and post nothing: people talk to each other here too.)"))
 		}
+		if e.Reason == "checkin" {
+			b.WriteString(indent("(It does not name you: you look in on " + where + " every few minutes, as a teammate glances at the chat, " +
+				"and this came since you last looked. Answer only when it is meant for you, asks something you can help with that " +
+				"nobody has answered yet, or concerns your work; then post it with the command below. Otherwise run `" + script +
+				" skip` and post nothing: people talk to each other here, and a late answer to a settled question is noise.)"))
+		}
 		if e.Reason == "followup" {
 			b.WriteString(indent("(It names no one and comes right after your answer to " + from + " here, so it is probably for you. " +
 				"If it is, answer it. If it is meant for someone else, run `" + script + " skip` and post nothing.)"))
@@ -2336,6 +2412,7 @@ func (t *TeamChat) sweep(ctx context.Context) {
 				}
 			}
 		}
+		t.checkIn(ctx, fl)
 		if t.AgentApp != nil {
 			// The Pantheon Agents show Starting until their App is ready.
 			state, known := t.AgentApp(fl.fid)

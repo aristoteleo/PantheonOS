@@ -140,8 +140,8 @@ type TeamChat struct {
 	// remTick is how often due reminders are looked for.
 	remTick time.Duration
 	uploads sync.Map // upload id -> *tcUpload
-	// channelReply: what a new channel's agent_reply is ("" = all: its agents
-	// read every message and each decides whether to answer).
+	// channelReply: what a new channel's agent_reply is ("" = checkin: an @mention answers at once, and
+	// its agents look in on the rest every few minutes, each deciding whether to answer).
 	channelReply string
 }
 
@@ -149,7 +149,7 @@ func (t *TeamChat) defaultReply() string {
 	if t.channelReply != "" {
 		return t.channelReply
 	}
-	return "all"
+	return "checkin"
 }
 
 func (t *TeamChat) clock() time.Time {
@@ -329,11 +329,13 @@ type tcSettings struct {
 	PostsPerTurn int `json:"posts_per_turn"`
 	// Minutes an agent may spend in turns in an hour.
 	MinutesPerAgentHour int `json:"turn_minutes_per_agent_hour"`
+	// How often an agent looks in on its "check in" channels' new messages (minutes).
+	CheckinMinutes int `json:"checkin_minutes"`
 }
 
 func defaultSettings() tcSettings {
 	return tcSettings{TurnsPerAgentHour: 60, TurnsPerSpaceDay: 400, HopLimit: 8, TurnMaxMinutes: 30,
-		AgentRun: 12, PostsPerTurn: 20, MinutesPerAgentHour: 30}
+		AgentRun: 12, PostsPerTurn: 20, MinutesPerAgentHour: 30, CheckinMinutes: 5}
 }
 
 // filled gives settings saved before a guard existed that guard's default.
@@ -341,7 +343,7 @@ func (s tcSettings) filled() tcSettings {
 	d := defaultSettings()
 	for _, p := range [][2]*int{{&s.TurnsPerAgentHour, &d.TurnsPerAgentHour}, {&s.TurnsPerSpaceDay, &d.TurnsPerSpaceDay},
 		{&s.HopLimit, &d.HopLimit}, {&s.TurnMaxMinutes, &d.TurnMaxMinutes}, {&s.AgentRun, &d.AgentRun},
-		{&s.PostsPerTurn, &d.PostsPerTurn}, {&s.MinutesPerAgentHour, &d.MinutesPerAgentHour}} {
+		{&s.PostsPerTurn, &d.PostsPerTurn}, {&s.MinutesPerAgentHour, &d.MinutesPerAgentHour}, {&s.CheckinMinutes, &d.CheckinMinutes}} {
 		if *p[0] <= 0 {
 			*p[0] = *p[1]
 		}
@@ -361,6 +363,9 @@ type tcSpace struct {
 	Formers map[string]tcFormer `json:"formers,omitempty"`
 	// TimeZone (IANA) reminders' times are read in; "" is UTC.
 	TimeZone string `json:"time_zone,omitempty"`
+	// Checkins: its channels that answered only when @mentioned were moved to "checkin" once (the default
+	// since 2026-11-22); a channel set back to "mention" after that stays so.
+	Checkins bool `json:"checkins,omitempty"`
 }
 
 // tcFormer is what a deleted agent's messages still show of it.
@@ -463,7 +468,7 @@ type tcConv struct {
 	Topic      string   `json:"topic,omitempty"`
 	Members    []string `json:"members"`
 	Archived   bool     `json:"archived"`
-	AgentReply string   `json:"agent_reply"` // mention | all
+	AgentReply string   `json:"agent_reply"` // mention | checkin | all
 	Created    string   `json:"created"`
 	CreatedBy  string   `json:"created_by"`
 }
@@ -684,6 +689,7 @@ type tcLive struct {
 	appWait     time.Time // since when its waiting messages wait for the Agent App to be ready
 	paused      string    // a guard holds its turns
 	pausedNoted bool
+	checkedIn   time.Time // when it last looked in on its "check in" channels
 	textBuf     []string // the running turn's text since its last step
 	lastDelta   bool
 	allText     []string
@@ -862,7 +868,35 @@ func (t *TeamChat) load(ctx context.Context, fl *tcFleet) error {
 		fl.space.Settings = fl.space.Settings.filled()
 	}
 	fl.loaded = true
+	t.moveToCheckins(ctx, fl)
 	return nil
+}
+
+// moveToCheckins moves a space's channels that answered only when @mentioned to "checkin", once: the
+// default since 2026-11-22 (an @mention still answers at once; the rest is looked in on every few
+// minutes). A channel set to "mention" after that stays so. fl.mu is held.
+func (t *TeamChat) moveToCheckins(ctx context.Context, fl *tcFleet) {
+	if fl.space == nil || fl.space.Checkins || t.defaultReply() != "checkin" {
+		return
+	}
+	for _, cid := range sortedKeys(fl.convs) {
+		c := fl.convs[cid]
+		if c.Kind != "channel" || (c.AgentReply != "mention" && c.AgentReply != "") {
+			continue
+		}
+		next := *c
+		next.AgentReply = "checkin"
+		if err := t.put(ctx, fl, "conv."+cid, &next); err != nil {
+			log.Printf("[team-chat] %s: %s stays %q: %v", fl.fid, cid, c.AgentReply, err)
+			return
+		}
+		fl.convs[cid] = &next
+	}
+	next := *fl.space
+	next.Checkins = true
+	if err := t.put(ctx, fl, "space", &next); err == nil {
+		fl.space = &next
+	}
 }
 
 // forget drops a space from memory after a failed write; the next call
@@ -873,7 +907,7 @@ func (t *TeamChat) forget(fl *tcFleet) {
 
 func (t *TeamChat) create(ctx context.Context, fl *tcFleet) error {
 	now := t.stamp()
-	space := &tcSpace{ID: fl.fid, Name: "Team", Created: now, Settings: defaultSettings()}
+	space := &tcSpace{ID: fl.fid, Name: "Team", Created: now, Settings: defaultSettings(), Checkins: t.defaultReply() == "checkin"}
 	owner := &tcMember{MID: tcOwner, Kind: "person", Handle: "owner", Name: "Owner", Created: now}
 	general := &tcConv{CID: "general", Kind: "channel", Name: "general", Members: []string{tcOwner},
 		AgentReply: t.defaultReply(), Created: now, CreatedBy: tcOwner}

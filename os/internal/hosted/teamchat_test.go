@@ -1611,7 +1611,9 @@ func TestAFollowUpWakesTheAgentThatJustAnswered(t *testing.T) {
 // A new space's #general and a new channel wake their agents on every message
 // (each decides whether to answer, and is told so); a channel set to
 // "mention" does not.
-func TestChannelsWakeTheirAgentsOnEveryMessageByDefault(t *testing.T) {
+// By default a channel answers an @mention at once and its agents look in on the rest (checkin); one set to
+// "all" wakes its agents on every message, each told to answer only what is for it.
+func TestAnEveryMessageChannelWakesItsAgents(t *testing.T) {
 	url := jetStream(t)
 	nodes := newFakeAgents()
 	nodes.hold = true
@@ -1619,19 +1621,20 @@ func TestChannelsWakeTheirAgentsOnEveryMessageByDefault(t *testing.T) {
 	tc.channelReply = ""
 	h, mine, _ := teamHost(t, tc)
 	writer := makeAgent(t, h, mine, "Writer", "n_mac", "claude", nil)
-	ch := call(t, h, mine, "conv_create", map[string]any{"kind": "channel", "name": "docs", "members": []string{writer}})["conversation"].(map[string]any)
-	if ch["agent_reply"] != "all" {
-		t.Fatalf("a new channel: %v", ch["agent_reply"])
+	plain := call(t, h, mine, "conv_create", map[string]any{"kind": "channel", "name": "notes"})["conversation"].(map[string]any)
+	if plain["agent_reply"] != "checkin" {
+		t.Fatalf("a new channel: %v", plain["agent_reply"])
 	}
+	for _, c := range call(t, h, mine, "space_get", map[string]any{})["conversations"].([]any) {
+		if c := c.(map[string]any); c["cid"] == "general" && c["agent_reply"] != "checkin" {
+			t.Fatalf("#general: %v", c["agent_reply"])
+		}
+	}
+	ch := call(t, h, mine, "conv_create", map[string]any{"kind": "channel", "name": "docs", "members": []string{writer}, "agent_reply": "all"})["conversation"].(map[string]any)
 	call(t, h, mine, "post", map[string]any{"cid": ch["cid"], "text": "anyone around?"})
 	eventually(t, "writer's turn", func() bool { return nodes.promptCount() == 1 })
 	if p := nodes.lastPrompt(); !strings.Contains(p, "It does not name you") || !strings.Contains(p, "skip") {
 		t.Fatalf("turn input: %s", p)
-	}
-	for _, c := range call(t, h, mine, "space_get", map[string]any{})["conversations"].([]any) {
-		if c := c.(map[string]any); c["cid"] == "general" && c["agent_reply"] != "all" {
-			t.Fatalf("#general: %v", c["agent_reply"])
-		}
 	}
 }
 
@@ -1659,5 +1662,89 @@ func TestAnEditThatAddsAMentionWakesThatAgent(t *testing.T) {
 	eventually(t, "the second edit's turn", func() bool { return nodes.promptCount() == 2 })
 	if p := nodes.lastPrompt(); !strings.Contains(p, "edited message "+m["id"].(string)) {
 		t.Fatalf("%s", p)
+	}
+}
+
+// A "checkin" channel (the default): an @mention answers at once; every CheckinMinutes an idle agent looks
+// in on people's messages there since it last looked, and with none nothing runs.
+func TestAgentsLookInOnTheirChannelsEveryFewMinutes(t *testing.T) {
+	url := jetStream(t)
+	nodes := newFakeAgents()
+	nodes.reply = func(string) (string, string) { return "", "" } // it looks, and says nothing
+	tc := teamOn(t, url, nodes)
+	tc.channelReply = "checkin"
+	clock := time.Now()
+	var mu sync.Mutex
+	tc.now = func() time.Time { mu.Lock(); defer mu.Unlock(); return clock }
+	later := func(d time.Duration) { mu.Lock(); clock = clock.Add(d); mu.Unlock() }
+	h, mine, _ := teamHost(t, tc)
+	writer := makeAgent(t, h, mine, "Writer", "n_mac", "claude", nil)
+	sp := call(t, h, mine, "space_get", map[string]any{})
+	for _, c := range sp["conversations"].([]any) {
+		if c := c.(map[string]any); c["cid"] == "general" && c["agent_reply"] != "checkin" {
+			t.Fatalf("#general: %v", c["agent_reply"])
+		}
+	}
+	ctx := context.Background()
+	tc.sweep(ctx) // its clock starts
+	call(t, h, mine, "post", map[string]any{"cid": "general", "text": "does anyone know the PCR cycle count we used?"})
+	tc.sweep(ctx)
+	time.Sleep(150 * time.Millisecond)
+	if nodes.promptCount() != 0 {
+		t.Fatal("an unaddressed message woke an agent at once")
+	}
+	later(6 * time.Minute)
+	tc.sweep(ctx)
+	eventually(t, "the check-in", func() bool { return nodes.promptCount() == 1 })
+	if p := nodes.lastPrompt(); !strings.Contains(p, "PCR cycle count") || !strings.Contains(p, "you look in on") {
+		t.Fatalf("%s", p)
+	}
+	eventually(t, "the turn's end", func() bool {
+		s := call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[writer].(map[string]any)
+		return s["state"] == "ready" && s["queue"] == float64(0)
+	})
+	// Nothing new: no turn, however long.
+	later(6 * time.Minute)
+	tc.sweep(ctx)
+	time.Sleep(150 * time.Millisecond)
+	if nodes.promptCount() != 1 {
+		t.Fatal("a check-in with nothing new ran a turn")
+	}
+	// An @mention still answers at once.
+	call(t, h, mine, "post", map[string]any{"cid": "general", "text": "@writer and the annealing temperature?"})
+	eventually(t, "the mention's turn", func() bool { return nodes.promptCount() == 2 })
+}
+
+// A space made when channels answered only when @mentioned moves them to "checkin" once; a channel set
+// back to "mention" after that stays so.
+func TestOlderSpacesMoveToCheckinsOnce(t *testing.T) {
+	url := jetStream(t)
+	nodes := newFakeAgents()
+	old := teamOn(t, url, nodes) // channels answer when @mentioned
+	h, mine, _ := teamHost(t, old)
+	lab := call(t, h, mine, "conv_create", map[string]any{"kind": "channel", "name": "lab"})["conversation"].(map[string]any)["cid"].(string)
+	replyOf := func(h *Host, cid string) any {
+		for _, c := range call(t, h, mine, "space_get", map[string]any{})["conversations"].([]any) {
+			if c := c.(map[string]any); c["cid"] == cid {
+				return c["agent_reply"]
+			}
+		}
+		return nil
+	}
+	if replyOf(h, "general") != "mention" || replyOf(h, lab) != "mention" {
+		t.Fatal("the older space's channels")
+	}
+	now := teamOn(t, url, nodes)
+	now.channelReply = "checkin"
+	h2, _, _ := teamHost(t, now)
+	if replyOf(h2, "general") != "checkin" || replyOf(h2, lab) != "checkin" {
+		t.Fatalf("not moved: %v %v", replyOf(h2, "general"), replyOf(h2, lab))
+	}
+	call(t, h2, mine, "conv_update", map[string]any{"cid": lab, "agent_reply": "mention"})
+	again := teamOn(t, url, nodes)
+	again.channelReply = "checkin"
+	h3, _, _ := teamHost(t, again)
+	if replyOf(h3, lab) != "mention" || replyOf(h3, "general") != "checkin" {
+		t.Fatalf("moved twice: %v %v", replyOf(h3, lab), replyOf(h3, "general"))
 	}
 }

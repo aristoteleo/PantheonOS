@@ -905,11 +905,11 @@ func (t *TeamChat) spaceUpdate(ctx context.Context, fl *tcFleet, name *string, s
 	for key, v := range settings {
 		bounds := map[string][2]int{"turns_per_agent_hour": {1, 600}, "turns_per_space_day": {1, 10000},
 			"hop_limit": {1, 50}, "turn_max_minutes": {1, 720}, "agent_messages_in_a_row": {2, 100},
-			"posts_per_turn": {1, 200}, "turn_minutes_per_agent_hour": {1, 60}}[key]
+			"posts_per_turn": {1, 200}, "turn_minutes_per_agent_hour": {1, 60}, "checkin_minutes": {1, 120}}[key]
 		label := map[string]string{"turns_per_agent_hour": "Turns an hour for each agent", "turns_per_space_day": "Turns a day for the space",
 			"hop_limit": "Hops between agents", "turn_max_minutes": "Minutes for one turn",
 			"agent_messages_in_a_row": "Agent messages in a row", "posts_per_turn": "Messages in one turn",
-			"turn_minutes_per_agent_hour": "Minutes of turns an hour for each agent"}[key]
+			"turn_minutes_per_agent_hour": "Minutes of turns an hour for each agent", "checkin_minutes": "Minutes between check-ins"}[key]
 		if bounds == [2]int{} {
 			return nil, &ArgumentError{"this setting is not known"}
 		}
@@ -931,6 +931,8 @@ func (t *TeamChat) spaceUpdate(ctx context.Context, fl *tcFleet, name *string, s
 			next.Settings.PostsPerTurn = v
 		case "turn_minutes_per_agent_hour":
 			next.Settings.MinutesPerAgentHour = v
+		case "checkin_minutes":
+			next.Settings.CheckinMinutes = v
 		}
 	}
 	if err := t.put(ctx, fl, "space", &next); err != nil {
@@ -1105,12 +1107,12 @@ func (t *TeamChat) convCreate(ctx context.Context, fl *tcFleet, by, kind, name s
 			}
 		}
 		if agentReply == "" {
-			// By default the channel's agents read every message and each
-			// decides whether it is for it.
+			// By default an @mention answers at once and the channel's agents look in on the rest every
+			// few minutes, each deciding whether it is for it.
 			agentReply = t.defaultReply()
 		}
-		if agentReply != "mention" && agentReply != "all" {
-			return nil, &ArgumentError{"agent_reply is mention or all"}
+		if agentReply != "mention" && agentReply != "checkin" && agentReply != "all" {
+			return nil, &ArgumentError{"agent_reply is mention, checkin or all"}
 		}
 		list := []string{by}
 		for _, mid := range members {
@@ -1188,8 +1190,8 @@ func (t *TeamChat) convUpdate(ctx context.Context, fl *tcFleet, cid string, name
 		next.Private = *private
 	}
 	if agentReply != nil {
-		if *agentReply != "mention" && *agentReply != "all" {
-			return nil, &ArgumentError{"agent_reply is mention or all"}
+		if *agentReply != "mention" && *agentReply != "checkin" && *agentReply != "all" {
+			return nil, &ArgumentError{"agent_reply is mention, checkin or all"}
 		}
 		next.AgentReply = *agentReply
 	}

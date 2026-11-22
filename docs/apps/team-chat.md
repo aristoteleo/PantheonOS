@@ -284,10 +284,24 @@ A wake event is queued for an agent when:
 
 Messages in its channels that do not wake it are not lost: the next turn
 includes "since you last looked" for those channels (up to 30 messages per
-channel, then a count and `pantheon-team read` to fetch more). By default
-channels wake their agents on every message (`agent_reply: all`): each reads it and
-answers only when it is meant for it, otherwise it runs `skip`. A channel set to
-`mention` wakes them only when named, so it costs nothing while people talk.
+channel, then a count and `pantheon-team read` to fetch more).
+
+A channel's `agent_reply` says how its agents follow it:
+
+* `checkin` (the default since 2026-11-22): an @mention, a followed thread or a
+  follow-up wakes at once; besides, every `checkin_minutes` (space setting,
+  default 5) an idle agent looks in on people's top-level messages there since
+  it last looked (the last 30 minutes, at most 10, not those that already woke
+  it), as a teammate glances at the chat. Each is a `checkin` wake: it answers
+  only what is meant for it and nobody answered, else runs `skip`. With nothing
+  new no turn runs, so a quiet space spends nothing. An agent working, waiting
+  for Retry, stopped or held by a limit is not interrupted; another agent's
+  message never starts a check-in. Spaces made before this moved their
+  `mention` channels to `checkin` once (`space.checkins`); a channel set back
+  to `mention` stays so.
+* `mention`: only when named (and threads it follows, follow-ups).
+* `all`: every message wakes them; each answers only when it is meant for it,
+  otherwise it runs `skip`.
 
 ### Dispatching a turn
 
