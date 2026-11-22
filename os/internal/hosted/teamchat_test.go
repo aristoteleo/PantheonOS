@@ -1634,3 +1634,30 @@ func TestChannelsWakeTheirAgentsOnEveryMessageByDefault(t *testing.T) {
 		}
 	}
 }
+
+// An @mention added by an edit asks that agent, as the message would have had it named it when posted;
+// a later edit reaches it as an edit, not as a new ask.
+func TestAnEditThatAddsAMentionWakesThatAgent(t *testing.T) {
+	url := jetStream(t)
+	nodes := newFakeAgents()
+	tc := teamOn(t, url, nodes) // channels answer when @mentioned
+	h, mine, _ := teamHost(t, tc)
+	writer := makeAgent(t, h, mine, "Writer", "n_mac", "claude", nil)
+	m := call(t, h, mine, "post", map[string]any{"cid": "general", "text": "can someone check the figure legend?"})["message"].(map[string]any)
+	time.Sleep(150 * time.Millisecond)
+	if nodes.promptCount() != 0 {
+		t.Fatal("a message naming no one woke an agent")
+	}
+	call(t, h, mine, "edit", map[string]any{"id": m["id"], "text": "@writer can someone check the figure legend?"})
+	eventually(t, "the mention's turn", func() bool { return nodes.promptCount() == 1 })
+	p := nodes.lastPrompt()
+	if !strings.Contains(p, "["+m["id"].(string)+"] (edited)") || !strings.Contains(p, "@writer can someone check") {
+		t.Fatalf("%s", p)
+	}
+	eventually(t, "the reply", func() bool { return lastFrom(msgs(t, h, mine, "general", ""), writer) != nil })
+	call(t, h, mine, "edit", map[string]any{"id": m["id"], "text": "@writer can someone check the figure legend and axis labels?"})
+	eventually(t, "the second edit's turn", func() bool { return nodes.promptCount() == 2 })
+	if p := nodes.lastPrompt(); !strings.Contains(p, "edited message "+m["id"].(string)) {
+		t.Fatalf("%s", p)
+	}
+}

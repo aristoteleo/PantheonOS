@@ -1479,9 +1479,52 @@ func (t *TeamChat) change(ctx context.Context, fl *tcFleet, mid, worksFor, kind,
 		e.Text, e.Mentions = text, mentions(fl, text)
 	}
 	woke := append([]string(nil), msg.woke...)
+	// An @mention the edit adds wakes that agent as the message would have, had it named it when posted:
+	// the same rules (who may use it, a public channel's mention adds it), and it reads the message as it
+	// is now. Agents it named before, or woke, are not asked again (they get the edit below).
+	var asked []tcRecipient
+	var joined []string
+	if kind == "edit" {
+		fresh := []string{}
+		for _, mid := range e.Mentions {
+			if !contains(msg.Mentions, mid) && !contains(woke, mid) {
+				fresh = append(fresh, mid)
+			}
+		}
+		if c := fl.convs[msg.CID]; c != nil && len(fresh) > 0 {
+			cm, _ := t.convMsgs(ctx, fl, msg.CID)
+			as := *e
+			as.ID, as.Kind, as.Mentions, as.At = msg.ID, "post", fresh, e.At
+			wakes, joins, _, _ := t.wakesFor(fl, c, cm, &as)
+			for _, w := range wakes {
+				if w.wake.Reason == "mention" && contains(fresh, w.agent) {
+					w.wake.Event = e.ID
+					asked = append(asked, w)
+					e.Woke = append(e.Woke, w.agent)
+				}
+			}
+			for _, j := range joins {
+				if contains(e.Woke, j) {
+					joined = append(joined, j)
+				}
+			}
+		}
+	}
 	folded, err := t.append(ctx, fl, e)
 	if err != nil {
 		return nil, err
+	}
+	if len(joined) > 0 {
+		if c := fl.convs[msg.CID]; c != nil {
+			next := *c
+			next.Members = append(append([]string(nil), c.Members...), joined...)
+			if err := t.saveConv(ctx, fl, &next); err != nil {
+				return nil, err
+			}
+		}
+	}
+	for _, w := range asked {
+		t.enqueue(ctx, fl, w.agent, w.wake)
 	}
 	t.emit(fl, map[string]any{"type": "message", "message": folded, "change": kind})
 	// Agents the message woke get an edit in their next turn; a delete

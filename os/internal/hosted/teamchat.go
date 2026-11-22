@@ -1020,6 +1020,12 @@ func (m *tcConvMsgs) fold(e *tcEvent) *tcMsg {
 		if msg := m.byID[e.Ref]; msg != nil && !msg.Deleted {
 			msg.Text, msg.EditedAt = e.Text, e.At
 			msg.Mentions = e.Mentions
+			// Agents an edit's new @mention woke get its later edits too.
+			for _, w := range e.Woke {
+				if !contains(msg.woke, w) {
+					msg.woke = append(msg.woke, w)
+				}
+			}
 			msg.index()
 			return msg
 		}
