@@ -818,12 +818,17 @@ func TestFailureLinesArePlainWords(t *testing.T) {
 		"exec: claude: executable file not found in $PATH":   "Claude Code is not installed on Weizes MacBook Pro",
 		"something odd at 0x1f":                              "its turn failed on Weizes MacBook Pro",
 		"Could not start Claude Code on PantheonOS models: Sign in to PantheonOS on this computer to use PantheonOS models": "Claude Code cannot use PantheonOS models on Weizes MacBook Pro yet",
+		// The pantheon command without an account: its fix is Coding Agents' "PantheonOS on", not a Sign in.
+		"Could not start Pantheon Agent: not signed in: run pantheon login": "Claude Code cannot use PantheonOS models on Weizes MacBook Pro yet",
 		`thread/resume failed: This chat uses openai, but your current provider is pantheon. (code -32600)`:                 "its session was made with other models than it now uses",
 	} {
 		reason, fix, _ := explain(m, mac, raw)
 		if reason != want || fix == "" || strings.Contains(reason+fix, "n_") || strings.Contains(reason+fix, ".local") {
 			t.Errorf("%q: %q %q", raw, reason, fix)
 		}
+	}
+	if _, fix, _ := explain(m, mac, "Could not start Pantheon Agent: not signed in: run pantheon login"); !strings.Contains(fix, `"PantheonOS on"`) {
+		t.Errorf("the pantheon command's fix: %q", fix)
 	}
 	if got := nodeLabel(TeamNode{ID: "n_x", Kind: "sandbox", Name: "workspace-abc"}, "n_x"); got != "your Workspace" {
 		t.Error(got)

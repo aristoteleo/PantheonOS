@@ -1152,9 +1152,11 @@ func explainKnown(m *tcMember, n TeamNode, errText string) (reason, fix string, 
 			"Add budget, or wait for the monthly reset, then press Retry.", false, true
 	case has("rate limit", "rate_limit", "ratelimit", "too many requests") || tcRateErrRE.MatchString(errText):
 		return "the model service is limiting requests right now", "Wait a minute, then press Retry.", true, true
-	case has("sign in to pantheonos"):
+	case has("sign in to pantheonos", "run pantheon login", "pantheon login"):
+		// The pantheon command on that computer has no PantheonOS account: Coding Agents' "PantheonOS on"
+		// switch gives it one (there is no Sign in for it).
 		return label + " cannot use PantheonOS models on " + where + " yet",
-			"Open Coding Agents on " + where + ", sign in to PantheonOS and choose PantheonOS models, then press Retry.", false, true
+			"Open Coding Agents on " + where + ", turn on \"PantheonOS on\" (bottom right), then press Retry.", false, true
 	case has("has no conversation mode"):
 		return label + " cannot take messages from Team Chat", "Pick another runtime for this agent.", false, true
 	case has("not signed in", "sign in", "log in", "login", "unauthorized", "authentication", "invalid api key",
