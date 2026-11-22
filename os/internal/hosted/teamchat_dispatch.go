@@ -108,7 +108,7 @@ const tcCheckinMax = 10
 // at the chat. People's messages there since it last looked (at the top level, not those that already
 // woke it, from people who may use it) wake it to decide, each, whether to answer; with none, nothing
 // runs and nothing is spent. An agent working, waiting for Retry, stopped or held by a limit is not
-// interrupted: it looks once it is free. fl.mu is held.
+// interrupted: it looks once it is free; one whose computer is away skips the look. fl.mu is held.
 func (t *TeamChat) checkIn(ctx context.Context, fl *tcFleet) {
 	if fl.space == nil {
 		return
@@ -120,6 +120,7 @@ func (t *TeamChat) checkIn(ctx context.Context, fl *tcFleet) {
 		if !a.agent() || a.State == "stopped" || a.Attention != nil || a.Removed != "" {
 			continue
 		}
+		t.dropStaleCheckins(ctx, fl, mid, now)
 		l := fl.liveOf(mid)
 		if l.checkedIn.IsZero() {
 			// Its first look is a full interval from now (a new agent, or the service started again).
@@ -127,6 +128,11 @@ func (t *TeamChat) checkIn(ctx context.Context, fl *tcFleet) {
 			continue
 		}
 		if fl.turns[mid] != nil || len(fl.queues[mid]) > 0 || l.paused != "" || now.Sub(l.checkedIn) < every {
+			continue
+		}
+		if n, known := fl.nodes[a.NodeID]; (known && !n.Online) || t.appStarting(fl, a) {
+			// A look is a glance, not an ask: an agent whose computer is away (a paused Workspace) or whose
+			// Agent App is starting does not queue it, and asks no one to start anything. It looks when back.
 			continue
 		}
 		var wakes []tcWake
@@ -166,6 +172,30 @@ func (t *TeamChat) checkIn(ctx context.Context, fl *tcFleet) {
 			t.enqueue(ctx, fl, mid, w)
 		}
 	}
+}
+
+// dropStaleCheckins drops an agent's queued check-ins older than tcCheckinWindow: a look that waited (its
+// computer was away) is no longer news, and the page stops saying it waits. fl.mu is held.
+func (t *TeamChat) dropStaleCheckins(ctx context.Context, fl *tcFleet, mid string, now time.Time) {
+	q := fl.queues[mid]
+	keep := q[:0:0]
+	for _, w := range q {
+		if w.Reason == "checkin" {
+			if at, err := time.Parse(time.RFC3339Nano, w.At); err == nil && now.Sub(at) > tcCheckinWindow {
+				continue
+			}
+		}
+		keep = append(keep, w)
+	}
+	if len(keep) == len(q) {
+		return
+	}
+	if err := t.put(ctx, fl, "queue."+mid, keep); err != nil {
+		log.Printf("[team-chat] %s queue %s: %v", fl.fid, mid, err)
+		return
+	}
+	fl.queues[mid] = keep
+	t.emitStatus(fl, mid)
 }
 
 // tcFollowUpWindow: how long after an agent answered someone in a channel a

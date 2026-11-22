@@ -1679,6 +1679,14 @@ func TestAgentsLookInOnTheirChannelsEveryFewMinutes(t *testing.T) {
 	later := func(d time.Duration) { mu.Lock(); clock = clock.Add(d); mu.Unlock() }
 	h, mine, _ := teamHost(t, tc)
 	writer := makeAgent(t, h, mine, "Writer", "n_mac", "claude", nil)
+	// An agent whose computer is away skips the look: it queues nothing and asks no one to start anything.
+	nodes.mu.Lock()
+	nodes.online["n_off"] = true
+	nodes.mu.Unlock()
+	away := makeAgent(t, h, mine, "Away", "n_off", "claude", nil)
+	nodes.mu.Lock()
+	nodes.online["n_off"] = false
+	nodes.mu.Unlock()
 	sp := call(t, h, mine, "space_get", map[string]any{})
 	for _, c := range sp["conversations"].([]any) {
 		if c := c.(map[string]any); c["cid"] == "general" && c["agent_reply"] != "checkin" {
@@ -1703,6 +1711,9 @@ func TestAgentsLookInOnTheirChannelsEveryFewMinutes(t *testing.T) {
 		s := call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[writer].(map[string]any)
 		return s["state"] == "ready" && s["queue"] == float64(0)
 	})
+	if s := call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[away].(map[string]any); s["queue"] != float64(0) && s["queue"] != nil {
+		t.Fatalf("an agent whose computer is away was asked to look: %v", s)
+	}
 	// Nothing new: no turn, however long.
 	later(6 * time.Minute)
 	tc.sweep(ctx)
@@ -1747,4 +1758,45 @@ func TestOlderSpacesMoveToCheckinsOnce(t *testing.T) {
 	if replyOf(h3, lab) != "mention" || replyOf(h3, "general") != "checkin" {
 		t.Fatalf("moved twice: %v %v", replyOf(h3, lab), replyOf(h3, "general"))
 	}
+}
+
+// A check-in that waited (its agent's computer was away) is dropped once it is no longer news.
+func TestAStaleCheckinIsDropped(t *testing.T) {
+	url := jetStream(t)
+	nodes := newFakeAgents()
+	tc := teamOn(t, url, nodes)
+	tc.channelReply = "checkin"
+	clock := time.Now()
+	var mu sync.Mutex
+	tc.now = func() time.Time { mu.Lock(); defer mu.Unlock(); return clock }
+	h, mine, _ := teamHost(t, tc)
+	nodes.mu.Lock()
+	nodes.online["n_off"] = true
+	nodes.mu.Unlock()
+	away := makeAgent(t, h, mine, "Away", "n_off", "claude", nil)
+	nodes.mu.Lock()
+	nodes.online["n_off"] = false
+	nodes.mu.Unlock()
+	ctx := context.Background()
+	var fid string
+	tc.fleetsMu.Lock()
+	for id := range tc.fleets {
+		fid = id
+	}
+	tc.fleetsMu.Unlock()
+	fl, err := tc.lockFleet(ctx, fid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tc.enqueue(ctx, fl, away, tcWake{ID: "m1", Event: "m1", CID: "general", Kind: "post", Reason: "checkin", From: tcOwner, At: tc.stamp()})
+	fl.mu.Unlock()
+	queue := func() any { return call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[away].(map[string]any)["queue"] }
+	if queue() != float64(1) {
+		t.Fatalf("queue %v", queue())
+	}
+	mu.Lock()
+	clock = clock.Add(tcCheckinWindow + time.Minute)
+	mu.Unlock()
+	tc.sweep(ctx)
+	eventually(t, "the stale check-in dropped", func() bool { q := queue(); return q == nil || q == float64(0) })
 }
