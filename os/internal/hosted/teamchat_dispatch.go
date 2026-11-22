@@ -223,6 +223,12 @@ func (t *TeamChat) statusOf(fl *tcFleet, m *tcMember) map[string]any {
 		}
 	case m.Attention != nil:
 		out["state"], out["reason"], out["fix"] = "attention", m.Attention.Reason, m.Attention.Fix
+		if q := fl.queues[m.MID]; len(q) > 0 {
+			// Messages wait for its Retry: the page says why under the one that came last, not only under
+			// the one whose turn failed.
+			cause := q[len(q)-1]
+			out["cid"], out["root"], out["since"] = cause.CID, cause.Root, cause.At
+		}
 	case l.paused != "":
 		// A limit paused it: it continues by itself (the UI reads "Paused
 		// (limit)", not "Needs attention").

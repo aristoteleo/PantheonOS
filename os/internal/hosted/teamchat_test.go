@@ -552,17 +552,28 @@ func TestAFailedTurnSaysWhyKeepsTheMessageAndRetries(t *testing.T) {
 		t.Fatalf("%v", line)
 	}
 	status := call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[writer].(map[string]any)
-	if status["state"] != "attention" || status["queue"] != float64(1) {
+	if status["state"] != "attention" || status["queue"] != float64(1) || status["cid"] != dm {
 		t.Fatalf("%v", status)
 	}
 	time.Sleep(100 * time.Millisecond)
 	if nodes.promptCount() != 1 {
 		t.Fatal("a failed agent was retried without the owner")
 	}
+	// A message that comes while it waits for Retry waits too, and the status says so under it (not only
+	// under the message whose turn failed).
+	later := call(t, h, mine, "post", map[string]any{"cid": dm, "text": "are you there?"})["message"].(map[string]any)
+	eventually(t, "the second wait", func() bool {
+		s := call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[writer].(map[string]any)
+		return s["state"] == "attention" && s["queue"] == float64(2) && s["cid"] == dm && s["since"] == later["at"]
+	})
+	if nodes.promptCount() != 1 {
+		t.Fatal("a message woke an agent that waits for Retry")
+	}
 	nodes.reply = func(string) (string, string) { return "Hello!", "" }
 	call(t, h, mine, "agent_control", map[string]any{"mid": writer, "action": "retry"})
 	eventually(t, "the answer", func() bool { return lastFrom(msgs(t, h, mine, dm, ""), writer) != nil })
-	if n := len(msgs(t, h, mine, dm, "")); n != 3 {
+	// The two messages, the failure line, one answer to both.
+	if n := len(msgs(t, h, mine, dm, "")); n != 4 {
 		t.Fatalf("%d messages", n)
 	}
 }
