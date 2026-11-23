@@ -123,3 +123,23 @@ func TestDirectMessagesToAnAgentAreItsOwnersToAllow(t *testing.T) {
 	// Its owner always may.
 	call(t, h, b, "conv_create", map[string]any{"kind": "dm", "members": []string{s.listed}})
 }
+
+// People's records carry their account id (for their picture); the owner's
+// page may set the owner's only for the account whose space it is.
+func TestPeopleCarryTheirAccountIDs(t *testing.T) {
+	s := newSharedSpace(t)
+	space := callAs(t, s.h, s.b, bob, "space_get", map[string]any{})
+	if m := memberByName(space, "Alice"); m == nil || m["user_id"] != alice.UserID {
+		t.Fatalf("alice: %v", m)
+	}
+	if e := refusedAs(t, s.h, s.b, bob, "me_update", map[string]any{"user_id": bob.UserID}); !strings.Contains(e, "not this space's owner") {
+		t.Fatalf("a person: %s", e)
+	}
+	if spaceOf("x") == fleetID {
+		t.Fatal("test fleet")
+	}
+	_, out := rpcAs(t, s.h, s.b, nil, "me_update", map[string]any{"user_id": "someone-else"})
+	if out["success"] != false {
+		t.Fatalf("another account: %v", out)
+	}
+}

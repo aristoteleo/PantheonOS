@@ -3661,6 +3661,11 @@ person's "routine" (例行 / 定时任务) is set with `remind`, once or `every 
   stop and stop turn for agents they may use; a person cancels only the
   routines that are for them. Pages show "<owner>'s" on an agent that is
   not the viewer's.
+* **Pictures.** A person's record carries `user_id` (their account, from the
+  grant); the owner's page sends the owner's own with
+  `me_update(user_id)`, taken only when the space is that account's
+  (`f_` + 16 hex of its SHA-256). Pages draw `/api/users/{user_id}/avatar`
+  (a picture the person uploaded) and their initial when there is none.
 * **Removal** is the Hub's `DELETE /api/team-chat/spaces/{space}/members/{user}`
   (owner: anyone; admin: members), which drops the person's space grants and
   calls `MemberChange(remove)`: their record gets `removed_at`, they leave

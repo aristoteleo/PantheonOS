@@ -448,6 +448,10 @@ type tcMember struct {
 	// they go by in this space. Until then their page asks for them first
 	// (on every device), so nobody stays "person" by accident.
 	Named string `json:"named_at,omitempty"`
+	// UserID: a person's account id (from their grant; the owner's from
+	// their own page, checked against the space's id), so pages draw their
+	// account picture (the Hub's /api/users/{id}/avatar).
+	UserID string `json:"user_id,omitempty"`
 }
 
 func (m *tcMember) agent() bool { return m.Kind == "agent" }

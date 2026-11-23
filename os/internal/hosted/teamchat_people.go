@@ -27,6 +27,13 @@ func TeamChatGrantID(space, userID string) string {
 	return "tcm-" + hex.EncodeToString(sum[:])[:32]
 }
 
+// spaceOf is the space (Fleet) id of an account: f_ and 16 hex of the
+// SHA-256 of its id, as the Hub makes it.
+func spaceOf(userID string) string {
+	sum := sha256.Sum256([]byte(userID))
+	return "f_" + hex.EncodeToString(sum[:])[:16]
+}
+
 // personMID is the member id of a person who is not the owner.
 func personMID(userID string) string {
 	sum := sha256.Sum256([]byte("team-chat-person\n" + userID))
@@ -84,7 +91,7 @@ func (t *TeamChat) callerOf(ctx context.Context, fl *tcFleet, m *Member) (tcCall
 			name = handle
 		}
 		rec = &tcMember{MID: mid, Kind: "person", Handle: handle, Name: name, Created: t.stamp(), Role: m.Role,
-			Fleet: m.Fleet, Joined: m.Joined, Membership: m.Membership}
+			Fleet: m.Fleet, Joined: m.Joined, Membership: m.Membership, UserID: m.UserID}
 		if err := t.welcome(ctx, fl, rec, "joined"); err != nil {
 			return tcCaller{}, err
 		}
@@ -94,14 +101,14 @@ func (t *TeamChat) callerOf(ctx context.Context, fl *tcFleet, m *Member) (tcCall
 			return tcCaller{}, errNotInSpace
 		}
 		next := *rec
-		next.Removed, next.Role, next.Fleet, next.Joined, next.Membership = "", m.Role, m.Fleet, m.Joined, m.Membership
+		next.Removed, next.Role, next.Fleet, next.Joined, next.Membership, next.UserID = "", m.Role, m.Fleet, m.Joined, m.Membership, m.UserID
 		if err := t.welcome(ctx, fl, &next, "joined"); err != nil {
 			return tcCaller{}, err
 		}
 		rec = &next
-	case rec.Role != m.Role || rec.Fleet != m.Fleet || rec.Joined != m.Joined || rec.Membership != m.Membership:
+	case rec.Role != m.Role || rec.Fleet != m.Fleet || rec.Joined != m.Joined || rec.Membership != m.Membership || rec.UserID != m.UserID:
 		next := *rec
-		next.Role, next.Fleet, next.Joined, next.Membership = m.Role, m.Fleet, m.Joined, m.Membership
+		next.Role, next.Fleet, next.Joined, next.Membership, next.UserID = m.Role, m.Fleet, m.Joined, m.Membership, m.UserID
 		if err := t.put(ctx, fl, "member."+mid, &next); err != nil {
 			return tcCaller{}, err
 		}

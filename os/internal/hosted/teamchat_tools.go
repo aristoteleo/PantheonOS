@@ -75,11 +75,28 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 			// (their first visit asks for it); DryRun checks them, saving nothing.
 			Confirm bool `json:"confirm"`
 			DryRun  bool `json:"dry_run"`
+			// UserID: the owner's account id, for their picture (taken only
+			// when the space is that account's).
+			UserID string `json:"user_id"`
 		}
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
 		return with(func(fl *tcFleet) (any, error) {
+			if a.UserID != "" {
+				if !who.owner() || spaceOf(a.UserID) != fl.fid {
+					return nil, &ArgumentError{"That account is not this space's owner."}
+				}
+				if m := fl.members[tcOwner]; m != nil && m.UserID != a.UserID {
+					next := *m
+					next.UserID = a.UserID
+					if err := t.put(ctx, fl, "member."+tcOwner, &next); err != nil {
+						return nil, err
+					}
+					fl.members[tcOwner] = &next
+					t.emit(fl, map[string]any{"type": "member", "member": &next})
+				}
+			}
 			if _, err := t.memberUpdate(ctx, fl, who.mid, map[string]any{"name": a.Name, "handle": a.Handle, "avatar": a.Avatar,
 				"confirm": a.Confirm && !who.owner(), "dry_run": a.DryRun}); err != nil {
 				return nil, err
