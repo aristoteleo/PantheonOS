@@ -3709,7 +3709,11 @@ them.
   computer of another account cannot be named). It disconnects the computer
   at once and blocks its old key; reconnecting needs a new command. The
   confirmation names the agents that stay offline until moved. There is no
-  rename: the Fleet has none.
+  rename: the Fleet has none. The controller keeps its operator JWT across
+  restarts (state dir `operator.jwt`), so the NATS reload that applies a
+  revocation works and the node is disconnected at once ("authentication
+  revoked"; a rejoin with its saved state is refused), and the hosted Fleet
+  App forgets the node instead of listing it offline for a week.
 
 ## Agents people bring (2026-11-23)
 
