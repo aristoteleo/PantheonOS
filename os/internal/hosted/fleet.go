@@ -120,6 +120,14 @@ func (f *Fleet) listed(fleet string, live []map[string]any, now time.Time) []map
 	return out
 }
 
+// Forget drops a computer from the fleet's remembered list: a revoked node is
+// gone for good, not "offline" for KnownNodeDays.
+func (f *Fleet) Forget(fleet, node string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.known[fleet], node)
+}
+
 func (f *Fleet) Call(ctx context.Context, c *Call) (any, error) {
 	switch c.Method {
 	case "fleet_list_nodes":

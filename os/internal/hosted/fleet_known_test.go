@@ -38,3 +38,16 @@ func TestAComputerThatLeftIsListedOffline(t *testing.T) {
 		t.Fatalf("still listed after %d days: %v", KnownNodeDays, got)
 	}
 }
+
+// A computer its owner removed (revoked) is not listed offline afterwards.
+func TestARevokedComputerIsForgotten(t *testing.T) {
+	f := &Fleet{}
+	now := time.Unix(1_800_000_000, 0)
+	mac := map[string]any{"node_id": "n_mac", "kind": "machine", "state": map[string]any{"status": "online"}}
+	f.listed("f1", []map[string]any{mac}, now)
+	f.Forget("f1", "n_mac")
+	f.Forget("f9", "n_none") // an unknown fleet or node is fine
+	if got := f.listed("f1", nil, now.Add(time.Minute)); len(got) != 0 {
+		t.Fatalf("a revoked computer is still listed: %v", got)
+	}
+}

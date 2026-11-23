@@ -430,6 +430,9 @@ func Main(args []string) {
 	// revokeNode adds a node's public key to the revocation list and kicks its
 	// current credential; with the owner's fleet id it also drops the node's
 	// registry record. /revoke and hosted model management share it.
+	// forgetKnown drops a revoked node from the hosted Fleet App's remembered
+	// computers (set once that service exists), so it is not listed offline.
+	var forgetKnown func(fleet, node string)
 	revokeNode := func(fid, nodeID, nodePub string) (string, bool, error) {
 		// An owner (fleet key or hosted service) revokes only its own nodes,
 		// known from their join or credential refresh; the Hub service token
@@ -478,6 +481,9 @@ func Main(args []string) {
 					log.Printf("[revoke] node %q kicked; registry record will age out (delete failed: %v)", nid, err)
 				}
 			}
+		}
+		if fid != "" && nodeID != "" && forgetKnown != nil {
+			forgetKnown(fid, nodeID)
 		}
 		return nodePub, kicked, nil
 	}
@@ -668,6 +674,7 @@ func Main(args []string) {
 			},
 		}
 		host.Register("fleet", fleetService)
+		forgetKnown = fleetService.Forget
 		host.Register("model-services-control", &hosted.ModelAccess{Store: store, Hub: &hosted.Hub{Secrets: secrets}})
 		host.Register("model-services-management", &modelservices.Service{Bus: nodes, Hub: &hosted.Hub{Secrets: secrets},
 			State: filepath.Join(*stateDir, "hosted"), Connector: connectorSource(store, releases),
