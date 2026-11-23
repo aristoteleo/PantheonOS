@@ -131,6 +131,9 @@ func TestMovingAnAgentCopiesItsFolderAndStartsANewSessionThere(t *testing.T) {
 	if a["node_id"] != "n_box" || a["folder"] != dst || a["session_conversation_id"] != nil && a["session_conversation_id"] != "" || out["copied"] != true {
 		t.Fatalf("%v", out)
 	}
+	if st := out["status"].(map[string]any); st["state"] == "starting" || st["moving"] == true {
+		t.Fatalf("the answer's status is still moving: %v", st)
+	}
 	if !strings.Contains(str(out["done"]), "the old one stays on") || out["old_folder"] != old {
 		t.Fatalf("%v", out)
 	}

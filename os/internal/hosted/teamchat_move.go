@@ -278,6 +278,9 @@ func (t *TeamChat) agentMove(ctx context.Context, fid string, spec agentMoveSpec
 	}
 	fl.members[mid] = &next
 	l = fl.liveOf(mid)
+	// Done moving: the answer's status is its status now (the page shows
+	// it after the status event).
+	l.moving = ""
 	l.retries, l.retryAt, l.retryWhy, l.appWait = 0, time.Time{}, "", time.Time{}
 	t.emit(fl, map[string]any{"type": "member", "member": &next})
 	moved = true
