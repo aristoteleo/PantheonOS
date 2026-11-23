@@ -275,8 +275,8 @@ class AllocatedToolProvider(DependencyToolProvider):
             except DependencyProviderStarting as error:
                 if time.monotonic() >= deadline:
                     raise ProviderNotStarted(
-                        f'{self.toolset_name} could not run: your Workspace did not start within '
-                        f'{round(PROVIDER_WAIT_SECONDS / 60)} minutes (it may be paused: use Start Workspace in '
+                        f'{self.toolset_name} could not run: your Cloud Workspace did not start within '
+                        f'{round(PROVIDER_WAIT_SECONDS / 60)} minutes (it may be paused: use Start Cloud Workspace in '
                         'the chat or the computer menu, then try again). Nothing was executed.',
                         status=error.status, outcome_unknown=False) from error
 

@@ -238,10 +238,10 @@ async def paused_workspace_choice(agent) -> dict | None:
     listed = ", ".join(f"{display_name(n)} ({n.get('os') or 'unknown OS'})" for n in others)
     first = display_name(others[0])
     return {"success": False, "workspace": "paused", "computers": [display_name(n) for n in others],
-            "error": ("Nothing ran: the user's Workspace (this conversation's default computer) is paused. "
+            "error": ("Nothing ran: the user's Cloud Workspace (this conversation's default computer) is paused. "
                       f"These computers of theirs are on now: {listed}. Tell the user how things stand and ask which "
-                      "they want: start the Workspace (one to three minutes), or work on one of those computers "
-                      "now. Do not choose for them unless they already said. Then: for the Workspace, repeat the "
+                      "they want: start the Cloud Workspace (one to three minutes), or work on one of those computers "
+                      "now. Do not choose for them unless they already said. Then: for the Cloud Workspace, repeat the "
                       f'call with node="{WORKSPACE_NAME}" (it starts, and the call runs once it is up); for a '
                       f'computer, pass its name as node on your calls (node="{first}"). '
                       "Do not retry without node, and do not probe with other commands.")}

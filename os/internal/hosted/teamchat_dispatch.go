@@ -414,13 +414,13 @@ func (t *TeamChat) statusOf(fl *tcFleet, m *tcMember) map[string]any {
 
 // WorkspaceAway is an agent's status while its Workspace's node is away: the
 // Workspace is paused, or starting (a restart, a resume).
-const WorkspaceAway = "Your Workspace is not running (paused, or starting again)"
+const WorkspaceAway = "Your Cloud Workspace is not running (paused, or starting again)"
 
-// nodeLabel names a node for people: "your Workspace", the computer's own
+// nodeLabel names a node for people: "your Cloud Workspace", the computer's own
 // name ("Weizes-MacBook-Pro.local" reads "Weizes MacBook Pro"), never its id.
 func nodeLabel(n TeamNode, id string) string {
 	if n.Kind == "sandbox" {
-		return "your Workspace"
+		return "your Cloud Workspace"
 	}
 	name := strings.TrimSpace(n.Name)
 	if name == "" || name == id || strings.HasPrefix(name, "n_") {
@@ -1207,10 +1207,10 @@ func (t *TeamChat) attention(ctx context.Context, fl *tcFleet, m *tcMember, tr *
 func appStartingWhy(fl *tcFleet) string {
 	for _, m := range fl.members {
 		if m.agent() && m.Runtime == codingagents.PantheonAgent && (m.Session != "" || len(m.Turns) > 0) {
-			return "Your Workspace is starting the Pantheon Agent again. Messages wait and are answered as soon as it is ready."
+			return "Your Cloud Workspace is starting the Pantheon Agent again. Messages wait and are answered as soon as it is ready."
 		}
 	}
-	return "Your Workspace is getting the Pantheon Agent ready for the first time; this takes a few minutes. " +
+	return "Your Cloud Workspace is getting the Pantheon Agent ready for the first time; this takes a few minutes. " +
 		"Messages wait and are answered as soon as it is ready."
 }
 
@@ -1248,8 +1248,8 @@ func (t *TeamChat) waitForApp(ctx context.Context, fl *tcFleet, m *tcMember, tr 
 	if now.Sub(l.appWait) >= limit {
 		l.appWait, l.retryAt = time.Time{}, time.Time{}
 		t.attention(ctx, fl, m, tr, "could not answer",
-			fmt.Sprintf("your Workspace has not got the Pantheon Agent ready after %d minutes", int(limit.Minutes())),
-			"Your message is kept. Press Retry to wait again; if it still does not start, pause your Workspace and start it again.")
+			fmt.Sprintf("your Cloud Workspace has not got the Pantheon Agent ready after %d minutes", int(limit.Minutes())),
+			"Your message is kept. Press Retry to wait again; if it still does not start, pause your Cloud Workspace and start it again.")
 		return
 	}
 	every := t.appRecheck
@@ -1313,14 +1313,14 @@ func explainKnown(m *tcMember, n TeamNode, errText string) (reason, fix string, 
 				"so this message did not get a turn of its own",
 			"Press Retry when that work has finished.", true, true
 	case appNotReady(errText) && has("shell is not ready"):
-		return "your Workspace is still starting (" + label + "'s shell is not ready yet)", "It answers by itself once it is ready.", true, true
+		return "your Cloud Workspace is still starting (" + label + "'s shell is not ready yet)", "It answers by itself once it is ready.", true, true
 	case appNotReady(errText):
-		return "your Workspace is still getting " + label + " ready", "It answers by itself once it is ready.", true, true
+		return "your Cloud Workspace is still getting " + label + " ready", "It answers by itself once it is ready.", true, true
 	case has("budget", "insufficient", "quota", "credit", "billing", "payment required") || tcBudgetErrRE.MatchString(errText):
 		// On PantheonOS models the key's limit is the monthly budget less
 		// the month's Workspace compute, so the model spend alone can look
 		// far from the budget.
-		return "its model budget is used up (on PantheonOS models, models and Workspace compute share the account's monthly budget: Settings → Usage)",
+		return "its model budget is used up (on PantheonOS models, models and Cloud Workspace compute share the account's monthly budget: Settings → Usage)",
 			"Add budget, or wait for the monthly reset, then press Retry.", false, true
 	case has("rate limit", "rate_limit", "ratelimit", "too many requests") || tcRateErrRE.MatchString(errText):
 		return "the model service is limiting requests right now", "Wait a minute, then press Retry.", true, true

@@ -211,7 +211,7 @@ func (t *TeamChat) agentMove(ctx context.Context, fid string, spec agentMoveSpec
 	source = withMemberNode(source, &agent)
 	from, to := nodeLabel(source, agent.NodeID), nodeLabel(target, spec.NodeID)
 	if !target.Online {
-		return nil, &ArgumentError{capFirst(to) + " is offline. Start it (or resume your Workspace), then move " + agent.Name + "."}
+		return nil, &ArgumentError{capFirst(to) + " is offline. Start it (or resume your Cloud Workspace), then move " + agent.Name + "."}
 	}
 	// Its runtime there: installed and signed in.
 	detect, err := t.Nodes.Call(ctx, nf, spec.NodeID, "agents_detect", map[string]any{}, 60*time.Second)

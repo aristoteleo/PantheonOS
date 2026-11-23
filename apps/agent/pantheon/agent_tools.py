@@ -487,10 +487,10 @@ async def _foreground(agent, call, func_name, tool_call_id, params, context_vari
                 adopted = True
                 status = _job_status(agent, bg_task.task_id)
                 if provider_background and not timed_out:
-                    result = (f"Tool '{func_name}' has not run yet: the computer it runs on (the user's Workspace) "
+                    result = (f"Tool '{func_name}' has not run yet: the computer it runs on (the user's Cloud Workspace) "
                               "was paused and is starting, which usually takes one to three minutes. The call goes "
                               f"on in the background (task_id='{bg_task.task_id}') and runs once the Workspace is "
-                              "up; you are told when it finishes. Tell the user now that their Workspace is "
+                              "up; you are told when it finishes. Tell the user now that their Cloud Workspace is "
                               "starting and that you will continue when it is up, then end your turn. Do not "
                               "wait for it, poll it, repeat the call, or try to start the Workspace yourself.")
                 elif steer_background and not timed_out:

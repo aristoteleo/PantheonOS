@@ -208,7 +208,7 @@ async def test_a_workspace_that_never_starts_fails_the_call_after_its_probe_with
     files.prepare('read', {'path': 'probe'})
     loop = asyncio.get_running_loop()
     started = loop.time()
-    with pytest.raises(provisioning.ProviderNotStarted, match='Start Workspace') as failed:
+    with pytest.raises(provisioning.ProviderNotStarted, match='Start Cloud Workspace') as failed:
         await files.call_tool('read', {'path': 'a'})
     # Ended by the provider wait (not retried until the probe's own deadline).
     assert loop.time() - started < 1 and failed.value.outcome_unknown is False

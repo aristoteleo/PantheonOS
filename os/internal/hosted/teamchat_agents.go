@@ -200,7 +200,7 @@ func (t *TeamChat) agentCreate(ctx context.Context, fid string, spec agentSpec, 
 			what = "the whole computer (/)"
 		}
 		if spec.Access != "only_me" {
-			return nil, &ArgumentError{"a shared agent cannot work in " + what + "; pick a folder of its own (the Workspace or a dedicated machine is safer for shared agents)"}
+			return nil, &ArgumentError{"a shared agent cannot work in " + what + "; pick a folder of its own (the Cloud Workspace or a dedicated machine is safer for shared agents)"}
 		}
 		warning = "This agent works in " + what + " on " + nodeLabel(node, spec.NodeID) + ": it can read and change everything there. A folder of its own is safer."
 	}
@@ -1019,7 +1019,7 @@ func folderShape(folder string) error {
 // sharedRefusal is the refusal of a shared agent's folder in plain words.
 func sharedRefusal(what string) error {
 	return &ArgumentError{"A shared agent cannot work in " + what + ": people you share it with could have it read or change " +
-		"everything there. Give it a folder of its own first (your Workspace or a computer of its own is safer for a shared agent)."}
+		"everything there. Give it a folder of its own first (your Cloud Workspace or a computer of its own is safer for a shared agent)."}
 }
 
 // nodeHome is a computer's home folder as it resolves "~" ("" when it

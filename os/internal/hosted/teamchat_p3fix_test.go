@@ -333,7 +333,7 @@ func TestMembersSeeNoAccountComputerUsageOrFixes(t *testing.T) {
 		t.Fatalf("the owner's earlier handles reach a member: %v", owner)
 	}
 	writer := memberByName(space, "Writer")
-	if writer["node_name"] != "Owner's computer" || memberByName(space, "Shared")["node_name"] != "Owner's Workspace" {
+	if writer["node_name"] != "Owner's computer" || memberByName(space, "Shared")["node_name"] != "Owner's Cloud Workspace" {
 		t.Fatalf("%v / %v", writer["node_name"], memberByName(space, "Shared")["node_name"])
 	}
 	st := space["agent_status"].(map[string]any)[s.writer].(map[string]any)

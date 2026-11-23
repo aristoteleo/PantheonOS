@@ -839,7 +839,7 @@ func TestFailureLinesArePlainWords(t *testing.T) {
 		"Error: status 429 Too Many Requests":                "the model service is limiting requests right now",
 		"API Error: 401 {\"type\":\"authentication_error\"}": "Claude Code is not signed in on Weizes MacBook Pro",
 		"Invalid API key · Please run /login":                "Claude Code is not signed in on Weizes MacBook Pro",
-		"HTTP 402: PantheonOS budget exhausted":              "its model budget is used up (on PantheonOS models, models and Workspace compute share the account's monthly budget: Settings → Usage)",
+		"HTTP 402: PantheonOS budget exhausted":              "its model budget is used up (on PantheonOS models, models and Cloud Workspace compute share the account's monthly budget: Settings → Usage)",
 		"model_not_found: claude-x":                          "the model haiku is not available",
 		"prompt is too long: 250000 tokens > 200000 maximum": "its conversation got too long for the model",
 		"nats: no responders available for request":          "Weizes MacBook Pro did not answer",
@@ -860,7 +860,7 @@ func TestFailureLinesArePlainWords(t *testing.T) {
 	if _, fix, _ := explain(m, mac, "Could not start Pantheon Agent: not signed in: run pantheon login"); !strings.Contains(fix, `"PantheonOS on"`) {
 		t.Errorf("the pantheon command's fix: %q", fix)
 	}
-	if got := nodeLabel(TeamNode{ID: "n_x", Kind: "sandbox", Name: "workspace-abc"}, "n_x"); got != "your Workspace" {
+	if got := nodeLabel(TeamNode{ID: "n_x", Kind: "sandbox", Name: "workspace-abc"}, "n_x"); got != "your Cloud Workspace" {
 		t.Error(got)
 	}
 	if got := nodeLabel(TeamNode{ID: "n_x"}, "n_x"); got != "its computer" {
@@ -868,7 +868,7 @@ func TestFailureLinesArePlainWords(t *testing.T) {
 	}
 	// A node whose record is gone is named by what the agent's record keeps.
 	ws := &tcMember{Handle: "pan", Runtime: "pantheon", NodeID: "n_ws", NodeName: "workspace-1", NodeKind: "sandbox"}
-	if reason, _, _ := explain(ws, TeamNode{ID: "n_ws"}, "no responders"); reason != "your Workspace did not answer" {
+	if reason, _, _ := explain(ws, TeamNode{ID: "n_ws"}, "no responders"); reason != "your Cloud Workspace did not answer" {
 		t.Error(reason)
 	}
 }

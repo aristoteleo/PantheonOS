@@ -183,7 +183,7 @@ func TestMovingAnAgentWhoseComputerIsOffline(t *testing.T) {
 	nodes.fakeAgents.mu.Lock()
 	nodes.gone = map[string]bool{"n_ws": true}
 	nodes.fakeAgents.mu.Unlock()
-	if e := refused(t, h, b, "agent_move", map[string]any{"mid": mid, "node_id": "n_ws", "fresh": true}); !strings.Contains(e, "Your Workspace is offline. Start it") {
+	if e := refused(t, h, b, "agent_move", map[string]any{"mid": mid, "node_id": "n_ws", "fresh": true}); !strings.Contains(e, "Your Cloud Workspace is offline. Start it") {
 		t.Fatal(e)
 	}
 	nodes.fakeAgents.mu.Lock()

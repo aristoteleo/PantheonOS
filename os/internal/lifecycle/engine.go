@@ -155,7 +155,7 @@ func (e *ContainerEngine) Ensure(ctx context.Context, dep EngineDependency) (Rec
 		b, se := engineCommand(cc, s, "run", "--rm", "--network=none", "--read-only", engineSmokeImage)
 		cancel()
 		if se != nil || !strings.Contains(string(b), "Hello from Docker!") {
-			return failed(fmt.Errorf("container engine cannot execute containers on this node; Workspace may require VM runtime: %v", se))
+			return failed(fmt.Errorf("container engine cannot execute containers on this node; the Cloud Workspace may require the VM runtime: %v", se))
 		}
 		e.verified = true
 	}
@@ -169,7 +169,7 @@ func enginePreflight(ctx context.Context) error {
 	cc, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if _, err := run(cc, []string{"unshare", "--mount", "--net", "--", "true"}, "", cleanEnv(), nil); err != nil {
-		return fmt.Errorf("this Workspace does not permit container namespaces; enable the VM Workspace runtime before installing Office (existing Workspace data must be retained)")
+		return fmt.Errorf("this Cloud Workspace does not permit container namespaces; enable its VM runtime before installing Office (its existing data must be retained)")
 	}
 	return nil
 }

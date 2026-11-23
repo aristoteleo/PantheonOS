@@ -89,7 +89,7 @@ func TestAPantheonAgentsCommandsShowAsPlainWords(t *testing.T) {
 // with earlier work (Fixes after the first PA check, H1 and M1).
 func TestAPantheonAgentTurnThatCouldNotRunSaysWhy(t *testing.T) {
 	m := &tcMember{Handle: "pix", Name: "Pix", Runtime: codingagents.PantheonAgent, NodeID: "n_ws"}
-	starting := `Your Workspace is still starting, so this conversation's shell is not ready yet (App "shell" is not ready (starting)); nothing was sent to the model. Try again in a minute.`
+	starting := `Your Cloud Workspace is still starting, so this conversation's shell is not ready yet (App "shell" is not ready (starting)); nothing was sent to the model. Try again in a minute.`
 	if !appNotReady(starting) {
 		t.Fatal("a Workspace still starting does not wait")
 	}

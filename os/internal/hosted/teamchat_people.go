@@ -631,8 +631,10 @@ func (fl *tcFleet) statusView(status map[string]any, mid, viewer string) map[str
 			s = strings.ReplaceAll(s, capFirst(raw), friendly)
 			s = strings.ReplaceAll(s, raw, friendly)
 		}
-		s = strings.ReplaceAll(s, "Your Workspace", friendly)
-		return strings.ReplaceAll(s, "your Workspace", friendly)
+		for _, own := range []string{"Your Cloud Workspace", "your Cloud Workspace", "Your Workspace", "your Workspace"} {
+			s = strings.ReplaceAll(s, own, friendly)
+		}
+		return s
 	}
 	out["computer"] = friendly
 	if line, ok := out["line"].(string); ok {
@@ -1179,7 +1181,7 @@ func (fl *tcFleet) friendlyComputer(a *tcMember) string {
 	lower := strings.ToLower(a.NodeName)
 	switch {
 	case a.NodeKind == "sandbox" || a.NodeKind == "pod" || a.NodeKind == "" && strings.HasPrefix(a.Folder, "/workspace/"):
-		return whose + "Workspace"
+		return whose + "Cloud Workspace"
 	case a.NodeOS == "darwin" || a.NodeOS == "macos" || a.NodeOS == "" && (strings.Contains(lower, "mac") || strings.HasSuffix(lower, ".local")):
 		return whose + "Mac"
 	case a.NodeOS == "windows":
