@@ -2837,6 +2837,34 @@ the frontend image can serve as they are), and publishing them as public Store
 versions (the Hub's public route; a Store dependency for the desktop's own
 viewers).
 
+## App pages ask before starting the Cloud Workspace (2026-11-23)
+
+**Rule.** An App page (`/app/<id>`) never starts a paused Cloud Workspace just
+by being open, reloaded or left open. When the App, or the file or folder the
+page was opened with, is on the paused Workspace, the page asks "Start your
+Cloud Workspace?" and says what is there ("This file is on your Cloud
+Workspace…", "<App> runs on your Cloud Workspace…"). Only its Start button
+starts it, through the one wake of "The Workspace starts only when asked".
+
+**What this means for each kind of page.**
+
+1. *Files, the Store and the shipped viewers* (Text, PDF, Image Viewer) open
+   without the Workspace. A viewer waits for it only when its file is on the
+   Workspace; Files at a Workspace folder also offers "Show my other
+   computers".
+2. *A link whose computer is the Workspace* (`?node=<Workspace>`) joins it
+   when it runs; paused, the page asks.
+3. *A link to one of the owner's own computers that is offline* offers "Use my
+   Cloud Workspace instead". That choice is the confirmation: the page it
+   leads to starts a paused Workspace once without asking a second time. The
+   choice is not kept in the URL, so a reload of that page asks again.
+4. *Open in OS Mode* from the top bar asks before starting a paused
+   Workspace, for every App.
+5. *Nothing polls a paused Workspace's Apps.* The Store reads its App library,
+   the Agent deployment and the release versions once; while the Hub says the
+   Workspace is paused, a failed library read is not retried. It reads again
+   when the Workspace joins.
+
 ## Open decisions
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and
