@@ -1608,6 +1608,121 @@ func TestAFollowUpWakesTheAgentThatJustAnswered(t *testing.T) {
 	}
 }
 
+// In a back-and-forth with one person, a follow-up is only that person's next
+// line soon after the agent's answer: a line minutes later, one that opens by
+// naming someone else, or one after a pause in the exchange waits for the
+// check-in (where the agent decides), so the agent does not answer every
+// message in the channel.
+func TestAFollowUpIsOnlyTheNextLineOfTheExchange(t *testing.T) {
+	url := jetStream(t)
+	nodes := newFakeAgents()
+	nodes.hold = true
+	tc := teamOn(t, url, nodes)
+	now := time.Now()
+	tc.now = func() time.Time { return now }
+	h, mine, _ := teamHost(t, tc)
+	writer := makeAgent(t, h, mine, "Writer", "n_mac", "claude", nil)
+	coder := makeAgent(t, h, mine, "Coder", "n_ws", "codex", nil)
+	ch := call(t, h, mine, "conv_create", map[string]any{"kind": "channel", "name": "docs", "members": []string{writer, coder}, "agent_reply": "checkin"})["conversation"].(map[string]any)["cid"].(string)
+	queue := func(mid string) float64 {
+		return call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[mid].(map[string]any)["queue"].(float64)
+	}
+	// The agents a line wakes (Writer's turn stays running: its wakes queue; Coder would start one).
+	woke := func(text string) []string {
+		t.Helper()
+		before, prompts := queue(writer), nodes.promptCount()
+		call(t, h, mine, "post", map[string]any{"cid": ch, "text": text})
+		var w []string
+		if queue(writer) > before {
+			w = append(w, writer)
+		}
+		if nodes.promptCount() > prompts || queue(coder) > 0 {
+			w = append(w, coder)
+		}
+		return w
+	}
+	call(t, h, mine, "post", map[string]any{"cid": ch, "text": "@writer where is the draft?"})
+	eventually(t, "writer's turn", func() bool { return nodes.promptCount() == 1 })
+	token := tc.agentToken(fleetID, writer)
+	answer := func(text string) {
+		t.Helper()
+		if r := tc.asTurn(context.Background(), fleetID, agentRequest{MID: writer, Token: token, Op: "post", Args: []string{"docs"}, Text: text}); r.Code != 0 {
+			t.Fatalf("%v", r)
+		}
+	}
+	answer("In docs/draft.md.")
+
+	// Right after the answer, the person's next line continues the exchange.
+	now = now.Add(30 * time.Second)
+	if w := woke("and which section is new?"); len(w) != 1 || w[0] != writer {
+		t.Fatalf("the next line right after the answer: woke %v", w)
+	}
+	// A line that opens by naming someone else (no @) is for them.
+	answer("Section 3.")
+	now = now.Add(20 * time.Second)
+	if w := woke("Coder, can you check section 3?"); len(w) != 0 {
+		t.Fatalf("a line addressed to Coder by name: woke %v", w)
+	}
+	// Minutes after the answer, an unaddressed line is a new topic: it waits for the check-in.
+	answer("Section 4 is new too.")
+	now = now.Add(tcFollowUpWindow + time.Minute)
+	if w := woke("does anyone know when the review is?"); len(w) != 0 {
+		t.Fatalf("a line %v after the answer: woke %v", tcFollowUpWindow+time.Minute, w)
+	}
+	// "ok" right after an answer still reaches the agent (it decides, and skips), but a line
+	// long after the answer is not a follow-up because the person's own "ok" came in between.
+	answer("Section 5 is the appendix.")
+	now = now.Add(20 * time.Second)
+	woke("ok")
+	now = now.Add(12 * time.Minute)
+	if w := woke("lunch at noon?"); len(w) != 0 {
+		t.Fatalf("a line 12 minutes after the answer (the person's own line between): woke %v", w)
+	}
+	// Opening with the agent's own name is for it.
+	answer("Noted.")
+	now = now.Add(20 * time.Second)
+	if w := woke("Writer, also add a summary"); len(w) != 1 || w[0] != writer {
+		t.Fatalf("a line addressed to Writer by name: woke %v", w)
+	}
+}
+
+// A follow-up the agent judges not for it posts nothing: its skip wins over its final text.
+func TestASkippedFollowUpPostsNothing(t *testing.T) {
+	url := jetStream(t)
+	nodes := newFakeAgents()
+	nodes.hold = true
+	tc := teamOn(t, url, nodes)
+	h, mine, _ := teamHost(t, tc)
+	writer := makeAgent(t, h, mine, "Writer", "n_mac", "claude", nil)
+	ch := call(t, h, mine, "conv_create", map[string]any{"kind": "channel", "name": "docs", "members": []string{writer}, "agent_reply": "checkin"})["conversation"].(map[string]any)["cid"].(string)
+	as := func(op string, args []string, text string) {
+		t.Helper()
+		if r := tc.asTurn(context.Background(), fleetID, agentRequest{MID: writer, Token: tc.agentToken(fleetID, writer), Op: op, Args: args, Text: text}); r.Code != 0 {
+			t.Fatalf("%v", r)
+		}
+	}
+	idle := func() bool {
+		s := call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[writer].(map[string]any)
+		return s["state"] == "ready" && s["queue"] == float64(0)
+	}
+	call(t, h, mine, "post", map[string]any{"cid": ch, "text": "@writer where is the draft?"})
+	eventually(t, "writer's turn", func() bool { return nodes.promptCount() == 1 })
+	as("post", []string{"docs"}, "In docs/draft.md.")
+	nodes.release <- struct{}{}
+	eventually(t, "writer idle", idle)
+	call(t, h, mine, "post", map[string]any{"cid": ch, "text": "anyone up for lunch?"})
+	eventually(t, "the follow-up turn", func() bool { return nodes.promptCount() == 2 })
+	if p := nodes.lastPrompt(); !strings.Contains(p, "skip") {
+		t.Fatalf("the follow-up prompt does not offer skip: %s", p)
+	}
+	as("skip", []string{"it", "is", "for", "the", "room"}, "")
+	nodes.release <- struct{}{} // its final text is "Done."
+	eventually(t, "writer idle", idle)
+	if l := msgs(t, h, mine, ch, ""); len(l) != 3 {
+		t.Fatalf("a skipped follow-up posted: %v", l)
+	}
+}
+
 // A new space's #general and a new channel wake their agents on every message
 // (each decides whether to answer, and is told so); a channel set to
 // "mention" does not.
@@ -1728,6 +1843,44 @@ func TestAgentsLookInOnTheirChannelsEveryFewMinutes(t *testing.T) {
 
 // A space made when channels answered only when @mentioned moves them to "checkin" once; a channel set
 // back to "mention" after that stays so.
+// The space's "Minutes between check-ins" is what the check-in loop waits: set to 15, a look does not come
+// at 6 minutes but at 15; out of its range the service says so.
+func TestTheCheckinIntervalIsTheSpaceSetting(t *testing.T) {
+	url := jetStream(t)
+	nodes := newFakeAgents()
+	nodes.reply = func(string) (string, string) { return "", "" }
+	tc := teamOn(t, url, nodes)
+	tc.channelReply = "checkin"
+	clock := time.Now()
+	var mu sync.Mutex
+	tc.now = func() time.Time { mu.Lock(); defer mu.Unlock(); return clock }
+	later := func(d time.Duration) { mu.Lock(); clock = clock.Add(d); mu.Unlock() }
+	h, mine, _ := teamHost(t, tc)
+	makeAgent(t, h, mine, "Writer", "n_mac", "claude", nil)
+	if e := refused(t, h, mine, "space_update", map[string]any{"settings": map[string]any{"checkin_minutes": 0}}); !strings.Contains(e, "Minutes between check-ins is between 1 and 120") {
+		t.Fatalf("0 minutes between check-ins: %s", e)
+	}
+	r := call(t, h, mine, "space_update", map[string]any{"settings": map[string]any{"checkin_minutes": 15}})
+	if got := r["space"].(map[string]any)["settings"].(map[string]any)["checkin_minutes"]; got != float64(15) {
+		t.Fatalf("space_update: checkin_minutes %v", got)
+	}
+	if got := call(t, h, mine, "space_get", map[string]any{})["space"].(map[string]any)["settings"].(map[string]any)["checkin_minutes"]; got != float64(15) {
+		t.Fatalf("space_get: checkin_minutes %v", got)
+	}
+	ctx := context.Background()
+	tc.sweep(ctx)
+	call(t, h, mine, "post", map[string]any{"cid": "general", "text": "does anyone know the PCR cycle count we used?"})
+	later(6 * time.Minute)
+	tc.sweep(ctx)
+	time.Sleep(150 * time.Millisecond)
+	if nodes.promptCount() != 0 {
+		t.Fatal("a check-in came at 6 minutes with the interval set to 15")
+	}
+	later(10 * time.Minute)
+	tc.sweep(ctx)
+	eventually(t, "the check-in at 16 minutes", func() bool { return nodes.promptCount() == 1 })
+}
+
 func TestOlderSpacesMoveToCheckinsOnce(t *testing.T) {
 	url := jetStream(t)
 	nodes := newFakeAgents()

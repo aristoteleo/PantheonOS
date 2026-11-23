@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/aristoteleo/pantheonos/os/codingagents"
 )
@@ -198,14 +199,18 @@ func (t *TeamChat) dropStaleCheckins(ctx context.Context, fl *tcFleet, mid strin
 	t.emitStatus(fl, mid)
 }
 
-// tcFollowUpWindow: how long after an agent answered someone in a channel a
-// message of theirs addressed to nobody still counts as following up on it.
-const tcFollowUpWindow = 20 * time.Minute
+// tcFollowUpWindow: how soon after an agent answered someone in a channel a
+// message of theirs addressed to nobody still continues that exchange. Later,
+// it is a new line in the room: the agents' check-in looks at it.
+const tcFollowUpWindow = 5 * time.Minute
 
 // followsUpOn is the agent a person's message most likely continues with: in
-// a channel, at the top level and naming no one, when the last message there
-// by anyone but the writer is that agent's answer to the writer, posted
-// within the window. "" when there is none.
+// a channel, at the top level, naming no one (no @mention, and not opening
+// with another member's name), when the last message there by anyone but the
+// writer is that agent's answer to the writer, posted within the window. The
+// writer's own lines since that answer count (a "thanks", then the next
+// question) unless one of them turned to someone else. "" when there is none:
+// in a channel the agent looks in on, the message waits for its check-in.
 func (fl *tcFleet) followsUpOn(c *tcConv, m *tcConvMsgs, e *tcEvent, window time.Duration) string {
 	if c.Kind != "channel" || e.Root != "" || len(e.Mentions) > 0 || m == nil {
 		return ""
@@ -214,18 +219,19 @@ func (fl *tcFleet) followsUpOn(c *tcConv, m *tcConvMsgs, e *tcEvent, window time
 	if err != nil {
 		return ""
 	}
+	// Who the writer's lines since the answer open by naming.
+	named := []string{fl.namedFirst(e.Text, e.From)}
 	for i := len(m.top) - 1; i >= 0; i-- {
 		msg := m.byID[m.top[i]]
-		if msg == nil || msg.Kind != "post" || msg.Deleted {
+		if msg == nil || msg.Kind != "post" || msg.Deleted || msg.ID == e.ID {
 			continue
 		}
 		if msg.From == e.From {
-			// The writer's own earlier lines ("thanks", then the next
-			// question) belong to the same exchange, unless one asked
-			// someone by name: then the exchange is with them.
 			if len(msg.Mentions) > 0 {
+				// It asked someone by @name: the exchange is with them.
 				return ""
 			}
+			named = append(named, fl.namedFirst(msg.Text, e.From))
 			continue
 		}
 		a := fl.members[msg.From]
@@ -236,9 +242,39 @@ func (fl *tcFleet) followsUpOn(c *tcConv, m *tcConvMsgs, e *tcEvent, window time
 		if err != nil || at.Sub(posted) > window {
 			return ""
 		}
+		for _, n := range named {
+			if n != "" && n != msg.From {
+				return ""
+			}
+		}
 		return msg.From
 	}
 	return ""
+}
+
+// namedFirst is the member a message opens by naming without an @ ("Sam, can
+// you…", "coder: look"), other than its writer; "" when it opens with no
+// member's name or handle. The longest name that matches wins.
+func (fl *tcFleet) namedFirst(text, writer string) string {
+	s := strings.ToLower(strings.TrimLeft(text, " \t\n"))
+	best, bestLen := "", 0
+	for _, mid := range sortedKeys(fl.members) {
+		mb := fl.members[mid]
+		if mid == writer || mb.Removed != "" {
+			continue
+		}
+		for _, n := range []string{mb.Name, mb.Handle} {
+			n = strings.ToLower(strings.TrimSpace(n))
+			if n == "" || len(n) <= bestLen || !strings.HasPrefix(s, n) {
+				continue
+			}
+			rest := s[len(n):]
+			if r, _ := utf8.DecodeRuneInString(rest); rest == "" || strings.ContainsRune(" ,:;!?.，：；！？、", r) {
+				best, bestLen = mid, len(n)
+			}
+		}
+	}
+	return best
 }
 
 // firstNotUsing is the first of the people who may not use an agent ("" when
@@ -1930,7 +1966,8 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 		}
 		if e.Reason == "followup" {
 			b.WriteString(indent("(It names no one and comes right after your answer to " + from + " here, so it is probably for you. " +
-				"If it is, answer it. If it is meant for someone else, run `" + script + " skip` and post nothing.)"))
+				"If it continues your exchange (a question on your answer, a correction, the next step), answer it. If it is meant for someone " +
+				"else or for the room, or only acknowledges (\"ok\", \"thanks\"), run `" + script + " skip` and post nothing.)"))
 		}
 		if tk := taskFor(fl, msg); tk != nil {
 			if e.Reason == "task" {

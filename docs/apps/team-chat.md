@@ -273,11 +273,21 @@ A wake event is queued for an agent when:
 4. a message is posted in a channel whose `agent_reply` is `all`, or that it
    listens to (`listen: all`), and it is a member;
 4a. a person's top-level message in a channel names no one and follows that
-   agent's answer to them there (the last message by anyone but the writer,
-   within 20 minutes; the writer's own lines in between count, unless one of
-   them named someone): a follow-up. The agent decides: it answers, or runs
-   `skip` when the message is not for it. Its final answer is posted for it, as
-   for a DM or a mention;
+   agent's answer to them there: a follow-up. "Names no one": no @mention, and
+   it does not open with another member's name or handle ("Sam, can you…").
+   "Follows": the last message there by anyone but the writer is that agent's
+   answer to the writer, posted at most 5 minutes before (`tcFollowUpWindow`);
+   the writer's own lines in between count ("thanks", then the next question),
+   unless one of them turned to someone else. So only the person the agent
+   just answered, continuing right away with no one else between, wakes it at
+   once; anything later or addressed elsewhere waits for the check-in (in a
+   `checkin` channel), where the agent decides. The agent decides here too: it
+   answers what continues its exchange, and runs `skip` for a message meant
+   for someone else, for the room, or that only acknowledges ("ok"); a skip
+   posts nothing. Otherwise its final answer is posted for it, as for a DM or a
+   mention. (Before 2026-11-23 the window was 20 minutes from the answer, so in
+   a back-and-forth every unaddressed line counted and the agent seemed to
+   answer every message in a `checkin` channel.);
 5. (Phase 2) its reminder fires;
 5a. a person hands it a task (2026-11-22): assigns a task to it, or moves a
    task it holds back to Todo or In progress (e.g. returned from In review).
