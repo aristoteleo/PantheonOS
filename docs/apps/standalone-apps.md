@@ -2864,6 +2864,16 @@ starts it, through the one wake of "The Workspace starts only when asked".
    the Agent deployment and the release versions once; while the Hub says the
    Workspace is paused, a failed library read is not retried. It reads again
    when the Workspace joins.
+6. *Waiting for a paused Workspace is slow until someone starts it.* While
+   the Hub says paused and no wake is in flight (in any tab), the page's
+   reads that only wait for it (the deployment, pod-status, the Fleet's
+   binding lookup) happen about every 30 s instead of every few seconds. A
+   Start makes them fast at once; a start from elsewhere is seen within 30 s.
+7. *Plain Workspace files open in viewers.* A file directly under
+   `/workspace` is outside the Desktop data server's folders; the viewer
+   reads it through the Workspace's file service, as Files does. Anything
+   under `.fleet-node/` (each App instance's private data and the node's
+   state), whether asked for or reached through a link, stays refused.
 
 ## Open decisions
 
