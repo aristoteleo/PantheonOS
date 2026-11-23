@@ -71,13 +71,21 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 			Name   *string `json:"name"`
 			Handle *string `json:"handle"`
 			Avatar *string `json:"avatar"`
+			// Confirm: a person confirms the name and handle they go by here
+			// (their first visit asks for it); DryRun checks them, saving nothing.
+			Confirm bool `json:"confirm"`
+			DryRun  bool `json:"dry_run"`
 		}
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
 		return with(func(fl *tcFleet) (any, error) {
-			if _, err := t.memberUpdate(ctx, fl, who.mid, map[string]any{"name": a.Name, "handle": a.Handle, "avatar": a.Avatar}); err != nil {
+			if _, err := t.memberUpdate(ctx, fl, who.mid, map[string]any{"name": a.Name, "handle": a.Handle, "avatar": a.Avatar,
+				"confirm": a.Confirm && !who.owner(), "dry_run": a.DryRun}); err != nil {
 				return nil, err
+			}
+			if a.DryRun {
+				return map[string]any{"ok": true}, nil
 			}
 			return map[string]any{"member": fl.memberView(fl.members[who.mid], who.mid)}, nil
 		})
@@ -1054,6 +1062,12 @@ func (t *TeamChat) memberUpdate(ctx context.Context, fl *tcFleet, mid string, fi
 			return nil, err
 		}
 		next.Avatar = *v
+	}
+	if dry, _ := fields["dry_run"].(bool); dry {
+		return map[string]any{"ok": true}, nil
+	}
+	if confirm, _ := fields["confirm"].(bool); confirm && person && mid != tcOwner {
+		next.Named = t.stamp()
 	}
 	if err := t.put(ctx, fl, "member."+mid, &next); err != nil {
 		return nil, err

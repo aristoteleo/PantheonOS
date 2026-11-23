@@ -185,7 +185,7 @@ status   {state: ready|working|attention|offline, queue: n, reason, fix,
 |---|---|---|
 | `space_get` | — | `{space, me: "owner", members: [member], conversations: [conv], reads: {cid: id}, follows: [root], agent_status: {mid: status}, unread: {cid: {count, mentions, last}}, usage: {limits, turns_last_hour: {mid: n}, turn_minutes_last_hour: {mid: n}, turns_today}, revision, subject}`. The first call creates the space with `#general`. |
 | `space_update` | `name`, `settings` (any of the four keys) | `{space, usage}` |
-| `me_update` | `name`, `handle`, `avatar` (each optional) | `{member}` |
+| `me_update` | `name`, `handle`, `avatar` (each optional); `confirm` (a person confirms the name they go by: `named_at`); `dry_run` (check only) | `{member}`, or `{ok}` for a dry run |
 | `conv_create` | `kind` (`channel` \| `dm`), `name`, `private`, `members` ([mid]), `topic`, `agent_reply` | `{conversation}`; a DM (`members: [the other mid]`) that exists comes back with `existed: true` |
 | `conv_update` | `cid`, any of `name`, `topic`, `private`, `agent_reply`, `members` (the whole list) | `{conversation}` |
 | `conv_join` / `conv_leave` | `cid`, `mid` (default: the caller) | `{conversation}`; `#general` cannot be left |
@@ -3617,6 +3617,40 @@ post yesterday's progress to #general"). The RPCs (`reminders`,
 `reminder_cancel`), stored keys (`reminder_*`, `rem.*`) and the agent's
 command (`pantheon-team remind`) keep their names; the agent's brief says a
 person's "routine" (例行 / 定时任务) is set with `remind`, once or `every …`.
+
+## People: first visit, profile, removal (2026-11-23)
+
+* **First visit.** A person who is not the owner joins with a name and handle
+  made from their account; a role word (an account called `admin`) leaves them
+  `@person`. Until they confirm a name, their member record has no
+  `named_at`, and their page opens on a blocking step: "What should people
+  here call you?", prefilled with the first suggestion the service accepts
+  (their current name unless it is the fallback, the account's full name, the
+  email's local part, the username), each checked with
+  `me_update(dry_run=true)`, which answers with the same refusals a save
+  would ("That name reads as Team Chat or a role…", "@admin is reserved…",
+  "That name is too close to @weize…") and saves nothing. Saving sends
+  `confirm=true`; the service stamps `named_at`, so the step does not come
+  back on another device or after a reload. The owner is never asked
+  (`confirm` is ignored for them). The service does not refuse other calls
+  from a person without `named_at`: the step is the page's.
+* **Second step: your own agent.** Agents run on the space owner's computers
+  (`agent_create` is the owner's: the service calls nodes of the space's
+  Fleet only). A person cannot add an agent that runs on their own computer
+  to someone else's space today; the step says so, lists the agents shared
+  with them, and offers their own space (where they make agents on their own
+  computers). Skippable.
+* **People in the rail.** People have their own section (round faces, a role
+  word for the owner and admins, no status dot); agents stay under Agents.
+  Clicking a person (rail, DM header, an @mention) opens a person profile:
+  name, @handle, role, when they joined, Message; the owner (anyone) and
+  admins (members) also get Remove.
+* **Removal** is the Hub's `DELETE /api/team-chat/spaces/{space}/members/{user}`
+  (owner: anyone; admin: members), which drops the person's space grants and
+  calls `MemberChange(remove)`: their record gets `removed_at`, they leave
+  every channel, work for them ends, #general says "@x was removed from the
+  space.", and a grant from that membership is refused ("You are no longer
+  in this space."); their page shows the removed screen.
 
 ## Out of scope
 

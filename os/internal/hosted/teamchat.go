@@ -440,6 +440,10 @@ type tcMember struct {
 	// whatever the clocks say.
 	Membership string `json:"membership,omitempty"`
 	Ended      string `json:"ended_membership,omitempty"`
+	// Named: when a person (not the owner) confirmed the name and handle
+	// they go by in this space. Until then their page asks for them first
+	// (on every device), so nobody stays "person" by accident.
+	Named string `json:"named_at,omitempty"`
 }
 
 func (m *tcMember) agent() bool { return m.Kind == "agent" }
