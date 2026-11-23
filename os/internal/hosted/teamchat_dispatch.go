@@ -340,6 +340,9 @@ func (t *TeamChat) statusOf(fl *tcFleet, m *tcMember) map[string]any {
 	switch {
 	case m.State == "stopped":
 		out["state"], out["reason"] = "stopped", m.Name+" is stopped"
+	case l.moving != "" && tr == nil:
+		// Moving to another computer: messages wait for it.
+		out["state"], out["line"], out["reason"], out["moving"] = "starting", l.moving, m.Name+" is moving to another computer", true
 	case tr != nil:
 		out["state"], out["since"], out["cid"], out["root"] = "working", tr.Started, tr.Cause.CID, tr.Cause.Root
 		out["line"] = l.line
@@ -737,6 +740,10 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 		return false
 	case m.Attention != nil:
 		t.remindNow(ctx, fl, m, "needs its owner")
+		fl.mu.Unlock()
+		return false
+	case l.moving != "":
+		// It moves to another computer: the move kicks it when it is done.
 		fl.mu.Unlock()
 		return false
 	case t.clock().Before(l.retryAt):
@@ -1303,10 +1310,10 @@ func explainKnown(m *tcMember, n TeamNode, errText string) (reason, fix string, 
 		return label + " cannot take messages from Team Chat", "Pick another runtime for this agent.", false, true
 	case has("not signed in", "sign in", "log in", "login", "unauthorized", "authentication", "invalid api key",
 		"invalid x-api-key", "api key") || tcAuthErrRE.MatchString(errText):
-		return label + " is not signed in on " + where, "Open Coding Agents → Sign in, then press Retry.", false, true
+		return label + " is not signed in on " + where, "Open Coding Agents on " + where + " → Sign in, then press Retry.", false, true
 	case has("unknown coding agent", "executable file not found", "not installed", "command not found") ||
 		has("no such file or directory") && has("exec"):
-		return label + " is not installed on " + where, "Open Coding Agents → Install, then press Retry.", false, true
+		return label + " is not installed on " + where, "Open Coding Agents on " + where + " → Install, then press Retry.", false, true
 	case has("unknown method", "not found on service", "update fleet", "update pantheonos"):
 		return "PantheonOS on " + where + " is too old for Team Chat", "Update PantheonOS on " + where + ", then press Retry.", false, true
 	case has("proc capability", "process execution"):
@@ -1531,9 +1538,9 @@ var shellWords = []struct {
 	{regexp.MustCompile(`pantheon[- ]team['"]?\s+task\s+assign\b`), "Assigning a task"},
 	{regexp.MustCompile(`pantheon[- ]team['"]?\s+task\s+state\b`), "Updating a task"},
 	{regexp.MustCompile(`pantheon[- ]team['"]?\s+task\b`), "Looking at tasks"},
-	{regexp.MustCompile(`pantheon[- ]team['"]?\s+remind\s+list\b`), "Looking at reminders"},
-	{regexp.MustCompile(`pantheon[- ]team['"]?\s+remind\s+cancel\b`), "Cancelling a reminder"},
-	{regexp.MustCompile(`pantheon[- ]team['"]?\s+remind\b`), "Setting a reminder"},
+	{regexp.MustCompile(`pantheon[- ]team['"]?\s+remind\s+list\b`), "Looking at routines"},
+	{regexp.MustCompile(`pantheon[- ]team['"]?\s+remind\s+cancel\b`), "Cancelling a routine"},
+	{regexp.MustCompile(`pantheon[- ]team['"]?\s+remind\b`), "Setting a routine"},
 	{regexp.MustCompile(`pantheon[- ]team['"]?\s+search\b`), "Searching messages"},
 	{regexp.MustCompile(`pantheon[- ]team['"]?\s+join\b`), "Joining a channel"},
 	{regexp.MustCompile(`\b(pytest|go test|npm (run )?test|cargo test|jest|vitest|unittest)\b`), "Running tests"},

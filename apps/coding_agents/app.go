@@ -544,7 +544,13 @@ func (a *App) send(p SendArgs) map[string]any {
 		c.InboxStopped = false
 	}
 	// The turn's settings: the canvas's, and the groups it is linked to.
-	system := strings.TrimSpace(canvas.system + "\n\n" + linkNote(c, box))
+	settings := canvas.system
+	if p.Team != nil {
+		// A Team Chat turn takes only its effort from the canvas: no
+		// per-turn settings lines (docs/apps/team-chat.md, "Reasoning effort").
+		settings = ""
+	}
+	system := strings.TrimSpace(settings + "\n\n" + linkNote(c, box))
 	if trouble != "" {
 		system = strings.TrimSpace(system + "\n\nLinked groups cannot be messaged this turn: " + trouble + ".")
 	}

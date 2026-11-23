@@ -67,7 +67,8 @@ func (f *fakeAgents) Node(_ context.Context, _ string, id string) (TeamNode, err
 	if id == "n_ws" {
 		kind = "sandbox"
 	}
-	return TeamNode{ID: id, Name: "Node-" + id + ".local", Kind: kind, OS: "linux", Online: f.online[id], Seen: f.seen[id]}, nil
+	_, listed := f.online[id]
+	return TeamNode{ID: id, Name: "Node-" + id + ".local", Kind: kind, OS: "linux", Online: f.online[id], Seen: f.seen[id], Listed: listed}, nil
 }
 
 func (f *fakeAgents) Call(_ context.Context, _ string, node, method string, args map[string]any, _ time.Duration) (map[string]any, error) {
@@ -830,8 +831,8 @@ func TestFailureLinesArePlainWords(t *testing.T) {
 		"something odd at 0x1f":                              "its turn failed on Weizes MacBook Pro",
 		"Could not start Claude Code on PantheonOS models: Sign in to PantheonOS on this computer to use PantheonOS models": "Claude Code cannot use PantheonOS models on Weizes MacBook Pro yet",
 		// The pantheon command without an account: its fix is Coding Agents' "PantheonOS on", not a Sign in.
-		"Could not start Pantheon Agent: not signed in: run pantheon login": "Claude Code cannot use PantheonOS models on Weizes MacBook Pro yet",
-		`thread/resume failed: This chat uses openai, but your current provider is pantheon. (code -32600)`:                 "its session was made with other models than it now uses",
+		"Could not start Pantheon Agent: not signed in: run pantheon login":                                 "Claude Code cannot use PantheonOS models on Weizes MacBook Pro yet",
+		`thread/resume failed: This chat uses openai, but your current provider is pantheon. (code -32600)`: "its session was made with other models than it now uses",
 	} {
 		reason, fix, _ := explain(m, mac, raw)
 		if reason != want || fix == "" || strings.Contains(reason+fix, "n_") || strings.Contains(reason+fix, ".local") {
@@ -1943,7 +1944,9 @@ func TestAStaleCheckinIsDropped(t *testing.T) {
 	}
 	tc.enqueue(ctx, fl, away, tcWake{ID: "m1", Event: "m1", CID: "general", Kind: "post", Reason: "checkin", From: tcOwner, At: tc.stamp()})
 	fl.mu.Unlock()
-	queue := func() any { return call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[away].(map[string]any)["queue"] }
+	queue := func() any {
+		return call(t, h, mine, "space_get", map[string]any{})["agent_status"].(map[string]any)[away].(map[string]any)["queue"]
+	}
 	if queue() != float64(1) {
 		t.Fatalf("queue %v", queue())
 	}

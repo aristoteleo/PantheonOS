@@ -68,6 +68,9 @@ func (t *TeamChat) agentCreate(ctx context.Context, fid string, spec agentSpec) 
 	if !teamRuntimes[spec.Runtime] {
 		return nil, &ArgumentError{"runtime is claude, codex, gemini, cursor or pantheon"}
 	}
+	if err := effortOK(spec.Runtime, spec.Effort); err != nil {
+		return nil, err
+	}
 	if spec.Access == "" {
 		spec.Access = "only_me"
 	}
@@ -240,6 +243,17 @@ func (t *TeamChat) agentOf(fl *tcFleet, mid string) (*tcMember, error) {
 // agentUpdate changes an agent's settings. A new computer, folder or runtime
 // starts a new session.
 func (t *TeamChat) agentUpdate(ctx context.Context, fid, mid string, fields map[string]any) (any, error) {
+	var target TeamNode
+	if v, ok := fields["node_id"]; ok {
+		// A computer of the owner's Fleet (it may be offline: the agent
+		// waits for it).
+		id, _ := v.(string)
+		n, err := t.ownerNode(ctx, fid, id)
+		if err != nil {
+			return nil, err
+		}
+		target = n
+	}
 	fl, err := t.lockFleet(ctx, fid)
 	if err != nil {
 		return nil, err
@@ -339,7 +353,13 @@ func (t *TeamChat) agentUpdate(ctx context.Context, fid, mid string, fields map[
 			switch key {
 			case "node_id":
 				next.NodeID = s
+				if target.Name != "" {
+					next.NodeName, next.NodeKind, next.NodeOS = target.Name, target.Kind, target.OS
+				}
 			case "folder":
+				if err := folderShape(s); err != nil {
+					return nil, err
+				}
 				next.Folder = s
 			case "runtime":
 				if !teamRuntimes[s] {
@@ -352,12 +372,61 @@ func (t *TeamChat) agentUpdate(ctx context.Context, fid, mid string, fields map[
 			return nil, &ArgumentError{"agent_update: unknown field " + key}
 		}
 	}
+	if next.Effort != "" && !takesEffort(next.Runtime, next.Effort) {
+		if _, asked := fields["effort"]; asked {
+			return nil, effortOK(next.Runtime, next.Effort)
+		}
+		// Another runtime, which does not take that level: its own default.
+		next.Effort = ""
+	}
 	if err := t.put(ctx, fl, "member."+mid, &next); err != nil {
 		return nil, err
 	}
 	fl.members[mid] = &next
 	t.emit(fl, map[string]any{"type": "member", "member": &next})
 	return frozen(map[string]any{"agent": &next, "status": t.statusOf(fl, &next)})
+}
+
+// effortLevels are the reasoning levels a runtime takes (nil: none), as
+// its headless mode takes them (codingagents' Canvas.Effort).
+func effortLevels(runtime string) []string {
+	a, ok := codingagents.Lookup(runtime)
+	if !ok || a.Headless == nil {
+		return nil
+	}
+	return a.Headless.Canvas.Effort
+}
+
+func takesEffort(runtime, effort string) bool {
+	return effort == "" || contains(effortLevels(runtime), effort)
+}
+
+// effortOK refuses a reasoning level the runtime does not take.
+func effortOK(runtime, effort string) error {
+	if takesEffort(runtime, effort) {
+		return nil
+	}
+	levels := effortLevels(runtime)
+	if len(levels) == 0 {
+		return &ArgumentError{runtimeLabel(runtime) + " does not take a reasoning effort from Team Chat; leave it on the default"}
+	}
+	return &ArgumentError{"reasoning effort for " + runtimeLabel(runtime) + " is " + strings.Join(levels, ", ") + " or empty (its default)"}
+}
+
+// ownerNode is a computer of the owner's Fleet, or a plain refusal.
+func (t *TeamChat) ownerNode(ctx context.Context, fid, nodeID string) (TeamNode, error) {
+	nodeID = strings.TrimSpace(nodeID)
+	if nodeID == "" {
+		return TeamNode{}, &ArgumentError{"pick a computer"}
+	}
+	n, err := t.Nodes.Node(ctx, fid, nodeID)
+	if err != nil {
+		return TeamNode{}, err
+	}
+	if !n.Listed {
+		return TeamNode{}, &ArgumentError{"That computer is not one of the space owner's computers (or has not been connected for a week). Pick one from the list."}
+	}
+	return n, nil
 }
 
 // agentControl: start, stop, stop_turn, retry, reset_session, reset_full
@@ -713,6 +782,10 @@ Use the tool {{TEAM}} (run it with sh):
   or give a time with its offset (2026-11-06T09:00+09:00). When you set a
   reminder, confirm the time to the person in the space's time zone, as the
   command's answer says.
+- People may call these routines (例行 / 定时任务): "set up a routine: every
+  weekday at 10:00, post yesterday's progress to #general" is a reminder of
+  yours (--for me) with remind 'every weekday 10:00'; once ("tomorrow at
+  9") without every. Their Routines tab lists them.
 - Never show a reminder's id (r…) to people. To cancel, they ask you
   ("cancel the reminder"); you find it with remind list and cancel it. When a
   person asks you to stop a recurring one, cancel it.

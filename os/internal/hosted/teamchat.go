@@ -62,6 +62,9 @@ type TeamNode struct {
 	ID, Name, Kind, OS string
 	Online             bool
 	Seen               time.Time
+	// Listed: the owner's Fleet lists it (online, or offline for a while);
+	// false for an id it does not know.
+	Listed bool
 }
 
 // TeamNodes reaches the owner's nodes: their state, and their Coding Agents
@@ -88,7 +91,7 @@ func (n fleetNodes) Node(ctx context.Context, fleet, nodeID string) (TeamNode, e
 		return TeamNode{ID: nodeID}, nil
 	}
 	seen, _ := time.Parse(time.RFC3339Nano, str(rec["last_seen"]))
-	return TeamNode{ID: nodeID, Name: str(rec["name"]), Kind: str(rec["kind"]), OS: str(rec["os"]), Online: online(rec), Seen: seen}, nil
+	return TeamNode{ID: nodeID, Name: str(rec["name"]), Kind: str(rec["kind"]), OS: str(rec["os"]), Online: online(rec), Seen: seen, Listed: true}, nil
 }
 
 func (n fleetNodes) Call(ctx context.Context, fleet, nodeID, method string, args map[string]any, timeout time.Duration) (map[string]any, error) {
@@ -688,9 +691,10 @@ type tcLive struct {
 	retryWhy    string    // why it waits to retry, in plain words ("" when not known)
 	appWait     time.Time // since when its waiting messages wait for the Agent App to be ready
 	paused      string    // a guard holds its turns
+	moving      string    // it is moving to another computer: the step, in words (no turn starts)
 	pausedNoted bool
 	checkedIn   time.Time // when it last looked in on its "check in" channels
-	textBuf     []string // the running turn's text since its last step
+	textBuf     []string  // the running turn's text since its last step
 	lastDelta   bool
 	allText     []string
 	lastSeq     int64

@@ -531,6 +531,18 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 			return nil, err
 		}
 		return t.agentUpdate(ctx, c.Fleet, mid, a)
+	case "agent_move":
+		var a agentMoveSpec
+		if err := c.Decode(&a); err != nil {
+			return nil, err
+		}
+		if err := resolve(); err != nil {
+			return nil, err
+		}
+		if err := ownerOnly("move an agent (it runs on the owner's computers)"); err != nil {
+			return nil, err
+		}
+		return t.agentMove(ctx, c.Fleet, a)
 	case "agent_control":
 		var a struct {
 			MID     string `json:"mid"`

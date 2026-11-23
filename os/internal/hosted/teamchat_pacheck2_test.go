@@ -102,9 +102,9 @@ func TestTeamChatCommandsHavePlainWords(t *testing.T) {
 			" task assign 01M6Y2 @hana":                            "Assigning a task",
 			" task list --state todo":                              "Looking at tasks",
 			" search release checklist":                            "Searching messages",
-			" remind 'in 2 hours' - <<'EOF'\ncheck CI\nEOF":        "Setting a reminder",
-			" remind list":       "Looking at reminders",
-			" remind cancel r12": "Cancelling a reminder",
+			" remind 'in 2 hours' - <<'EOF'\ncheck CI\nEOF":        "Setting a routine",
+			" remind list":       "Looking at routines",
+			" remind cancel r12": "Cancelling a routine",
 			" join '#pc2-two'":   "Joining #pc2-two",
 			" join \"#docs\"":    "Joining #docs",
 		} {

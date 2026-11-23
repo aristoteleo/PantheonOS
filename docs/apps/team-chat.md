@@ -3539,6 +3539,84 @@ Chat page in a browser.
   seconds "Wren is working · Acct4-pafix2 is offline; waiting for it".)
 * Spend: acct4 $20.25 → $20.62 (LLM $0.33 → $0.44; compute +$0.25).
 
+## Agent settings: effort, moving, Routines (2026-11-22)
+
+### Reasoning effort
+
+An agent's `effort` is one of the levels its runtime takes, or empty (the
+runtime's own default). The levels are the runtime's `Canvas.Effort` in
+`codingagents` (the same list `agents_detect` reports and the Agent Canvas
+offers): Claude Code `low|medium|high|xhigh|max` (`--effort`), Codex
+`low|medium|high|xhigh` (`-c model_reasoning_effort=…`). The Pantheon Agent,
+Gemini CLI and Cursor Agent take none: their Settings show one line saying so
+and no control. `agent_create` and `agent_update` refuse a level the runtime
+does not take; a runtime change clears a level the new runtime does not take.
+The dispatcher passes `effort` to `agent_send`; the node keeps only what the
+runtime takes (`canvasLaunch.forAgent`) and, for a Team Chat turn, adds none
+of the Canvas's per-turn settings lines to its message (a Team Chat turn takes
+only the effort from them).
+
+### Moving an agent to another computer
+
+The owner moves an agent from its Settings → **Move to another computer**
+(`agent_move {mid, node_id, folder?, fresh?}`, owner only).
+
+* **The list** is the owner's computers (Fleet inventory, the create dialog's
+  `computerChoices`), each with its readiness for the agent's runtime from
+  `agents_detect` (`runtimeChoices`): offline (a paused Workspace: Start it),
+  runtime not installed (Install, the existing install task), not signed in
+  or PantheonOS not on (Use PantheonOS models / open Coding Agents), and
+  whether the agent's model is offered there (else it runs the runtime's
+  default there). Unready computers are listed with the problem and its fix,
+  not hidden; only a ready one can be chosen.
+* **What moves:** the folder's contents (AGENT.md, MEMORY.md, notes/, files/
+  and anything else the agent keeps there) except `.team/` (its tool and
+  inbox, which the new computer writes again), the agent's record (computer,
+  folder), its channels, DMs, reminders, tasks and waiting messages.
+* **What does not:** its session (a new one starts on the new computer: the
+  runtime's conversation stays on the old computer), files it wrote outside
+  its folder, and the runtime's own setup (sign-in, settings) on the old
+  computer. The old folder stays in place, not deleted; the move's answer
+  and the done line name it.
+* **How the folder is copied:** the Fleet's node-to-node transfer (the data
+  plane, sha256-verified): the source computer packs the folder into one
+  archive (`tar -czf`, in its temp folder), the transfer carries it to the
+  target's temp folder, the target unpacks it into the new folder (default
+  `defaultFolder` there: `<home>/PantheonAgents/<handle>`, or
+  `/workspace/agents/<handle>` on a Workspace), and both archives are removed.
+  Files of the same name in an existing target folder are replaced.
+* **Refused:** while a turn runs ("stop the turn first", the panel offers Stop
+  turn); to the computer it is on; to a computer that is not in the owner's
+  Fleet; to an offline target; when the runtime is not installed or signed in
+  there; for a shared agent, a target folder a shared agent may not use (T35).
+* **Source offline:** the folder cannot be copied. The move is refused with
+  that reason unless the owner chooses **Start fresh on the new computer**
+  (`fresh: true`), which the panel offers with a warning: the agent starts
+  there with an empty folder (a new AGENT.md), without its memory; its old
+  folder stays on the old computer.
+* **While it moves** its status is "starting" with the step as its line
+  (Packing its folder, Copying its folder to X, Unpacking on X); no turn
+  starts, messages wait. On success the record changes in one write
+  (node, its name/kind/OS, folder, session cleared, attention cleared), the
+  new folder is set up (`team_setup` with its brief), and waiting messages
+  start its first turn there. On failure nothing changes; the error says what
+  failed in plain words.
+* **After the move**, a first wake whose runtime turns out not ready on the
+  new computer fails with the usual explanation, naming the new computer and
+  what to open there ("Open Coding Agents on X → Sign in").
+* `agent_update` with `node_id` (the low-level change that keeps the folder
+  path) now checks the node is in the owner's Fleet, and a `folder` its shape.
+
+### Routines
+
+People see "Routines" where they saw "Reminders": the agent panel's tab, its
+copy, the cancel question, Activity and notifications. A routine is a
+scheduled wake-up of the agent, once or repeating ("every weekday at 10:00,
+post yesterday's progress to #general"). The RPCs (`reminders`,
+`reminder_cancel`), stored keys (`reminder_*`, `rem.*`) and the agent's
+command (`pantheon-team remind`) keep their names; the agent's brief says a
+person's "routine" (例行 / 定时任务) is set with `remind`, once or `every …`.
+
 ## Out of scope
 
 Payments, mobile native apps, external chat bridges, prod rollout (asked
