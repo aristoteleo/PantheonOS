@@ -307,7 +307,10 @@ A channel's `agent_reply` says how its agents follow it:
 
 * `checkin` (the default since 2026-11-22): an @mention, a followed thread or a
   follow-up wakes at once; besides, every `checkin_minutes` (space setting,
-  default 5) an idle agent looks in on people's top-level messages there since
+  default 5; the owner sets it in Space settings, Check-ins; it is in
+  `space.settings`, which every member gets, so everyone's copy says the same
+  minutes, while `usage.limits` is the owner's only) an idle agent looks in on
+  people's top-level messages there since
   it last looked (the last 30 minutes, at most 10, not those that already woke
   it), as a teammate glances at the chat. Each is a `checkin` wake: it answers
   only what is meant for it and nobody answered, else runs `skip`. With nothing
