@@ -3673,6 +3673,39 @@ person's "routine" (例行 / 定时任务) is set with `remind`, once or `every 
   space.", and a grant from that membership is refused ("You are no longer
   in this space."); their page shows the removed screen.
 
+## Computers in the rail (2026-11-23)
+
+The rail's Computers section is the owner's (people in someone else's space
+do not see it: the list is the viewer's own Fleet, which is not the space's).
+
+* **Add a computer.** The "+" on the Computers header opens the same connect
+  step as the first run and the invite page (`JoinComputer`: a one-use join
+  token minted by the Hub's `POST /api/fleet/join-token` for the caller's
+  Fleet, per-OS command, Copy). The dialog polls the Fleet every 3 s and,
+  once a new computer joins, says so and offers to open its panel; the rail
+  lists it at the same moment. Cloud machines and folder choices stay in the
+  Fleet App.
+* **Computer panel.** A row opens a side panel (like an agent's or a person's
+  profile; on a phone, full screen with Back): name, OS and architecture,
+  Online / Offline or Paused (the Workspace, from the Hub's pod status) with
+  last seen, Workspace or Fleet machine, version and size; the coding agents
+  on it (the Coding Agents service's `agents_detect`, read as the New agent
+  and Move dialogs read it: Ready with version and model source, Not signed
+  in with "Use PantheonOS models" and Coding Agents, Not installed with
+  Install... after a confirmation); the space's agents that live on it (a
+  click opens the agent) and "New agent on this computer" (the New agent
+  dialog with that computer chosen); Files (the node's root in Files) and
+  Terminal (a Terminal window on that node). On an App page a Terminal is a
+  desktop window, so it waits for a running Workspace and says so. A paused
+  Workspace offers "Start your Workspace" after a confirmation. An agent's
+  profile links its computer to this panel for the owner.
+* **Remove** (machines only, not the Workspace): the Fleet's revoke
+  (`POST /api/fleet/revoke`, authorized by the caller's own Fleet key, so a
+  computer of another account cannot be named). It disconnects the computer
+  at once and blocks its old key; reconnecting needs a new command. The
+  confirmation names the agents that stay offline until moved. There is no
+  rename: the Fleet has none.
+
 ## Out of scope
 
 Payments, mobile native apps, external chat bridges, prod rollout (asked
