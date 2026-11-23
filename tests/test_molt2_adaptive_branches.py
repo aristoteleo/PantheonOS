@@ -60,6 +60,21 @@ def test_cpp_redesign_shows_complete_selected_target_and_keeps_lineage():
     clone=ModifiedMolt();clone.load_state_dict(json.loads(json.dumps(m.state_dict())))
     assert clone.target_context_audit==m.target_context_audit
 
+
+def test_evolved_target_replaces_the_shorter_seed_reference():
+    from pantheon.evolution.methods.molt import Molt
+    m,ctx,seed=setup(ModifiedMolt);m.evolve_file='solution.cpp'
+    code=CODE+'\nint evolved_helper(){return 42;}\n'
+    target=ctx.store.add(Individual(id='strong_evolved',genome=CodeGenome(files={'solution.cpp':code}),kind='code',parent_ids=[seed.id]))
+    ctx.store.record(Measurement(individual_id=target.id,metrics={'combined_score':.8,'validity':1}))
+    m.chains[0].append(target.id)
+    d=intervention(m,seed);d['target_branch_id']=target.id
+    native=Molt._direction_item(m,ctx,dict(d))
+    changed=m._direction_item(ctx,dict(d))
+    assert native.context.parents[0].id==seed.id
+    assert changed.context.parents[0].id==target.id and changed.parent_ids==[target.id]
+    assert changed.context.parents[0].genome.files['solution.cpp']==code
+
 def test_champion_refinement_can_precede_pending_redesign():
     m,ctx,seed=setup();m.pending=[intervention(m,seed)]
     item=run(m.ask(ctx,1))[0]
