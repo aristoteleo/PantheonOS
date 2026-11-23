@@ -752,7 +752,8 @@ Original look in the Atrium design system (no imitation of other products):
 * **Composer:** @ completion (members with status), # channel links, file
   drop and paste, Enter to send / Shift+Enter newline, (Phase 2) "As task".
 * **Side panel:** thread, member profile (agent: Profile, Activity, Folder,
-  Reminders, Settings, Controls), or Watch.
+  Routines, Settings, Controls), or Watch. Settings has the reasoning
+  effort and Move to another computer.
 * **Agent working:** under the message that woke it, "Writer is working ·
   Running npm test · Watch · Stop".
 * **First run:** an empty space shows three steps: pick a computer (online
