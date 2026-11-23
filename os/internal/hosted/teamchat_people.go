@@ -220,19 +220,103 @@ func (t *TeamChat) MemberChange(ctx context.Context, fid, userID, action, role, 
 	if action == "leave" {
 		text, verb = "@"+rec.Handle+" left the space.", "left"
 	}
+	// The agents they brought leave with them: they stop waking, and their
+	// messages show them as removed. Their folders and conversations stay on
+	// the person's own computers.
+	var gone []string
+	for _, amid := range sortedKeys(fl.members) {
+		a := fl.members[amid]
+		if !a.agent() || ownerOf(a) != mid {
+			continue
+		}
+		t.stopTurnOf(fl, amid)
+		if g, err := t.retire(ctx, fl, amid); err == nil && g != nil {
+			gone = append(gone, "@"+g.Handle)
+		}
+	}
+	if len(gone) > 0 {
+		text += " Their agents left with them: " + strings.Join(gone, ", ") + "."
+	}
 	_, _ = t.system(ctx, fl, "general", "", mid, verb, text)
 	return true, nil
 }
 
+// stopTurnOf ends an agent's turn that is starting or running (its node is
+// told to stop it in the background); fl.mu is held.
+func (t *TeamChat) stopTurnOf(fl *tcFleet, amid string) {
+	tr := fl.turns[amid]
+	if tr == nil {
+		return
+	}
+	tr.Stop = "user"
+	if tr.State != "running" || tr.ConversationID == "" {
+		return
+	}
+	fleet, node, conv := fl.turnFleet(tr), tr.NodeID, tr.ConversationID
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_, _ = t.Nodes.Call(ctx, fleet, node, "agent_stop", map[string]any{"conversation_id": conv}, 30*time.Second)
+	}()
+}
+
 // ── who sees what ──────────────────────────────────────────────────────────
 
-// ownerOf is the person an agent belongs to (every Phase 3 agent is the
-// space owner's).
+// ownerOf is the person an agent belongs to: the person who brought it
+// (the space owner, or a person who joined and made it on a computer of
+// their own); only they change, control or move it.
 func ownerOf(a *tcMember) string {
 	if a.CreatedBy != "" {
 		return a.CreatedBy
 	}
 	return tcOwner
+}
+
+// fleetOf is the Fleet an agent's computer is in: the space's for the
+// owner's agents, a person's own for the agents they brought. Every call to
+// its computer (its turns, its folder, its runtimes) goes there, so it runs
+// with that person's computers, sign-ins and PantheonOS account.
+func (fl *tcFleet) fleetOf(a *tcMember) string {
+	if a != nil && a.agent() && a.Fleet != "" {
+		return a.Fleet
+	}
+	return fl.fid
+}
+
+// turnFleet is the Fleet of a turn's node.
+func (fl *tcFleet) turnFleet(tr *tcTurn) string {
+	if tr != nil && tr.Fleet != "" {
+		return tr.Fleet
+	}
+	return fl.fid
+}
+
+// route lets the requests of an agent whose computer is in another Fleet
+// (they come on that Fleet's subject) find its space.
+func (t *TeamChat) route(fl *tcFleet, a *tcMember) {
+	if a != nil && a.agent() && a.Fleet != "" && a.Fleet != fl.fid {
+		t.routes.Store(a.Fleet+"/"+a.MID, fl.fid)
+	}
+}
+
+// spaceOfAgent is the space an agent's request on Fleet fid is for: the
+// space it was routed to, else fid itself.
+func (t *TeamChat) spaceOfAgent(fid, mid string) string {
+	if v, ok := t.routes.Load(fid + "/" + mid); ok {
+		return v.(string)
+	}
+	return fid
+}
+
+// remShown: a person sees a reminder of an agent they own, or one for them.
+func (fl *tcFleet) remShown(r *tcRem, who string) bool {
+	if r.For == who {
+		return true
+	}
+	if a := fl.members[r.Agent]; a != nil && a.agent() {
+		return ownerOf(a) == who
+	}
+	return who == tcOwner
 }
 
 // person reports whether mid is a person still in the space.
@@ -269,7 +353,23 @@ func (fl *tcFleet) visible(c *tcConv, mid string) bool {
 	if mid == tcOwner && c.Kind == "channel" {
 		return true
 	}
+	if c.Kind == "dm" && c.has(mid) && fl.dmBarred(c, mid) {
+		// A DM with an agent whose owner does not let them message it
+		// directly is not theirs to see (an older one included).
+		return false
+	}
 	return c.Kind == "channel" && !c.Private || fl.inConv(c, mid)
+}
+
+// dmBarred: a DM a person is in holds an agent they may not message
+// directly (its owner keeps DMs to themselves).
+func (fl *tcFleet) dmBarred(c *tcConv, person string) bool {
+	for _, x := range c.Members {
+		if a := fl.members[x]; a != nil && a.agent() && !fl.canDM(person, a) {
+			return true
+		}
+	}
+	return false
 }
 
 // wakeFor is the one person an event works for: a person's own message,
@@ -406,6 +506,18 @@ func (fl *tcFleet) noDMs(a *tcMember) string {
 	return fmt.Sprintf("Only %s can message %s directly; mention it in a channel instead.", owner, a.Name)
 }
 
+// notOwner says in plain words that only an agent's owner may do that to it.
+func (fl *tcFleet) notOwner(a *tcMember, what string) string {
+	owner := "its owner"
+	if o := fl.members[ownerOf(a)]; o != nil {
+		owner = "@" + o.Handle
+	}
+	if what == "" {
+		what = "change"
+	}
+	return fmt.Sprintf("Only %s can %s %s: an agent's settings and controls are its owner's.", owner, what, a.Name)
+}
+
 // canUseAny: someone besides its owner may use agent a at all.
 func (fl *tcFleet) canUseAny(a *tcMember) bool { return a.Access == "everyone" || a.Access == "listed" }
 
@@ -479,16 +591,15 @@ func (fl *tcFleet) memberView(m *tcMember, viewer string) *tcMember {
 	if avatarOK(v.Avatar) != nil {
 		v.Avatar = ""
 	}
-	if viewer != tcOwner {
-		if m.agent() {
-			v.NodeName, v.NodeOS = fl.friendlyComputer(m), ""
-			v.Folder, v.NodeID, v.Session, v.Turns, v.Spans = "", "", "", nil, nil
-		}
-		if !m.agent() && m.MID != viewer {
-			// People's earlier handles start with their account's name: the
-			// owner's are nobody else's to see, and a person sees only their own.
-			v.PrevHandles = nil
-		}
+	if m.agent() && viewer != ownerOf(m) {
+		// Its computer, folder and session are its owner's to see.
+		v.NodeName, v.NodeOS = fl.friendlyComputer(m), ""
+		v.Folder, v.NodeID, v.Session, v.Turns, v.Spans = "", "", "", nil, nil
+	}
+	if viewer != tcOwner && !m.agent() && m.MID != viewer {
+		// People's earlier handles start with their account's name: the
+		// owner's are nobody else's to see, and a person sees only their own.
+		v.PrevHandles = nil
 	}
 	return &v
 }
@@ -510,7 +621,7 @@ func (fl *tcFleet) statusView(status map[string]any, mid, viewer string) map[str
 		out[k] = v
 	}
 	a := fl.members[mid]
-	if viewer == tcOwner || a == nil || !a.agent() {
+	if a == nil || !a.agent() || viewer == ownerOf(a) {
 		return out
 	}
 	friendly := fl.friendlyComputer(a)
@@ -636,18 +747,19 @@ func (fl *tcFleet) eventFor(event map[string]any, viewer string) map[string]any 
 			return nil
 		}
 	case "reminder":
-		if viewer == tcOwner {
-			break
-		}
+		// The agent's owner sees its reminders; anyone else those for them.
 		r, _ := event["reminder"].(*tcRem)
-		forMID, _ := event["for"].(string)
-		if r != nil {
-			forMID = r.For
+		if r == nil {
+			forMID, _ := event["for"].(string)
+			agent, _ := event["agent"].(string)
+			r = &tcRem{Agent: agent, For: forMID}
 		}
-		if forMID != viewer {
+		if !fl.remShown(r, viewer) {
 			return nil
 		}
-		delete(out, "for")
+		if viewer != tcOwner {
+			delete(out, "for")
+		}
 	}
 	return out
 }
@@ -1080,12 +1192,16 @@ func (fl *tcFleet) friendlyComputer(a *tcMember) string {
 // could not answer tells the owner what went wrong and how to fix it; anyone
 // else reads only that it could not answer.
 func (fl *tcFleet) msgView(msg *tcMsg, viewer string) *tcMsg {
-	if msg == nil || viewer == tcOwner || msg.Kind != "system" || msg.Action != "retry" {
+	if msg == nil || msg.Kind != "system" || msg.Action != "retry" {
+		return msg
+	}
+	a := fl.members[msg.About]
+	if a != nil && a.agent() && viewer == ownerOf(a) || (a == nil || !a.agent()) && viewer == tcOwner {
 		return msg
 	}
 	v := *msg
 	name := "The agent"
-	if a := fl.members[msg.About]; a != nil {
+	if a != nil {
 		name = a.Name
 	}
 	v.Text, v.Action = name+" couldn't answer right now.", ""
@@ -1093,9 +1209,6 @@ func (fl *tcFleet) msgView(msg *tcMsg, viewer string) *tcMsg {
 }
 
 func (fl *tcFleet) msgsView(page []*tcMsg, viewer string) []*tcMsg {
-	if viewer == tcOwner {
-		return page
-	}
 	out := make([]*tcMsg, len(page))
 	for i, msg := range page {
 		out[i] = fl.msgView(msg, viewer)
@@ -1231,7 +1344,7 @@ func (t *TeamChat) endWorkFor(ctx context.Context, fl *tcFleet, mid string) {
 		if tr.State != "running" {
 			continue
 		}
-		fid, node, conv := fl.fid, tr.NodeID, tr.ConversationID
+		fid, node, conv := fl.turnFleet(tr), tr.NodeID, tr.ConversationID
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()

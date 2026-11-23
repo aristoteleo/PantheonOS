@@ -50,7 +50,7 @@ func TestASharedAgentsTurnAsksForTheSandbox(t *testing.T) {
 	}
 	time.Sleep(300 * time.Millisecond)
 	// Off: only the owner, only with the words confirmed.
-	if e := refusedAs(t, h, b, carol, "agent_update", map[string]any{"mid": s.shared, "sandbox": "off", "sandbox_confirm": sandboxOffText}); !strings.Contains(e, "Only the space owner") {
+	if e := refusedAs(t, h, b, carol, "agent_update", map[string]any{"mid": s.shared, "sandbox": "off", "sandbox_confirm": sandboxOffText}); !strings.Contains(e, "Only @owner can change Shared") {
 		t.Fatalf("an admin turned the sandbox off: %s", e)
 	}
 	for _, confirm := range []any{nil, "", "yes", strings.ToLower(sandboxOffText)} {

@@ -94,7 +94,7 @@ func TestMovingAnAgentCopiesItsFolderAndStartsANewSessionThere(t *testing.T) {
 	if e := refused(t, h, b, "agent_move", map[string]any{"mid": mid, "node_id": "n_mac"}); !strings.Contains(e, "on that computer already") {
 		t.Fatal(e)
 	}
-	if e := refused(t, h, b, "agent_move", map[string]any{"mid": mid, "node_id": "n_nope"}); !strings.Contains(e, "not one of the space owner's computers") {
+	if e := refused(t, h, b, "agent_move", map[string]any{"mid": mid, "node_id": "n_nope"}); !strings.Contains(e, "not one of the agent owner's computers") {
 		t.Fatal(e)
 	}
 	nodes.fakeAgents.mu.Lock()
@@ -226,7 +226,7 @@ func TestAgentUpdateChecksTheComputerAndFolder(t *testing.T) {
 	tc := teamOn(t, url, nodes)
 	h, b, _ := teamHost(t, tc)
 	mid := makeAgent(t, h, b, "W", "n_mac", "claude", nil)
-	if e := refused(t, h, b, "agent_update", map[string]any{"mid": mid, "node_id": "n_someone_elses"}); !strings.Contains(e, "not one of the space owner's computers") {
+	if e := refused(t, h, b, "agent_update", map[string]any{"mid": mid, "node_id": "n_someone_elses"}); !strings.Contains(e, "not one of the agent owner's computers") {
 		t.Fatal(e)
 	}
 	if e := refused(t, h, b, "agent_update", map[string]any{"mid": mid, "folder": "relative/x"}); !strings.Contains(e, "Choose a full folder") {

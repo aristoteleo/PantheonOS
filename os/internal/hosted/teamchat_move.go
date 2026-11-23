@@ -149,10 +149,12 @@ func runtimeTrouble(detect map[string]any, runtime, where string) string {
 	return label + " is not installed on " + where + ": open Coding Agents on " + where + " → Install first"
 }
 
-// agentMove moves an agent to another of the owner's computers.
+// agentMove moves an agent to another of its owner's computers (in the
+// Fleet its computer is in).
 func (t *TeamChat) agentMove(ctx context.Context, fid string, spec agentMoveSpec) (any, error) {
 	mid := spec.MID
-	target, err := t.ownerNode(ctx, fid, spec.NodeID)
+	nf := t.agentFleetOf(ctx, fid, mid)
+	target, err := t.ownerNode(ctx, fid, nf, spec.NodeID)
 	if err != nil {
 		return nil, err
 	}
@@ -205,14 +207,14 @@ func (t *TeamChat) agentMove(ctx context.Context, fid string, spec agentMoveSpec
 		}
 	}()
 
-	source, _ := t.Nodes.Node(ctx, fid, agent.NodeID)
+	source, _ := t.Nodes.Node(ctx, nf, agent.NodeID)
 	source = withMemberNode(source, &agent)
 	from, to := nodeLabel(source, agent.NodeID), nodeLabel(target, spec.NodeID)
 	if !target.Online {
 		return nil, &ArgumentError{capFirst(to) + " is offline. Start it (or resume your Workspace), then move " + agent.Name + "."}
 	}
 	// Its runtime there: installed and signed in.
-	detect, err := t.Nodes.Call(ctx, fid, spec.NodeID, "agents_detect", map[string]any{}, 60*time.Second)
+	detect, err := t.Nodes.Call(ctx, nf, spec.NodeID, "agents_detect", map[string]any{}, 60*time.Second)
 	if err != nil {
 		return nil, t.plainError(spec.NodeID, target, &tcMember{Runtime: agent.Runtime, NodeID: spec.NodeID}, err.Error())
 	}
@@ -229,7 +231,7 @@ func (t *TeamChat) agentMove(ctx context.Context, fid string, spec agentMoveSpec
 	}
 	moving := agent
 	moving.NodeID, moving.NodeName, moving.NodeKind, moving.NodeOS, moving.Folder = spec.NodeID, target.Name, target.Kind, target.OS, folder
-	check, err := t.Nodes.Call(ctx, fid, spec.NodeID, "team_setup", map[string]any{"folder": folder, "check_only": true}, 30*time.Second)
+	check, err := t.Nodes.Call(ctx, nf, spec.NodeID, "team_setup", map[string]any{"folder": folder, "check_only": true}, 30*time.Second)
 	if err != nil {
 		return nil, t.plainError(spec.NodeID, target, &moving, err.Error())
 	}
@@ -247,13 +249,13 @@ func (t *TeamChat) agentMove(ctx context.Context, fid string, spec agentMoveSpec
 
 	copied := false
 	if !spec.Fresh {
-		if err := t.moveFolder(ctx, fid, &agent, source, target, from, to, folder, step); err != nil {
+		if err := t.moveFolder(ctx, nf, &agent, source, target, from, to, folder, step); err != nil {
 			return nil, err
 		}
 		copied = true
 	}
 	step("Setting up on " + to)
-	setup, err := t.Nodes.Call(ctx, fid, spec.NodeID, "team_setup", map[string]any{"folder": folder,
+	setup, err := t.Nodes.Call(ctx, nf, spec.NodeID, "team_setup", map[string]any{"folder": folder,
 		"agent_md": agentBrief(&moving, roster)}, 30*time.Second)
 	if err != nil {
 		return nil, t.plainError(spec.NodeID, target, &moving, err.Error())
@@ -295,7 +297,8 @@ func (t *TeamChat) agentMove(ctx context.Context, fid string, spec agentMoveSpec
 		"done": done, "status": t.statusOf(fl, &next)})
 }
 
-// moveFolder copies an agent's folder from its computer to target's folder.
+// moveFolder copies an agent's folder from its computer to target's folder
+// (fid: the Fleet both are in).
 func (t *TeamChat) moveFolder(ctx context.Context, fid string, agent *tcMember, source, target TeamNode, from, to, folder string,
 	step func(string)) error {
 	shell, ok := t.Nodes.(teamNodeShell)

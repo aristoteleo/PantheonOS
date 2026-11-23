@@ -108,12 +108,22 @@ func TestDirectMessagesToAnAgentAreItsOwnersToAllow(t *testing.T) {
 		t.Fatalf("everyone still means people who may use it: %s", e)
 	}
 	call(t, h, b, "agent_update", map[string]any{"mid": s.listed, "dms": "only_me"})
-	if e := refusedAs(t, h, b, alice, "post", map[string]any{"cid": dm, "text": "still there?"}); !strings.Contains(e, "can message Listed directly") {
+	// Taken back: the DM is gone from her list, and closed to her.
+	if e := refusedAs(t, h, b, alice, "post", map[string]any{"cid": dm, "text": "still there?"}); !strings.Contains(e, "not in this conversation") {
 		t.Fatalf("taken back: %s", e)
 	}
-	if msgs := callAs(t, h, b, alice, "messages", map[string]any{"cid": dm})["messages"].([]any); len(msgs) == 0 {
-		t.Fatal("the old DM stays readable")
+	if e := refusedAs(t, h, b, alice, "messages", map[string]any{"cid": dm}); !strings.Contains(e, "not in this conversation") {
+		t.Fatalf("the old DM is hidden: %s", e)
 	}
+	if contains(convIDs(callAs(t, h, b, alice, "space_get", map[string]any{})), dm) {
+		t.Fatal("the old DM is still listed")
+	}
+	// Allowed again: it is back.
+	call(t, h, b, "agent_update", map[string]any{"mid": s.listed, "dms": "everyone"})
+	if !contains(convIDs(callAs(t, h, b, alice, "space_get", map[string]any{})), dm) {
+		t.Fatal("the DM did not come back")
+	}
+	call(t, h, b, "agent_update", map[string]any{"mid": s.listed, "dms": "only_me"})
 	callAs(t, h, b, alice, "conv_join", map[string]any{"cid": s.team})
 	call(t, h, b, "conv_join", map[string]any{"cid": s.team, "mid": s.listed})
 	r := callAs(t, h, b, alice, "post", map[string]any{"cid": s.team, "text": "@listed a question"})

@@ -35,6 +35,23 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		}
 		return nil
 	}
+	// agentFleet checks that the caller owns agent mid (only they change,
+	// control or move it) and gives the Fleet its computer is in.
+	agentFleet := func(mid, what string) (string, error) {
+		var fleet string
+		_, err := with(func(fl *tcFleet) (any, error) {
+			a := fl.members[mid]
+			if a == nil || !a.agent() {
+				return nil, &ArgumentError{"no agent " + mid}
+			}
+			if ownerOf(a) != who.mid {
+				return nil, &ArgumentError{fl.notOwner(a, what)}
+			}
+			fleet = fl.fleetOf(a)
+			return nil, nil
+		})
+		return fleet, err
+	}
 	sees := func(fl *tcFleet, cid string) (*tcConv, error) {
 		conv, err := t.conv(fl, cid)
 		if err != nil {
@@ -56,6 +73,9 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 			Name     *string        `json:"name"`
 			Settings map[string]int `json:"settings"`
 			TimeZone *string        `json:"time_zone"`
+			// NameAsked: the owner was asked to name the space (named it, or
+			// chose Not now): their pages do not ask again.
+			NameAsked bool `json:"name_asked"`
 		}
 		if err := c.Decode(&a); err != nil {
 			return nil, err
@@ -64,7 +84,7 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 			if err := ownerOnly("change the space's name, limits or time zone"); err != nil {
 				return nil, err
 			}
-			return t.spaceUpdate(ctx, fl, a.Name, a.Settings, a.TimeZone)
+			return t.spaceUpdate(ctx, fl, a.Name, a.Settings, a.TimeZone, a.NameAsked)
 		})
 	case "me_update":
 		var a struct {
@@ -489,7 +509,7 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		return with(func(fl *tcFleet) (any, error) {
 			list := []*tcRem{}
 			for _, r := range remindersOf(fl, a.MID) {
-				if who.owner() || r.For == who.mid {
+				if fl.remShown(r, who.mid) {
 					list = append(list, r)
 				}
 			}
@@ -504,7 +524,7 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		}
 		return with(func(fl *tcFleet) (any, error) {
 			r := fl.rems[a.ID]
-			if r == nil || !who.owner() && r.For != who.mid {
+			if r == nil || !fl.remShown(r, who.mid) {
 				return nil, &ArgumentError{"no reminder " + a.ID}
 			}
 			if err := t.cancelReminder(ctx, fl, r); err != nil {
@@ -544,26 +564,40 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		if err := resolve(); err != nil {
+		// Anyone in the space brings agents of their own: on a computer of
+		// their own Fleet, with its sign-ins and their PantheonOS account.
+		var fleet string
+		if _, err := with(func(fl *tcFleet) (any, error) {
+			fleet = fl.fid
+			if !who.owner() {
+				me := fl.members[who.mid]
+				if me == nil || me.Fleet == "" {
+					return nil, errNotInSpace
+				}
+				fleet = me.Fleet
+			}
+			return nil, nil
+		}); err != nil {
 			return nil, err
 		}
-		if err := ownerOnly("create agents (they run on the owner's computers)"); err != nil {
-			return nil, err
-		}
-		return t.agentCreate(ctx, c.Fleet, a.Spec)
+		return t.agentCreate(ctx, c.Fleet, a.Spec, who.mid, fleet)
 	case "agent_update":
 		var a map[string]any
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		if err := resolve(); err != nil {
-			return nil, err
-		}
-		if err := ownerOnly("change an agent"); err != nil {
-			return nil, err
-		}
 		mid, _ := a["mid"].(string)
 		delete(a, "mid")
+		nf, err := agentFleet(mid, "change")
+		if err != nil {
+			return nil, err
+		}
+		if id, ok := a["node_id"].(string); ok {
+			// A computer of its owner's own (checked before its folder there).
+			if _, err := t.ownerNode(ctx, c.Fleet, nf, id); err != nil {
+				return nil, err
+			}
+		}
 		if err := t.sharedFolderCheck(ctx, c.Fleet, mid, a); err != nil {
 			return nil, err
 		}
@@ -573,10 +607,7 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
-		if err := resolve(); err != nil {
-			return nil, err
-		}
-		if err := ownerOnly("move an agent (it runs on the owner's computers)"); err != nil {
+		if _, err := agentFleet(a.MID, "move"); err != nil {
 			return nil, err
 		}
 		return t.agentMove(ctx, c.Fleet, a)
@@ -591,40 +622,21 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 		if err := c.Decode(&a); err != nil {
 			return nil, err
 		}
+		// An agent's controls are its owner's alone. The space owner may
+		// take someone else's agent out of the space (remove), not change it.
+		mine := false
 		if _, err := with(func(fl *tcFleet) (any, error) {
-			if who.owner() {
-				return nil, nil
-			}
-			switch a.Action {
-			case "start", "stop", "stop_turn":
-			default:
-				// Retry spends the owner's budget on what the owner was told to
-				// fix, and a session reset loses the agent's conversation: the
-				// owner's.
-				what := "do that to an agent"
-				switch a.Action {
-				case "reset_session":
-					what = "reset an agent's session"
-				case "reset_full":
-					what = "fully reset an agent"
-				case "retry":
-					what = "retry an agent's failed turn"
-				case "delete":
-					what = "delete an agent"
-				}
-				return nil, &ArgumentError{"Only the space owner can " + what + "."}
-			}
 			agent := fl.members[a.MID]
-			if !who.admin() {
-				return nil, &ArgumentError{"Only the space owner and admins can start or stop agents."}
-			}
-			if agent == nil || !agent.agent() || !fl.canUse(who.mid, agent) {
-				if agent != nil && agent.agent() {
-					return nil, &ArgumentError{fl.notUsable(agent)}
-				}
+			if agent == nil || !agent.agent() {
 				return nil, &ArgumentError{"no agent " + a.MID}
 			}
-			return nil, nil
+			mine = ownerOf(agent) == who.mid
+			if mine || a.Action == "remove" && who.owner() {
+				return nil, nil
+			}
+			return nil, &ArgumentError{fl.notOwner(agent, map[string]string{"start": "start", "stop": "stop",
+				"stop_turn": "stop the turn of", "retry": "retry", "reset_session": "reset", "reset_full": "reset",
+				"delete": "delete", "remove": "remove"}[a.Action])}
 		}); err != nil {
 			return nil, err
 		}
@@ -632,22 +644,10 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 			a.Action = "delete_folder"
 		}
 		out, err := t.agentControl(ctx, c.Fleet, a.MID, a.Action, a.Confirm)
-		if err != nil || who.owner() {
+		if err != nil || mine {
 			return out, err
 		}
-		// An admin's answer: the agent as they see it (no folder, computer
-		// or turns: those are the owner's).
-		return with(func(fl *tcFleet) (any, error) {
-			res := map[string]any{}
-			if a.Action == "stop_turn" {
-				res["stopped"] = true
-			}
-			if m := fl.members[a.MID]; m != nil {
-				res["agent"] = fl.memberView(m, who.mid)
-				res["status"] = fl.statusView(t.statusOf(fl, m), m.MID, who.mid)
-			}
-			return res, nil
-		})
+		return map[string]any{"removed": a.MID}, nil
 	case "agent_live":
 		var a struct {
 			MID string `json:"mid"`
@@ -656,8 +656,8 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 			return nil, err
 		}
 		return with(func(fl *tcFleet) (any, error) {
-			if err := ownerOnly("watch an agent's turn (it reads the owner's computers)"); err != nil {
-				return nil, err
+			if ag := fl.members[a.MID]; ag != nil && ag.agent() && ownerOf(ag) != who.mid {
+				return nil, &ArgumentError{fl.notOwner(ag, "watch")}
 			}
 			return t.agentLive(fl, a.MID)
 		})
@@ -933,8 +933,11 @@ func (t *TeamChat) usage(fl *tcFleet) map[string]any {
 	return map[string]any{"limits": s, "turns_last_hour": agents, "turn_minutes_last_hour": minutes, "turns_today": day}
 }
 
-func (t *TeamChat) spaceUpdate(ctx context.Context, fl *tcFleet, name *string, settings map[string]int, tz *string) (any, error) {
+func (t *TeamChat) spaceUpdate(ctx context.Context, fl *tcFleet, name *string, settings map[string]int, tz *string, nameAsked bool) (any, error) {
 	next := *fl.space
+	if (nameAsked || name != nil) && next.NameAsked == "" {
+		next.NameAsked = t.stamp()
+	}
 	if tz != nil {
 		z := strings.TrimSpace(*tz)
 		if z != "" && z != "UTC" {

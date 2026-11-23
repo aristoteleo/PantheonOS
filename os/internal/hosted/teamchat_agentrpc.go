@@ -67,11 +67,17 @@ func (t *TeamChat) serveAgent(msg *nats.Msg) {
 }
 
 // AgentRequest serves one request of an agent's tool.
+//
+// fid is the Fleet of the node that sent it: the space's own, or (for an
+// agent a person brought on a computer of theirs) that person's Fleet,
+// which routes to the agent's space. An agent answers only from the Fleet
+// its computer is in.
 func (t *TeamChat) AgentRequest(ctx context.Context, fid string, req agentRequest) agentReply {
-	if !desktopFleetRE.MatchString(fid) || !t.checkToken(fid, req.MID, req.Token) {
+	space := t.spaceOfAgent(fid, req.MID)
+	if !desktopFleetRE.MatchString(fid) || !t.checkToken(space, req.MID, req.Token) {
 		return agentReply{1, "pantheon-team: this agent is not known to Team Chat", nil}
 	}
-	fl, err := t.lockFleet(ctx, fid)
+	fl, err := t.lockFleet(ctx, space)
 	if err != nil {
 		return agentReply{1, "Team Chat is not available right now: " + err.Error(), nil}
 	}
@@ -79,6 +85,10 @@ func (t *TeamChat) AgentRequest(ctx context.Context, fid string, req agentReques
 	if m == nil || !m.agent() {
 		fl.mu.Unlock()
 		return agentReply{1, "pantheon-team: this agent was removed from the space", nil}
+	}
+	if fl.fleetOf(m) != fid {
+		fl.mu.Unlock()
+		return agentReply{1, "pantheon-team: this agent is not known to Team Chat", nil}
 	}
 	// Every command belongs to the running turn, and acts for the person
 	// that turn works for: a command left running from an earlier turn (a
@@ -90,7 +100,7 @@ func (t *TeamChat) AgentRequest(ctx context.Context, fid string, req agentReques
 	}
 	if req.Op == "file_put" {
 		fl.mu.Unlock()
-		res, err := t.filePut(ctx, fid, req.MID, req.Upload)
+		res, err := t.filePut(ctx, space, req.MID, req.Upload)
 		if err != nil {
 			return agentReply{1, err.Error(), nil}
 		}

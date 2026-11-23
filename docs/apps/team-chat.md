@@ -728,9 +728,10 @@ terminal resume for runtimes with one).
   member does; renames, archives, changes the topic, the members, privacy
   and wake mode of channels that are not the owner's (#general and the
   channels the owner made are the owner's); adds people and agents they may
-  use to any channel they are in; starts, stops and stops the turn of agents
-  they may use; invites people and removes members (not admins or the
-  owner). An admin may not: make one of the owner's channels private or
+  use to any channel they are in; invites people and removes members (not
+  admins or the owner). Since 2026-11-23 an admin no longer starts, stops or
+  stops the turn of agents that are not theirs: an agent's controls are its
+  owner's alone ("Agents people bring"). An admin may not: make one of the owner's channels private or
   public; change which messages wake agents in #general or the owner's
   channels; rename or archive the owner's channels (the simplest rule: the
   owner's channels are the owner's to shape); take the owner, or an agent of
@@ -1794,9 +1795,9 @@ release `fleet-v0.5.1-staging.14` (`b7c60d79`) and agents image
   rename, archive and change the members of any channel they can see (never
   taking the owner out; since the second check, not the owner's channels'
   privacy, wake mode, name or archive, nor the owner's agents they may not
-  use: see "Admin powers"), start, stop and stop the turn of agents they may
-  use, invite people and remove members (not admins or the owner). Retrying
-  a failed turn and resetting an agent's session are the owner's. Member: post, edit and
+  use: see "Admin powers"), invite people and remove members (not admins or
+  the owner). An agent's controls (start, stop, stop turn, retry, resets,
+  settings, move, routines) are its owner's alone (since 2026-11-23). Member: post, edit and
   delete their own messages, create channels (public or private), change the
   channels they created, join public channels, add people and agents they may
   use to channels they are in, tasks in the conversations they see, use the
@@ -3634,12 +3635,9 @@ person's "routine" (例行 / 定时任务) is set with `remind`, once or `every 
   back on another device or after a reload. The owner is never asked
   (`confirm` is ignored for them). The service does not refuse other calls
   from a person without `named_at`: the step is the page's.
-* **Second step: your own agent.** Agents run on the space owner's computers
-  (`agent_create` is the owner's: the service calls nodes of the space's
-  Fleet only). A person cannot add an agent that runs on their own computer
-  to someone else's space today; the step says so, lists the agents shared
-  with them, and offers their own space (where they make agents on their own
-  computers). Skippable.
+* **Second step: your own agent.** The step lists the agents shared with
+  them and offers "Bring your own agent": the New agent dialog, on their own
+  computers ("Agents people bring"). Skippable.
 * **People in the rail.** People have their own section (round faces, a role
   word for the owner and admins, no status dot); agents stay under Agents.
   Clicking a person (rail, DM header, an @mention) opens a person profile:
@@ -3649,18 +3647,19 @@ person's "routine" (例行 / 定时任务) is set with `remind`, once or `every 
   (`agent_update(dms)`: `only_me`, the default, or `everyone`, meaning
   everyone who may use it by its access). Without it, `conv_create` of a DM
   with the agent is refused ("Only @weize can message Writer directly;
-  mention it in a channel instead."), a post into a DM opened before the
-  owner took it back is refused (the DM stays readable), and a DM message
+  mention it in a channel instead."), and a DM opened before the owner took
+  it back is hidden from that person (since 2026-11-23: not listed by
+  `space_get`, `messages` and `post` answer "You are not in this
+  conversation.", their page is told it is gone; it comes back when the
+  owner allows them again). Their pages leave the agent out of the DM list
+  and the New DM picker and show no Message on its profile. A DM message
   (or edit) from an agent whose turn works for such a person does not wake
   it (`not_woken` with that reason). @mentions in channels, threads and
   check-ins go by access alone, as before. Agents made before this setting
   default to only their owner, shared ones included.
-* **Whose an agent is**: `created_by` (every agent so far is the space
-  owner's: `agent_create` is theirs). Settings, Move and the destructive
-  Controls (retry, resets, delete) are the space owner's; admins keep start,
-  stop and stop turn for agents they may use; a person cancels only the
-  routines that are for them. Pages show "<owner>'s" on an agent that is
-  not the viewer's.
+* **Whose an agent is**: `created_by`, the person who brought it (the space
+  owner, or a person who joined: "Agents people bring"). Pages show
+  "<owner>'s" on an agent that is not the viewer's.
 * **Pictures.** A person's record carries `user_id` (their account, from the
   grant); the owner's page sends the owner's own with
   `me_update(user_id)`, taken only when the space is that account's
@@ -3706,7 +3705,50 @@ do not see it: the list is the viewer's own Fleet, which is not the space's).
   confirmation names the agents that stay offline until moved. There is no
   rename: the Fleet has none.
 
+## Agents people bring (2026-11-23)
+
+Anyone in a space, not only its owner, brings agents of their own: the same
+New agent dialog, on a computer of their own.
+
+* **Where it runs.** `agent_create` from a person who joined takes a
+  computer of their own Fleet (the Fleet on their space grant); a computer
+  of anyone else's is refused ("That computer is not one of yours."). The
+  record keeps `created_by` (them) and `fleet` (their Fleet; never sent to
+  pages). Every call to its computer (readiness when it is made: online,
+  runtime installed and signed in, the folder; its turns, files, stops,
+  resets, deletes, moves, the Agent App a Pantheon Agent waits for) goes
+  through that Fleet, so it runs with their computer's sign-ins and their
+  PantheonOS account and budget, never the space owner's. Its folder is on
+  their computer. A move stays among their computers.
+* **Its requests.** Its node sends the agent's commands on its own Fleet's
+  subject (`fleet.<their fleet>.apps.team-chat.rpc`); the service routes
+  `<fleet>/<agent>` to the space (kept as spaces load) and answers only when
+  the agent's computer is in that Fleet (and the token and turn credential
+  match, as always). No node change was needed.
+* **Whose it is.** An agent's Settings, Routines (all its reminders; others
+  see those for them), Controls (start, stop, stop turn, retry, resets,
+  delete), Move and Watch are its owner's alone, the space owner and admins
+  included ("Only @alice can stop Tally: an agent's settings and controls
+  are its owner's."). Its computer, folder and session show only to its
+  owner; anyone else reads "Alice's Mac". Its failure lines' fixes are its
+  owner's to read. The space owner may take it out of the space
+  (`agent_control(remove)`: it leaves its channels, its messages keep its
+  name, its reminders end; its folder and conversation stay on its owner's
+  computer); nobody else may.
+* **When its owner leaves or is removed**, their agents leave with them in
+  the same way (a running turn is stopped), and #general says so ("@alice
+  left the space. Their agents left with them: @tally.").
+* **The space's limits** (turns an hour, a day, …) count every agent in the
+  space, theirs included.
+
+## The space's name, asked once (2026-11-23)
+
+The owner's page asks to name a space still called "Team" once:
+`space_update(name_asked=true)` (sent by Not now and by saving; any rename
+sets it too) stamps `name_asked_at` on the space, so another device or
+browser does not ask again.
+
 ## Out of scope
 
 Payments, mobile native apps, external chat bridges, prod rollout (asked
-separately), cross-Fleet agents (Phase 3b).
+separately).

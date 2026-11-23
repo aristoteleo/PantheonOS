@@ -53,7 +53,9 @@ func defaultFolder(n TeamNode, home, handle string) string {
 	return strings.TrimRight(home, "/") + "/PantheonAgents/" + handle
 }
 
-func (t *TeamChat) agentCreate(ctx context.Context, fid string, spec agentSpec) (any, error) {
+// agentCreate makes an agent of person by, on a computer of Fleet nf (the
+// space's for its owner, a person's own for anyone else).
+func (t *TeamChat) agentCreate(ctx context.Context, fid string, spec agentSpec, by, nf string) (any, error) {
 	spec.Name = strings.TrimSpace(spec.Name)
 	if spec.Name == "" || utf8.RuneCountInString(spec.Name) > 64 {
 		return nil, &ArgumentError{"an agent's name has 1 to 64 characters"}
@@ -116,16 +118,19 @@ func (t *TeamChat) agentCreate(ctx context.Context, fid string, spec agentSpec) 
 	if agents >= tcMaxAgents {
 		return nil, &ArgumentError{fmt.Sprintf("a space holds at most %d agents", tcMaxAgents)}
 	}
-	node, err := t.Nodes.Node(ctx, fid, spec.NodeID)
+	node, err := t.Nodes.Node(ctx, nf, spec.NodeID)
 	if err != nil {
 		return nil, err
+	}
+	if !node.Listed && nf != fid {
+		return nil, &ArgumentError{"That computer is not one of yours. Pick one of your own computers: your agents run there."}
 	}
 	node = t.noteNode(fl, node)
 	if !node.Online {
 		return nil, &ArgumentError{capFirst(nodeLabel(node, spec.NodeID)) + " is offline; pick an online computer"}
 	}
 	// Only runtimes installed (and not known to be signed out) on that computer.
-	detect, err := t.Nodes.Call(ctx, fid, spec.NodeID, "agents_detect", map[string]any{}, 60*time.Second)
+	detect, err := t.Nodes.Call(ctx, nf, spec.NodeID, "agents_detect", map[string]any{}, 60*time.Second)
 	if err != nil {
 		return nil, t.plainError(spec.NodeID, node, &tcMember{Runtime: spec.Runtime, NodeID: spec.NodeID}, err.Error())
 	}
@@ -159,7 +164,7 @@ func (t *TeamChat) agentCreate(ctx context.Context, fid string, spec agentSpec) 
 		if why := sharedFolderRefusal(folder, "", false, false); why != "" {
 			return nil, sharedRefusal(why)
 		}
-		check, err := t.Nodes.Call(ctx, fid, spec.NodeID, "team_setup", map[string]any{"folder": folder, "check_only": true}, 30*time.Second)
+		check, err := t.Nodes.Call(ctx, nf, spec.NodeID, "team_setup", map[string]any{"folder": folder, "check_only": true}, 30*time.Second)
 		if err != nil {
 			return nil, t.plainError(spec.NodeID, node, &tcMember{Runtime: spec.Runtime, NodeID: spec.NodeID}, err.Error())
 		}
@@ -174,8 +179,11 @@ func (t *TeamChat) agentCreate(ctx context.Context, fid string, spec agentSpec) 
 	member := &tcMember{MID: "a" + shortID(), Kind: "agent", Handle: spec.Handle, Name: spec.Name, Avatar: spec.Avatar,
 		Description: strings.TrimSpace(spec.Description), Created: t.stamp(), Runtime: spec.Runtime, Model: spec.Model,
 		Effort: spec.Effort, NodeID: spec.NodeID, NodeName: node.Name, NodeKind: node.Kind, NodeOS: node.OS, Folder: folder, Access: spec.Access, AccessList: spec.AccessList,
-		Listen: spec.Listen, CreatedBy: tcOwner, State: "running"}
-	setup, err := t.Nodes.Call(ctx, fid, spec.NodeID, "team_setup", map[string]any{"folder": folder,
+		Listen: spec.Listen, CreatedBy: by, State: "running"}
+	if nf != fid {
+		member.Fleet = nf
+	}
+	setup, err := t.Nodes.Call(ctx, nf, spec.NodeID, "team_setup", map[string]any{"folder": folder,
 		"agent_md": agentBrief(member, rosterOf(fl, member)), "check_only": spec.DryRun}, 30*time.Second)
 	if err != nil {
 		return nil, t.plainError(spec.NodeID, node, member, err.Error())
@@ -211,6 +219,7 @@ func (t *TeamChat) agentCreate(ctx context.Context, fid string, spec agentSpec) 
 		return nil, err
 	}
 	fl.members[member.MID] = member
+	t.route(fl, member)
 	t.emit(fl, map[string]any{"type": "member", "member": member})
 	channels := spec.Channels
 	if len(channels) == 0 {
@@ -229,7 +238,7 @@ func (t *TeamChat) agentCreate(ctx context.Context, fid string, spec agentSpec) 
 		}
 	}
 	t.emitStatus(fl, member.MID)
-	return frozen(map[string]any{"agent": member, "status": t.statusOf(fl, member), "warning": warning})
+	return frozen(map[string]any{"agent": fl.memberView(member, by), "status": t.statusOf(fl, member), "warning": warning})
 }
 
 func (t *TeamChat) agentOf(fl *tcFleet, mid string) (*tcMember, error) {
@@ -245,10 +254,10 @@ func (t *TeamChat) agentOf(fl *tcFleet, mid string) (*tcMember, error) {
 func (t *TeamChat) agentUpdate(ctx context.Context, fid, mid string, fields map[string]any) (any, error) {
 	var target TeamNode
 	if v, ok := fields["node_id"]; ok {
-		// A computer of the owner's Fleet (it may be offline: the agent
+		// A computer of its owner's Fleet (it may be offline: the agent
 		// waits for it).
 		id, _ := v.(string)
-		n, err := t.ownerNode(ctx, fid, id)
+		n, err := t.ownerNode(ctx, fid, t.agentFleetOf(ctx, fid, mid), id)
 		if err != nil {
 			return nil, err
 		}
@@ -337,7 +346,7 @@ func (t *TeamChat) agentUpdate(ctx context.Context, fid, mid string, fields map[
 				if confirm, _ := fields["sandbox_confirm"].(string); confirm != sandboxOffText {
 					return nil, &ArgumentError{"Turning the sandbox off needs your confirmation: " + sandboxOffText}
 				}
-				next.SandboxOff = &tcSandboxOff{At: t.stamp(), By: tcOwner, Text: sandboxOffText}
+				next.SandboxOff = &tcSandboxOff{At: t.stamp(), By: ownerOf(m), Text: sandboxOffText}
 			default:
 				return nil, &ArgumentError{"sandbox is on or off"}
 			}
@@ -387,12 +396,40 @@ func (t *TeamChat) agentUpdate(ctx context.Context, fid, mid string, fields map[
 		// Another runtime, which does not take that level: its own default.
 		next.Effort = ""
 	}
+	// Its DMs as each person sees them before the change: one whose owner
+	// no longer lets them message it directly is gone from their list.
+	before := map[string][]string{}
+	for _, cid := range sortedKeys(fl.convs) {
+		if c := fl.convs[cid]; c.Kind == "dm" && c.has(mid) {
+			before[cid] = fl.seers(c)
+		}
+	}
 	if err := t.put(ctx, fl, "member."+mid, &next); err != nil {
 		return nil, err
 	}
 	fl.members[mid] = &next
 	t.emit(fl, map[string]any{"type": "member", "member": &next})
+	for cid, seers := range before {
+		c := fl.convs[cid]
+		t.convGone(fl, seers, c)
+		for _, v := range fl.seers(c) {
+			if !contains(seers, v) {
+				t.emit(fl, map[string]any{"type": "conv", "conversation": c, "_to": v})
+			}
+		}
+	}
 	return frozen(map[string]any{"agent": &next, "status": t.statusOf(fl, &next)})
+}
+
+// agentFleetOf is the Fleet agent mid's computer is in (the space's when it
+// is not known).
+func (t *TeamChat) agentFleetOf(ctx context.Context, fid, mid string) string {
+	fl, err := t.lockFleet(ctx, fid)
+	if err != nil {
+		return fid
+	}
+	defer fl.mu.Unlock()
+	return fl.fleetOf(fl.members[mid])
 }
 
 // effortLevels are the reasoning levels a runtime takes (nil: none), as
@@ -421,13 +458,14 @@ func effortOK(runtime, effort string) error {
 	return &ArgumentError{"reasoning effort for " + runtimeLabel(runtime) + " is " + strings.Join(levels, ", ") + " or empty (its default)"}
 }
 
-// ownerNode is a computer of the owner's Fleet, or a plain refusal.
-func (t *TeamChat) ownerNode(ctx context.Context, fid, nodeID string) (TeamNode, error) {
+// ownerNode is a computer of Fleet nf (an agent owner's: the space's, or a
+// person's own), or a plain refusal.
+func (t *TeamChat) ownerNode(ctx context.Context, fid, nf, nodeID string) (TeamNode, error) {
 	nodeID = strings.TrimSpace(nodeID)
 	if nodeID == "" {
 		return TeamNode{}, &ArgumentError{"pick a computer"}
 	}
-	n, err := t.Nodes.Node(ctx, fid, nodeID)
+	n, err := t.Nodes.Node(ctx, nf, nodeID)
 	if err != nil {
 		return TeamNode{}, err
 	}
@@ -436,9 +474,15 @@ func (t *TeamChat) ownerNode(ctx context.Context, fid, nodeID string) (TeamNode,
 		// listed while it is away) is the owner's, offline.
 		if fl, err := t.lockFleet(ctx, fid); err == nil {
 			known, seen := fl.nodes[nodeID]
+			// The space's node map holds every agent's computer: only the
+			// space's own count for its owner's Fleet.
+			seen = seen && nf == fid
 			for _, m := range fl.members {
-				seen = seen || m.agent() && m.NodeID == nodeID
-				if m.agent() && m.NodeID == nodeID && known.Name == "" {
+				if !m.agent() || fl.fleetOf(m) != nf {
+					continue
+				}
+				seen = seen || m.NodeID == nodeID
+				if m.NodeID == nodeID && known.Name == "" {
 					known = withMemberNode(known, m)
 				}
 			}
@@ -448,13 +492,14 @@ func (t *TeamChat) ownerNode(ctx context.Context, fid, nodeID string) (TeamNode,
 				return known, nil
 			}
 		}
-		return TeamNode{}, &ArgumentError{"That computer is not one of the space owner's computers (or has not been connected for a week). Pick one from the list."}
+		return TeamNode{}, &ArgumentError{"That computer is not one of the agent owner's computers (or has not been connected for a week). Pick one from the list."}
 	}
 	return n, nil
 }
 
 // agentControl: start, stop, stop_turn, retry, reset_session, reset_full
-// (confirm names the folder) and delete.
+// (confirm names the folder), delete and remove (it leaves the space; its
+// folder and conversation stay on its computer).
 func (t *TeamChat) agentControl(ctx context.Context, fid, mid, action, confirm string) (any, error) {
 	fl, err := t.lockFleet(ctx, fid)
 	if err != nil {
@@ -465,6 +510,7 @@ func (t *TeamChat) agentControl(ctx context.Context, fid, mid, action, confirm s
 		fl.mu.Unlock()
 		return nil, err
 	}
+	nf := fl.fleetOf(m)
 	tr := fl.turns[mid]
 	l := fl.liveOf(mid)
 	set := func(change func(*tcMember)) error {
@@ -514,12 +560,12 @@ func (t *TeamChat) agentControl(ctx context.Context, fid, mid, action, confirm s
 		t.emit(fl, map[string]any{"type": "typing", "mid": mid, "cid": tr.Cause.CID, "root": tr.Cause.Root, "line": "", "stopping": true})
 		t.emitStatus(fl, mid)
 		fl.mu.Unlock()
-		res, err := t.Nodes.Call(ctx, fid, node, "agent_stop", map[string]any{"conversation_id": conv}, 30*time.Second)
+		res, err := t.Nodes.Call(ctx, nf, node, "agent_stop", map[string]any{"conversation_id": conv}, 30*time.Second)
 		if err == nil && res["success"] != true {
 			err = fmt.Errorf("%s", str(res["error"]))
 		}
 		if err != nil {
-			n, _ := t.Nodes.Node(ctx, fid, node)
+			n, _ := t.Nodes.Node(ctx, nf, node)
 			return nil, t.plainError(node, n, m, err.Error())
 		}
 		return map[string]any{"stopped": true}, nil
@@ -536,13 +582,13 @@ func (t *TeamChat) agentControl(ctx context.Context, fid, mid, action, confirm s
 		roster := rosterOf(fl, &agent)
 		fl.mu.Unlock()
 		if action == "reset_full" {
-			res, err := t.Nodes.Call(ctx, fid, agent.NodeID, "team_setup", map[string]any{"folder": agent.Folder,
+			res, err := t.Nodes.Call(ctx, nf, agent.NodeID, "team_setup", map[string]any{"folder": agent.Folder,
 				"agent_md": agentBrief(&agent, roster), "reset": "full"}, 60*time.Second)
 			if err == nil && res["success"] != true {
 				err = fmt.Errorf("%s", str(res["error"]))
 			}
 			if err != nil {
-				n, _ := t.Nodes.Node(ctx, fid, agent.NodeID)
+				n, _ := t.Nodes.Node(ctx, nf, agent.NodeID)
 				return nil, t.plainError(agent.NodeID, n, &agent, err.Error())
 			}
 		}
@@ -555,6 +601,16 @@ func (t *TeamChat) agentControl(ctx context.Context, fid, mid, action, confirm s
 			return nil, err
 		}
 		return reply()
+	case "remove":
+		// It leaves the space (its owner's agent stays theirs: its folder
+		// and conversation stay on its computer).
+		t.stopTurnOf(fl, mid)
+		_, err := t.retire(ctx, fl, mid)
+		fl.mu.Unlock()
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"removed": mid}, nil
 	case "delete", "delete_folder":
 		if tr != nil && tr.State == "running" {
 			fl.mu.Unlock()
@@ -567,12 +623,12 @@ func (t *TeamChat) agentControl(ctx context.Context, fid, mid, action, confirm s
 			}
 			agent := *m
 			fl.mu.Unlock()
-			res, err := t.Nodes.Call(ctx, fid, agent.NodeID, "team_setup", map[string]any{"folder": agent.Folder, "reset": "remove"}, 60*time.Second)
+			res, err := t.Nodes.Call(ctx, nf, agent.NodeID, "team_setup", map[string]any{"folder": agent.Folder, "reset": "remove"}, 60*time.Second)
 			if err == nil && res["success"] != true {
 				err = fmt.Errorf("%s", str(res["error"]))
 			}
 			if err != nil {
-				n, _ := t.Nodes.Node(ctx, fid, agent.NodeID)
+				n, _ := t.Nodes.Node(ctx, nf, agent.NodeID)
 				return nil, t.plainError(agent.NodeID, n, &agent, err.Error())
 			}
 			if fl, err = t.lockFleet(ctx, fid); err != nil {
@@ -583,64 +639,18 @@ func (t *TeamChat) agentControl(ctx context.Context, fid, mid, action, confirm s
 				return map[string]any{"deleted": mid}, nil
 			}
 		}
-		// Its turns stay in the space's use.
-		now := t.clock().Unix()
-		space := *fl.space
-		space.Retired = nil
-		for _, at := range append(append([]int64(nil), fl.space.Retired...), fl.members[mid].Turns...) {
-			if now-at < 86400 {
-				space.Retired = append(space.Retired, at)
-			}
-		}
-		gone := fl.members[mid]
-		space.Formers = map[string]tcFormer{}
-		for k, v := range fl.space.Formers {
-			space.Formers[k] = v
-		}
-		former := tcFormer{Handle: gone.Handle, Name: gone.Name, Runtime: gone.Runtime, Removed: t.stamp()}
-		if len(gone.Avatar) <= 16<<10 {
-			former.Avatar = gone.Avatar
-		}
-		space.Formers[mid] = former
-		if err := t.put(ctx, fl, "space", &space); err == nil {
-			fl.space = &space
-			t.emit(fl, map[string]any{"type": "space", "space": &space})
-		}
-		for _, cid := range sortedKeys(fl.convs) {
-			c := fl.convs[cid]
-			if c.Kind == "channel" && c.has(mid) {
-				next := *c
-				next.Members = nil
-				for _, x := range c.Members {
-					if x != mid {
-						next.Members = append(next.Members, x)
-					}
-				}
-				_ = t.saveConv(ctx, fl, &next)
-			}
-		}
-		// Its reminders end with it.
-		for _, r := range remindersOf(fl, mid) {
-			_ = t.cancelReminder(ctx, fl, r)
-		}
-		_ = t.del(ctx, fl, "queue."+mid)
-		_ = t.del(ctx, fl, "turn."+mid)
-		delete(fl.queues, mid)
-		delete(fl.turns, mid)
-		if err := t.del(ctx, fl, "member."+mid); err != nil {
-			fl.mu.Unlock()
+		gone, err := t.retire(ctx, fl, mid)
+		fl.mu.Unlock()
+		if err != nil {
 			return nil, err
 		}
-		delete(fl.members, mid)
-		t.emit(fl, map[string]any{"type": "member", "mid": mid, "deleted": true})
-		fl.mu.Unlock()
 		out := map[string]any{"deleted": mid}
 		if gone.Session != "" && gone.NodeID != "" {
 			// Its conversation goes with it: the Coding Agents conversation on
 			// its computer and, for a Pantheon agent, the Agent conversation
 			// that one continued. Best effort: a computer that is away keeps
 			// them (the owner can delete them there).
-			res, err := t.Nodes.Call(ctx, fid, gone.NodeID, "agent_delete", map[string]any{
+			res, err := t.Nodes.Call(ctx, nf, gone.NodeID, "agent_delete", map[string]any{
 				"conversation_id": gone.Session, "with_session": true}, 2*time.Minute)
 			if err == nil && res["success"] != true {
 				err = fmt.Errorf("%s", str(res["error"]))
@@ -658,7 +668,68 @@ func (t *TeamChat) agentControl(ctx context.Context, fid, mid, action, confirm s
 		return out, nil
 	}
 	fl.mu.Unlock()
-	return nil, &ArgumentError{"action is start, stop, stop_turn, retry, reset_session, reset_full or delete"}
+	return nil, &ArgumentError{"action is start, stop, stop_turn, retry, reset_session, reset_full, delete or remove"}
+}
+
+// retire takes an agent out of the space: its turns stay in the space's
+// use, its messages keep its name (formers), it leaves its channels, and its
+// reminders, queue and turn end; fl.mu is held. Its computer is not touched.
+func (t *TeamChat) retire(ctx context.Context, fl *tcFleet, mid string) (*tcMember, error) {
+	gone := fl.members[mid]
+	if gone == nil || !gone.agent() {
+		return nil, nil
+	}
+	now := t.clock().Unix()
+	space := *fl.space
+	space.Retired = nil
+	for _, at := range append(append([]int64(nil), fl.space.Retired...), gone.Turns...) {
+		if now-at < 86400 {
+			space.Retired = append(space.Retired, at)
+		}
+	}
+	space.Formers = map[string]tcFormer{}
+	for k, v := range fl.space.Formers {
+		space.Formers[k] = v
+	}
+	former := tcFormer{Handle: gone.Handle, Name: gone.Name, Runtime: gone.Runtime, Removed: t.stamp()}
+	if len(gone.Avatar) <= 16<<10 {
+		former.Avatar = gone.Avatar
+	}
+	space.Formers[mid] = former
+	if err := t.put(ctx, fl, "space", &space); err == nil {
+		fl.space = &space
+		t.emit(fl, map[string]any{"type": "space", "space": &space})
+	}
+	for _, cid := range sortedKeys(fl.convs) {
+		c := fl.convs[cid]
+		if c.Kind == "channel" && c.has(mid) {
+			next := *c
+			next.Members = nil
+			for _, x := range c.Members {
+				if x != mid {
+					next.Members = append(next.Members, x)
+				}
+			}
+			_ = t.saveConv(ctx, fl, &next)
+		}
+	}
+	// Its reminders end with it.
+	for _, r := range remindersOf(fl, mid) {
+		_ = t.cancelReminder(ctx, fl, r)
+	}
+	_ = t.del(ctx, fl, "queue."+mid)
+	_ = t.del(ctx, fl, "turn."+mid)
+	delete(fl.queues, mid)
+	delete(fl.turns, mid)
+	if err := t.del(ctx, fl, "member."+mid); err != nil {
+		return nil, err
+	}
+	delete(fl.members, mid)
+	if gone.Fleet != "" {
+		t.routes.Delete(gone.Fleet + "/" + mid)
+	}
+	t.emit(fl, map[string]any{"type": "member", "mid": mid, "deleted": true})
+	return gone, nil
 }
 
 // agentLive: the running turn's conversation and node, for Watch.
@@ -670,7 +741,7 @@ func (t *TeamChat) agentLive(fl *tcFleet, mid string) (any, error) {
 	out := map[string]any{"running": false, "node_id": m.NodeID, "conversation_id": m.Session, "status": t.statusOf(fl, m)}
 	if m.Session != "" {
 		out["stream_id"] = "coding_" + m.Session
-		out["stream_subject"] = fmt.Sprintf("fleet.%s.apps.pantheon.stream.coding_%s", fl.fid, m.Session)
+		out["stream_subject"] = fmt.Sprintf("fleet.%s.apps.pantheon.stream.coding_%s", fl.fleetOf(m), m.Session)
 	}
 	if tr := fl.turns[mid]; tr != nil {
 		out["running"], out["started"], out["from_seq"] = tr.State == "running", tr.Started, tr.FromSeq
@@ -680,7 +751,7 @@ func (t *TeamChat) agentLive(fl *tcFleet, mid string) (any, error) {
 		if tr.ConversationID != "" {
 			out["conversation_id"] = tr.ConversationID
 			out["stream_id"] = "coding_" + tr.ConversationID
-			out["stream_subject"] = fmt.Sprintf("fleet.%s.apps.pantheon.stream.coding_%s", fl.fid, tr.ConversationID)
+			out["stream_subject"] = fmt.Sprintf("fleet.%s.apps.pantheon.stream.coding_%s", fl.fleetOf(m), tr.ConversationID)
 		}
 	}
 	return out, nil
@@ -983,6 +1054,7 @@ func (t *TeamChat) sharedFolderCheck(ctx context.Context, fid, mid string, field
 		return &ArgumentError{"no agent " + mid}
 	}
 	next := *m
+	nf := fl.fleetOf(m)
 	fl.mu.Unlock()
 	if !folder && !node && m.Access != "only_me" && m.Access != "" {
 		return nil // shared already, in a folder that was checked then
@@ -1005,13 +1077,13 @@ func (t *TeamChat) sharedFolderCheck(ctx context.Context, fid, mid string, field
 	if why := sharedFolderRefusal(next.Folder, "", false, false); why != "" {
 		return sharedRefusal(why)
 	}
-	n, _ := t.Nodes.Node(ctx, fid, next.NodeID)
-	res, err := t.Nodes.Call(ctx, fid, next.NodeID, "team_setup", map[string]any{"folder": next.Folder, "check_only": true}, 30*time.Second)
+	n, _ := t.Nodes.Node(ctx, nf, next.NodeID)
+	res, err := t.Nodes.Call(ctx, nf, next.NodeID, "team_setup", map[string]any{"folder": next.Folder, "check_only": true}, 30*time.Second)
 	if err != nil || res["success"] != true {
 		return &ArgumentError{fmt.Sprintf("Team Chat could not check %s's folder on %s (%s), so it is not shared yet. Try again when %s is online.",
 			next.Name, nodeLabel(n, next.NodeID), firstNonBlank(str(res["error"]), "not reachable"), nodeLabel(n, next.NodeID))}
 	}
-	home := t.nodeHome(ctx, fid, next.NodeID)
+	home := t.nodeHome(ctx, nf, next.NodeID)
 	if why := checkedFolderRefusal(res, next.Folder, home); why != "" {
 		return sharedRefusal(why)
 	}

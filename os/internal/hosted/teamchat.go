@@ -143,6 +143,10 @@ type TeamChat struct {
 	// remTick is how often due reminders are looked for.
 	remTick time.Duration
 	uploads sync.Map // upload id -> *tcUpload
+	// routes: "<fleet>/<agent>" -> space, for agents whose computer is in
+	// another Fleet than their space's (a person's own agents): their
+	// node's requests come on that Fleet's subject.
+	routes sync.Map
 	// channelReply: what a new channel's agent_reply is ("" = checkin: an @mention answers at once, and
 	// its agents look in on the rest every few minutes, each deciding whether to answer).
 	channelReply string
@@ -369,6 +373,9 @@ type tcSpace struct {
 	// Checkins: its channels that answered only when @mentioned were moved to "checkin" once (the default
 	// since 2026-11-22); a channel set back to "mention" after that stays so.
 	Checkins bool `json:"checkins,omitempty"`
+	// NameAsked: when the owner was asked to name the space (they named it
+	// or chose Not now), so their pages ask once, on any device.
+	NameAsked string `json:"name_asked_at,omitempty"`
 }
 
 // tcFormer is what a deleted agent's messages still show of it.
@@ -434,6 +441,8 @@ type tcMember struct {
 	// People (Phase 3): their role (admin | member; the owner's record has
 	// none), their own Fleet (where their events go; never sent to browsers),
 	// when they joined (unix seconds) and when they were removed.
+	// An agent a person other than the owner brought: Fleet is that person's
+	// own, where its computer is ("" for the owner's agents: the space's).
 	Role    string `json:"role,omitempty"`
 	Fleet   string `json:"fleet,omitempty"`
 	Joined  int64  `json:"joined,omitempty"`
@@ -650,6 +659,8 @@ type tcTurn struct {
 	Runtime        string   `json:"runtime,omitempty"`
 	Model          string   `json:"model,omitempty"`
 	Stop           string   `json:"stop,omitempty"` // user | timeout | posts
+	// Fleet: the Fleet its node is in ("" = the space's).
+	Fleet string `json:"fleet,omitempty"`
 }
 
 // ── per-Fleet state ────────────────────────────────────────────────────────
@@ -832,6 +843,7 @@ func (t *TeamChat) load(ctx context.Context, fl *tcFleet) error {
 			var m tcMember
 			bad = json.Unmarshal(raw, &m)
 			fl.members[rest] = &m
+			t.route(fl, &m)
 		case "conv":
 			var c tcConv
 			bad = json.Unmarshal(raw, &c)

@@ -255,28 +255,30 @@ func TestANameCannotMimicAnotherMember(t *testing.T) {
 	}
 }
 
-// An admin starts, stops and stops a turn of agents they may use, and is
-// answered without the agent's folder, computer or turns; Retry and a
-// session reset are the owner's.
-func TestAnAdminsAgentControlIsRedactedAndResetIsTheOwners(t *testing.T) {
+// An agent's controls are its owner's alone: an admin (or anyone else who
+// may use it) cannot start, stop, stop a turn, retry, reset or delete it;
+// the space owner may only remove someone else's agent from the space.
+func TestAgentControlsAreItsOwnersOnly(t *testing.T) {
 	s := newSharedSpace(t)
 	h, b := s.h, s.b
-	if e := refusedAs(t, h, b, carol, "agent_control", map[string]any{"mid": s.shared, "action": "reset_session"}); !strings.Contains(e, "Only the space owner can reset an agent's session") {
-		t.Fatal(e)
-	}
-	if e := refusedAs(t, h, b, carol, "agent_control", map[string]any{"mid": s.shared, "action": "retry"}); !strings.Contains(e, "Only the space owner can retry") {
-		t.Fatal(e)
-	}
-	for _, action := range []string{"stop", "start"} {
-		out := callAs(t, h, b, carol, "agent_control", map[string]any{"mid": s.shared, "action": action})
-		a, _ := out["agent"].(map[string]any)
-		if a == nil || out["status"] == nil {
-			t.Fatalf("%s: %v", action, out)
+	for _, action := range []string{"stop", "start", "stop_turn", "retry", "reset_session", "delete", "remove"} {
+		if e := refusedAs(t, h, b, carol, "agent_control", map[string]any{"mid": s.shared, "action": action}); !strings.Contains(e, "Only @owner can") {
+			t.Fatalf("%s: %s", action, e)
 		}
-		for _, k := range []string{"folder", "node_id", "turns", "turn_spans", "session_conversation_id"} {
-			if a[k] != nil {
-				t.Fatalf("%s: %s reaches an admin: %v", action, k, a)
-			}
+		if e := refusedAs(t, h, b, alice, "agent_control", map[string]any{"mid": s.shared, "action": action}); !strings.Contains(e, "Only @owner can") {
+			t.Fatalf("%s as a member: %s", action, e)
+		}
+	}
+	for _, method := range []string{"agent_update", "agent_move", "agent_live"} {
+		args := map[string]any{"mid": s.shared}
+		if method == "agent_update" {
+			args["description"] = "mine now"
+		}
+		if method == "agent_move" {
+			args["node_id"] = "n_mac"
+		}
+		if e := refusedAs(t, h, b, carol, method, args); !strings.Contains(e, "Only @owner can") {
+			t.Fatalf("%s: %s", method, e)
 		}
 	}
 	if out := call(t, h, b, "agent_control", map[string]any{"mid": s.shared, "action": "reset_session"}); out["agent"].(map[string]any)["folder"] == nil {

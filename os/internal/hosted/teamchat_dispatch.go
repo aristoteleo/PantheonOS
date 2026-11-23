@@ -826,7 +826,7 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 	}
 	hop := turnHop(fl, events)
 	tr := &tcTurn{ID: "t" + shortID(), Cred: newTurnCred(), WorksFor: worksFor, State: "starting", NodeID: m.NodeID,
-		Started: t.stamp(), Hop: hop, Cause: cause, Events: events, Runtime: m.Runtime, Model: m.Model}
+		Started: t.stamp(), Hop: hop, Cause: cause, Events: events, Runtime: m.Runtime, Model: m.Model, Fleet: m.Fleet}
 	if err := t.put(ctx, fl, "turn."+mid, tr); err != nil {
 		fl.mu.Unlock()
 		return false
@@ -834,6 +834,8 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 	fl.turns[mid] = tr
 	turnID, turnCred := tr.ID, tr.Cred
 	agent := *m
+	// Its computer's Fleet: the space's, or the person's own who brought it.
+	nf := fl.fleetOf(m)
 	brief := agentBrief(&agent, rosterOf(fl, &agent))
 	t.emitStatus(fl, mid)
 	fl.mu.Unlock()
@@ -857,7 +859,7 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 		t.abortStart(ctx, fl, mid, err.Error(), "", true)
 		return false
 	}
-	node, err := t.Nodes.Node(ctx, fl.fid, agent.NodeID)
+	node, err := t.Nodes.Node(ctx, nf, agent.NodeID)
 	if err != nil {
 		return failRaw(err)
 	}
@@ -869,7 +871,7 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 		if unreachable(err.Error()) {
 			// Nothing answers for the node: it is offline until it sends a
 			// newer heartbeat; the queue waits for it.
-			t.markUnreachable(ctx, fl, agent.NodeID)
+			t.markUnreachable(ctx, fl, nf, agent.NodeID)
 			return fail("", "", true)
 		}
 		log.Printf("[team-chat] %s %s: %v", fl.fid, agent.Handle, err)
@@ -886,7 +888,7 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 		return fail(runtimeLabel(agent.Runtime)+" can't run in Team Chat's sandbox (only Claude Code and Codex can)",
 			"Switch the agent to Claude Code or Codex, or turn the sandbox off in the agent's settings.", false)
 	}
-	setup, err := t.Nodes.Call(ctx, fl.fid, agent.NodeID, "team_setup", map[string]any{"folder": agent.Folder,
+	setup, err := t.Nodes.Call(ctx, nf, agent.NodeID, "team_setup", map[string]any{"folder": agent.Folder,
 		"agent_md": brief}, 30*time.Second)
 	if err != nil {
 		return callFailed(err)
@@ -909,7 +911,7 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 	}
 	var saved []string
 	for _, f := range files {
-		path, err := t.pushFile(ctx, fl.fid, agent.NodeID, agent.Folder, f)
+		path, err := t.pushFile(ctx, nf, agent.NodeID, agent.Folder, f)
 		if err != nil {
 			saved = append(saved, fmt.Sprintf("%s could not be saved in your folder (%v)", f.Name, err))
 			continue
@@ -928,7 +930,7 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 	} else {
 		args["agent"], args["title"] = agent.Runtime, "Team Chat · @"+agent.Handle
 	}
-	reply, err := t.Nodes.Call(ctx, fl.fid, agent.NodeID, "agent_send", args, 60*time.Second)
+	reply, err := t.Nodes.Call(ctx, nf, agent.NodeID, "agent_send", args, 60*time.Second)
 	if err != nil {
 		return callFailed(err)
 	}
@@ -1090,8 +1092,8 @@ func (t *TeamChat) noteNode(fl *tcFleet, n TeamNode) TeamNode {
 // markUnreachable records that nothing answered a call to a node: it counts
 // as offline until its next heartbeat (a heartbeat already sent does not
 // bring it back, so a stale record cannot make it flap).
-func (t *TeamChat) markUnreachable(ctx context.Context, fl *tcFleet, nodeID string) {
-	n, err := t.Nodes.Node(ctx, fl.fid, nodeID)
+func (t *TeamChat) markUnreachable(ctx context.Context, fl *tcFleet, fleet, nodeID string) {
+	n, err := t.Nodes.Node(ctx, fleet, nodeID)
 	if err != nil {
 		return
 	}
@@ -1218,7 +1220,7 @@ func (t *TeamChat) appStarting(fl *tcFleet, m *tcMember) bool {
 	if m.Runtime != codingagents.PantheonAgent || t.AgentApp == nil {
 		return false
 	}
-	state, known := t.AgentApp(fl.fid)
+	state, known := t.AgentApp(fl.fleetOf(m))
 	return known && state != "ready"
 }
 
@@ -1413,7 +1415,7 @@ func (t *TeamChat) watch(ctx context.Context, fl *tcFleet, mid string) {
 			return
 		}
 		m := fl.members[mid]
-		node, conv, after := tr.NodeID, tr.ConversationID, l.lastSeq
+		node, conv, after, nf := tr.NodeID, tr.ConversationID, l.lastSeq, fl.turnFleet(tr)
 		if after < tr.FromSeq {
 			after = tr.FromSeq
 		}
@@ -1431,22 +1433,22 @@ func (t *TeamChat) watch(ctx context.Context, fl *tcFleet, mid string) {
 			return
 		}
 		if stop {
-			if _, err := t.Nodes.Call(ctx, fl.fid, node, "agent_stop", map[string]any{"conversation_id": conv}, 30*time.Second); err != nil {
+			if _, err := t.Nodes.Call(ctx, nf, node, "agent_stop", map[string]any{"conversation_id": conv}, 30*time.Second); err != nil {
 				log.Printf("[team-chat] %s stop %s: %v", fl.fid, m.Handle, err)
 			}
 		}
-		reply, err := t.Nodes.Call(ctx, fl.fid, node, "agent_conversation", map[string]any{"conversation_id": conv, "after": after}, 20*time.Second)
+		reply, err := t.Nodes.Call(ctx, nf, node, "agent_conversation", map[string]any{"conversation_id": conv, "after": after}, 20*time.Second)
 		if err != nil {
 			misses++
 			if misses == 3 {
-				if n, err := t.Nodes.Node(ctx, fl.fid, node); err == nil {
+				if n, err := t.Nodes.Node(ctx, nf, node); err == nil {
 					t.noteNode(fl, n)
 				}
 			}
 			continue
 		}
 		if misses >= 3 {
-			if n, err := t.Nodes.Node(ctx, fl.fid, node); err == nil {
+			if n, err := t.Nodes.Node(ctx, nf, node); err == nil {
 				t.noteNode(fl, n)
 			}
 		}
@@ -2504,13 +2506,13 @@ func (t *TeamChat) sweep(ctx context.Context) {
 			fl.mu.Unlock()
 			continue
 		}
-		nodes := map[string]bool{}
+		nodes := map[string]string{} // node -> its Fleet
 		var waiting []string
 		for mid, m := range fl.members {
 			if !m.agent() {
 				continue
 			}
-			nodes[m.NodeID] = true
+			nodes[m.NodeID] = fl.fleetOf(m)
 			if len(fl.queues[mid]) > 0 && fl.turns[mid] == nil {
 				waiting = append(waiting, mid)
 			}
@@ -2524,8 +2526,20 @@ func (t *TeamChat) sweep(ctx context.Context) {
 		t.checkIn(ctx, fl)
 		if t.AgentApp != nil {
 			// The Pantheon Agents show Starting until their App is ready.
-			state, known := t.AgentApp(fl.fid)
-			if seen := fmt.Sprint(state, "/", known); seen != fl.appState {
+			// The Agent Apps of every Fleet its Pantheon Agents run in.
+			fleets := []string{fl.fid}
+			for _, m := range fl.members {
+				if m.agent() && m.Runtime == codingagents.PantheonAgent && !contains(fleets, fl.fleetOf(m)) {
+					fleets = append(fleets, fl.fleetOf(m))
+				}
+			}
+			sort.Strings(fleets[1:])
+			seen := ""
+			for _, f := range fleets {
+				state, known := t.AgentApp(f)
+				seen += fmt.Sprint(f, ":", state, "/", known, ";")
+			}
+			if seen != fl.appState {
 				fl.appState = seen
 				for mid, m := range fl.members {
 					if m.agent() && m.Runtime == codingagents.PantheonAgent {
@@ -2535,9 +2549,9 @@ func (t *TeamChat) sweep(ctx context.Context) {
 			}
 		}
 		fl.mu.Unlock()
-		for id := range nodes {
+		for id, nf := range nodes {
 			c, cancel := context.WithTimeout(ctx, 10*time.Second)
-			if n, err := t.Nodes.Node(c, fl.fid, id); err == nil {
+			if n, err := t.Nodes.Node(c, nf, id); err == nil {
 				t.noteNode(fl, n)
 			}
 			cancel()

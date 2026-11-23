@@ -47,6 +47,20 @@ type fakeAgents struct {
 	files   map[string]int64
 	detect  []any
 	seq     int
+	// fleets: each node's Fleet (nil: every node is in every Fleet); a node
+	// asked for through another Fleet is not listed there and does not
+	// answer. calls: "fleet node method" of each call.
+	fleets map[string]string
+	calls  []string
+}
+
+// inFleet: node is in fleet (always, unless fleets says otherwise).
+func (f *fakeAgents) inFleet(fleet, node string) bool {
+	if f.fleets == nil {
+		return true
+	}
+	have, ok := f.fleets[node]
+	return !ok || have == fleet
 }
 
 func newFakeAgents() *fakeAgents {
@@ -57,10 +71,10 @@ func newFakeAgents() *fakeAgents {
 			map[string]any{"id": "codex", "conversation": true}, map[string]any{"id": "gemini", "conversation": true, "signed_in": false}}}
 }
 
-func (f *fakeAgents) Node(_ context.Context, _ string, id string) (TeamNode, error) {
+func (f *fakeAgents) Node(_ context.Context, fleet string, id string) (TeamNode, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.gone[id] {
+	if f.gone[id] || !f.inFleet(fleet, id) {
 		return TeamNode{ID: id}, nil
 	}
 	kind := "machine"
@@ -71,9 +85,13 @@ func (f *fakeAgents) Node(_ context.Context, _ string, id string) (TeamNode, err
 	return TeamNode{ID: id, Name: "Node-" + id + ".local", Kind: kind, OS: "linux", Online: f.online[id], Seen: f.seen[id], Listed: listed}, nil
 }
 
-func (f *fakeAgents) Call(_ context.Context, _ string, node, method string, args map[string]any, _ time.Duration) (map[string]any, error) {
+func (f *fakeAgents) Call(_ context.Context, fleet string, node, method string, args map[string]any, _ time.Duration) (map[string]any, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.calls = append(f.calls, fleet+" "+node+" "+method)
+	if !f.inFleet(fleet, node) {
+		return nil, fmt.Errorf("node %s is not a member of this user", node)
+	}
 	if !f.online[node] || f.gone[node] {
 		return nil, fmt.Errorf("The node is offline; reconnect it before accessing its services")
 	}

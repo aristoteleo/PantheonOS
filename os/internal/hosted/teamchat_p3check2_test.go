@@ -162,7 +162,7 @@ func TestAMembersReminderWorksForThemWhenPostedForTheAgent(t *testing.T) {
 	}
 	end()
 	quiet(t, tc, s.shared)
-	callAs(t, h, b, carol, "agent_control", map[string]any{"mid": s.shared, "action": "stop"})
+	call(t, h, b, "agent_control", map[string]any{"mid": s.shared, "action": "stop"})
 	before := nodes.promptCount()
 	clock.Add(4 * time.Minute)
 	tc.fireReminders(context.Background())
@@ -380,9 +380,9 @@ func TestLeavingAndJoiningWithinASecond(t *testing.T) {
 func TestRefusalWordsAndEarlierHandles(t *testing.T) {
 	s := newSharedSpace(t)
 	h, b := s.h, s.b
-	for action, want := range map[string]string{"": "do that to an agent", "reset_full": "fully reset an agent", "delete": "delete an agent"} {
+	for action, want := range map[string]string{"": "change Shared", "reset_full": "reset Shared", "delete": "delete Shared"} {
 		e := refusedAs(t, h, b, carol, "agent_control", map[string]any{"mid": s.shared, "action": action})
-		if !strings.Contains(e, "Only the space owner can "+want+".") || strings.Contains(e, "  ") {
+		if !strings.Contains(e, "Only @owner can "+want+":") || strings.Contains(e, "  ") {
 			t.Fatalf("%q: %s", action, e)
 		}
 	}

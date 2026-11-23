@@ -105,6 +105,9 @@ func newSharedSpace(t *testing.T, with ...func(*TeamChat)) *sharedSpace {
 		f(tc)
 	}
 	h, mine, _ := teamHost(t, tc)
+	// The owner's computers are in the space's Fleet; Alice has one of her own.
+	nodes.fleets = map[string]string{"n_mac": fleetID, "n_ws": fleetID, "n_alice": aliceFleet}
+	nodes.online["n_alice"] = true
 	s := &sharedSpace{h: h, b: mine, tc: tc, nodes: nodes, url: url}
 	s.writer = makeAgent(t, h, mine, "Writer", "n_mac", "claude", nil)
 	s.shared = makeAgent(t, h, mine, "Shared", "n_ws", "codex", map[string]any{"access": "everyone"})
@@ -229,19 +232,24 @@ func TestAMemberCannotReadListOrSearchWhatIsNotTheirs(t *testing.T) {
 	if callAs(t, h, b, alice, "space_get", map[string]any{})["reads"].(map[string]any)[s.secret] != nil {
 		t.Fatal("read_all marked the private channel")
 	}
-	// The owner's tools stay the owner's.
+	// The owner's tools and agents stay the owner's.
+	if e := refusedAs(t, h, b, alice, "space_update", map[string]any{"name": "Mine"}); !strings.Contains(e, "Only the space owner") {
+		t.Fatal(e)
+	}
 	for method, args := range map[string]map[string]any{
-		"space_update":  {"name": "Mine"},
-		"agent_create":  {"spec": map[string]any{"name": "Spy", "node_id": "n_mac", "runtime": "claude"}},
 		"agent_update":  {"mid": s.shared, "description": "now mine"},
 		"agent_live":    {"mid": s.shared},
 		"agent_control": {"mid": s.writer, "action": "reset_full", "confirm": "/home/me/PantheonAgents/writer"},
 	} {
-		if e := refusedAs(t, h, b, alice, method, args); !strings.Contains(e, "Only the space owner") {
+		if e := refusedAs(t, h, b, alice, method, args); !strings.Contains(e, "Only @owner can") {
 			t.Fatalf("%s: %s", method, e)
 		}
 	}
-	if e := refusedAs(t, h, b, alice, "agent_control", map[string]any{"mid": s.shared, "action": "stop"}); !strings.Contains(e, "owner and admins") {
+	// She brings agents only on computers of her own, never the owner's.
+	if e := refusedAs(t, h, b, alice, "agent_create", map[string]any{"spec": map[string]any{"name": "Spy", "node_id": "n_mac", "runtime": "claude"}}); !strings.Contains(e, "not one of yours") {
+		t.Fatal(e)
+	}
+	if e := refusedAs(t, h, b, alice, "agent_control", map[string]any{"mid": s.shared, "action": "stop"}); !strings.Contains(e, "Only @owner can stop Shared") {
 		t.Fatal(e)
 	}
 	// Reminders: only those for her.
@@ -621,15 +629,16 @@ func TestRoles(t *testing.T) {
 	if contains(convIDs(callAs(t, h, b, alice, "space_get", map[string]any{})), own) {
 		t.Fatal("another member lists a member's private channel")
 	}
-	if e := refusedAs(t, h, b, carol, "agent_update", map[string]any{"mid": s.shared, "access": "only_me"}); !strings.Contains(e, "Only the space owner") {
+	// An agent's controls are its owner's, not an admin's.
+	if e := refusedAs(t, h, b, carol, "agent_update", map[string]any{"mid": s.shared, "access": "only_me"}); !strings.Contains(e, "Only @owner can change Shared") {
 		t.Fatal(e)
 	}
-	callAs(t, h, b, carol, "agent_control", map[string]any{"mid": s.shared, "action": "stop"})
-	callAs(t, h, b, carol, "agent_control", map[string]any{"mid": s.shared, "action": "start"})
-	if e := refusedAs(t, h, b, carol, "agent_control", map[string]any{"mid": s.writer, "action": "stop"}); e != "Only @owner can use Writer." {
-		t.Fatal(e)
+	for _, action := range []string{"stop", "start", "delete"} {
+		if e := refusedAs(t, h, b, carol, "agent_control", map[string]any{"mid": s.shared, "action": action}); !strings.Contains(e, "Only @owner can "+action+" Shared") {
+			t.Fatal(e)
+		}
 	}
-	if e := refusedAs(t, h, b, carol, "agent_control", map[string]any{"mid": s.shared, "action": "delete"}); !strings.Contains(e, "Only the space owner") {
+	if e := refusedAs(t, h, b, carol, "agent_control", map[string]any{"mid": s.writer, "action": "stop"}); !strings.Contains(e, "Only @owner can stop Writer") {
 		t.Fatal(e)
 	}
 	if e := refusedAs(t, h, b, carol, "space_update", map[string]any{"settings": map[string]any{"turns_per_space_day": 9999}}); !strings.Contains(e, "Only the space owner") {
