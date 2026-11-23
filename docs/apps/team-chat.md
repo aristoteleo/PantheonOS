@@ -3696,8 +3696,12 @@ them.
   Install... after a confirmation); the space's agents that live on it (a
   click opens the agent) and "New agent on this computer" (the New agent
   dialog with that computer chosen); Files (the node's root in Files) and
-  Terminal (a Terminal window on that node). On an App page a Terminal is a
-  desktop window, so it waits for a running Workspace and says so. A paused
+  Terminal (on an App page its own page, /app/terminal?nodeId=…, which talks to
+  the node over the Fleet: it works with the Workspace paused; on the desktop a
+  Terminal window). A send of a desktop-only App from a page gives up after 30 s
+  with a message instead of waiting on nothing. Add a computer's system choice
+  is a segmented control and it offers the Fleet App's step-by-step terminal
+  guide (collapsed). A paused
   Workspace offers "Start your Workspace" after a confirmation. An agent's
   profile links its computer to this panel for the owner.
 * **Remove** (machines only, not the Workspace): the Fleet's revoke
