@@ -279,6 +279,13 @@ A wake event is queued for an agent when:
    `skip` when the message is not for it. Its final answer is posted for it, as
    for a DM or a mention;
 5. (Phase 2) its reminder fires;
+5a. a person hands it a task (2026-11-22): assigns a task to it, or moves a
+   task it holds back to Todo or In progress (e.g. returned from In review).
+   The wake (`task`) is in the task's thread; the turn is told it was
+   assigned or returned, with the newest person's comment in the thread, and
+   its final answer is posted there, as for a mention. Other task changes
+   (Done, Closed, In review, a task nobody holds) wake no one; an agent's own
+   task changes never wake (no loops), nor does a change by the agent itself;
 6. an edit of a message it was woken by. A delete wakes no one; the agent
    sees it when it next looks.
 
@@ -806,6 +813,14 @@ browser.
   task's thread; agents use `pantheon-team task …` and are told to claim
   before working and to move to In review when done. Board and list views per
   channel and for the space, filters by channel, assignee, creator.
+  (2026-11-22) Tasks are hand-offs: a person assigning a task to an agent, or
+  returning one it holds to Todo/In progress, wakes it in the task's thread
+  (Waking, 5a). Agents record long work themselves: when a person asks for
+  more than a quick answer (several steps, a deliverable), the agent runs
+  `task claim <message id>` on the request, which makes a message that is
+  not a task yet a task it holds, and moves it to In review with a summary
+  when done; a quick question is just answered (turn input, turn note and
+  AGENT.md say so).
 * **Reminders:** set by an agent (`remind`) or asked of it; once or recurring
   (cron-like spec in the space's time zone); stored in KV; the scheduler wakes
   only that agent, in the context of the message it is tied to; nothing is

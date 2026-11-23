@@ -165,12 +165,72 @@ func (t *TeamChat) taskChange(ctx context.Context, fl *tcFleet, by string, tk *t
 	}
 	fl.tasks[tk.ID] = &next
 	t.emit(fl, map[string]any{"type": "task", "task": &next})
-	t.taskLine(ctx, fl, by, tk, &next, claim)
+	line := t.taskLine(ctx, fl, by, tk, &next, claim)
+	if !isAgent && line != nil {
+		t.handOff(ctx, fl, by, tk, &next, line)
+	}
 	return &next, nil
 }
 
-// taskLine says what changed in the task's thread; fl.mu is held.
-func (t *TeamChat) taskLine(ctx context.Context, fl *tcFleet, by string, old, tk *tcTask, claim bool) {
+// handOff wakes the agent a person hands a task to: assigned to it, or (held
+// by it) moved back to Todo or In progress, e.g. returned from In review. The
+// wake is in the task's thread, and its final answer is posted there. Other
+// changes wake no one, and an agent's own changes never wake (no loops).
+// fl.mu is held.
+func (t *TeamChat) handOff(ctx context.Context, fl *tcFleet, by string, old, tk *tcTask, line *tcMsg) {
+	if tk.State != "todo" && tk.State != "in_progress" || tk.Assignee == "" || tk.Assignee == by {
+		return
+	}
+	a := fl.members[tk.Assignee]
+	if a == nil || !a.agent() || a.Removed != "" {
+		return
+	}
+	what := ""
+	switch {
+	case old.Assignee != tk.Assignee:
+		what = "assigned"
+	case old.State != tk.State && old.State != "todo" && old.State != "in_progress":
+		what = "returned"
+	default:
+		return
+	}
+	c := fl.convs[tk.CID]
+	if c == nil || c.Archived || !fl.visible(c, a.MID) || !fl.canUse(by, a) {
+		return
+	}
+	t.enqueue(ctx, fl, a.MID, tcWake{ID: tk.ID, Event: line.ID, CID: tk.CID, Root: tk.Root, Kind: "post", Reason: "task",
+		From: by, At: line.At, Note: what})
+}
+
+// handOffNote tells the agent a task was handed to it (a "task" wake), with
+// the newest word from a person in its thread; fl.mu is held.
+func (t *TeamChat) handOffNote(fl *tcFleet, cm *tcConvMsgs, tk *tcTask, w tcWake, me string) string {
+	who := handleOf(fl, w.From)
+	var text string
+	if w.Note == "returned" {
+		text = fmt.Sprintf("%s moved this task, yours, back to %s: it is not finished. Work on it now", who, taskStateLabel(tk.State))
+	} else {
+		text = fmt.Sprintf("%s assigned this task to you (%s): work on it now", who, taskStateLabel(tk.State))
+	}
+	// The newest comment a person wrote in its thread, often what to change.
+	replies := cm.replies[tk.Root]
+	for i := len(replies) - 1; i >= 0; i-- {
+		msg := cm.byID[replies[i]]
+		if msg == nil || msg.Kind != "post" || msg.Deleted || msg.ID == tk.ID {
+			continue
+		}
+		if p := fl.members[msg.From]; p != nil && !p.agent() {
+			text += fmt.Sprintf(". The latest from a person in its thread, %s at %s [%s]: %q", postAuthor(fl, msg, me), fmtTime(msg.At), msg.ID,
+				clipText(shownText(fl, msg), 500))
+			break
+		}
+	}
+	return "(" + text + ". Answer in its thread: your final answer is posted there for you.)"
+}
+
+// taskLine says what changed in the task's thread, and returns that line
+// (nil when none was posted); fl.mu is held.
+func (t *TeamChat) taskLine(ctx context.Context, fl *tcFleet, by string, old, tk *tcTask, claim bool) *tcMsg {
 	who := handleOf(fl, by)
 	var text string
 	switch {
@@ -191,9 +251,13 @@ func (t *TeamChat) taskLine(ctx context.Context, fl *tcFleet, by string, old, tk
 	}
 	cid := tk.CID
 	if fl.convs[cid] == nil || fl.convs[cid].Archived {
-		return
+		return nil
 	}
-	_, _ = t.postEvent(ctx, fl, &tcEvent{From: "system", CID: cid, Root: tk.Root, Kind: "system", Text: text, Task: tk.ID, By: by}, nil)
+	msg, err := t.postEvent(ctx, fl, &tcEvent{From: "system", CID: cid, Root: tk.Root, Kind: "system", Text: text, Task: tk.ID, By: by}, nil)
+	if err != nil {
+		return nil
+	}
+	return msg
 }
 
 // taskList is a space's tasks, newest first, filtered.
@@ -289,7 +353,22 @@ func (t *TeamChat) agentTask(ctx context.Context, fl *tcFleet, m *tcMember, tr *
 	case "claim":
 		tk, err := seenTask(arg(rest, 0))
 		if err != nil {
-			return "", err
+			// A message that is not a task yet: claiming it makes it one, so
+			// an agent records a request it takes on as long work.
+			id := strings.TrimPrefix(strings.TrimSpace(arg(rest, 0)), "#")
+			if id == "" || fl.tasks[id] != nil {
+				return "", err
+			}
+			msg, ferr := t.findMsg(ctx, fl, id, "")
+			if ferr != nil {
+				return "", err
+			}
+			if c := fl.convs[msg.CID]; c == nil || !fl.visible(c, m.MID) {
+				return "", err
+			}
+			if tk, err = t.makeTask(ctx, fl, m.MID, msg); err != nil {
+				return "", err
+			}
 		}
 		next, err := t.taskChange(ctx, fl, m.MID, tk, nil, nil, true)
 		if err != nil {

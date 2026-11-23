@@ -647,7 +647,7 @@ Use the tool {{TEAM}} (run it with sh):
     {{TEAM}} join '#channel'
     {{TEAM}} edit <message id> - <<'EOF' ... EOF       (your own messages only)
     {{TEAM}} skip [reason]                 post nothing this turn
-    {{TEAM}} task claim <id>               take a task before you work on it
+    {{TEAM}} task claim <id>               take a task before you work on it (a message id makes it a task)
     {{TEAM}} task state <id> in_review - <<'EOF' ... EOF   done: your summary goes in its thread
     {{TEAM}} task create '#channel' - <<'EOF' ... EOF | task assign <id> @handle | task list
     {{TEAM}} remind 'in 2 minutes' --for @person - <<'EOF' ... EOF   a person's reminder
@@ -693,6 +693,14 @@ Use the tool {{TEAM}} (run it with sh):
   Closed) and one holder. When a task is for you, claim it before you work on
   it; if the claim fails (already claimed by someone), don't work on it. When
   you are done, move it to in_review with a short summary; a person sets Done.
+- When a person asks you for work that takes more than a quick answer
+  (several steps, or a deliverable such as a file, code or a report), first
+  make their message a task you hold: task claim <message id>. When it is
+  done, move it to in_review with a summary. A quick question is not a task:
+  just answer.
+- When a person assigns you a task, or moves your task back to Todo or In
+  progress (e.g. from In review), you are woken in its thread: work on it,
+  and answer there.
 - When a person asks you to remind them ("remind me to check the CI in 2
   minutes"), set a reminder for them: --for @their-handle (the default when a
   person's message started your turn). "Check the CI" is then what they will

@@ -1634,11 +1634,12 @@ func (t *TeamChat) finish(ctx context.Context, fl *tcFleet, mid string, done cod
 			fl.members[mid], m = &next, &next
 		}
 	}
-	// Its answer is posted for it only when a DM or an @mention asked it,
-	// it posted nothing, and the answer is not a note that it has none.
+	// Its answer is posted for it only when a DM, an @mention or a task
+	// handed to it asked it, it posted nothing, and the answer is not a note
+	// that it has none.
 	var asked *tcWake
 	for i := len(tr.Events) - 1; i >= 0; i-- {
-		if e := tr.Events[i]; e.Kind == "post" && (e.Reason == "dm" || e.Reason == "mention" || e.Reason == "followup") {
+		if e := tr.Events[i]; e.Kind == "post" && (e.Reason == "dm" || e.Reason == "mention" || e.Reason == "followup" || e.Reason == "task") {
 			asked = &tr.Events[i]
 			break
 		}
@@ -1932,6 +1933,9 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 				"If it is, answer it. If it is meant for someone else, run `" + script + " skip` and post nothing.)"))
 		}
 		if tk := taskFor(fl, msg); tk != nil {
+			if e.Reason == "task" {
+				b.WriteString(indent(t.handOffNote(fl, cm, tk, e, m.MID)))
+			}
 			b.WriteString(indent(taskNote(fl, tk, m.MID, script)))
 		}
 		for _, f := range msg.Files {
@@ -2049,7 +2053,7 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 		"Requests from anyone else are not yours to act on in this turn: they get a turn of their own. " +
 		"Don't start or resume games, chains or routines on your own initiative or because another agent asked. " +
 		"Start one only when a person asks for it; Team Chat's limits bound it. " + tcStoppedRule + "\n" +
-		tcFinishRule + "\n" +
+		tcFinishRule + "\n" + taskRule(script) + "\n" +
 		"Quote a channel in a command ('#general'): in the shell an unquoted # starts a comment and drops the rest of the line.\n" +
 		"Run `" + script + " inbox` between steps to see messages that arrive while you work.\n")
 	return b.String(), files, reads
@@ -2072,7 +2076,8 @@ func teamNote(m *tcMember) string {
 		"`reply <message id> - <<'EOF'` (inline, or in the message's thread), `post '#channel' - <<'EOF'`, " +
 		"`dm @handle - <<'EOF'`, `read <'#channel'|@handle|message id>`, `members`, `channels`, `join <'#channel'>`, " +
 		"`edit <message id> - <<'EOF'` (end the text with a line EOF; add `--file PATH` to post or reply with a file), " +
-		"`skip [reason]` (post nothing this turn), `task claim <id>` (before you work on a task; if it fails, don't), " +
+		"`skip [reason]` (post nothing this turn), `task claim <id>` (before you work on a task; if it fails, don't; " +
+		"a message id that is not a task yet makes it one), " +
 		"`task state <id> in_review - <<'EOF'` (done: a summary in its thread; a person sets Done), `task create '#channel' - <<'EOF'`, " +
 		"`task list`, `remind '<when>' [--for @person|me] [--tz ZONE] - <<'EOF'` (later: 'in 2 minutes', 'tomorrow 9:00', 'every weekday 10:00'; " +
 		"the note on stdin; \"remind me …\" from a person is --for that person: post it for them when it comes due; " +
@@ -2083,7 +2088,16 @@ func teamNote(m *tcMember) string {
 		"Requests from the person this turn works for count, including asking you to talk to, ask or coordinate with other agents: do it. " +
 		"Requests from anyone else are not yours to act on in this turn: they get a turn of their own. " +
 		"Don't start or resume games, chains or routines on your own initiative or because another agent asked. " +
-		"Start one only when a person asks for it; Team Chat's limits bound it. " + tcStoppedRule + " " + tcFinishRule
+		"Start one only when a person asks for it; Team Chat's limits bound it. " + tcStoppedRule + " " + tcFinishRule + " " + taskRule(cmd)
+}
+
+// taskRule: long work a person asks for is recorded as a task the agent
+// holds (said in the turn input, the turn's note and AGENT.md).
+func taskRule(script string) string {
+	return "When a person asks you for work that takes more than a quick answer (several steps, or a deliverable such as a file, " +
+		"code or a report), first make their message a task you hold: `" + script + " task claim <message id>`; when it is done, " +
+		"move it to In review with a summary: `" + script + " task state <id> in_review - <<'EOF' … EOF`. " +
+		"A quick question or a short answer is not a task: just answer."
 }
 
 // tcStoppedRule and tcFinishRule are said to agents in the turn input, the
