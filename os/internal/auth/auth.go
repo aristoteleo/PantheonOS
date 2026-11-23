@@ -105,14 +105,37 @@ func Bootstrap(stateDir string) (*Authority, error) {
 		return nil, err
 	}
 
-	// Operator JWT — self-signed, names the system account.
-	opClaims := jwt.NewOperatorClaims(a.opPub)
-	opClaims.Name = "fleet-operator"
-	opClaims.SystemAccount = a.sysPub
-	if a.opJWT, err = opClaims.Encode(a.opKP); err != nil {
+	// Operator JWT — self-signed, names the system account. Kept in stateDir and
+	// reused: nats-server cannot reload a config whose operator changed, and a
+	// fresh one each boot (new issue time) made every later reload fail — so a
+	// revoked node was never kicked after the controller had restarted once.
+	if a.opJWT, err = loadOrCreateOperatorJWT(filepath.Join(stateDir, "operator.jwt"), a.opKP, a.opPub, a.sysPub); err != nil {
 		return nil, err
 	}
 	return a, nil
+}
+
+// loadOrCreateOperatorJWT returns the operator JWT saved at path when it is this
+// operator's, naming this system account; otherwise it signs a new one and saves it.
+func loadOrCreateOperatorJWT(path string, kp nkeys.KeyPair, opPub, sysPub string) (string, error) {
+	if b, err := os.ReadFile(path); err == nil {
+		saved := strings.TrimSpace(string(b))
+		if c, derr := jwt.DecodeOperatorClaims(saved); derr == nil && c.Subject == opPub && c.Issuer == opPub &&
+			c.SystemAccount == sysPub && c.Name == "fleet-operator" {
+			return saved, nil
+		}
+	}
+	opClaims := jwt.NewOperatorClaims(opPub)
+	opClaims.Name = "fleet-operator"
+	opClaims.SystemAccount = sysPub
+	j, err := opClaims.Encode(kp)
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, []byte(j), 0o600); err != nil {
+		return "", err
+	}
+	return j, nil
 }
 
 // ServerConfig returns a nats-server config that trusts this Authority: the
