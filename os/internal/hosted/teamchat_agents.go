@@ -314,6 +314,14 @@ func (t *TeamChat) agentUpdate(ctx context.Context, fid, mid string, fields map[
 				return nil, &ArgumentError{"listen is mention or all"}
 			}
 			next.Listen = s
+		case "dms":
+			if s != "only_me" && s != "everyone" {
+				return nil, &ArgumentError{"dms is only_me or everyone"}
+			}
+			if s == "only_me" {
+				s = ""
+			}
+			next.DMs = s
 		case "access":
 			if s != "only_me" && s != "everyone" && s != "listed" {
 				return nil, &ArgumentError{"access is only_me, everyone or listed"}

@@ -374,6 +374,48 @@ func (fl *tcFleet) canUse(personID string, a *tcMember) bool {
 	return false
 }
 
+// canDM: whether a person may message agent a directly (a DM with it, or a
+// DM that wakes it): its owner always; anyone else who may use it only when
+// its owner let everyone (a.DMs).
+func (fl *tcFleet) canDM(personID string, a *tcMember) bool {
+	if a == nil || !a.agent() {
+		return false
+	}
+	if personID == ownerOf(a) {
+		return true
+	}
+	return a.DMs == "everyone" && fl.canUse(personID, a)
+}
+
+// noDMs says in plain words why a person may not message an agent directly.
+func (fl *tcFleet) noDMs(a *tcMember) string {
+	if !fl.canUseAny(a) {
+		return fl.notUsable(a)
+	}
+	owner := "its owner"
+	if o := fl.members[ownerOf(a)]; o != nil {
+		owner = "@" + o.Handle
+	}
+	return fmt.Sprintf("Only %s can message %s directly; mention it in a channel instead.", owner, a.Name)
+}
+
+// canUseAny: someone besides its owner may use agent a at all.
+func (fl *tcFleet) canUseAny(a *tcMember) bool { return a.Access == "everyone" || a.Access == "listed" }
+
+// dmAgent is the agent on the other side of a person's DM ("" when the DM
+// is not with an agent).
+func (fl *tcFleet) dmAgent(c *tcConv, person string) *tcMember {
+	if c == nil || c.Kind != "dm" {
+		return nil
+	}
+	for _, x := range c.Members {
+		if m := fl.members[x]; x != person && m != nil && m.agent() {
+			return m
+		}
+	}
+	return nil
+}
+
 // notUsable says in plain words why a person may not use an agent.
 func (fl *tcFleet) notUsable(a *tcMember) string {
 	owner := "its owner"

@@ -3645,6 +3645,22 @@ person's "routine" (例行 / 定时任务) is set with `remind`, once or `every 
   Clicking a person (rail, DM header, an @mention) opens a person profile:
   name, @handle, role, when they joined, Message; the owner (anyone) and
   admins (members) also get Remove.
+* **Messaging an agent directly** is its owner's to allow, per agent
+  (`agent_update(dms)`: `only_me`, the default, or `everyone`, meaning
+  everyone who may use it by its access). Without it, `conv_create` of a DM
+  with the agent is refused ("Only @weize can message Writer directly;
+  mention it in a channel instead."), a post into a DM opened before the
+  owner took it back is refused (the DM stays readable), and a DM message
+  (or edit) from an agent whose turn works for such a person does not wake
+  it (`not_woken` with that reason). @mentions in channels, threads and
+  check-ins go by access alone, as before. Agents made before this setting
+  default to only their owner, shared ones included.
+* **Whose an agent is**: `created_by` (every agent so far is the space
+  owner's: `agent_create` is theirs). Settings, Move and the destructive
+  Controls (retry, resets, delete) are the space owner's; admins keep start,
+  stop and stop turn for agents they may use; a person cancels only the
+  routines that are for them. Pages show "<owner>'s" on an agent that is
+  not the viewer's.
 * **Removal** is the Hub's `DELETE /api/team-chat/spaces/{space}/members/{user}`
   (owner: anyone; admin: members), which drops the person's space grants and
   calls `MemberChange(remove)`: their record gets `removed_at`, they leave

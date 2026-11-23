@@ -88,3 +88,38 @@ func TestAPersonConfirmsTheirNameOnce(t *testing.T) {
 		t.Fatal("no removed line")
 	}
 }
+
+// Only an agent's owner messages it directly unless they let everyone who
+// may use it: a DM is refused to open and, once the owner takes it back, to
+// write in (it stays readable); @mentions in channels go by access alone.
+func TestDirectMessagesToAnAgentAreItsOwnersToAllow(t *testing.T) {
+	s := newSharedSpace(t)
+	h, b := s.h, s.b
+	if e := refusedAs(t, h, b, alice, "conv_create", map[string]any{"kind": "dm", "members": []string{s.listed}}); !strings.Contains(e, "can message Listed directly") {
+		t.Fatalf("default: %s", e)
+	}
+	if e := refusedAs(t, h, b, bob, "conv_create", map[string]any{"kind": "dm", "members": []string{s.listed}}); !strings.Contains(e, "listed people only") {
+		t.Fatalf("not listed: %s", e)
+	}
+	call(t, h, b, "agent_update", map[string]any{"mid": s.listed, "dms": "everyone"})
+	dm := callAs(t, h, b, alice, "conv_create", map[string]any{"kind": "dm", "members": []string{s.listed}})["conversation"].(map[string]any)["cid"].(string)
+	callAs(t, h, b, alice, "post", map[string]any{"cid": dm, "text": "hello Listed"})
+	if e := refusedAs(t, h, b, bob, "conv_create", map[string]any{"kind": "dm", "members": []string{s.listed}}); !strings.Contains(e, "listed people only") {
+		t.Fatalf("everyone still means people who may use it: %s", e)
+	}
+	call(t, h, b, "agent_update", map[string]any{"mid": s.listed, "dms": "only_me"})
+	if e := refusedAs(t, h, b, alice, "post", map[string]any{"cid": dm, "text": "still there?"}); !strings.Contains(e, "can message Listed directly") {
+		t.Fatalf("taken back: %s", e)
+	}
+	if msgs := callAs(t, h, b, alice, "messages", map[string]any{"cid": dm})["messages"].([]any); len(msgs) == 0 {
+		t.Fatal("the old DM stays readable")
+	}
+	callAs(t, h, b, alice, "conv_join", map[string]any{"cid": s.team})
+	call(t, h, b, "conv_join", map[string]any{"cid": s.team, "mid": s.listed})
+	r := callAs(t, h, b, alice, "post", map[string]any{"cid": s.team, "text": "@listed a question"})
+	if r["not_woken"] != nil {
+		t.Fatalf("a mention goes by access: %v", r["not_woken"])
+	}
+	// Its owner always may.
+	call(t, h, b, "conv_create", map[string]any{"kind": "dm", "members": []string{s.listed}})
+}

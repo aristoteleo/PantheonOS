@@ -89,6 +89,16 @@ func (t *TeamChat) wakesFor(fl *tcFleet, c *tcConv, m *tcConvMsgs, e *tcEvent) (
 			}
 			continue
 		}
+		if reason == "dm" {
+			if who := firstNotDMing(fl, actors, a); who != "" {
+				why := fl.noDMs(a)
+				if fromAgent {
+					why = fmt.Sprintf("%s (%s asked you, and may not message %s directly.)", why, handleOf(fl, who), a.Name)
+				}
+				notWoken = append(notWoken, tcNotWoken{MID: mid, Reason: why})
+				continue
+			}
+		}
 		if fromAgent && e.Hop >= fl.space.Settings.HopLimit {
 			stopped = true
 			continue
@@ -282,6 +292,17 @@ func (fl *tcFleet) namedFirst(text, writer string) string {
 func firstNotUsing(fl *tcFleet, people []string, a *tcMember) string {
 	for _, p := range people {
 		if !fl.canUse(p, a) {
+			return p
+		}
+	}
+	return ""
+}
+
+// firstNotDMing is the first of the people who may not message agent a
+// directly ("" when all may).
+func firstNotDMing(fl *tcFleet, people []string, a *tcMember) string {
+	for _, p := range people {
+		if !fl.canDM(p, a) {
 			return p
 		}
 	}

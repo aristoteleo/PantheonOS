@@ -412,6 +412,10 @@ type tcMember struct {
 	Access     string   `json:"access,omitempty"` // only_me | everyone | listed
 	AccessList []string `json:"access_list,omitempty"`
 	Listen     string   `json:"listen,omitempty"` // mention | all
+	// DMs: who may message it directly. "" (the default): only its owner;
+	// "everyone": anyone who may use it (Access). @mentions in channels go
+	// by Access alone.
+	DMs string `json:"dms,omitempty"`
 	// SandboxOff: the owner turned the sandbox off for this shared agent,
 	// confirming the words shown (docs/apps/team-chat.md, "Shared agents
 	// run sandboxed"). Unset, a shared agent's turns run sandboxed.

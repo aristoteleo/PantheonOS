@@ -108,6 +108,8 @@ func newSharedSpace(t *testing.T, with ...func(*TeamChat)) *sharedSpace {
 	s := &sharedSpace{h: h, b: mine, tc: tc, nodes: nodes, url: url}
 	s.writer = makeAgent(t, h, mine, "Writer", "n_mac", "claude", nil)
 	s.shared = makeAgent(t, h, mine, "Shared", "n_ws", "codex", map[string]any{"access": "everyone"})
+	// Its owner lets everyone message it directly (the default is only them).
+	call(t, h, mine, "agent_update", map[string]any{"mid": s.shared, "dms": "everyone"})
 	for _, m := range []*Member{alice, bob, carol} {
 		callAs(t, h, mine, m, "space_get", map[string]any{})
 	}

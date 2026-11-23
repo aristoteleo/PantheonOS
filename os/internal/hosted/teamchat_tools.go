@@ -105,6 +105,13 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 			if err := t.mayAdd(fl, who, a.Members); err != nil {
 				return nil, err
 			}
+			if a.Kind == "dm" {
+				for _, mid := range a.Members {
+					if m := fl.members[mid]; m != nil && m.agent() && !fl.canDM(who.mid, m) {
+						return nil, &ArgumentError{fl.noDMs(m)}
+					}
+				}
+			}
 			return t.convCreate(ctx, fl, who.mid, a.Kind, a.Name, a.Private, a.Members, a.Topic, a.AgentReply)
 		})
 	case "conv_update":
@@ -257,6 +264,11 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 				if _, err := t.convMembership(ctx, fl, who.mid, a.CID, who.mid, true); err != nil {
 					return nil, err
 				}
+			}
+			if ag := fl.dmAgent(conv, who.mid); ag != nil && conv.has(who.mid) && !fl.canDM(who.mid, ag) {
+				// A DM from before its owner kept DMs to themselves stays
+				// readable; nothing more is sent in it.
+				return nil, &ArgumentError{fl.noDMs(ag)}
 			}
 			if err := t.ownFiles(fl, who.mid, a.Files); err != nil {
 				return nil, err
@@ -1567,6 +1579,9 @@ func (t *TeamChat) change(ctx context.Context, fl *tcFleet, mid, worksFor, kind,
 		// The person behind the edit (an agent's: its turn's) must be one
 		// who may use the agent it would wake.
 		if !fl.canUse(actor, fl.members[agent]) {
+			continue
+		}
+		if c := fl.convs[msg.CID]; c != nil && c.Kind == "dm" && !fl.canDM(actor, fl.members[agent]) {
 			continue
 		}
 		t.enqueue(ctx, fl, agent, tcWake{ID: msg.ID, Event: e.ID, CID: msg.CID, Root: msg.Root, Kind: kind,
