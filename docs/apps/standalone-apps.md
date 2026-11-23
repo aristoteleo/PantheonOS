@@ -2792,6 +2792,51 @@ them are their *cloud computers*: the Cloud Workspace and Modal nodes.
    of the owner are on, a call without `node` still asks the user which to use
    before anything starts.
 
+## Viewers open without the Workspace (2026-11-22)
+
+**Why.** With the Workspace paused, "Open with → Text Viewer" on a node's
+`AGENT.md` (Files App page) said "Your Workspace is paused", while Quick Look
+read the same file. Text Viewer, PDF Viewer and Image Viewer run nothing of
+their own: their frame reads the file from a URL the window mints and saves
+through the window's fs bridge, which already reaches a node over Fleet. Two
+things still needed the Workspace: the window found the App's package by
+asking the Workspace's Desktop App (`desktop_app_registry`) and loaded its
+frontend from the Workspace's data server (`serve_local_data` of the builtin
+scope), and minting the URL of a node's file asked the Workspace's Desktop
+first (`ensureDataEndpoint`, which waits for a starting Workspace).
+
+**Design.**
+
+1. *The frontend image ships them.* `ui/scripts/sync-shipped-apps.mjs` copies
+   every App of `apps/` that is `dom`, has its own frontend file and declares
+   no backend, Fleet backend, custom host or native driver (today exactly
+   these three) into `ui/public/shipped-apps/<id>/<version>/` (manifest,
+   `frontend/`, `assets/`), and their manifests into
+   `shippedApps.generated.json`. The version is in the path, so the cache
+   nginx keeps on `.js` never serves an older release's chunk. Run it again
+   after changing one of these Apps; a test checks that the copy is whole.
+2. *Which copy a window loads.* While the Workspace is ready, its copy (it may
+   be newer, or a dev sync); otherwise, or when it has none, the shipped one.
+   A shipped frame keeps the same trust as the other built-ins (same-origin
+   host). The registry lists the shipped Apps when neither the Workspace nor
+   the App index does, so "Open with" offers them on a fresh account too.
+3. *Node files.* `serveLocalData` asks the Workspace's Desktop only when the
+   deployment reports it ready now; otherwise the node hands over the file
+   over Fleet (`downloadFileChunked`, a data URI, as Quick Look reads it).
+   Saves already went to the node (`write_file` with `_node_id`).
+4. *Workspace files* still need the Workspace. The window, or a failed save,
+   then says "This file is on your Workspace, which is paused. Start it with
+   Start Workspace …", not that the App needs it.
+5. A shipped frame showing a node file is not reloaded when the Workspace
+   joins or leaves (it uses nothing of it); unsaved edits stay.
+
+Apps with a backend (Notebook, Browser, Store Apps with a backend) are
+unchanged. Rejected: serving the packages from the controller or the Hub (a
+new public route and a copy of `apps/` in a Go binary or the Hub, for files
+the frontend image can serve as they are), and publishing them as public Store
+versions (the Hub's public route; a Store dependency for the desktop's own
+viewers).
+
 ## Open decisions
 
 1. **Path URLs (`/app/<id>`) or hash?** Path: one install scope per App and
