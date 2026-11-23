@@ -424,6 +424,22 @@ func (t *TeamChat) ownerNode(ctx context.Context, fid, nodeID string) (TeamNode,
 		return TeamNode{}, err
 	}
 	if !n.Listed {
+		// A computer the space's agents work on (a paused Workspace is not
+		// listed while it is away) is the owner's, offline.
+		if fl, err := t.lockFleet(ctx, fid); err == nil {
+			known, seen := fl.nodes[nodeID]
+			for _, m := range fl.members {
+				seen = seen || m.agent() && m.NodeID == nodeID
+				if m.agent() && m.NodeID == nodeID && known.Name == "" {
+					known = withMemberNode(known, m)
+				}
+			}
+			fl.mu.Unlock()
+			if seen {
+				known.ID, known.Online, known.Listed = nodeID, false, true
+				return known, nil
+			}
+		}
 		return TeamNode{}, &ArgumentError{"That computer is not one of the space owner's computers (or has not been connected for a week). Pick one from the list."}
 	}
 	return n, nil
