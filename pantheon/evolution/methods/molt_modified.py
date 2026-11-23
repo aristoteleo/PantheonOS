@@ -54,9 +54,15 @@ class ModifiedMolt(M.Molt):
 
     def state_dict(self):
         result = super().state_dict()
-        result['modified_molt_writer'] = {'target_context_audit': self.target_context_audit}
+        result['modified_molt_writer'] = {'target_context_audit': self.target_context_audit,
+                                          'rng_state': self.rng.getstate()}
         return result
 
     def load_state_dict(self, state):
         super().load_state_dict(state)
         self.target_context_audit = list(state.get('modified_molt_writer', {}).get('target_context_audit', []))
+        rng_state = state.get('modified_molt_writer', {}).get('rng_state')
+        if rng_state is not None:
+            def tuples(value):
+                return tuple(tuples(x) for x in value) if isinstance(value, (list, tuple)) else value
+            self.rng.setstate(tuples(rng_state))

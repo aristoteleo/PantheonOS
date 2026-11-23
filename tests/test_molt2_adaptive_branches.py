@@ -125,7 +125,8 @@ def test_retired_chains_are_excluded_and_window_counts_evaluations():
 
 def test_checkpoint_roundtrip_preserves_posterior_and_next_random_choice():
     m,ctx,seed=setup();item=run(m.ask(ctx,1))[0];resolve(m,ctx,item,.7,'0');resolve(m,ctx,item,.7,'1')
-    clone=Molt2AdaptiveBranches();clone.load_state_dict(json.loads(json.dumps(m.state_dict())));clone.rng.setstate(m.rng.getstate())
+    clone=Molt2AdaptiveBranches();clone.load_state_dict(json.loads(json.dumps(m.state_dict())))
+    assert clone.rng.getstate()==m.rng.getstate()
     m.allocation_dispatches=clone.allocation_dispatches=1
     assert m._choose(ctx,[0,1],True)==clone._choose(ctx,[0,1],True)
     assert clone.allocation_history==m.allocation_history and clone.incumbent_every==m.incumbent_every
