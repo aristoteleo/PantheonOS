@@ -3674,8 +3674,10 @@ person's "routine" (例行 / 定时任务) is set with `remind`, once or `every 
 
 ## Computers in the rail (2026-11-23)
 
-The rail's Computers section is the owner's (people in someone else's space
-do not see it: the list is the viewer's own Fleet, which is not the space's).
+The rail's Computers section lists the viewer's own Fleet (since 2026-11-23
+everyone's, not only the owner's: people bring agents of their own onto their
+computers, "Agents people bring"), with the agents the viewer brought on
+them.
 
 * **Add a computer.** The "+" on the Computers header opens the same connect
   step as the first run and the invite page (`JoinComputer`: a one-use join
