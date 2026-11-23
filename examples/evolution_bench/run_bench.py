@@ -79,6 +79,12 @@ def build_method(name: str, seed: int, judge=None, norm: str = "minmax", sched=N
         from pantheon.evolution.methods import Molt
         return Molt(num_chains=2, k_candidates=2, num_inspirations=2,
                     selector=(ln_opts or {}).get("tes_selector") or "rpucg", seed=seed)
+    if name in ("molt_modified", "molt2_adaptive_branches"):
+        from pantheon.evolution.methods.molt_modified import ModifiedMolt
+        from pantheon.evolution.methods.molt2_adaptive_branches import Molt2AdaptiveBranches
+        cls = ModifiedMolt if name == "molt_modified" else Molt2AdaptiveBranches
+        return cls(num_chains=2, k_candidates=2, num_inspirations=2,
+                   selector=(ln_opts or {}).get("tes_selector") or "rpucg", seed=seed)
     if name == "molt2_lns_coupled":
         from pantheon.evolution.methods.molt2_lns_coupled import Molt2LNSCoupled
         return Molt2LNSCoupled(num_chains=2,k_candidates=2,num_inspirations=2,selector="rpucg",seed=seed)
@@ -489,7 +495,7 @@ if __name__ == "__main__":
     p.add_argument("--task", required=True)
     p.add_argument("--method", default="agent_map_elites",
                    choices=["agent_map_elites", "map_elites", "simpletes", "idea_code", "annealed",
-                            "pantheon_evo", "hypothesis_bandit", "lab_notebook", "molt", "molt_noredesign", "molt_noprotect", "molt_noprobation", "molt_periodic", "simpletes4", "molt_overlap", "molt_gated", "molt2", "molt2_conservative", "molt2_explore", "molt2_factorial", "molt2_discovery", "molt2_decision", "molt2_scout", "molt2_patch", "molt2_lns", "molt2_lns_depth", "molt2_lns_vns2", "molt2_lns_global", "molt2_lns_adaptive", "molt2_lns_coupled"])
+                            "pantheon_evo", "hypothesis_bandit", "lab_notebook", "molt", "molt_noredesign", "molt_noprotect", "molt_noprobation", "molt_periodic", "simpletes4", "molt_overlap", "molt_gated", "molt2", "molt2_conservative", "molt2_explore", "molt2_factorial", "molt2_discovery", "molt2_decision", "molt2_scout", "molt2_patch", "molt2_lns", "molt2_lns_depth", "molt2_lns_vns2", "molt2_lns_global", "molt2_lns_adaptive", "molt2_lns_coupled", "molt_modified", "molt2_adaptive_branches"])
     p.add_argument("--iterations", type=int, default=40)
     p.add_argument("--model", default="openai/gpt-5.6-luna")
     p.add_argument("--eval-server", default=os.environ.get("EVAL_SERVER_URL", ""),
