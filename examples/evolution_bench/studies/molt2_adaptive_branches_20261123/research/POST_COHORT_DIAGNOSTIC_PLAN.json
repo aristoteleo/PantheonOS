@@ -1,0 +1,15 @@
+{
+  "at_unix": 1795477063.2884007,
+  "status": "diagnostic_plan_not_algorithm_change",
+  "frozen_campaign_unchanged": true,
+  "checks_after_cohort": [
+    "Compare 5 paired seeds separately per task against all three controls; report all failures and budget truncation.",
+    "For each method, separate invalid evaluations, original-lineage evaluations, redesign implementations, and redesign follow-ups.",
+    "Measure first meaningful gain, best-score trajectory, and fraction of total calls after first redesign.",
+    "For adaptive Molt2, report meaningful-reward frequency per arm and fraction spent on incumbent, minimum probes, and posterior sampling.",
+    "If most adaptive arms receive zero meaningful rewards, evaluate whether native 1-percent relative progress threshold produces a nearly uninformative posterior. Any denser rank or normalized improvement reward must be a separate development revision, not a change to this frozen cohort.",
+    "If initial candidates are frequently invalid, examine generated compiler/runner diagnostics and writer context before attributing differences to branch allocation.",
+    "Keep validation/test untouched until architecture and finalists are frozen."
+  ],
+  "current_observation": "First incomplete AHC024 adaptive run has no meaningful rewards so far; tiny score increases do not meet native relative threshold. This does not yet establish failure or superiority."
+}

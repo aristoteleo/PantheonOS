@@ -1,0 +1,2200 @@
+{
+  "at_unix": 1795479941.9956474,
+  "public_input_count": 300,
+  "files": [
+    {
+      "original_path": "/home/erwinpi/molt2-lab/tasks/ahc024/solution.cpp",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/tasks/ahc024/solution.cpp",
+      "sha256": "dad6022c8f8422bf66c13e49c7e36c95a6668a84ee5f01b92e2bdada4e571f0e",
+      "bytes": 3168,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/tasks/ahc024/solution.cpp"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/tasks/ahc024/objective.md",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/tasks/ahc024/objective.md",
+      "sha256": "e3716dec0a6ddb501db556341c0a58de641cda9aedf221dfe1fb579cebdd3ab6",
+      "bytes": 1468,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/tasks/ahc024/objective.md"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/tasks/ahc024/evaluator.py",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/tasks/ahc024/evaluator.py",
+      "sha256": "8336ac94631d54d817595ab85d6936aa720950658ea4e52cfa841336b8556db1",
+      "bytes": 10070,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/tasks/ahc024/evaluator.py"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/tasks/ahc024/docker_runner.py",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/tasks/ahc024/docker_runner.py",
+      "sha256": "2cfc8b0367467874d989b37b984e8e7af44fd741bc4c240abe96f915c1864c7e",
+      "bytes": 11646,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/tasks/ahc024/docker_runner.py"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/tasks/ahc024/task.json",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/tasks/ahc024/task.json",
+      "sha256": "33e87dbb385e10f8cb19bac7a34cc8331a7660eeaef71800a3bc36f2d2aa2d4b",
+      "bytes": 782,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/tasks/ahc024/task.json"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000000_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000000_input.txt",
+      "sha256": "9d9be98a6f0a6a19322162aa864c925f21a5c71fd2443a0935429b5b9b78e084",
+      "bytes": 7271,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000000_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000001_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000001_input.txt",
+      "sha256": "20d48924bf92f480229bc33c3fda8e4760d575e7ae3c0557780b748058494f2c",
+      "bytes": 7289,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000001_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000002_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000002_input.txt",
+      "sha256": "fb982e67594c668469c84afae832fcb29ada1f24424c598fdc115d9a30342175",
+      "bytes": 7332,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000002_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000003_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000003_input.txt",
+      "sha256": "97dc54cc5dc7705068dbbab3f2264d2d53c43e932c9272e22fae8887684624ad",
+      "bytes": 7407,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000003_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000004_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000004_input.txt",
+      "sha256": "a4f397f13f316c2aee913553a9b988e08242e50e5945235d8dcc114c7bc45dd9",
+      "bytes": 7340,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000004_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000005_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000005_input.txt",
+      "sha256": "ccaf1a71b1ffb8427593d9e66cc39a54a8b47dd6df662cb4e40a8405d2682e0e",
+      "bytes": 7377,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000005_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000006_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000006_input.txt",
+      "sha256": "86af2e9171bea457e455018fab325f766df1063e70b8f48f0ea5e1bfe76ace1b",
+      "bytes": 7373,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000006_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000007_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000007_input.txt",
+      "sha256": "b25ebb837fce0d4284cd4a5546dafd5e723ce7ad5863d9766db82d169346f588",
+      "bytes": 7319,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000007_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000008_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000008_input.txt",
+      "sha256": "56542d71884f1433195869679f4607aa3b1a13ec892ca73fc82b5d3bf6249acf",
+      "bytes": 7345,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000008_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000009_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000009_input.txt",
+      "sha256": "6cea8a1ad1257604b0f3ed3de8b34b111da1352a03b40eae003fed2886415665",
+      "bytes": 7262,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000009_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000010_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000010_input.txt",
+      "sha256": "4d10fd0fd4dd4caf8a3527462d87f8d5000bbe04c93d6a6a01aca13053ea2e2a",
+      "bytes": 7346,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000010_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000011_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000011_input.txt",
+      "sha256": "ad23ffe56c936fd3bbef48f468e4a65b969ac96322f228bf88d6a83ca4a901e4",
+      "bytes": 7226,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000011_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000012_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000012_input.txt",
+      "sha256": "0b6a21aadbbdb69a030d3595fbf01b94c4047a88213fb8c466d6d3ce44e3b040",
+      "bytes": 7367,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000012_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000013_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000013_input.txt",
+      "sha256": "1d880bc947cb6fbf41f9b20307f23b055f483f941a8a0c8a2b6ad243bf4ffa70",
+      "bytes": 7319,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000013_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000014_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000014_input.txt",
+      "sha256": "4c66f46f165944e1b30cf4d78b7bb996d1d2f4ecb5ff4916b0dc0b0498566a69",
+      "bytes": 7228,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000014_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000015_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000015_input.txt",
+      "sha256": "7fffe6a48a72c4310bf0e320274f934556a93101dc11968551e9473766c432a9",
+      "bytes": 7351,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000015_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000016_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000016_input.txt",
+      "sha256": "1cdd6b2f95aa5b7240c1b329fec11b12af8dabf74af5288f8ad354350af983ba",
+      "bytes": 7230,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000016_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000017_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000017_input.txt",
+      "sha256": "cb10b97b041a3fcacd22d5a8c34f97ea7353aa1ff359edf77e538bc4910da793",
+      "bytes": 7222,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000017_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000018_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000018_input.txt",
+      "sha256": "4e3c25aeb5ac1e25762457f4dadd72dce7682a3d4a65d63562af0b8b8259ffb2",
+      "bytes": 7293,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000018_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000019_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000019_input.txt",
+      "sha256": "c31fc2efe8b7fb30272bfa6baa76c5d428c58d5bc8ae9c0b6c5310313c5b0365",
+      "bytes": 7332,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000019_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000020_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000020_input.txt",
+      "sha256": "142fcbbe05b5a7581648240b03c0ac569f6eb50135a4c6cd4bdef6395274c077",
+      "bytes": 7199,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000020_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000021_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000021_input.txt",
+      "sha256": "dd334627f77274d3a9eb645a3c382dd6dbb54b797b07a8adc494712b8a6da6ac",
+      "bytes": 7345,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000021_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000022_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000022_input.txt",
+      "sha256": "49e6639206329664ad4509ca3c7dabac267171dcb45e10542eec3a41969ce0d7",
+      "bytes": 7361,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000022_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000023_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000023_input.txt",
+      "sha256": "9171a1a5bdf2d2282e83667e1eab455949816e762983253d15fe9d6918b04705",
+      "bytes": 7265,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000023_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000024_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000024_input.txt",
+      "sha256": "9e6cf01e431dc8fe944b370decac6d09278b1faa147991c29aec50919da26bde",
+      "bytes": 7370,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000024_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000025_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000025_input.txt",
+      "sha256": "f00deb77f4605ab7ab3b76277b025f77f9d4e3a1a385ff4e592185baa2fd190f",
+      "bytes": 7322,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000025_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000026_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000026_input.txt",
+      "sha256": "82954c82290380fe04f71399f8bb5708a64397acc3cb0719ed1285350cce0d07",
+      "bytes": 7279,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000026_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000027_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000027_input.txt",
+      "sha256": "c680079961c2394893e0953949cc155c62e50d58a4c22c2616969bad88dc1f78",
+      "bytes": 7282,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000027_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000028_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000028_input.txt",
+      "sha256": "4b22e3094b8e07e1a4ee6281598df22c1133e549c2231c259a7e0cc3292cc591",
+      "bytes": 7266,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000028_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000029_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000029_input.txt",
+      "sha256": "b037c05f3bb59c0715e6d9b6ce50dc5ffe3e3e14257a34d28d19efba9468741a",
+      "bytes": 7352,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000029_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000030_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000030_input.txt",
+      "sha256": "05b54004430fddf595dc4c65510c4a0faab4b5ee48d248e655d74e8c050f3f31",
+      "bytes": 7340,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000030_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000031_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000031_input.txt",
+      "sha256": "a4c69cf8bc9bc37e75351b3d63e6763d10ca398269bdc2720046bc12218728d4",
+      "bytes": 7325,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000031_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000032_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000032_input.txt",
+      "sha256": "987662addd52df9d8561e666168f7a6011646da44c205cec36a34e97be92e1ac",
+      "bytes": 7271,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000032_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000033_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000033_input.txt",
+      "sha256": "fae7dd56335041b659bf386977a1e46691e6b9fd1bd5e31ac4b92510cc1a0959",
+      "bytes": 7314,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000033_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000034_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000034_input.txt",
+      "sha256": "a93a04b1fba6cdd20cec20768ffbfa713c44734e810fcac3532d6b830a04c65f",
+      "bytes": 7422,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000034_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000035_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000035_input.txt",
+      "sha256": "43a343b0e423db2b634f5a015dd0950eea7cfb4d8364542a41acbb2951391507",
+      "bytes": 7269,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000035_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000036_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000036_input.txt",
+      "sha256": "3db97168b97e77da45ace364ad5ae32c7c308379babb741f0bcc0f2afb47eb3c",
+      "bytes": 7364,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000036_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000037_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000037_input.txt",
+      "sha256": "c3d30ea688dadac0440d916e41197e8ab954b88e0311785e7a10b10021ac8c35",
+      "bytes": 7312,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000037_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000038_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000038_input.txt",
+      "sha256": "1049525ea09fc68b80ccccbedce8b4393c96937da373018e7460e3c14b24430f",
+      "bytes": 7292,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000038_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000039_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000039_input.txt",
+      "sha256": "e8835e3f4fae8cdb7e2fbbb04775e286e7630c25adea75b0b5e12814a757e17c",
+      "bytes": 7333,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000039_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000040_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000040_input.txt",
+      "sha256": "39fcd3d9285c968f5a47385de1ce800e2a709e8e043ae19ed4c7e626bc2cf954",
+      "bytes": 7304,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000040_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000041_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000041_input.txt",
+      "sha256": "6a0abbd2aa66684dca64079c806db8fcd80e4ef9fb5bafa8189b2e58da3f35fa",
+      "bytes": 7312,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000041_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000042_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000042_input.txt",
+      "sha256": "6373d6de2a03577da026ddf07d31b495f72bf204891962a95cdcd4d9359c9243",
+      "bytes": 7238,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000042_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000043_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000043_input.txt",
+      "sha256": "dc9df20c1c0c85614f318a2c7423bd2da3830097427a5bd7749f97a2c20042fd",
+      "bytes": 7280,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000043_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000044_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000044_input.txt",
+      "sha256": "44c3c78bde6dd40d2ffe212860b70813c0c4ce9c29d4bcebd719f61b8825d0ad",
+      "bytes": 7281,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000044_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000045_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000045_input.txt",
+      "sha256": "ca271593add9634edccc4f2c529e6b81430688d2afad7964d5559969fc46e7d3",
+      "bytes": 7286,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000045_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000046_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000046_input.txt",
+      "sha256": "223221f61fea025c34a57632aab968bc037908df37faf543fc1b214d0f4d9697",
+      "bytes": 7357,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000046_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000047_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000047_input.txt",
+      "sha256": "a58acb2c26be5e555234b8ba3337cc74d2a4eb72c3ac7c5ffe43048c43728b2c",
+      "bytes": 7294,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000047_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000048_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000048_input.txt",
+      "sha256": "2054384234ce0bbbb77016925b7b140e89ec3643976162a922b51e3e1e62f584",
+      "bytes": 7402,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000048_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000049_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000049_input.txt",
+      "sha256": "9184d51345ad239d6aae047c24f772933cf9b9f4d006755511190e59828e66fc",
+      "bytes": 7336,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000049_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000050_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000050_input.txt",
+      "sha256": "c873d4255f56085a716daf6de459a844706fa61a1af1c49a9a430affd7e23c94",
+      "bytes": 7214,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000050_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000051_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000051_input.txt",
+      "sha256": "dc66d70cf0d570fe7700771fb797652391d91997f9511fe5f33913fc9758ff6a",
+      "bytes": 7318,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000051_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000052_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000052_input.txt",
+      "sha256": "85de16b47101c1b649b599c9ed56b7adcb446c71decc0b472a3d70667f6cd363",
+      "bytes": 7290,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000052_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000053_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000053_input.txt",
+      "sha256": "f5da53bb2f436a174004c1811e3e56d60d901e1eda64b8fa01469e5bc67fbd7e",
+      "bytes": 7303,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000053_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000054_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000054_input.txt",
+      "sha256": "301b71684935eb5b0db1e3b73dc070ea094646a0bba297ac9d5592a88ef36092",
+      "bytes": 7331,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000054_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000055_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000055_input.txt",
+      "sha256": "b4959de8b2f6a801490ab1e626bf50a72ecc23d79d45aac852c7ddf3b95a164b",
+      "bytes": 7332,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000055_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000056_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000056_input.txt",
+      "sha256": "f44931014e7623539cb6da3e9a179cbe95bdd329b5811df4fe8046e8f509c25f",
+      "bytes": 7347,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000056_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000057_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000057_input.txt",
+      "sha256": "87e022b6c32fcdd0835fa9bf4ad477833bd034506583e98033b2c166e4377c69",
+      "bytes": 7323,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000057_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000058_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000058_input.txt",
+      "sha256": "6fd2b8666e4177a0286c359acea2a25f833f2f7b627b6c6bb3a327efe4729868",
+      "bytes": 7343,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000058_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000059_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000059_input.txt",
+      "sha256": "9f613f0df105e97966666850c2e8f73a14b480eb8ba4251e916df3697cb4b299",
+      "bytes": 7238,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000059_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000060_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000060_input.txt",
+      "sha256": "d3dc35f5280756a963a6d3cd6da1ec114ebeb15fa894d2d85c7ad72a1ee91ff9",
+      "bytes": 7246,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000060_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000061_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000061_input.txt",
+      "sha256": "56dd068e8fd19af315d5228f62581517088385422e41ecc0c5f858876fb40abb",
+      "bytes": 7374,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000061_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000062_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000062_input.txt",
+      "sha256": "ec571ddc94c002ab181d436e2e3de4c5fba0c1ab3ee885ae425a817f6b6e716a",
+      "bytes": 7386,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000062_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000063_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000063_input.txt",
+      "sha256": "8aa3c9c64c23497ede9c98a6beb87394911c5f204a3a987010dec94842e06124",
+      "bytes": 7273,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000063_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000064_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000064_input.txt",
+      "sha256": "0716981e161caeabf6a574bfefa2d3356b8bba10af2e7291201e3ffbf174dbec",
+      "bytes": 7289,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000064_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000065_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000065_input.txt",
+      "sha256": "830717a3117123f0322f009766ca90d764aec6bed1cd28e6a972af8b717ee618",
+      "bytes": 7319,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000065_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000066_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000066_input.txt",
+      "sha256": "0b196fd8c547a6d8c51f8d31d3b5557571b5fdced02765fb7449fb99390bb0ca",
+      "bytes": 7345,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000066_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000067_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000067_input.txt",
+      "sha256": "2c18c06e400318a5b147d41076242e7a61cd59ba7296c90d8ebc0e8e035b5ca4",
+      "bytes": 7257,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000067_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000068_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000068_input.txt",
+      "sha256": "9b8944c6df86bedbd88bb3bbf68fbeb2e5a43437d72b75cbc3084a7a6e58c898",
+      "bytes": 7256,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000068_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000069_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000069_input.txt",
+      "sha256": "f1ffcd3a2c4c800ade49e59e20fcd56fe259258c811e954ac5f680a4883f8881",
+      "bytes": 7326,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000069_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000070_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000070_input.txt",
+      "sha256": "31354bc3b04a769907617e472db6b5fcf2c92d6ab3a72ae7936cd2653a5ae3eb",
+      "bytes": 7401,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000070_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000071_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000071_input.txt",
+      "sha256": "8f965b32be47f849f40197a3f79db80ee0fd97f8721238bd4ef99248aadefb41",
+      "bytes": 7296,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000071_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000072_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000072_input.txt",
+      "sha256": "6c3cc0248745f180ca4609a8e0c0b403572241dc6ee64e9527cf62680ab3c689",
+      "bytes": 7277,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000072_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000073_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000073_input.txt",
+      "sha256": "5d833368250764ac10d91b63c4d1b1cbd4673045a0a914cae693f5d20804b345",
+      "bytes": 7178,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000073_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000074_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000074_input.txt",
+      "sha256": "09c78add31cfa2b6da5883aa67c0a9fb9cbf4883ceb2aac633c13f53d088a66f",
+      "bytes": 7270,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000074_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000075_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000075_input.txt",
+      "sha256": "0170dd7003d8d36c59077823fa21f98c596a6ca926b31b9322aec765241c6653",
+      "bytes": 7368,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000075_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000076_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000076_input.txt",
+      "sha256": "c0ddcb9d792b7a9aa75a4254177190ab069c0f73adc68c290cf934bb0db11d84",
+      "bytes": 7333,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000076_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000077_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000077_input.txt",
+      "sha256": "b2221d791ec0bf6a1de281b082a297c62dac8b600a287057972cf31c9974dacc",
+      "bytes": 7216,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000077_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000078_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000078_input.txt",
+      "sha256": "db10ea2d447e41e348b08577592a1bf78e90673af871d98d9affff963f4243d0",
+      "bytes": 7200,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000078_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000079_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000079_input.txt",
+      "sha256": "e2352f618e11fc95c45f27531b3d2a39ad9d93cccb9aa513c727c63686dc72bd",
+      "bytes": 7210,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000079_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000080_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000080_input.txt",
+      "sha256": "a48136b7c1e3d89c5f047a561a142323f3553bf0369f7b86a62ba6616f4c2828",
+      "bytes": 7305,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000080_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000081_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000081_input.txt",
+      "sha256": "463ce4c70538b545e746cdaa5e693311e55ae28266964bef0cd7a558ed876870",
+      "bytes": 7359,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000081_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000082_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000082_input.txt",
+      "sha256": "108c2d8d806c825bc30621f05f429e8e8adef9bd2971868dc45bbd37f62ea812",
+      "bytes": 7338,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000082_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000083_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000083_input.txt",
+      "sha256": "e369b9805db6f8f1fd99517a7bbca5d84e0024c7a30147f71e98681e02ce2f43",
+      "bytes": 7389,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000083_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000084_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000084_input.txt",
+      "sha256": "0e273026243c16e823b353e0dbc69a207e3f9dcef3b91201b668cda6fc3c7f05",
+      "bytes": 7200,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000084_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000085_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000085_input.txt",
+      "sha256": "5e79466837823e1ee8076855dd244f55032469ec6a989026d40112591250e717",
+      "bytes": 7399,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000085_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000086_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000086_input.txt",
+      "sha256": "d22d1a4de8861e41976cdef9daa0db352060e2bd5c9c11d4fc1feac10ca636df",
+      "bytes": 7300,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000086_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000087_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000087_input.txt",
+      "sha256": "75d3782ff3fd1d026f13bc6813b51ab200c545ac55d17680f6a5c973c80ae8bf",
+      "bytes": 7325,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000087_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000088_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000088_input.txt",
+      "sha256": "db5ca103eb915ccdfad2421c23089f5b9483b1404b282a31033f4e1010826ccf",
+      "bytes": 7373,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000088_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000089_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000089_input.txt",
+      "sha256": "822b4ae65acddd0e89740f706f55fa1683e97d43d62f2c5449ef166a1958bb65",
+      "bytes": 7339,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000089_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000090_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000090_input.txt",
+      "sha256": "9e4d13f37119cd07448e49c538b345c910f1dec93b71d8790b4a77aa5364267e",
+      "bytes": 7283,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000090_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000091_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000091_input.txt",
+      "sha256": "0ef3e78db48c9fee8972cf5908bf04547e9389842141d090d19a4b47ec06c36a",
+      "bytes": 7284,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000091_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000092_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000092_input.txt",
+      "sha256": "aa7ee8a2c3db2771a7cf09468eeccade565aa5d6959117ce0c653bc60e065577",
+      "bytes": 7321,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000092_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000093_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000093_input.txt",
+      "sha256": "ae7d8d284fb1184311a08955276dc00b86eb80bbab4c392f6aad9effe480d55c",
+      "bytes": 7163,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000093_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000094_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000094_input.txt",
+      "sha256": "25956598056f8c37442d99ac5532384722e93dcddcd5cf0729c00592a95836e5",
+      "bytes": 7294,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000094_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000095_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000095_input.txt",
+      "sha256": "6875098477e92ae585b66902601a4aa9b8ac31f22558a6c0eebcb4e3942b0785",
+      "bytes": 7294,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000095_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000096_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000096_input.txt",
+      "sha256": "e31744b79cfa0b79ab892a6611b73491e4de701c625b67b7bfbef139e6540c3c",
+      "bytes": 7400,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000096_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000097_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000097_input.txt",
+      "sha256": "a3f9b1f2f0b8d33a3c22a4165dc82ccc80d016e5714240a16902c9a4f8693568",
+      "bytes": 7221,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000097_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000098_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000098_input.txt",
+      "sha256": "da4671f3748408a44d1aba0479ebe8be5aea63b84ebd4cc1880a8f27bd3a1f12",
+      "bytes": 7263,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000098_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000099_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000099_input.txt",
+      "sha256": "7b0e406ae313e607c12c4be496b5a9c47531d25574d6c3a70cc8ef4fb4a05e1c",
+      "bytes": 7303,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000099_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000100_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000100_input.txt",
+      "sha256": "a3128777d7a1092143e1a8fdb0bf8276ac80ed6e5f32967d0950c7fd202f4e81",
+      "bytes": 7290,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000100_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000101_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000101_input.txt",
+      "sha256": "f025b1052526f13e515a7f5b4c03b4f02748b1bf5d66fae34006eab26d31ba00",
+      "bytes": 7242,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000101_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000102_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000102_input.txt",
+      "sha256": "331c3525829990b4ed15b41d29f1260e988f530ee6184429ef7ac283ec57a115",
+      "bytes": 7359,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000102_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000103_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000103_input.txt",
+      "sha256": "80a64e4bb8defc9b5f8455d3650a0dc1cafcd25ebe686ce6d0df53a8442ca138",
+      "bytes": 7308,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000103_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000104_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000104_input.txt",
+      "sha256": "1f223a920beb8d7bce5200413eed4fd3c0d303f03138da17457a38eb85b65147",
+      "bytes": 7296,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000104_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000105_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000105_input.txt",
+      "sha256": "1a0221663ec9d6ae57a778b229442ec0558f76c67b1b3eb0c76d95eb19c44804",
+      "bytes": 7319,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000105_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000106_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000106_input.txt",
+      "sha256": "dc42f53ee318f01462069ce2c96609f925072b6cf460f55246f1e3de511e5224",
+      "bytes": 7258,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000106_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000107_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000107_input.txt",
+      "sha256": "0545b58ec446114b4dcdb9977cd08ef13d9b71a8d0ea923a9c18598149c9196e",
+      "bytes": 7339,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000107_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000108_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000108_input.txt",
+      "sha256": "541853fe5ee42d38dc025d7a47703bc967de0c888ffab385278ef0814f689896",
+      "bytes": 7195,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000108_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000109_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000109_input.txt",
+      "sha256": "561cd183ec1865b8447877cf80bb39118bc88231ca808f39a936589fa027e64d",
+      "bytes": 7318,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000109_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000110_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000110_input.txt",
+      "sha256": "703dc8d81ecafcde437c7ba0911dbc643a4c6baa80059a743ae4ba6c25858a39",
+      "bytes": 7223,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000110_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000111_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000111_input.txt",
+      "sha256": "2f2a5d3e1eb883cabd0ade08e0458c40fc7e04a8e26aca5a54cebdc872884bb6",
+      "bytes": 7269,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000111_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000112_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000112_input.txt",
+      "sha256": "52f1deeed8e1371dc0dadbf2265e96c6ad6bc1202c4dbf1e3a134b87c86f57e1",
+      "bytes": 7302,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000112_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000113_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000113_input.txt",
+      "sha256": "75ebabb90ecedcc3cd75fdf2c390ebb783304e4deebb848df66a7c44c0f24acf",
+      "bytes": 7432,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000113_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000114_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000114_input.txt",
+      "sha256": "5982091048d9fd6f1c385790272a28969c4e3bc1e7b111cce9ee64924eec65ee",
+      "bytes": 7292,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000114_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000115_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000115_input.txt",
+      "sha256": "c13e3af93a5cecd24276bb5ed0334936a3f3b5ba76cf48d6a3df359df54d7f7e",
+      "bytes": 7296,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000115_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000116_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000116_input.txt",
+      "sha256": "629d1242893764aedf3d6c69e35021ea2e249e8add9bf0dd30305b9f393f7adb",
+      "bytes": 7395,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000116_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000117_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000117_input.txt",
+      "sha256": "501a6308ac7215585397632f42a3d4c17d43ee9e0a50ca1df0b69214787990a9",
+      "bytes": 7282,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000117_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000118_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000118_input.txt",
+      "sha256": "d108333a8b437ef03891dc5534b60aad988cfaa1d58dc7c094c87173e9f52c1c",
+      "bytes": 7266,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000118_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000119_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000119_input.txt",
+      "sha256": "aa7dfd3861b78a08439113cf5e7428d38d6a153800335b0f39599b8513818ed3",
+      "bytes": 7318,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000119_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000120_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000120_input.txt",
+      "sha256": "a6a12cc33b81f75cf7f2ffff94d3aefdaecedd0837217bc22a5d848c6cd15ea7",
+      "bytes": 7306,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000120_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000121_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000121_input.txt",
+      "sha256": "250e06e3ea125e97d2b548093154566fa414cebca035bd1e62566c60d5043bf5",
+      "bytes": 7337,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000121_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000122_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000122_input.txt",
+      "sha256": "ae38ad41bf5f1e54f5c71d32aff89946bdff24997387b1ac4df6108238cf396f",
+      "bytes": 7299,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000122_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000123_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000123_input.txt",
+      "sha256": "fb2c7f018a8024abc99760afddf2450108aec82a406aaf8805560e5b26d2565f",
+      "bytes": 7261,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000123_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000124_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000124_input.txt",
+      "sha256": "34ed9fc9b388f5a41a63b2ba47766269d48d497239fa718ea860940ca8ec2962",
+      "bytes": 7322,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000124_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000125_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000125_input.txt",
+      "sha256": "7eb4fc1ca40fc7aae359186d9e2c85423ba2d345e9efe42c67160362d7219aca",
+      "bytes": 7408,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000125_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000126_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000126_input.txt",
+      "sha256": "7d834833d359bc81391124c03dad86d9005306a793283e3ed8b73ff223edce3f",
+      "bytes": 7347,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000126_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000127_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000127_input.txt",
+      "sha256": "03b71bacf7226dc72ad461e9b8b4f9e3b03d0cae1e7bc631947ec8061437647c",
+      "bytes": 7335,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000127_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000128_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000128_input.txt",
+      "sha256": "25bdcd335cc9098f1d45a9bbb5b4df9c9a0490382a24f8055720983a5cecdfd3",
+      "bytes": 7320,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000128_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000129_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000129_input.txt",
+      "sha256": "adeee7841f1d8e83cbcc1fba7a28ba6ffcfa9deda9a71a2018da30339afe1ad1",
+      "bytes": 7239,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000129_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000130_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000130_input.txt",
+      "sha256": "739fd42bf99cd48d06c5a156841d0eb5560bcd0041ef11492b600def3c5398f1",
+      "bytes": 7310,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000130_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000131_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000131_input.txt",
+      "sha256": "473ee73e90505526e06e2a327c0f514d043e275b4c3131dd6d343e0cb65292a6",
+      "bytes": 7364,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000131_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000132_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000132_input.txt",
+      "sha256": "88e85f2a96190f28ebaa96019c8d77d71c779aa9f455bc48e10b0d54da3a9477",
+      "bytes": 7289,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000132_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000133_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000133_input.txt",
+      "sha256": "09516f8d2747747074ea735cfcef8ceda9250440e8987da69bc7a5f015e28503",
+      "bytes": 7243,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000133_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000134_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000134_input.txt",
+      "sha256": "bf86d2128a27826f66728e2805f151f9d161a0afe67d18609e0480d714ddc361",
+      "bytes": 7325,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000134_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000135_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000135_input.txt",
+      "sha256": "56843f162ac565f038ee3c8870125d56c6a6f991dba614db9969555445b400b0",
+      "bytes": 7244,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000135_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000136_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000136_input.txt",
+      "sha256": "8e331e280e871fde2ef7026f9fdb8ba661329797b5c703cf3470e0c8fe772761",
+      "bytes": 7284,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000136_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000137_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000137_input.txt",
+      "sha256": "d69a25e12810f92d04a7aae76f5c22a931743b5fafaba5f1e8746adba0d35bda",
+      "bytes": 7314,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000137_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000138_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000138_input.txt",
+      "sha256": "80449882f57a21f53b985c3e803e58d0cc5a9f10a08af1c3e0f0f23a2f60a97f",
+      "bytes": 7337,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000138_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000139_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000139_input.txt",
+      "sha256": "e252ee40aab0f4c123428b2c2118981e47bc265b7f0715debe96fb7c55a4fadd",
+      "bytes": 7338,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000139_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000140_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000140_input.txt",
+      "sha256": "f27ed5958473626fc25eeb85b1c87e2f615be5787400eff978ec6a9c8d514cf4",
+      "bytes": 7310,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000140_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000141_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000141_input.txt",
+      "sha256": "afbe0c4955fdc974793a9d2e3b080f90965d788925bbd07a297a9ba97ba97ff2",
+      "bytes": 7246,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000141_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000142_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000142_input.txt",
+      "sha256": "ca6b9dbd7177fc312960a7e49518de745e4e912f8d11745e3074cfe84c08ae50",
+      "bytes": 7326,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000142_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000143_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000143_input.txt",
+      "sha256": "9ebd7b6daeb68c34aa27e5901d8e4dd5c3c42c6744bcc47e326cc21d15a8e58d",
+      "bytes": 7406,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000143_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000144_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000144_input.txt",
+      "sha256": "fe229ce1546695236cb193d48b5f3a8477f0d9b1bc3e826a6c9282693fe1d102",
+      "bytes": 7317,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000144_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000145_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000145_input.txt",
+      "sha256": "c63467397cd2119b527389e91c50ddce6e39797c075b28500c3bbb56baa7a337",
+      "bytes": 7307,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000145_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000146_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000146_input.txt",
+      "sha256": "473d8c25afbad3b6ee512ad2f0b8e6dd4aa92dab71a4c2e9525cb7c01d52f8a3",
+      "bytes": 7305,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000146_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000147_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000147_input.txt",
+      "sha256": "002d447f93210274309f83ae7b99f9db30ece81a1c219c0e2c071d67a578f276",
+      "bytes": 7379,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000147_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000148_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000148_input.txt",
+      "sha256": "46aa49a238f566e32b07b8aa298901d36ae22cabeb483b5e1418607f4a4c0dd8",
+      "bytes": 7171,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000148_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000149_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000149_input.txt",
+      "sha256": "9b2ca66c4dee61f1c6a6226e432ddc4647a8e1df516a023bdea82d6fc6709b4a",
+      "bytes": 7249,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc024_inputs/ahc024_000149_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/tester_binaries/ahc024_tester",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/tester_binaries/ahc024_tester",
+      "sha256": "043716512f14e688ca29fb2a540e57c8b5c0a55eda23fc511a8cef1a94d5f8cb",
+      "bytes": 122,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/tester_binaries/ahc024_tester"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/tasks/ahc058/solution.cpp",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/tasks/ahc058/solution.cpp",
+      "sha256": "599fc27b8c744ec7787eb536dfb8906a85ebe7e2b7c0357bbf0004d97d0590f6",
+      "bytes": 3084,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/tasks/ahc058/solution.cpp"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/tasks/ahc058/objective.md",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/tasks/ahc058/objective.md",
+      "sha256": "478ea0a0c731aaeff091f8bccb97406d4e844459570afc1e2198f4ac07f67feb",
+      "bytes": 1505,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/tasks/ahc058/objective.md"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/tasks/ahc058/evaluator.py",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/tasks/ahc058/evaluator.py",
+      "sha256": "89c30612b380a0721f516de0b3494c0cb47f3e015a002396e248a0d1103daf20",
+      "bytes": 10094,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/tasks/ahc058/evaluator.py"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/tasks/ahc058/docker_runner.py",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/tasks/ahc058/docker_runner.py",
+      "sha256": "182040ffe8c5950489ee57ba4a37d29b7fb935333f3b0cc817937c32bd0e8ca5",
+      "bytes": 11314,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/tasks/ahc058/docker_runner.py"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/tasks/ahc058/task.json",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/tasks/ahc058/task.json",
+      "sha256": "c782d21028eb680b7f4eb642c16c49611ce9cb1b3dd5536e3cadafc2e9de775f",
+      "bytes": 844,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/tasks/ahc058/task.json"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000000_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000000_input.txt",
+      "sha256": "35c1e1f53acfe03b37f09db566e6f43940c67aa12c36c8810d3dcff82271a63a",
+      "bytes": 330,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000000_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000001_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000001_input.txt",
+      "sha256": "9f1d6f51ad1fa62294c65f3e8436afba5dc75b58cb0651c7769dd95564161d22",
+      "bytes": 332,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000001_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000002_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000002_input.txt",
+      "sha256": "ee57f6f2d6389b501744a91186e77dd178dee86ba63d6b9698f7c3ab136af3a2",
+      "bytes": 324,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000002_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000003_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000003_input.txt",
+      "sha256": "29ccf97ea8aed9a8bd9f4733ccf6dc9ec2f653824246d5c128a30a68d24eb376",
+      "bytes": 340,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000003_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000004_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000004_input.txt",
+      "sha256": "11fff7fab3384ded440dfe152ae658e37e847eb7f5e78d1ae5cc8635fb9bad62",
+      "bytes": 337,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000004_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000005_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000005_input.txt",
+      "sha256": "b4cb30b5a1b681e9e9b6dfbc6b0c6e25401f6b758afa85fb0e9cb577935b2635",
+      "bytes": 353,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000005_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000006_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000006_input.txt",
+      "sha256": "31dfb2a97e6209a8575cdaf5e046c028d4b75b670ad0ff310782be4dcfc485b9",
+      "bytes": 342,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000006_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000007_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000007_input.txt",
+      "sha256": "23cd28d99c6246f0478ca901463d455ae4fab229951300014519624a18fd7f50",
+      "bytes": 337,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000007_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000008_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000008_input.txt",
+      "sha256": "52dd70e5d1271111ea1bb6d6cbdb58e4f7ddeedd8831425be1c69e6d41f79203",
+      "bytes": 331,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000008_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000009_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000009_input.txt",
+      "sha256": "edc4f29948ed4ece3377b84ee8fd6ad3c70904cef7c6bd4144810dc009924972",
+      "bytes": 323,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000009_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000010_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000010_input.txt",
+      "sha256": "3090033f13db886fab4da1a38a555eb32e43a5fd99800584c53183d46890eccd",
+      "bytes": 323,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000010_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000011_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000011_input.txt",
+      "sha256": "c045b0c818db036c4615d1cf88debdb4872478fa320cfcf45e26da34c2189e42",
+      "bytes": 329,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000011_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000012_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000012_input.txt",
+      "sha256": "520758e776119b4e4f208b8b4a7c018d1878dff4854faee4b99d2cbb50604a90",
+      "bytes": 327,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000012_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000013_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000013_input.txt",
+      "sha256": "b2eb765abaa7d14bf5ad03e4458ae4b4568b84b1bbe5e4a506801920bd000722",
+      "bytes": 328,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000013_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000014_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000014_input.txt",
+      "sha256": "b2656cf95b05da2902a7be9035f273fa62fcc3d1195ce2f7a9908fe70f40a750",
+      "bytes": 325,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000014_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000015_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000015_input.txt",
+      "sha256": "25c2d2e727252b809438c938b37f5a5e2f8db4767896b938e913017eaca582c6",
+      "bytes": 364,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000015_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000016_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000016_input.txt",
+      "sha256": "3badd554b9e8a9b65ce33f0be2779eeddbe347a664a9242a09fd84733549eda4",
+      "bytes": 336,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000016_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000017_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000017_input.txt",
+      "sha256": "be98f52e153464a6b4404397675a17bc1ec7d885a508f3138d2c9f68ddca3571",
+      "bytes": 337,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000017_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000018_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000018_input.txt",
+      "sha256": "0d43dae75af43acf8a876db73efc198318b53f02c766f3e2ab6a2237753cd345",
+      "bytes": 343,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000018_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000019_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000019_input.txt",
+      "sha256": "da7757ccc3c8b8dd11b731d870ef87eade0183e74fd78ce9acc288516ee3e3fe",
+      "bytes": 348,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000019_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000020_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000020_input.txt",
+      "sha256": "9bebca0df0b6787cd957c35430c4fe074f89e8c46ecefaafa36592092e89ca62",
+      "bytes": 334,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000020_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000021_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000021_input.txt",
+      "sha256": "34fd1e9a37c7358a5d31de50cd7c5962b482f4b7f38f67e016946ef07098d663",
+      "bytes": 322,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000021_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000022_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000022_input.txt",
+      "sha256": "fd17a9e8922972b1abc9e4e417cbd6710bd518c898f3952b93d34c1da5187c08",
+      "bytes": 327,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000022_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000023_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000023_input.txt",
+      "sha256": "581e221f8d951eca51a6cc421e4f32fe50f2959bd856d425aa3f2ab34ac4d134",
+      "bytes": 335,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000023_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000024_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000024_input.txt",
+      "sha256": "51348dc67532fbe860c857e91abda2798ec8cc61414ecb57eddb2ee7d8886c20",
+      "bytes": 332,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000024_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000025_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000025_input.txt",
+      "sha256": "f46b6621766e4c6b6393f0e6c5cde5e7a9911d2241c7adf83d0d3afb27f18724",
+      "bytes": 335,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000025_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000026_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000026_input.txt",
+      "sha256": "dc784cada9ad3a3578d840b47016fc6b99ecad45ba6035519ccc84cf5d27274a",
+      "bytes": 330,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000026_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000027_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000027_input.txt",
+      "sha256": "469c5e200555f53d9e294633633f0b8dba00cbe6092ca10b4c648a7ba7a61294",
+      "bytes": 332,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000027_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000028_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000028_input.txt",
+      "sha256": "c3cfaa64a88066f83582f66e912a63debc39843edfd7d65656c6e78502ff1ebb",
+      "bytes": 333,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000028_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000029_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000029_input.txt",
+      "sha256": "68703c02531d3d05db90ccbc0632288c289a47ae7a6ad72a199ef78798e1f4b8",
+      "bytes": 336,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000029_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000030_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000030_input.txt",
+      "sha256": "49c7d1f73d00183a86905a52bb51a5a786ec8179a647d4f19e60879add283936",
+      "bytes": 333,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000030_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000031_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000031_input.txt",
+      "sha256": "5943b853e4e676f3a50a8df11ea1b0804c913eca06e7b2f4772496432665800c",
+      "bytes": 331,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000031_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000032_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000032_input.txt",
+      "sha256": "1c3dd2160f79b44c87abfa861a92778c1c387eca9d5603a054ccac9a83d04f6f",
+      "bytes": 332,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000032_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000033_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000033_input.txt",
+      "sha256": "6169973e25c51303bf50ae85a85bfc55f2f119577816f3aeb2530495251c5f70",
+      "bytes": 323,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000033_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000034_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000034_input.txt",
+      "sha256": "d7058594ddb732d987a14cb58d281c10fe2d9e8a8600ca12f322771cfa3d6ccc",
+      "bytes": 331,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000034_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000035_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000035_input.txt",
+      "sha256": "3b1556c4040b73790b0eb4fe2bee961921a65c9e46e4d1eea055aad312842120",
+      "bytes": 338,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000035_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000036_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000036_input.txt",
+      "sha256": "bd81854e00c4d2f68c6394a86ee9fc31c6fa2ce34047dadde363e309c7a87dd2",
+      "bytes": 336,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000036_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000037_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000037_input.txt",
+      "sha256": "117acde5cfd9b92fbee1da47bcecfe2cf65abb426f43dc6ef2f5f45bb75201a5",
+      "bytes": 321,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000037_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000038_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000038_input.txt",
+      "sha256": "3c344c62a88fe961f7ab119285a14096be6b4389f1173af7067ce717319951cd",
+      "bytes": 332,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000038_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000039_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000039_input.txt",
+      "sha256": "d75ec74715f9d4072e133b4f385a224ad327baea2b907bc26202217d3484021d",
+      "bytes": 339,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000039_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000040_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000040_input.txt",
+      "sha256": "c4b6f4f4679b1600eb036abbbf4b57fb7297690455f659718de4e8d434551203",
+      "bytes": 342,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000040_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000041_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000041_input.txt",
+      "sha256": "695abc1985ad0c29e0272124e1a3194224d1ffff42c2c30714452ef068694132",
+      "bytes": 323,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000041_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000042_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000042_input.txt",
+      "sha256": "bce9179b4a721eab50bf7d38bee562eda5cbbde9ab980853a453987ca6f5326a",
+      "bytes": 317,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000042_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000043_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000043_input.txt",
+      "sha256": "5251375068f7927ca75967d05fa38351ec404e9ffe1d418504a1e4c758cd17e0",
+      "bytes": 314,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000043_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000044_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000044_input.txt",
+      "sha256": "557402dd3f52f8066d3249eb3ad470b472d85aa116efafd73ca8b0ca077e29db",
+      "bytes": 344,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000044_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000045_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000045_input.txt",
+      "sha256": "3d8c7ee2c0b0b16ccbbffa1c9b0d3e8a920b4caa569a947f3a8a17a51e2bb27b",
+      "bytes": 332,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000045_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000046_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000046_input.txt",
+      "sha256": "df0447d25c2e88bbb70b9309b2bfc0da7b8a03790a6c64b80a750f9c0c77d69e",
+      "bytes": 336,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000046_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000047_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000047_input.txt",
+      "sha256": "9fbb1f30a803ddd396833299d0e73ad2399a7a7784078b692f0addb02e1e5280",
+      "bytes": 314,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000047_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000048_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000048_input.txt",
+      "sha256": "8d17a9367a30400fd0ace6bc01598179cbbed43e19b13f5a6df2e32e85cdc9fc",
+      "bytes": 336,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000048_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000049_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000049_input.txt",
+      "sha256": "ff32a3e7ad2756460e918cf3729a0c94cf6ce73d9b29a07da39eff3c2d118885",
+      "bytes": 322,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000049_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000050_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000050_input.txt",
+      "sha256": "f686da67e9d4cb4fc2b462ba24b3de8b2522cd947dc8a667379d379e18a8ed00",
+      "bytes": 331,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000050_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000051_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000051_input.txt",
+      "sha256": "c05cf8017ca9fb0feb8b320bdc4e2afc65ae99f33acfdea86b107bcbb7d1d272",
+      "bytes": 336,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000051_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000052_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000052_input.txt",
+      "sha256": "5fcb07d6e4f7f66e59c042716e185c175bd1f82aa0a729601ad6818c7dbb31c3",
+      "bytes": 334,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000052_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000053_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000053_input.txt",
+      "sha256": "d34af10fe03b02b633499448b367e7a27aa040d41f4a738774cb75433c3e19c0",
+      "bytes": 343,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000053_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000054_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000054_input.txt",
+      "sha256": "ec3a5d6b5fe89847569d92e705ea3b48223a3205b9f675b333224611c25bd00e",
+      "bytes": 336,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000054_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000055_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000055_input.txt",
+      "sha256": "5976ad1c10d72d6e52a9c4c720f02b13d90fea90e1f900d2e7f49e81a8221663",
+      "bytes": 332,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000055_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000056_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000056_input.txt",
+      "sha256": "b018417054b2ea1b351faf9c46de86902821babde3221b23e8453211894c51d9",
+      "bytes": 337,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000056_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000057_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000057_input.txt",
+      "sha256": "246e802a3b6936a78a2f3a146a3afcf051d817761c9f5eebbe1bb5cbc9eb8fb8",
+      "bytes": 331,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000057_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000058_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000058_input.txt",
+      "sha256": "b9b78d6aba7b4c073fce15b84e8cab84f8696dbd0d238c666d53d920224c2435",
+      "bytes": 336,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000058_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000059_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000059_input.txt",
+      "sha256": "b5970b7c6fd9bbaeda2f6ea6a77d2b55861eb4a48cc83120f37cba0fbbe0df47",
+      "bytes": 330,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000059_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000060_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000060_input.txt",
+      "sha256": "b61d8331275eb1e5f5eed26eee7414f9c00e830e1c2432ec870f4ecc9a8acb41",
+      "bytes": 343,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000060_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000061_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000061_input.txt",
+      "sha256": "a08c1a388dca9a988fd2a42e770401a1a03528367f14a4d12da04b6399e6b046",
+      "bytes": 325,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000061_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000062_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000062_input.txt",
+      "sha256": "ba26c034bff0053ffb49c027ab26552360c26f4971ba6617b1bc415a760488cb",
+      "bytes": 342,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000062_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000063_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000063_input.txt",
+      "sha256": "2b2a53b41fbead835faa579f77ee42656e0f188538e02d0d7d26ce3d9ad184fa",
+      "bytes": 337,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000063_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000064_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000064_input.txt",
+      "sha256": "940cc935f42e4e1c8f53be8cc9f4a329643b20d0ba9db5800bed0551e38dacaa",
+      "bytes": 337,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000064_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000065_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000065_input.txt",
+      "sha256": "cd126e60d9b248cd3c865738799bcff3ec05e0d97f1749a94755cbc61ff92260",
+      "bytes": 327,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000065_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000066_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000066_input.txt",
+      "sha256": "e5cd8c6eb97051bb4ac5120f5086cb19c2145665f29aa0edef876b9b9186c243",
+      "bytes": 344,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000066_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000067_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000067_input.txt",
+      "sha256": "f48565d5c9e524c69050947d4a590c82692c2ab1aa9817dd12652ae6c681a5ba",
+      "bytes": 334,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000067_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000068_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000068_input.txt",
+      "sha256": "1862121c58481536922a1e16c87bd2099cacc1637c1b120471c1a0e913b31e27",
+      "bytes": 340,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000068_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000069_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000069_input.txt",
+      "sha256": "71289da9cc7c64898f9dc520c9d1cd7fc60444fa0cf8e86b60603a90782b9be5",
+      "bytes": 351,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000069_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000070_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000070_input.txt",
+      "sha256": "b77ccca14dbc0d26dd90014aaa1c3d63aa7bd38db48588d3da9e78a4ba683003",
+      "bytes": 332,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000070_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000071_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000071_input.txt",
+      "sha256": "1a1d50d5333388364949bf8bb5b60fca040eb5d52eafbf931b1580698ffb839d",
+      "bytes": 326,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000071_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000072_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000072_input.txt",
+      "sha256": "54b7f16c6e410faa4315d9dc8c5f5b844fa1cf3b12ca1a01fb63d1d395463352",
+      "bytes": 332,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000072_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000073_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000073_input.txt",
+      "sha256": "635b063d8154446a9e34d64d20970a1a18f2cdfe334ff91be1dce6c0c4d3323c",
+      "bytes": 339,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000073_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000074_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000074_input.txt",
+      "sha256": "ee0ae1cd691f485badb0d1e90824ac6e8ac8fe90ce5f7fa2af929d427c8151f6",
+      "bytes": 316,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000074_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000075_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000075_input.txt",
+      "sha256": "967b8bbb9bf70b43366356c00d7ad6fdf1ad09b7b2ec51821b7fcea9cbb8c086",
+      "bytes": 334,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000075_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000076_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000076_input.txt",
+      "sha256": "622c36076038193fa8925e7d57c82424bd4c7f3785c00f05fbd33596e774719e",
+      "bytes": 335,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000076_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000077_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000077_input.txt",
+      "sha256": "f9d49fb068407b75a6b989bcd97579890e904cf0acb292909612e10eeb7c78b9",
+      "bytes": 345,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000077_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000078_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000078_input.txt",
+      "sha256": "2e7ef60ead799f53abc7a6a1c50b743993d9a745957f0a9b21365921c02aeb7c",
+      "bytes": 341,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000078_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000079_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000079_input.txt",
+      "sha256": "fa9ef0f9c606d7da10b07db128682c99f17757f81ca24c802ce8ac3b71d882c2",
+      "bytes": 313,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000079_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000080_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000080_input.txt",
+      "sha256": "12a14d3c9e490fe3effe652e9e25d25e8a54d6d332a66091b7e992ede60ac155",
+      "bytes": 339,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000080_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000081_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000081_input.txt",
+      "sha256": "35b796846a70dc0140b83b7810214035630b811f6b74912b89594678bdb7a6e0",
+      "bytes": 319,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000081_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000082_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000082_input.txt",
+      "sha256": "4fa0c333f0ad62fa042d525b01a6cb5afd44c1f742905b0cf4df6d94920aa7a8",
+      "bytes": 331,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000082_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000083_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000083_input.txt",
+      "sha256": "49aba88ce4b8c41004b2a3d1ca2b1b6651e838ebd7c4fa0401c67b2fbb6a8cab",
+      "bytes": 336,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000083_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000084_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000084_input.txt",
+      "sha256": "0ae44d370e5279b8edf5a52cc57e7e068187cfdfb08d56bb656809b9919e7c26",
+      "bytes": 333,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000084_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000085_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000085_input.txt",
+      "sha256": "a7d7662353022318552e40822de08f213655d984781b48a64fbed9d7fe6a5d70",
+      "bytes": 333,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000085_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000086_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000086_input.txt",
+      "sha256": "265658c07fbb701781ae6ca3fb1853dfedb1a2879a55965ce3aacaca89e9ac96",
+      "bytes": 340,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000086_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000087_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000087_input.txt",
+      "sha256": "03370326c180011e914554bcf3c2864c138c97abdfdf045981f241d14dbca41a",
+      "bytes": 322,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000087_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000088_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000088_input.txt",
+      "sha256": "562426c7dce50fde6e589886ce6aae4784a924b3676e323709ff4e3bdbed6f0f",
+      "bytes": 322,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000088_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000089_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000089_input.txt",
+      "sha256": "9bfba3c12485aed02336ed8a72346dafa8fbc62430e4d16a492c3e89d2056a55",
+      "bytes": 324,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000089_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000090_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000090_input.txt",
+      "sha256": "737a8b1f2d7ecf13fdc21badf21e98ae7868cff0b2584864876d397dc4dbcf43",
+      "bytes": 329,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000090_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000091_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000091_input.txt",
+      "sha256": "68724a9b2ddf555d9397e0eae479d793a6edf8c5dca5d507f9d8b8b088282339",
+      "bytes": 335,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000091_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000092_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000092_input.txt",
+      "sha256": "6822a62c684d0161b57daa7fdb83a3f46d832ecf89d7737dbb9c98fd3be2f5b3",
+      "bytes": 335,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000092_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000093_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000093_input.txt",
+      "sha256": "45b5d88f790ce16170fde9feb96de58e169da782cb7b542a22a1a027f5b43793",
+      "bytes": 343,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000093_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000094_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000094_input.txt",
+      "sha256": "c4ab6866d37936c11d912b96d5f9da7495b3b999a8339f9cc6faa4b6b1b5d1db",
+      "bytes": 312,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000094_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000095_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000095_input.txt",
+      "sha256": "17f2ac3ae2d975f962f98fbd76f6dc820df328b85b61de9fed83a39800fca82f",
+      "bytes": 348,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000095_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000096_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000096_input.txt",
+      "sha256": "d44447d2cc2919d0cec045a6184242217ba21a2bb28c6ca8e4a7728895dd3b86",
+      "bytes": 332,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000096_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000097_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000097_input.txt",
+      "sha256": "0adb47fd6085b7abb5d0a47af27ede02382597777f6fe2cd6f17b18abf6de93e",
+      "bytes": 339,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000097_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000098_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000098_input.txt",
+      "sha256": "34dd1798ddc8e42314adea7b57c588d1b85d4dc3700da303eb0d5b311524c3c7",
+      "bytes": 344,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000098_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000099_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000099_input.txt",
+      "sha256": "45bb9964303689087efc16ceacf1b3c2d27a203440fef948d55a6fbbba12d4bb",
+      "bytes": 320,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000099_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000100_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000100_input.txt",
+      "sha256": "c063d787dd67450d08fc5fe5525e4b9aed3648fadd76c9d7793c960ce1989406",
+      "bytes": 346,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000100_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000101_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000101_input.txt",
+      "sha256": "06e3df2fac1ce315880d91dff5974c4b9c14734a282dd54fb304fd23ec5db383",
+      "bytes": 338,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000101_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000102_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000102_input.txt",
+      "sha256": "0b6d464c120045a3d0b3d50528334bd26368e368218f165e86ae860491fe8a63",
+      "bytes": 340,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000102_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000103_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000103_input.txt",
+      "sha256": "af98f76083be15405bd669ceb5374ad0c441860dcdeb81950f03b4450181640f",
+      "bytes": 325,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000103_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000104_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000104_input.txt",
+      "sha256": "76d273db7fbe5bc82df763e6c870849606e110df14e690cee2227eebdd9ae328",
+      "bytes": 337,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000104_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000105_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000105_input.txt",
+      "sha256": "48cbf53d86360ef0996af589e812540e148c9aee6a97954400fb4561d3c72882",
+      "bytes": 340,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000105_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000106_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000106_input.txt",
+      "sha256": "6a428f2cfbef7517fb5eaa20ebb644c87d0a8a25bc59654760aaf0e3be42f564",
+      "bytes": 319,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000106_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000107_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000107_input.txt",
+      "sha256": "5c830145bb77197f538890fdc132f0443f101a62b6a35b94e0ad0ee5da38e358",
+      "bytes": 350,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000107_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000108_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000108_input.txt",
+      "sha256": "65080d4cf984302e1a7921cfbeb30d06851c87609984b4afb446ad4ccdbeb9fb",
+      "bytes": 325,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000108_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000109_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000109_input.txt",
+      "sha256": "df243b46dba30863caefac2c2dae0503c6a9f1b0d0012086d7e34efbb2c3a377",
+      "bytes": 319,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000109_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000110_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000110_input.txt",
+      "sha256": "5724ddfdd16801f7f9e92b4f72ddb169855b9927bb258c10e83c2205feaf113c",
+      "bytes": 333,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000110_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000111_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000111_input.txt",
+      "sha256": "515b32c93ee7dfb81c15a75cf7bdc824593862003c2977f112a2317a760f6a1c",
+      "bytes": 325,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000111_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000112_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000112_input.txt",
+      "sha256": "37d81a1fe00b59a02719e03736ba379058ea2e89b50123add5522e5408b78944",
+      "bytes": 322,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000112_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000113_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000113_input.txt",
+      "sha256": "264ced5e3efb62e079764abbfdea0e0a2d59c2320fe4a292b9168f3f4cf7a478",
+      "bytes": 354,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000113_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000114_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000114_input.txt",
+      "sha256": "cdcc099829fc68ac2914950fc6160fc42bc4a8b5061e2056aed0d8eb28605307",
+      "bytes": 341,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000114_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000115_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000115_input.txt",
+      "sha256": "d780a63735c5971dae9dfd0d552883e34568b4715bb5f06dd5f620470246aaf1",
+      "bytes": 346,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000115_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000116_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000116_input.txt",
+      "sha256": "d774dd6d6aae8704eb1ab5b84cf9956c57e3cc5e7c1e60af6a85fa027f29d403",
+      "bytes": 332,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000116_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000117_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000117_input.txt",
+      "sha256": "b1114a9ab510e45e16952b47a3f284732b7f59105b46714bc51b38adae90a990",
+      "bytes": 328,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000117_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000118_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000118_input.txt",
+      "sha256": "30a68f0e3ddf003b9e6ddccda2c5aa225692283f1579bcea8c90605ae91b3e93",
+      "bytes": 345,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000118_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000119_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000119_input.txt",
+      "sha256": "0522c35fa70610d00c9d4f3a66dc0827d2fab23cc9cfa34d882eee36109211e7",
+      "bytes": 315,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000119_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000120_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000120_input.txt",
+      "sha256": "19d8652ffcb663be9fc68c8ef33ad4c54fa6936d5ff76abe6a7ee9969e24b1f0",
+      "bytes": 321,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000120_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000121_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000121_input.txt",
+      "sha256": "009a7fd2038e9684958744b561646cbb6647ef6d0a00974f7bc9f0b20009ca4a",
+      "bytes": 332,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000121_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000122_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000122_input.txt",
+      "sha256": "793113f933fa65bfa0fc9c22f3bd0353bd5bb161e88b3819870aeae9c2160cba",
+      "bytes": 342,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000122_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000123_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000123_input.txt",
+      "sha256": "e54df9abdfe2972da14c264db0add8421a469ddd5404afac7e65c91613afbfc2",
+      "bytes": 326,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000123_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000124_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000124_input.txt",
+      "sha256": "e96a0b7084451613e27101950b3d0cf85d7a9ec8484541e21b283618e5ea4814",
+      "bytes": 339,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000124_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000125_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000125_input.txt",
+      "sha256": "2a3a2b1a7acb1c4771ae031480fa19455d8b77647ecf7d42a7c783a41b3ae159",
+      "bytes": 328,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000125_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000126_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000126_input.txt",
+      "sha256": "7511557b3626207e33c26d9261a557a860b120771209ba51afda72004425cc13",
+      "bytes": 338,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000126_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000127_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000127_input.txt",
+      "sha256": "51ca5c18fafc3978d843c2e9db314a90c45c9defc856952452f2cd7a5e5add4e",
+      "bytes": 330,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000127_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000128_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000128_input.txt",
+      "sha256": "1e4abffb52b04b4853fefc2c9d8c086ae7197dd9eca7906e6b65fffff1e8a53f",
+      "bytes": 322,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000128_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000129_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000129_input.txt",
+      "sha256": "9663a05c75bca89e4ecde01d565bde147f0a428c693b6edc6039e92de74970b5",
+      "bytes": 332,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000129_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000130_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000130_input.txt",
+      "sha256": "aa049a97ac4b9b73ea8611347348d8b55313b21c6ba480b7a5f8e0dc464ec5c2",
+      "bytes": 337,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000130_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000131_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000131_input.txt",
+      "sha256": "67f19019ae81b9b6d07fafa829b7637c9051811be60ed1e445a8906fd6500102",
+      "bytes": 334,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000131_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000132_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000132_input.txt",
+      "sha256": "42b4cba8bc9b8d1bc1bc94a0be0c00254a88f563ea0d82a6604eacb238367f9e",
+      "bytes": 325,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000132_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000133_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000133_input.txt",
+      "sha256": "6140f7545d8b73a4aab0e1517ba6da1df673ede88afdb19950f5902484b3120b",
+      "bytes": 314,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000133_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000134_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000134_input.txt",
+      "sha256": "5d2a8d8eece686a03be813400b4457f24284f084bd9bb4956db2e4788254a916",
+      "bytes": 350,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000134_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000135_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000135_input.txt",
+      "sha256": "57063bf3c135dbed5313478ee41bda4d3eae8223695869832adbd1733731d723",
+      "bytes": 333,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000135_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000136_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000136_input.txt",
+      "sha256": "d60dbcd411445f1d49d67217f1bcfcfaa36dd8d03d29cf924edf49567dda2b80",
+      "bytes": 332,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000136_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000137_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000137_input.txt",
+      "sha256": "c4c7d1d3c57b9f52269173a5aefdc7dc9faf3f3088ea8d16828b52243a253b61",
+      "bytes": 334,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000137_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000138_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000138_input.txt",
+      "sha256": "5ddd0e8a95f66394b6f45c123deaf6eb73e6112a90bbb1f21bf47ca8490ca5e9",
+      "bytes": 345,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000138_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000139_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000139_input.txt",
+      "sha256": "c0325b3d5823a52bd502c348bd343ac2294c663e387dae0cc52fbec53c2c9424",
+      "bytes": 345,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000139_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000140_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000140_input.txt",
+      "sha256": "6012787ddb218955e7a2501471f3d264524d022bcab66dbca1b416a533aa6ba1",
+      "bytes": 350,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000140_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000141_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000141_input.txt",
+      "sha256": "3f56ecd8ae952e66642dbeabcc1a111860c547a5f6e82b666e486290bca484d7",
+      "bytes": 334,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000141_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000142_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000142_input.txt",
+      "sha256": "9e4accd804072b9e946e12eac2eb855d1f8ff1e8d726f2629839ac1b5cfd45c1",
+      "bytes": 344,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000142_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000143_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000143_input.txt",
+      "sha256": "7c6564d08b33e8ee881fd1d23a5a8720cd2361ed4300157b02dd002d0554e878",
+      "bytes": 334,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000143_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000144_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000144_input.txt",
+      "sha256": "5de762f2a82f006d45c897bc1e38d54caa8ddbb7ac5d0c63e7b37d90eae69d28",
+      "bytes": 338,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000144_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000145_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000145_input.txt",
+      "sha256": "d615a24f0c85561748268171f7c4b69fcf8441ae67db58e1da9a29d01d0d1cd1",
+      "bytes": 339,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000145_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000146_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000146_input.txt",
+      "sha256": "d8e1138c2d5203c59e4fdc1157ce6051dacef840395c1736aa509e9d86176234",
+      "bytes": 344,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000146_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000147_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000147_input.txt",
+      "sha256": "8e5cdb20548ac5209aa5f8980e732cac434e50f4ac4c842eae068e43146fd32b",
+      "bytes": 327,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000147_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000148_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000148_input.txt",
+      "sha256": "53825d2a8b2ccbf09cfab0de2bf83d639d7652e60c0d93fad45bffe58297ddb8",
+      "bytes": 338,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000148_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000149_input.txt",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000149_input.txt",
+      "sha256": "acabcb056a63ad605d101f0cfdb78215a720194c363feae59983de5c8c924c0a",
+      "bytes": 331,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/public_inputs_150/ahc058_inputs/ahc058_000149_input.txt"
+    },
+    {
+      "original_path": "/home/erwinpi/molt2-lab/assets/cache/tester_binaries/ahc058_tester",
+      "archive_relative": "research/runtime-assets/files/home/erwinpi/molt2-lab/assets/cache/tester_binaries/ahc058_tester",
+      "sha256": "70cc44d6a064fc7bd479bdea17fca527d292afc22743b42626cbe271e271c60b",
+      "bytes": 457840,
+      "resolved_original_path": "/home/erwinpi/molt2-lab/assets/cache/tester_binaries/ahc058_tester"
+    },
+    {
+      "original_path": "/usr/bin/g++-11",
+      "archive_relative": "research/runtime-assets/files/usr/bin/g++-11",
+      "sha256": "2360901d864cf10bfd6296e261cb2c14053552a80377761ab07146ec9ec9a2c0",
+      "bytes": 932680,
+      "resolved_original_path": "/usr/bin/x86_64-linux-gnu-g++-11"
+    }
+  ],
+  "compiler_version": "g++-11 (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0",
+  "scope": "Exact313 prequalified runtime files including all150 public training cases per task, grader wrappers/testers and compiler binary. No held-out files accessed.",
+  "environment_limit": "Saved GCC executable alone is not a portable toolchain. Install matching GCC11 and system libraries; compiler/OS/runtime and CPU timing details affect score reproducibility."
+}

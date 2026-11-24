@@ -1,0 +1,18 @@
+{
+  "evolve": "solution.cpp",
+  "inner_fidelity": "full",
+  "env": {
+    "AHC_CASE_WORKERS": "8",
+    "AHC_EVAL_RUNS": "1",
+    "AHC_DOCKER_TIMEOUT": "900",
+    "AHC_EXEC": "direct",
+    "AHC_CXX": "/usr/bin/g++-11",
+    "AHC_CACHE_DIR": "/home/erwinpi/molt2-lab/assets/cache",
+    "AHC_RUNNER_SCRIPT": "/home/erwinpi/molt2-lab/tasks/ahc024/docker_runner.py"
+  },
+  "eval_timeout": 600,
+  "note": "AHC024 Topological Map: 150 cases, 2 s; score = E+1 (zero cells), combined = raw/1000. Assets under tasks/ahc024/cache (built from the ALE-Bench package: gen -> 150 inputs, vis = scorer). Local matched arms:GCC11,officialAtcoderWASMgen/scorewrapper,notrewrittenmetric.150publicseeds0-149;wholefilemarkers.",
+  "serialize_evals": true,
+  "warmup_eval": false,
+  "drift_probe": false
+}

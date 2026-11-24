@@ -1,0 +1,18 @@
+{
+  "evolve": "solution.cpp",
+  "inner_fidelity": "full",
+  "env": {
+    "AHC_CASE_WORKERS": "8",
+    "AHC_EVAL_RUNS": "1",
+    "AHC_DOCKER_TIMEOUT": "900",
+    "AHC_EXEC": "direct",
+    "AHC_CXX": "/usr/bin/g++-11",
+    "AHC_CACHE_DIR": "/home/erwinpi/molt2-lab/assets/cache",
+    "AHC_RUNNER_SCRIPT": "/home/erwinpi/molt2-lab/tasks/ahc058/docker_runner.py"
+  },
+  "eval_timeout": 600,
+  "note": "AHC058 (Apple Incremental Game): 150 public cases, 2 s each; score = round(1e5*log2(apples)), combined = raw/1e6. Assets (inputs + tester) come from the same SimpleTES cache zip as AHC039 and live under tasks/ahc039/cache. New local matched arms use GCC11 rather than historicalGCC12; no absolute historicalparity claim. Markers wrapwholefile; seedalgorithmunchanged.",
+  "serialize_evals": true,
+  "warmup_eval": false,
+  "drift_probe": false
+}

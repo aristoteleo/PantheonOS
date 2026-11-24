@@ -1,0 +1,46 @@
+{
+  "id": "20261124-receipt-drain-v1",
+  "at_unix": 1795479771.8035285,
+  "changes": [
+    {
+      "path": "runner/priced_math_guard.py",
+      "old": "7b263d392ee8d8539f4780d8159188aab37735532073357f50b4e356ef279681",
+      "new": "fab36267c882984c042e8fb54e46db2ad0f196b59081e14a081b46c8a0fc0447"
+    },
+    {
+      "path": "runner/entry_worker.py",
+      "old": "6f9ccf1a472b4f761bc34b7bfccf821f883d288996a5cf223b299265f7c2a381",
+      "new": "d239ed819b36d9596893a54ad830a06d853088b2846ba0c4ce157ca291c05e1a"
+    },
+    {
+      "path": "runner/receipt_guard.py",
+      "old": null,
+      "new": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7"
+    }
+  ],
+  "existing_unmodified_trials": [
+    {
+      "id": "matched-ahc024-molt-s400",
+      "status": "complete"
+    },
+    {
+      "id": "matched-ahc024-molt2_adaptive_branches-s400",
+      "status": "complete"
+    },
+    {
+      "id": "matched-ahc024-molt_modified-s400",
+      "status": "running"
+    },
+    {
+      "id": "matched-ahc024-simpletes-s400",
+      "status": "running"
+    }
+  ],
+  "scope": "Financial-only transaction completion at cancellation/shutdown. Native algorithms, parents, prompts, model/provider/price caps, evaluation cases and80-call selection unchanged. No additional model requests admitted after search main returns; late responses are archived and cancelled before reaching caller.",
+  "receipt_drain_seconds": 300,
+  "old_unknown_charges_retained": true,
+  "authorized_cumulative_math_cap_usd": 74,
+  "timing_caveat": "Receipt waits can occur during engine worker cleanup or after main returns, so both native and process wall times may include them. Use separately recorded time to80th evaluator event for fixed-budget latency, and withhold this metric for early-stopped runs.",
+  "validation_accessed": false,
+  "tests": "28 passed:8 receipt tests plus20 existing queue/priced-guard tests. Originals and pre-amendment SOURCE_FREEZE preserved under research/receipt-fix/original."
+}

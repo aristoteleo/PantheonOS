@@ -1,0 +1,67 @@
+{
+  "run": "matched-ahc024-molt2_adaptive_branches-s400",
+  "selected_id": "c19421bb",
+  "score": 0.6392266666666667,
+  "starting_score": 0.6378533333333334,
+  "relative_gain_percent": 0.21530550387758307,
+  "planner_implementations": [
+    {
+      "direction": "i0/planner_0/direction_00",
+      "type": "exploration",
+      "child": "34c438f2",
+      "score": 0.6382733333333334,
+      "in_winner_ancestry": false
+    },
+    {
+      "direction": "i0/planner_0/direction_01",
+      "type": "redesign",
+      "child": "e7595fe3",
+      "score": 0.52424,
+      "chain": 2,
+      "in_winner_ancestry": false
+    },
+    {
+      "direction": "i0/planner_1/direction_00",
+      "type": "redesign",
+      "child": "14787634",
+      "score": 0.001,
+      "chain": 3,
+      "in_winner_ancestry": false
+    },
+    {
+      "direction": "i0/planner_2/direction_01",
+      "type": "redesign",
+      "child": "99ef4655",
+      "score": 0.0,
+      "chain": 4,
+      "in_winner_ancestry": false
+    },
+    {
+      "direction": "i0/planner_3/direction_00",
+      "type": "exploration",
+      "child": "84361a5c",
+      "score": 0.6391,
+      "in_winner_ancestry": true
+    },
+    {
+      "direction": "i0/planner_3/direction_01",
+      "type": "redesign",
+      "child": "0b2484d9",
+      "score": 0.0,
+      "chain": 5,
+      "in_winner_ancestry": false
+    },
+    {
+      "direction": "i1/planner_0/direction_00",
+      "type": "redesign",
+      "child": "b1f910a4",
+      "score": 0.12476000000000001,
+      "chain": 6,
+      "in_winner_ancestry": false
+    }
+  ],
+  "resolved_window_successes": 0,
+  "resolved_window_evaluations": 64,
+  "inference_limit": "One completed development run. Planner edit ancestry is recorded parentage, not an isolated causal ablation. Window covers only the retained recent observations, not necessarily every evaluation.",
+  "at_unix": 1795479223.2491798
+}

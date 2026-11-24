@@ -1,0 +1,7 @@
+{
+  "native_and_adaptive_method_regressions_passed": 100,
+  "budget_selection_and_priced_guard_tests_passed": 26,
+  "warning": "Two pytest configuration warnings for absent optional asyncio plugin; all collected tests are synchronous wrappers and passed.",
+  "source_commit": "b49646136e6132df30e72ca63ddbcd54cb445f98",
+  "at_unix": 1795475801.4330063
+}

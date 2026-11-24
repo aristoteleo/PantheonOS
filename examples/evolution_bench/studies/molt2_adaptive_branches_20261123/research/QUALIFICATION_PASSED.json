@@ -1,0 +1,37 @@
+{
+  "status": "passed",
+  "public_seed_results": {
+    "ahc024": {
+      "combined_score": 0.6378733333333333,
+      "raw_score": 637.8733333333333,
+      "total_score": 95681.0,
+      "score_spread": 0.0,
+      "num_accepted": 150,
+      "num_cases": 150,
+      "n_eval_runs": 1,
+      "validity": 1.0,
+      "eval_time": 28.61771273612976,
+      "fitness_weights": {
+        "combined_score": 1.0
+      }
+    },
+    "ahc058": {
+      "combined_score": 4.86749216,
+      "raw_score": 4867492.16,
+      "total_score": 730123824.0,
+      "score_spread": 0.0,
+      "num_accepted": 150,
+      "num_cases": 150,
+      "n_eval_runs": 1,
+      "validity": 1.0,
+      "eval_time": 8.759043216705322,
+      "fitness_weights": {
+        "combined_score": 1.0
+      }
+    }
+  },
+  "no_model_calls": true,
+  "validation_accessed": false,
+  "used_as_optimizer_feedback": false,
+  "at_unix": 1795475676.323676
+}

@@ -1,0 +1,100 @@
+{
+  "entrypoint": "examples/evolution_bench/run_bench.py",
+  "python": "/home/erwinpi/molt2-lab/runtime/bin/python",
+  "api_key_file": "/home/erwinpi/molt-spateo-launch/.secrets/openrouter.key",
+  "shared_ledger_root": "/home/erwinpi/molt2-lab",
+  "model": "openrouter/deepseek/deepseek-v4.1-flash",
+  "engine_root": "/home/erwinpi/molt2-adaptive-branches-engine",
+  "engine_commit": "b49646136e6132df30e72ca63ddbcd54cb445f98",
+  "global_usd_cap": 74,
+  "provider": "DeepInfra",
+  "tasks": [
+    "ahc024",
+    "ahc058"
+  ],
+  "methods": [
+    "simpletes",
+    "molt",
+    "molt_modified",
+    "molt2_adaptive_branches"
+  ],
+  "seeds": [
+    400,
+    401,
+    402,
+    403,
+    404
+  ],
+  "cpu_slots": [
+    [
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23
+    ],
+    [
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51
+    ]
+  ],
+  "conditions": {
+    "training_cases": 150,
+    "max_eval_calls": 80,
+    "max_llm_usd": 0.5,
+    "max_llm_calls": 400,
+    "workers": 2,
+    "iterations": 2000,
+    "reply_retries": 3,
+    "output_tokens": 32768,
+    "eval_timeout": 600
+  },
+  "training_cases": 150,
+  "scope": "Fresh, matched development comparison of the native methods, full-target modified Molt, and adaptive branch allocation on top of modified Molt. No validation/test access.",
+  "provider_change": "Original Wafer endpoint unavailable; same DeepInfra FP8 endpoint and explicit generation seed sequence for every arm. Historical saved scores are contextual only.",
+  "allocation_policy": {
+    "type": "sliding-window Thompson sampling",
+    "history_evaluations": 64,
+    "incumbent_every_work_items": 4,
+    "minimum_sprout_turns_before_adaptive_allocation": 2,
+    "reward": "At most one meaningful global frontier improvement per resolved work item; all evaluated children count toward cost. No reward for improving a weak branch without beating dispatch frontier.",
+    "program_selector": "unchanged RPUCG",
+    "native_planner_stall_evals": 12,
+    "native_probation_turns": 5,
+    "native_probation_margin": 0.01
+  },
+  "max_price_usd_per_million": {
+    "prompt": 0.151,
+    "completion": 0.451
+  },
+  "comparison_limitations": [
+    "Five seeds are exploratory, not conclusive evidence across two selected development tasks.",
+    "Native model and evaluation caps are competing stop rules; preserve early stops and report first80 eligible search calls.",
+    "Same algorithm seed and API seed convention do not guarantee identical histories or model responses."
+  ],
+  "reserved_manifest_sha256": "2164bb03e708e4aade1264aef00236c88dd0b6fa106f35074e9bdac143155aca",
+  "runtime_dependency_sha256": {
+    "/usr/bin/g++-11": "2360901d864cf10bfd6296e261cb2c14053552a80377761ab07146ec9ec9a2c0",
+    "/home/erwinpi/.nvm/versions/node/v20.20.1/bin/node": "a03953a7b16bff002b94d6fb58ada900b68241cbcaee6efc400b20dadd36dddc",
+    "/home/erwinpi/molt2-lab/assets/ahc024-wasm/cli.mjs": "112d5e685be0040d24117416f87c8111b206d0219ace106b16ba0947f1c335b6",
+    "/home/erwinpi/molt2-lab/assets/cache/tester_binaries/ahc024_tester": "043716512f14e688ca29fb2a540e57c8b5c0a55eda23fc511a8cef1a94d5f8cb",
+    "/home/erwinpi/molt2-lab/assets/cache/tester_binaries/ahc058_tester": "70cc44d6a064fc7bd479bdea17fca527d292afc22743b42626cbe271e271c60b"
+  },
+  "funding": {
+    "cumulative_math_cap_usd": 74,
+    "old_spent_usd": 48.53349229199995,
+    "available_before_new_calls_usd": 25.46650770800005,
+    "nominal40_run_soft_caps_usd": 20,
+    "prior_charges_and_reservations_preserved": true,
+    "biology_budget_excluded": true
+  }
+}
