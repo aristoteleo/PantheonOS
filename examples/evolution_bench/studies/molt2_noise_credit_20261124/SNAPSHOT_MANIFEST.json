@@ -1,5 +1,5 @@
 {
-  "at_unix": 1795545028.7119477,
+  "at_unix": 1795545374.8913784,
   "files": {
     "campaign.json": "76ae31478cae9512b735a52ed86b1db2b5c5a1a96049ec3d5f86b93fa526c984",
     "manifest.json": "81174aaf8b227c21ac9c78f0aa79c973292f53c24177f2a42d99cae225763ead",
@@ -50,7 +50,9 @@
     "runs/noise-ahc058-molt2_adaptive_branches-s500/selection_audit.json": "d3c14f0a2981712595a2b17aa76994951e417d3289385c09b7381623568aa76b",
     "research/BACKUP-noise-ahc058-molt2_noise_credit-s500.json": "c1b8fd4d6f035d7deb4ba8b0f0179aaa20091f61d6835b6f112b9ef660b5055a",
     "runs/noise-ahc058-molt2_noise_credit-s500/selection.json": "707f1b17976e9ce03a06ca997527a4ebf9a376ff024475e9548444121b58b784",
-    "runs/noise-ahc058-molt2_noise_credit-s500/selection_audit.json": "e356228f50c0343f636d957942f03c9ad5b44d2440b722d76309845353d049ca"
+    "runs/noise-ahc058-molt2_noise_credit-s500/selection_audit.json": "e356228f50c0343f636d957942f03c9ad5b44d2440b722d76309845353d049ca",
+    "research/reread_finalists.py": "5a23c49479ea50f8634c978d27301c82849f88cb6f361e75612c6071c8470d69",
+    "research/reread_when_finished.py": "d2ed8f72a41ff193d99f98535ac1f35a23c2f9406f558395ba26ded6d0eedb6b"
   },
   "public_tasks_and_runtime": "Same task files and prequalified public150-case runtime assets as ../molt2_adaptive_branches_20261123; original private archives retain exact data.",
   "engine_branch": "erwin/molt2-noise-credit-20261124",
