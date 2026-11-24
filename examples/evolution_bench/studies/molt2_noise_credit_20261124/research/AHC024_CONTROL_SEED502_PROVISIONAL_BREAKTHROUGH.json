@@ -1,0 +1,64 @@
+{
+  "at_unix": 1795551572.505417,
+  "run": "noise-ahc024-molt2_adaptive_branches-s502",
+  "best_progress_observation": {
+    "t": 1425.9,
+    "n": 33,
+    "score": 1.7083199999999998,
+    "id": "4b20d0f1",
+    "fidelity": "full",
+    "valid": 1.0
+  },
+  "candidate_saved": true,
+  "chain_memberships": [
+    3
+  ],
+  "roles": [
+    "sprout"
+  ],
+  "parent_ids": [
+    "d5a31fb9"
+  ],
+  "redesign_directions": [
+    {
+      "intervention": 0,
+      "direction": "i0/planner_1/direction_01",
+      "task": "Write a complete new program (replacing the EVOLVE-BLOCK) that reads the input, initializes the grid to the original map, and runs simulated annealing for the time limit. Moves: pick a random cell, change its color to 0 or to a color of an adjacent cell. Accept the move if all colors 0..m remain connected (non-empty) and all pairwise adjacencies match the original; otherwise reject. Use a temperature schedule that starts high and cools, accepting worsening moves with probability exp(-delta/T) to escape local optima. Maintain edge counts between colors and use BFS for connectivity checks. Output the best grid found.",
+      "old": 0.63902,
+      "hypothesis": "The current algorithm only erodes wards that originally touch the border. By allowing cells to be recolored to adjacent colors (not just 0), a non-border ward can give a cell to a border-touching neighbor, which then erodes it to 0, effectively shrinking the interior ward without creating illegal 0-adjacencies. A simulated annealing search over the full color assignment can explore these boundary movements and potentially shrink all wards to minimal skeletons, significantly increasing the number of 0 cells.",
+      "fate": "probation",
+      "opened_at": 33
+    }
+  ],
+  "work_items": [
+    {
+      "arm": "proposal",
+      "reason": "thompson_progress_per_evaluation",
+      "samples": {
+        "chain:0": 0.0015582798672473125,
+        "chain:2": 0.031595040064624345,
+        "proposal": 0.04205078306365606
+      },
+      "frontier": 0.6393666666666666,
+      "batch_id": "b90e60863",
+      "evaluations": 1,
+      "best_child": 1.7083199999999998,
+      "dispatch": 9,
+      "success": 1
+    }
+  ],
+  "provisional": true,
+  "validation_accessed": false,
+  "caution": "Search score is provisional; final selection and repeat scores pending.",
+  "source_file": "provisional-candidates/ahc024-control-s502-4b20d0f1.cpp",
+  "source_sha256": "bc4545423e847ea36ce61a1132ebfc3e580b652f0a28851d0f0aef5ae7f885c8",
+  "code_review": {
+    "implementation_verified": true,
+    "features": [
+      "recolors cells to neighboring nonzero colors or zero",
+      "checks connectivity and original adjacency constraints",
+      "accepts worsening zero-count moves with a cooling-temperature probability"
+    ],
+    "caution": "Clock-seeded randomized search; repeat scores are pending."
+  }
+}
