@@ -1,0 +1,31 @@
+{
+  "at_unix": 1795511971.2579837,
+  "scope": "Provisional public TRAIN candidate in still-running Molt2 seed402, not final selection",
+  "run": "matched-ahc058-molt2_adaptive_branches-s402",
+  "candidate": "259a199c",
+  "score": 5.50039878,
+  "metrics": [
+    {
+      "combined_score": 5.50039878,
+      "validity": 1.0,
+      "num_cases": 150,
+      "num_accepted": 150
+    }
+  ],
+  "chains": [
+    4
+  ],
+  "designs": [
+    {
+      "intervention": 0,
+      "direction": "i0/planner_2/direction_00",
+      "task": "Write a new complete program that reuses the target's State/apply/produce/marginalValue helpers. Generate an initial valid length-T action sequence using the target's per-turn policy. Then run a time-bounded simulated-annealing/local search on the full sequence: repeatedly mutate by changing one action to a different valid action, swapping two adjacent actions, or moving an action to another turn; evaluate each mutation by exact forward simulation from the first changed turn, rejecting any sequence that makes apples negative; accept improvements and occasionally accept small worsening with a decreasing temperature. Keep the best valid sequence and output it.",
+      "old": 5.216364706666667,
+      "hypothesis": "The incumbent makes irrevocable per-turn decisions via one-step rollout with a greedy marginal-ROI continuation; it cannot revise early commitments. A global local search over the entire 500-action sequence can coordinate upgrades across turns and escape the greedy local optimum.",
+      "fate": "probation",
+      "opened_at": 51
+    }
+  ],
+  "source_sha256": "1d10e743f61dcda91f2352c7fe9e0522a1a2338eeda0f8faf8cacbbdf91b8f67",
+  "interpretation": "A full-sequence annealing redesign has improved on the completed controls for this seed; independent proposals, parent histories and allocation prevent isolating a framework effect from one seed."
+}

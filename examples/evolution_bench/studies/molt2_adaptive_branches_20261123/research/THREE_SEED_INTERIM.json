@@ -1,0 +1,137 @@
+{
+  "at_unix": 1795512593.3871324,
+  "scope": "First3 matched completed public development seeds400-402 per task. Not five-seed inference; no validation accessed.",
+  "tasks": {
+    "ahc024": {
+      "methods": {
+        "simpletes": {
+          "scores": [
+            0.6378933333333333,
+            0.6394466666666667,
+            0.6393866666666667
+          ],
+          "mean": 0.6389088888888889
+        },
+        "molt": {
+          "scores": [
+            0.6394333333333333,
+            0.63936,
+            0.63924
+          ],
+          "mean": 0.6393444444444445
+        },
+        "molt_modified": {
+          "scores": [
+            0.6393,
+            0.63898,
+            1.1084733333333334
+          ],
+          "mean": 0.7955844444444444
+        },
+        "molt2_adaptive_branches": {
+          "scores": [
+            0.6392266666666667,
+            0.6392933333333333,
+            0.6385333333333333
+          ],
+          "mean": 0.6390177777777778
+        }
+      },
+      "molt2_comparisons": {
+        "simpletes": {
+          "deltas": [
+            0.0013333333333334085,
+            -0.00015333333333344967,
+            -0.0008533333333333726
+          ],
+          "wins": 1,
+          "mean_delta": 0.0001088888888888621
+        },
+        "molt": {
+          "deltas": [
+            -0.0002066666666665773,
+            -6.666666666677035e-05,
+            -0.0007066666666667443
+          ],
+          "wins": 0,
+          "mean_delta": -0.0003266666666666973
+        },
+        "molt_modified": {
+          "deltas": [
+            -7.333333333325864e-05,
+            0.0003133333333332766,
+            -0.46994000000000014
+          ],
+          "wins": 1,
+          "mean_delta": -0.15656666666666672
+        }
+      }
+    },
+    "ahc058": {
+      "methods": {
+        "simpletes": {
+          "scores": [
+            5.440964066666666,
+            5.24868346,
+            5.2483123733333334
+          ],
+          "mean": 5.3126533
+        },
+        "molt": {
+          "scores": [
+            5.53216096,
+            5.416108693333333,
+            5.398154786666667
+          ],
+          "mean": 5.448808146666667
+        },
+        "molt_modified": {
+          "scores": [
+            5.3564282400000005,
+            5.280642126666667,
+            5.4490837800000005
+          ],
+          "mean": 5.362051382222223
+        },
+        "molt2_adaptive_branches": {
+          "scores": [
+            5.493486346666667,
+            5.320119053333333,
+            5.554382913333333
+          ],
+          "mean": 5.455996104444444
+        }
+      },
+      "molt2_comparisons": {
+        "simpletes": {
+          "deltas": [
+            0.0525222800000007,
+            0.07143559333333371,
+            0.30607053999999945
+          ],
+          "wins": 3,
+          "mean_delta": 0.1433428044444446
+        },
+        "molt": {
+          "deltas": [
+            -0.038674613333332886,
+            -0.09598963999999999,
+            0.15622812666666608
+          ],
+          "wins": 1,
+          "mean_delta": 0.0071879577777777355
+        },
+        "molt_modified": {
+          "deltas": [
+            0.1370581066666663,
+            0.03947692666666658,
+            0.1052991333333324
+          ],
+          "wins": 3,
+          "mean_delta": 0.09394472222222176
+        }
+      }
+    }
+  },
+  "interpretation": "Molt2 wins all3 AHC058 seeds against SimpleTES and ModifiedMolt, but only1of3 against vanilla Molt; a small mean lead is driven by seed402. On AHC024 it loses all3 to vanilla Molt and misses a large ModifiedMolt breakthrough. This task dependence argues against declaring a generally superior architecture or choosing a change from one best run."
+}

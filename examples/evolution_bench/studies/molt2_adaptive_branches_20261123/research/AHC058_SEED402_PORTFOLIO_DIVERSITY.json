@@ -1,0 +1,35 @@
+{
+  "at_unix": 1795510856.4594734,
+  "scope": "Completed AHC058 ModifiedMolt seed402; descriptive single-run diversity check",
+  "native_code_fact": "Vanilla Molt already includes a listwise LLM semantic deduplication pass. It asks to remove only obvious duplicates; sharing a broad topic or family alone is explicitly insufficient.",
+  "first_intervention_counts": {
+    "proposed": 8,
+    "valid": 8,
+    "kept": 6,
+    "planners_answered": 4
+  },
+  "redesign_families": [
+    {
+      "chain": 2,
+      "broad_family": "full-sequence local search / annealing",
+      "task": "Write a complete new solution.cpp that (1) uses the 22f8c05a heuristic/rollout to generate an initial legal action sequence of length T, (2) simulates it to obtain the current best final apple count, (3) while time remains, repeatedly proposes a bounded mutation to the sequence (change one turn's action to another legal action or -1, swap two actions, or move one action to another turn), simulates the mutated sequence from the earliest changed turn using a saved prefix state, and accepts it if final apples increase (or via simulated annealing), (4) outputs the best sequence found."
+    },
+    {
+      "chain": 3,
+      "broad_family": "beam search",
+      "task": "Replace e69d5029's entire main loop with a beam search: maintain a beam of W states (e.g., W=40) with their action histories; at each turn expand every state in the beam by all legal actions plus do-nothing, apply the action and production, score the resulting state by current apples plus a cascade-potential estimate, and keep the top W states. Output the action sequence of the best final state. Reuse only the input/output and State/apply/produce helpers."
+    },
+    {
+      "chain": 4,
+      "broad_family": "beam search",
+      "task": "Replace 22f8c05a's per-turn top-K rollout selection with an offline beam search over the whole T-turn game. Maintain a beam of W=500 partial states (apples, B, P, action sequence). For t=0..T-1, expand each state by every affordable (i,j) plus -1, apply and produce, then keep the top W states by V = apples + 0.5 * sum_{i,j} score(s,i,j,T-t) using 22f8c05a's score. After T turns, output the action sequence of the best final state. Reuse only the I/O and state helpers from the target."
+    },
+    {
+      "chain": 5,
+      "broad_family": "full-sequence local search / annealing",
+      "task": "Write a new program that first generates an initial action sequence by simulating e69d5029's greedy policy for T turns. Then run simulated annealing on the sequence: repeatedly pick a random turn t, replace its action with a random affordable action (or -1) from the state at t in the current trajectory; re-simulate from t to T, skipping any unaffordable action; accept if final apples improve, with occasional acceptance of worse moves. Use the remaining time budget and output the best sequence found."
+    }
+  ],
+  "interpretation": "Four redesign branches in this intervention do not mean four unrelated broad algorithm families. Beam width, evaluation heuristic, targeted parent and mutation details differ and may matter. Broad-family grouping is a manual descriptive categorization, not evidence that the existing deduplication failed or that one representative per family is optimal.",
+  "next_revision_constraint": "Do not propose adding deduplication as if absent. Test stricter portfolio diversity only as a separate ablation after the fixed cohort; preserve near-neighbor refinements when useful."
+}
