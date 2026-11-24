@@ -1,10 +1,12 @@
 {
-  "at_unix": 1795480586.3505847,
+  "at_unix": 1795519280.227054,
   "rows": [
     {
       "run": "matched-ahc024-molt2_adaptive_branches-s400",
       "observed_work_items": 43,
       "joined_candidate_evaluations": 79,
+      "window_only_accounted_evaluations": 0,
+      "total_accounted_evaluations": 79,
       "thresholds": [
         {
           "relative_threshold": 0.01,
@@ -33,7 +35,285 @@
           }
         }
       ],
-      "reconstruction_matches_native_window": true
+      "reconstruction_matches_native_window": true,
+      "native_window_fallback_batches": [],
+      "mismatched_batches": []
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s401",
+      "observed_work_items": 43,
+      "joined_candidate_evaluations": 79,
+      "window_only_accounted_evaluations": 0,
+      "total_accounted_evaluations": 79,
+      "thresholds": [
+        {
+          "relative_threshold": 0.01,
+          "positive_work_items": 0,
+          "by_arm": {}
+        },
+        {
+          "relative_threshold": 0.001,
+          "positive_work_items": 1,
+          "by_arm": {
+            "chain:0": 1
+          }
+        },
+        {
+          "relative_threshold": 0.0001,
+          "positive_work_items": 4,
+          "by_arm": {
+            "chain:0": 1,
+            "chain:1": 2,
+            "proposal": 1
+          }
+        },
+        {
+          "relative_threshold": 0.0,
+          "positive_work_items": 5,
+          "by_arm": {
+            "chain:0": 1,
+            "chain:1": 3,
+            "proposal": 1
+          }
+        }
+      ],
+      "reconstruction_matches_native_window": true,
+      "native_window_fallback_batches": [],
+      "mismatched_batches": []
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s402",
+      "observed_work_items": 44,
+      "joined_candidate_evaluations": 80,
+      "window_only_accounted_evaluations": 0,
+      "total_accounted_evaluations": 80,
+      "thresholds": [
+        {
+          "relative_threshold": 0.01,
+          "positive_work_items": 0,
+          "by_arm": {}
+        },
+        {
+          "relative_threshold": 0.001,
+          "positive_work_items": 0,
+          "by_arm": {}
+        },
+        {
+          "relative_threshold": 0.0001,
+          "positive_work_items": 2,
+          "by_arm": {
+            "chain:0": 1,
+            "proposal": 1
+          }
+        },
+        {
+          "relative_threshold": 0.0,
+          "positive_work_items": 2,
+          "by_arm": {
+            "chain:0": 1,
+            "proposal": 1
+          }
+        }
+      ],
+      "reconstruction_matches_native_window": true,
+      "native_window_fallback_batches": [],
+      "mismatched_batches": []
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s403",
+      "observed_work_items": 44,
+      "joined_candidate_evaluations": 79,
+      "window_only_accounted_evaluations": 0,
+      "total_accounted_evaluations": 79,
+      "thresholds": [
+        {
+          "relative_threshold": 0.01,
+          "positive_work_items": 0,
+          "by_arm": {}
+        },
+        {
+          "relative_threshold": 0.001,
+          "positive_work_items": 1,
+          "by_arm": {
+            "chain:1": 1
+          }
+        },
+        {
+          "relative_threshold": 0.0001,
+          "positive_work_items": 4,
+          "by_arm": {
+            "chain:0": 2,
+            "chain:1": 2
+          }
+        },
+        {
+          "relative_threshold": 0.0,
+          "positive_work_items": 5,
+          "by_arm": {
+            "chain:0": 3,
+            "chain:1": 2
+          }
+        }
+      ],
+      "reconstruction_matches_native_window": true,
+      "native_window_fallback_batches": [],
+      "mismatched_batches": []
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s400",
+      "observed_work_items": 43,
+      "joined_candidate_evaluations": 79,
+      "window_only_accounted_evaluations": 0,
+      "total_accounted_evaluations": 79,
+      "thresholds": [
+        {
+          "relative_threshold": 0.01,
+          "positive_work_items": 4,
+          "by_arm": {
+            "chain:0": 2,
+            "chain:1": 1,
+            "proposal": 1
+          }
+        },
+        {
+          "relative_threshold": 0.001,
+          "positive_work_items": 11,
+          "by_arm": {
+            "chain:0": 4,
+            "chain:1": 2,
+            "proposal": 1,
+            "chain:2": 4
+          }
+        },
+        {
+          "relative_threshold": 0.0001,
+          "positive_work_items": 12,
+          "by_arm": {
+            "chain:0": 5,
+            "chain:1": 2,
+            "proposal": 1,
+            "chain:2": 4
+          }
+        },
+        {
+          "relative_threshold": 0.0,
+          "positive_work_items": 12,
+          "by_arm": {
+            "chain:0": 5,
+            "chain:1": 2,
+            "proposal": 1,
+            "chain:2": 4
+          }
+        }
+      ],
+      "reconstruction_matches_native_window": true,
+      "native_window_fallback_batches": [],
+      "mismatched_batches": []
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s401",
+      "observed_work_items": 45,
+      "joined_candidate_evaluations": 81,
+      "window_only_accounted_evaluations": 0,
+      "total_accounted_evaluations": 81,
+      "thresholds": [
+        {
+          "relative_threshold": 0.01,
+          "positive_work_items": 3,
+          "by_arm": {
+            "chain:0": 1,
+            "chain:1": 1,
+            "proposal": 1
+          }
+        },
+        {
+          "relative_threshold": 0.001,
+          "positive_work_items": 6,
+          "by_arm": {
+            "chain:0": 1,
+            "chain:1": 2,
+            "proposal": 1,
+            "chain:4": 2
+          }
+        },
+        {
+          "relative_threshold": 0.0001,
+          "positive_work_items": 7,
+          "by_arm": {
+            "chain:0": 1,
+            "chain:1": 2,
+            "proposal": 2,
+            "chain:4": 2
+          }
+        },
+        {
+          "relative_threshold": 0.0,
+          "positive_work_items": 7,
+          "by_arm": {
+            "chain:0": 1,
+            "chain:1": 2,
+            "proposal": 2,
+            "chain:4": 2
+          }
+        }
+      ],
+      "reconstruction_matches_native_window": true,
+      "native_window_fallback_batches": [],
+      "mismatched_batches": []
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s402",
+      "observed_work_items": 44,
+      "joined_candidate_evaluations": 80,
+      "window_only_accounted_evaluations": 0,
+      "total_accounted_evaluations": 80,
+      "thresholds": [
+        {
+          "relative_threshold": 0.01,
+          "positive_work_items": 5,
+          "by_arm": {
+            "chain:1": 2,
+            "chain:2": 1,
+            "proposal": 1,
+            "chain:4": 1
+          }
+        },
+        {
+          "relative_threshold": 0.001,
+          "positive_work_items": 9,
+          "by_arm": {
+            "chain:1": 2,
+            "chain:2": 2,
+            "proposal": 1,
+            "chain:4": 4
+          }
+        },
+        {
+          "relative_threshold": 0.0001,
+          "positive_work_items": 12,
+          "by_arm": {
+            "chain:1": 2,
+            "chain:0": 1,
+            "chain:2": 4,
+            "proposal": 1,
+            "chain:4": 4
+          }
+        },
+        {
+          "relative_threshold": 0.0,
+          "positive_work_items": 12,
+          "by_arm": {
+            "chain:1": 2,
+            "chain:0": 1,
+            "chain:2": 4,
+            "proposal": 1,
+            "chain:4": 4
+          }
+        }
+      ],
+      "reconstruction_matches_native_window": true,
+      "native_window_fallback_batches": [],
+      "mismatched_batches": []
     }
   ],
   "caution": "Post-hoc training-only diagnostic of observed signal density, not a policy comparison. Different rewards change future sampling and candidates; no claim that a lower threshold improves performance. Concurrent work uses its recorded dispatch frontier. Tiny differences can reflect scorer timing noise."
