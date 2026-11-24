@@ -1009,9 +1009,12 @@ stays offline until the node sends a heartbeat newer than the one its record
 had at the failure, so a record that is still fresh cannot bring it back and
 make it flap; a slow call (timeout) on a node with a fresh heartbeat is not
 taken for offline. An offline agent keeps its queue and shows `offline` with
-"<computer> is offline" (or, mid-turn, the live line "<computer> is offline;
-waiting for it"); when the 15 s sweep sees the node back, its waiting agents
-start at once (their backoff is cleared). A node call that fails in transit
+"<computer> is offline" (the computer's name as it is, never capitalised);
+no turn is written while its node is known to be away, so the status does
+not flip to working each sweep (a turn reads the node once more before it is
+written). When the 15 s sweep sees the node back, its waiting agents start at
+once (their backoff is cleared). A turn whose node goes away mid-turn is
+`offline` too, not working: see "Offline computers" below. A node call that fails in transit
 for another reason is retried after 1, 5, 30 s, then each minute, with the
 status line "Retrying soon" and the reason when it is known. A stopped turn
 (`stop_turn`) posts nothing; a turn over `turn_max_minutes` is stopped with
@@ -3757,6 +3760,60 @@ The owner's page asks to name a space still called "Team" once:
 `space_update(name_asked=true)` (sent by Not now and by saving; any rename
 sets it too) stamps `name_asked_at` on the space, so another device or
 browser does not ask again.
+
+## Offline computers (2026-11-24)
+
+What a person sees when an agent's computer goes away, and what happens to
+their messages.
+
+* **No flicker.** A turn is written only after its node is read online
+  (`tryStart`); while the node is known to be away the queue just waits and
+  the status stays `offline`. A running turn's status carries `turn_id`;
+  the page counts "this hour" once per turn id, so a start that did not run
+  is not a turn.
+* **Every waiting message.** A status that is not `working` lists every
+  message waiting for the agent in `waiting: [{cid, root, id, at, turn?}]`
+  (queue posts and edits, oldest first; check-ins are looks, not asks, and
+  are not listed). The page puts the waiting line under each of them (in a
+  channel under its thread's root; in the thread under the message); `cid`,
+  `root` and `since` still name the newest. Each viewer gets only the
+  messages of conversations they see. `away_since` says since when the
+  service has seen the computer away.
+* **A turn its computer cut off.** While a running turn's node is away the
+  status is `offline` with `turn: true` and the line "<computer> went
+  offline during <Name>'s turn; <Name> picks it up again when it is back"
+  (a Cloud Workspace: "… stopped during …; … when it runs"); the turn's
+  messages are in `waiting` with `turn: true`. The turn's time limit does not
+  run out while the node does not answer. Back, the node reports the turn
+  as done, stopped, "Interrupted: …" (its Coding Agents service stopped with
+  it, or marked it when it started again). No Stop was recorded on the turn,
+  so it was cut off: its messages wait again, ahead of newer ones, and the
+  next turn is told "You were working on this when your computer went
+  offline …" (`Again`). A message in a conversation where the turn already
+  posted counts as answered and is not asked again.
+* **Stop.** Every Stop Team Chat asks for is recorded on the turn
+  (`stop_turn`, the agent's Stop, a limit), so a node that then reports the
+  turn interrupted is not taken for a cut-off and nothing is asked again.
+  The owner's Stop while the node is away (or when nothing answers for it)
+  ends the turn at once on the service (`endAway`): it is a Stop (nothing is
+  asked again), a line says "<Name>'s turn was stopped while <computer> is
+  offline; what it was doing there stops when <computer> is back.", and the
+  node is asked to stop that run once it is back, before the agent's next
+  turn (`flushStop`). Reset, delete, moving and changing the computer are no
+  longer blocked by the turn. `agent_control stop_turn` answers
+  `{stopped, ended: true, status}` then.
+* **Before sending.** The composer of a DM with an agent whose computer is
+  away says "Tally's computer acct4-local is offline since 8:07 PM. Messages
+  wait and are answered when it's back." (since: the Fleet's last heartbeat
+  of one of the viewer's computers, else `away_since`); in a channel the same
+  note shows for each away agent the draft mentions, and the @ list marks
+  the agent "Offline · acct4-local". The Cloud Workspace reads paused
+  ("Pax's computer, your Cloud Workspace, is paused. Messages wait and are
+  answered once you resume it."; "Paused · Cloud Workspace"), starting or not
+  running, never offline; the rail's Computers row says "paused" for it.
+* **Watch** shows the cut-off line with "Stop the turn" while the computer is
+  away (not the live view, which cannot be read then), and starts the live
+  view afresh when it is back.
 
 ## Out of scope
 

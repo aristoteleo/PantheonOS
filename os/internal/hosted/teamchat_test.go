@@ -152,6 +152,12 @@ func (f *fakeAgents) Call(_ context.Context, fleet string, node, method string, 
 			return map[string]any{"success": true, "events": []any{}}, nil
 		}
 		last := list[len(list)-1]
+		if last["interrupted"] == true {
+			// The node's service stopped during the turn (cut).
+			f.convs[id] = list[:len(list)-1]
+			return map[string]any{"success": true, "events": []any{map[string]any{"seq": 9000, "type": "done", "stopped": true,
+				"error": "Interrupted: the node's Coding Agents service stopped. Send a message to continue."}}}, nil
+		}
 		if last["stopped"] == true {
 			f.convs[id] = list[:len(list)-1]
 			return map[string]any{"success": true, "events": []any{map[string]any{"seq": 9000, "type": "done", "stopped": true}}}, nil

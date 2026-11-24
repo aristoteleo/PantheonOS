@@ -62,6 +62,9 @@ type TeamNode struct {
 	ID, Name, Kind, OS string
 	Online             bool
 	Seen               time.Time
+	// Away: since when the service has seen it offline (zero while online,
+	// or when it has not seen it go: it was offline when the service started).
+	Away time.Time
 	// Listed: the owner's Fleet lists it (online, or offline for a while);
 	// false for an id it does not know.
 	Listed bool
@@ -628,6 +631,9 @@ type tcWake struct {
 	Asked string `json:"asked,omitempty"`
 	// Behalf: the people an agent's message (or a reminder) works for.
 	Behalf []string `json:"behalf,omitempty"`
+	// Again: the agent was working on it when its computer went away, and
+	// that turn was cut off (docs/apps/team-chat.md, "Offline").
+	Again bool `json:"again,omitempty"`
 }
 
 func (w tcWake) key() string { return w.Event }
@@ -722,11 +728,18 @@ type tcLive struct {
 	allText     []string
 	lastSeq     int64
 	stopWanted  bool
+	// pendingStop: a turn its owner stopped while its computer was away;
+	// its node is asked to stop it once it is back (before the agent's next
+	// turn).
+	pendingStop *tcPendingStop
 	// remPosted: people's reminders of this agent that Team Chat posted
 	// itself while the agent was in a turn (inbox and remind list say so,
 	// so the agent does not post them again).
 	remPosted []tcRemPosted
 }
+
+// tcPendingStop is where a turn stopped while its computer was away runs.
+type tcPendingStop struct{ fleet, node, conv string }
 
 type tcRemPosted struct {
 	at    time.Time

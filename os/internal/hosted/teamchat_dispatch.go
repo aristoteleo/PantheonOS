@@ -349,8 +349,14 @@ func (t *TeamChat) statusOf(fl *tcFleet, m *tcMember) map[string]any {
 	node, known := fl.nodes[m.NodeID]
 	node = withMemberNode(node, m)
 	tr := fl.turns[m.MID]
-	out["computer"] = nodeLabel(node, m.NodeID)
-	offline := capFirst(nodeLabel(node, m.NodeID)) + " is offline"
+	label := nodeLabel(node, m.NodeID)
+	out["computer"] = label
+	// A computer's name is kept as it is ("acct4-local is offline"), never capitalised.
+	offline := sentenceStart(label) + " is offline"
+	away := known && !node.Online
+	if away && !node.Away.IsZero() {
+		out["away_since"] = node.Away.UTC().Format(time.RFC3339)
+	}
 	if node.Kind == "sandbox" {
 		// The Hub pauses, restarts and resumes a Workspace; the controller
 		// sees only that its node is away, not which of them it is. The
@@ -364,13 +370,24 @@ func (t *TeamChat) statusOf(fl *tcFleet, m *tcMember) map[string]any {
 	case l.moving != "" && tr == nil:
 		// Moving to another computer: messages wait for it.
 		out["state"], out["line"], out["reason"], out["moving"] = "starting", l.moving, m.Name+" is moving to another computer", true
+	case tr != nil && tr.State == "running" && away:
+		// Its computer went away during the turn: the turn is not working, it
+		// waits. Once the computer is back, its node says the turn was cut off
+		// and its messages are answered again (finish); its owner's Stop ends
+		// it at once (endAway).
+		out["state"], out["reason"], out["turn"] = "offline", offline, true
+		out["since"], out["cid"], out["root"] = tr.Started, tr.Cause.CID, tr.Cause.Root
+		out["line"] = cutOffLine(label, node.Kind, m.Name)
 	case tr != nil:
 		out["state"], out["since"], out["cid"], out["root"] = "working", tr.Started, tr.Cause.CID, tr.Cause.Root
 		out["line"] = l.line
 		if tr.State == "starting" {
 			out["line"] = "Starting"
+		} else {
+			// A turn that runs: the page counts each one once (its "this hour").
+			out["turn_id"] = tr.ID
 		}
-		if known && !node.Online {
+		if away {
 			out["line"] = offline + "; waiting for it"
 		}
 	case known && !node.Online:
@@ -409,7 +426,59 @@ func (t *TeamChat) statusOf(fl *tcFleet, m *tcMember) map[string]any {
 			}
 		}
 	}
+	if out["state"] != "working" {
+		// Every message that waits for it, so the page says so under each
+		// one (cid, root and since above name only the newest).
+		if w := waitingOf(fl, m, out["turn"] == true); len(w) > 0 {
+			out["waiting"] = w
+		}
+	}
 	return out
+}
+
+// waitingOf lists the messages an agent has not answered yet and will:
+// its queue's posts (and edits), and with turn its cut-off turn's, oldest
+// first, once each. A check-in's look is not an ask and is not listed.
+func waitingOf(fl *tcFleet, m *tcMember, turn bool) []map[string]any {
+	var events []tcWake
+	inTurn := 0
+	if tr := fl.turns[m.MID]; turn && tr != nil {
+		events = append(events, tr.Events...)
+		inTurn = len(tr.Events)
+	}
+	events = append(events, fl.queues[m.MID]...)
+	seen := map[string]bool{}
+	var out []map[string]any
+	for i, e := range events {
+		if (e.Kind != "post" && e.Kind != "edit") || e.Reason == "checkin" || e.ID == "" || seen[e.ID] {
+			continue
+		}
+		seen[e.ID] = true
+		w := map[string]any{"cid": e.CID, "root": e.Root, "id": e.ID, "at": e.At}
+		if i < inTurn {
+			w["turn"] = true
+		}
+		out = append(out, w)
+	}
+	return out
+}
+
+// sentenceStart is a computer's label at the start of a sentence: "Its
+// computer", "Your Cloud Workspace", but a computer's own name as it is.
+func sentenceStart(label string) string {
+	if strings.HasPrefix(label, "its ") || strings.HasPrefix(label, "your ") {
+		return capFirst(label)
+	}
+	return label
+}
+
+// cutOffLine says that an agent's computer went away during its turn and
+// what happens next.
+func cutOffLine(label, kind, name string) string {
+	if kind == "sandbox" {
+		return sentenceStart(label) + " stopped during " + name + "'s turn; " + name + " picks it up again when it runs"
+	}
+	return sentenceStart(label) + " went offline during " + name + "'s turn; " + name + " picks it up again when it is back"
 }
 
 // WorkspaceAway is an agent's status while its Workspace's node is away: the
@@ -480,6 +549,7 @@ func (t *TeamChat) dispatch(ctx context.Context, fid, mid string) {
 	l.dispatching = true
 	fl.mu.Unlock()
 	for {
+		t.flushStop(ctx, fl, mid)
 		for i := 0; i < 3 && t.tryStart(ctx, fl, mid); i++ {
 		}
 		closed := t.isClosed()
@@ -803,6 +873,31 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 	if l.paused != "" {
 		l.paused, l.pausedNoted = "", false
 	}
+	if n, known := fl.nodes[m.NodeID]; !known || n.Online {
+		// Its computer as it is now, before a turn is written: one that went
+		// away since the last sweep does not make it flicker to working.
+		nf, nodeID := fl.fleetOf(m), m.NodeID
+		fl.mu.Unlock()
+		fresh, err := t.Nodes.Node(ctx, nf, nodeID)
+		if err == nil {
+			t.noteNode(fl, fresh)
+		}
+		fl.mu.Lock()
+		if m = fl.members[mid]; m == nil || !m.agent() || fl.turns[mid] != nil || len(fl.queues[mid]) == 0 || m.NodeID != nodeID {
+			fl.mu.Unlock()
+			return false
+		}
+		q = fl.queues[mid]
+	}
+	if n, known := fl.nodes[m.NodeID]; known && !n.Online {
+		// Its computer is away: no turn is written (its status stays offline,
+		// it does not flicker to working each sweep). The sweep notes the
+		// computer every tick and starts the turn once it is back (noteNode).
+		t.remindNow(ctx, fl, m, "its computer is offline")
+		l.retryAt = time.Time{}
+		fl.mu.Unlock()
+		return false
+	}
 	if n, known := fl.nodes[m.NodeID]; t.appStarting(fl, m) && (!known || n.Online) {
 		// The Pantheon Agent cannot take a turn before its App is ready; the
 		// messages wait for it (an offline node waits as before).
@@ -1035,6 +1130,32 @@ func (t *TeamChat) setSession(ctx context.Context, fl *tcFleet, mid, session str
 	}
 }
 
+// flushStop asks a node that is back to stop the turn its owner stopped
+// while it was away (endAway), before the agent's next turn there. A node
+// that is still away is asked once it is back.
+func (t *TeamChat) flushStop(ctx context.Context, fl *tcFleet, mid string) {
+	fl.mu.Lock()
+	ps := fl.liveOf(mid).pendingStop
+	if ps == nil {
+		fl.mu.Unlock()
+		return
+	}
+	if n, known := fl.nodes[ps.node]; !known || !n.Online {
+		fl.mu.Unlock()
+		return
+	}
+	fl.mu.Unlock()
+	_, err := t.Nodes.Call(ctx, ps.fleet, ps.node, "agent_stop", map[string]any{"conversation_id": ps.conv}, 30*time.Second)
+	if err != nil && unreachable(err.Error()) {
+		return
+	}
+	fl.mu.Lock()
+	if l := fl.liveOf(mid); l.pendingStop == ps {
+		l.pendingStop = nil
+	}
+	fl.mu.Unlock()
+}
+
 // noteNode records a node's state and returns it as the service sees it (a
 // node found unreachable stays offline until its next heartbeat).
 func (t *TeamChat) noteNode(fl *tcFleet, n TeamNode) TeamNode {
@@ -1053,6 +1174,17 @@ func (t *TeamChat) noteNode(fl *tcFleet, n TeamNode) TeamNode {
 			delete(fl.unreachable, n.ID)
 		} else {
 			n.Online = false
+		}
+	}
+	if !n.Online && known {
+		// Since when it is away: its last heartbeat when it was online, else kept.
+		switch {
+		case !old.Online:
+			n.Away = old.Away
+		case !old.Seen.IsZero() && !old.Seen.After(t.clock()):
+			n.Away = old.Seen
+		default:
+			n.Away = t.clock()
 		}
 	}
 	fl.nodes[n.ID] = n
@@ -1075,10 +1207,11 @@ func (t *TeamChat) noteNode(fl *tcFleet, n TeamNode) TeamNode {
 		for mid, m := range fl.members {
 			if m.agent() && m.NodeID == n.ID {
 				if known && n.Online {
-					// Back: its waiting agents start now, not after a backoff.
+					// Back: its waiting agents start now, not after a backoff
+					// (and a turn stopped while it was away is stopped there first).
 					l := fl.liveOf(mid)
 					l.retries, l.retryAt = 0, time.Time{}
-					if len(fl.queues[mid]) > 0 && fl.turns[mid] == nil {
+					if (len(fl.queues[mid]) > 0 || l.pendingStop != nil) && fl.turns[mid] == nil {
 						t.kick(fl.fid, mid)
 					}
 				}
@@ -1421,7 +1554,9 @@ func (t *TeamChat) watch(ctx context.Context, fl *tcFleet, mid string) {
 		}
 		started, _ := time.Parse(time.RFC3339Nano, tr.Started)
 		limit := time.Duration(fl.space.Settings.TurnMaxMinutes) * time.Minute
-		overdue := tr.Stop == "" && !started.IsZero() && t.clock().Sub(started) > limit
+		// Not while its computer does not answer: a turn cut off by the
+		// computer is answered again once it is back, not stopped for its time.
+		overdue := tr.Stop == "" && misses == 0 && !started.IsZero() && t.clock().Sub(started) > limit
 		if overdue {
 			tr.Stop = "timeout"
 			_ = t.put(ctx, fl, "turn."+mid, tr)
@@ -1655,6 +1790,45 @@ func firstNonBlank(v ...string) string {
 func (t *TeamChat) finish(ctx context.Context, fl *tcFleet, mid string, done codingagents.Event) {
 	fl.mu.Lock()
 	defer fl.mu.Unlock()
+	t.finishLocked(ctx, fl, mid, done)
+}
+
+// interruptedNote starts the done event's error of a turn its node cut off
+// because the node's Coding Agents service stopped (the node stopped, or
+// started again after a crash), not because someone stopped it.
+const interruptedNote = "Interrupted:"
+
+// cutOff: a turn ended because its node went away, not by anyone's Stop.
+// The node marks such a turn "Interrupted: …" and stopped; a Stop that
+// Team Chat asked for (its owner's, a limit's) is recorded on the turn.
+func cutOff(tr *tcTurn, done codingagents.Event) bool {
+	return done.Stopped && strings.HasPrefix(done.Error, interruptedNote) && tr.Stop == ""
+}
+
+// endAway ends a running turn whose computer is away, at its owner's Stop:
+// at once, without waiting for the computer. Its messages are not answered
+// again (it was a Stop); the node is asked to stop the run once it is back
+// (flushStop), and a line says so. fl.mu is held.
+func (t *TeamChat) endAway(ctx context.Context, fl *tcFleet, m *tcMember, tr *tcTurn) {
+	if fl.turns[m.MID] != tr {
+		return
+	}
+	tr.Stop = "user"
+	if tr.ConversationID != "" {
+		fl.liveOf(m.MID).pendingStop = &tcPendingStop{fleet: fl.turnFleet(tr), node: tr.NodeID, conv: tr.ConversationID}
+	}
+	node := withMemberNode(fl.nodes[tr.NodeID], m)
+	label := nodeLabel(node, tr.NodeID)
+	text := fmt.Sprintf("%s's turn was stopped while %s is offline; what it was doing there stops when %s is back.", m.Name, label, label)
+	if node.Kind == "sandbox" {
+		text = m.Name + "'s turn was stopped while its Cloud Workspace is not running; what it was doing there stops when it runs again."
+	}
+	cid, root := tr.Cause.CID, tr.Cause.Root
+	t.finishLocked(ctx, fl, m.MID, codingagents.Event{Type: "done", Stopped: true})
+	_, _ = t.system(ctx, fl, cid, root, m.MID, "", text)
+}
+
+func (t *TeamChat) finishLocked(ctx context.Context, fl *tcFleet, mid string, done codingagents.Event) {
 	tr := fl.turns[mid]
 	m := fl.members[mid]
 	l := fl.liveOf(mid)
@@ -1665,6 +1839,7 @@ func (t *TeamChat) finish(ctx context.Context, fl *tcFleet, mid string, done cod
 	// ("I'll read my notes first") are not one.
 	final := strings.TrimSpace(strings.Join(l.textBuf, "\n\n"))
 	failed := done.Error != "" && !done.Stopped && tr.Stop == ""
+	interrupted := cutOff(tr, done)
 	if err := t.del(ctx, fl, "turn."+mid); err != nil {
 		log.Printf("[team-chat] %s turn %s: %v", fl.fid, mid, err)
 	}
@@ -1751,6 +1926,26 @@ func (t *TeamChat) finish(ctx context.Context, fl *tcFleet, mid string, done cod
 	case tr.Stop == "timeout":
 		_, _ = t.system(ctx, fl, tr.Cause.CID, tr.Cause.Root, mid, "", fmt.Sprintf("%s's turn was stopped after %d minutes, the limit for one turn (space settings).",
 			m.Name, fl.space.Settings.TurnMaxMinutes))
+	case interrupted:
+		// Its computer went away during the turn (no one stopped it): what
+		// it had not answered waits again, ahead of newer messages, and is
+		// answered in its next turn. Where it posted already, it answered.
+		have := map[string]bool{}
+		for _, e := range fl.queues[mid] {
+			have[e.key()] = true
+		}
+		var back []tcWake
+		for _, e := range tr.Events {
+			if have[e.key()] || e.forPerson(fl) || (e.Kind != "reminder" && contains(tr.Posted, e.CID)) {
+				continue
+			}
+			e.Again = true
+			back = append(back, e)
+		}
+		if len(back) > 0 {
+			t.saveQueue(ctx, fl, mid, append(back, fl.queues[mid]...))
+		}
+		log.Printf("[team-chat] %s %s: turn cut off by its computer (%d waiting again)", fl.fid, m.Handle, len(back))
 	case done.Stopped:
 		// Stopped by the owner: nothing is posted for it.
 	case tr.Skipped != "":
@@ -1983,6 +2178,10 @@ func (t *TeamChat) turnInput(ctx context.Context, fl *tcFleet, m *tcMember, even
 			continue
 		}
 		b.WriteString(indent(shownText(fl, msg)))
+		if e.Again {
+			b.WriteString(indent("(You were working on this when your computer went offline, and that turn was cut off before you " +
+				"answered. Answer it now. What you did then may be half done: check your folder before you redo it.)"))
+		}
 		if e.Reason == "all" && c.Kind == "channel" {
 			b.WriteString(indent("(It does not name you: you read every message in " + where + ". Answer only when it is meant for you, " +
 				"asks something you can help with, or concerns your work; then post it with the command below. Otherwise run `" +

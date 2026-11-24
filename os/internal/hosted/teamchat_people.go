@@ -620,6 +620,20 @@ func (fl *tcFleet) statusView(status map[string]any, mid, viewer string) map[str
 		}
 		out[k] = v
 	}
+	if waiting, ok := status["waiting"].([]map[string]any); ok {
+		// Only the messages of conversations the viewer sees.
+		var shown []map[string]any
+		for _, w := range waiting {
+			if c := fl.convs[str(w["cid"])]; c != nil && fl.visible(c, viewer) {
+				shown = append(shown, w)
+			}
+		}
+		if len(shown) > 0 {
+			out["waiting"] = shown
+		} else {
+			delete(out, "waiting")
+		}
+	}
 	a := fl.members[mid]
 	if a == nil || !a.agent() || viewer == ownerOf(a) {
 		return out

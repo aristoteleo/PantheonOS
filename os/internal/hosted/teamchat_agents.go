@@ -544,7 +544,15 @@ func (t *TeamChat) agentControl(ctx context.Context, fid, mid, action, confirm s
 			return nil, err
 		}
 		if tr != nil && tr.State == "running" {
-			l.stopWanted = true
+			// Recorded on the turn: a turn its node then cuts off was stopped, not cut off.
+			tr.Stop = "user"
+			_ = t.put(ctx, fl, "turn."+mid, tr)
+			if n, known := fl.nodes[tr.NodeID]; known && !n.Online {
+				// Its computer is away: the turn ends now, not when it is back.
+				t.endAway(ctx, fl, fl.members[mid], tr)
+			} else {
+				l.stopWanted = true
+			}
 		}
 		return reply()
 	case "stop_turn":
@@ -555,6 +563,14 @@ func (t *TeamChat) agentControl(ctx context.Context, fid, mid, action, confirm s
 		node, conv := tr.NodeID, tr.ConversationID
 		tr.Stop = "user"
 		_ = t.put(ctx, fl, "turn."+mid, tr)
+		if n, known := fl.nodes[node]; known && !n.Online {
+			// Its computer is away: the turn ends now, without waiting for it
+			// (its node is asked to stop it once it is back).
+			t.endAway(ctx, fl, m, tr)
+			out, err := frozen(map[string]any{"stopped": true, "ended": true, "status": t.statusOf(fl, fl.members[mid])})
+			fl.mu.Unlock()
+			return out, err
+		}
 		// The working line goes at once; the turn ends when the node says.
 		l.line = "Stopping"
 		t.emit(fl, map[string]any{"type": "typing", "mid": mid, "cid": tr.Cause.CID, "root": tr.Cause.Root, "line": "", "stopping": true})
@@ -563,6 +579,19 @@ func (t *TeamChat) agentControl(ctx context.Context, fid, mid, action, confirm s
 		res, err := t.Nodes.Call(ctx, nf, node, "agent_stop", map[string]any{"conversation_id": conv}, 30*time.Second)
 		if err == nil && res["success"] != true {
 			err = fmt.Errorf("%s", str(res["error"]))
+		}
+		if err != nil && unreachable(err.Error()) {
+			// Nothing answers for its computer: it is away, and the turn ends now.
+			t.markUnreachable(ctx, fl, nf, node)
+			if fl, err = t.lockFleet(ctx, fid); err != nil {
+				return nil, err
+			}
+			if cur := fl.turns[mid]; cur == tr && fl.members[mid] != nil {
+				t.endAway(ctx, fl, fl.members[mid], tr)
+			}
+			out, err := frozen(map[string]any{"stopped": true, "ended": true, "status": t.statusOf(fl, fl.members[mid])})
+			fl.mu.Unlock()
+			return out, err
 		}
 		if err != nil {
 			n, _ := t.Nodes.Node(ctx, nf, node)
