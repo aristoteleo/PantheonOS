@@ -1,0 +1,93 @@
+{
+  "at_unix": 1795507993.6006327,
+  "scope": "Interim public development results; cohort incomplete; no validation accessed",
+  "counts": {
+    "complete": 20,
+    "running": 2,
+    "queued": 18
+  },
+  "groups": [
+    {
+      "phase": "confirm",
+      "task": "ahc058",
+      "method": "molt",
+      "complete": 2,
+      "scheduled": 5,
+      "mean": 5.474134826666667,
+      "sd": 0.0820613447320693
+    },
+    {
+      "phase": "confirm",
+      "task": "ahc058",
+      "method": "molt2_adaptive_branches",
+      "complete": 2,
+      "scheduled": 5,
+      "mean": 5.4068027,
+      "sd": 0.12258918875195741
+    },
+    {
+      "phase": "confirm",
+      "task": "ahc058",
+      "method": "molt_modified",
+      "complete": 2,
+      "scheduled": 5,
+      "mean": 5.318535183333333,
+      "sd": 0.05358887465777251
+    },
+    {
+      "phase": "confirm",
+      "task": "ahc058",
+      "method": "simpletes",
+      "complete": 2,
+      "scheduled": 5,
+      "mean": 5.344823763333332,
+      "sd": 0.13596292086466313
+    },
+    {
+      "phase": "confirm",
+      "task": "ahc024",
+      "method": "molt",
+      "complete": 3,
+      "scheduled": 5,
+      "mean": 0.6393444444444445,
+      "sd": 9.760085002662746e-05
+    },
+    {
+      "phase": "confirm",
+      "task": "ahc024",
+      "method": "molt2_adaptive_branches",
+      "complete": 3,
+      "scheduled": 5,
+      "mean": 0.6390177777777778,
+      "sd": 0.00042086331026348965
+    },
+    {
+      "phase": "confirm",
+      "task": "ahc024",
+      "method": "molt_modified",
+      "complete": 3,
+      "scheduled": 5,
+      "mean": 0.7955844444444444,
+      "sd": 0.2709697735774096
+    },
+    {
+      "phase": "confirm",
+      "task": "ahc024",
+      "method": "simpletes",
+      "complete": 3,
+      "scheduled": 5,
+      "mean": 0.6389088888888889,
+      "sd": 0.0008800084174681856
+    }
+  ],
+  "diagnostic_errors": [],
+  "excluded_primary_runs": [],
+  "seed402_ahc024": {
+    "molt": 0.63924,
+    "molt2_adaptive_branches": 0.6385333333333333,
+    "molt_modified": 1.1084733333333334,
+    "simpletes": 0.6393866666666667
+  },
+  "interpretation": "Molt2 has not demonstrated superiority. Modified Molt seed402 found a much stronger recoloring neighborhood; its annealing chain and Molt2 corresponding chain both had four productive follow-up batches. This counterexample does not support attributing all gaps to insufficient refinement. Distinct generated proposals and histories prevent isolating architecture causality. Keep campaign fixed through completion before choosing a one-factor ablation.",
+  "source_integrity": "No optimizer, prompt, candidate, evaluator or budget changed by this reporting update."
+}

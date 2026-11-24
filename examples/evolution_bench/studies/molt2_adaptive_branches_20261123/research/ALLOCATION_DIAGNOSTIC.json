@@ -1,0 +1,118 @@
+{
+  "at_unix": 1795509140.558558,
+  "rows": [
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s400",
+      "work_items_by_reason": {
+        "native_prefix": 7,
+        "incumbent_floor": 10,
+        "thompson_progress_per_evaluation": 22,
+        "minimum_probe": 5
+      },
+      "work_items_by_arm": {
+        "chain:0": 13,
+        "chain:1": 8,
+        "proposal": 7,
+        "chain:2": 4,
+        "chain:3": 4,
+        "chain:4": 4,
+        "chain:5": 3,
+        "chain:6": 1
+      },
+      "thompson_choices": 22,
+      "total_work_items": 44,
+      "retained_window_successes": 0,
+      "retained_window_evaluations": 64
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s401",
+      "work_items_by_reason": {
+        "native_prefix": 7,
+        "incumbent_floor": 10,
+        "thompson_progress_per_evaluation": 22,
+        "minimum_probe": 5
+      },
+      "work_items_by_arm": {
+        "chain:0": 6,
+        "chain:1": 14,
+        "proposal": 7,
+        "chain:2": 3,
+        "chain:3": 4,
+        "chain:4": 4,
+        "chain:5": 4,
+        "chain:6": 2
+      },
+      "thompson_choices": 22,
+      "total_work_items": 44,
+      "retained_window_successes": 0,
+      "retained_window_evaluations": 63
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s402",
+      "work_items_by_reason": {
+        "native_prefix": 7,
+        "incumbent_floor": 10,
+        "thompson_progress_per_evaluation": 24,
+        "minimum_probe": 4
+      },
+      "work_items_by_arm": {
+        "chain:0": 14,
+        "chain:1": 8,
+        "proposal": 8,
+        "chain:2": 4,
+        "chain:3": 4,
+        "chain:4": 4,
+        "chain:5": 3
+      },
+      "thompson_choices": 24,
+      "total_work_items": 45,
+      "retained_window_successes": 0,
+      "retained_window_evaluations": 63
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s400",
+      "work_items_by_reason": {
+        "native_prefix": 16,
+        "incumbent_floor": 7,
+        "thompson_progress_per_evaluation": 17,
+        "minimum_probe": 4
+      },
+      "work_items_by_arm": {
+        "chain:0": 11,
+        "chain:1": 9,
+        "proposal": 8,
+        "chain:2": 7,
+        "chain:3": 4,
+        "chain:4": 3,
+        "chain:5": 2
+      },
+      "thompson_choices": 17,
+      "total_work_items": 44,
+      "retained_window_successes": 2,
+      "retained_window_evaluations": 63
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s401",
+      "work_items_by_reason": {
+        "native_prefix": 11,
+        "incumbent_floor": 9,
+        "thompson_progress_per_evaluation": 21,
+        "minimum_probe": 4
+      },
+      "work_items_by_arm": {
+        "chain:0": 8,
+        "chain:1": 13,
+        "proposal": 8,
+        "chain:2": 5,
+        "chain:3": 5,
+        "chain:4": 4,
+        "chain:5": 2
+      },
+      "thompson_choices": 21,
+      "total_work_items": 45,
+      "retained_window_successes": 3,
+      "retained_window_evaluations": 64
+    }
+  ],
+  "caution": "Work-item counts are not candidate-evaluation counts. Native history is a rolling window, not whole-run reward. When successes are absent, posterior sampling cannot learn which arm produces progress; failure counts still change posterior uncertainty. This descriptive audit does not establish that another allocation would improve scores."
+}

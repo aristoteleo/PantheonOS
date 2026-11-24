@@ -1,0 +1,2230 @@
+{
+  "comparisons": [
+    {
+      "task": "ahc024",
+      "control": "simpletes",
+      "n_pairs": 3,
+      "deltas": [
+        0.0013333333333334085,
+        -0.00015333333333344967,
+        -0.0008533333333333726
+      ],
+      "status": "incomplete_withheld"
+    },
+    {
+      "task": "ahc024",
+      "control": "molt",
+      "n_pairs": 3,
+      "deltas": [
+        -0.0002066666666665773,
+        -6.666666666677035e-05,
+        -0.0007066666666667443
+      ],
+      "status": "incomplete_withheld"
+    },
+    {
+      "task": "ahc024",
+      "control": "molt_modified",
+      "n_pairs": 3,
+      "deltas": [
+        -7.333333333325864e-05,
+        0.0003133333333332766,
+        -0.46994000000000014
+      ],
+      "status": "incomplete_withheld"
+    },
+    {
+      "task": "ahc058",
+      "control": "simpletes",
+      "n_pairs": 2,
+      "deltas": [
+        0.0525222800000007,
+        0.07143559333333371
+      ],
+      "status": "incomplete_withheld"
+    },
+    {
+      "task": "ahc058",
+      "control": "molt",
+      "n_pairs": 2,
+      "deltas": [
+        -0.038674613333332886,
+        -0.09598963999999999
+      ],
+      "status": "incomplete_withheld"
+    },
+    {
+      "task": "ahc058",
+      "control": "molt_modified",
+      "n_pairs": 2,
+      "deltas": [
+        0.1370581066666663,
+        0.03947692666666658
+      ],
+      "status": "incomplete_withheld"
+    }
+  ],
+  "planned_comparisons": 6,
+  "caution": "Exploratory development tasks and n=5 seeds. No validation accessed. Descriptive bootstrap coverage can be poor at n=5. With six comparisons, even five wins alone cannot establish familywise significance at 0.05.",
+  "measurement_event_audit": {
+    "at_unix": 1795509140.2406344,
+    "rows": [
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s400",
+        "workflow_status": "complete",
+        "engine_classification": "legacy",
+        "review_required": false,
+        "repeated_program_ids": [],
+        "same_batch_repeated_program_ids": [],
+        "varying_score_program_ids": [],
+        "legacy_event_review_required": false,
+        "reasons": []
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s400",
+        "workflow_status": "complete",
+        "engine_classification": "legacy",
+        "review_required": false,
+        "repeated_program_ids": [],
+        "same_batch_repeated_program_ids": [],
+        "varying_score_program_ids": [],
+        "legacy_event_review_required": false,
+        "reasons": []
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s401",
+        "workflow_status": "complete",
+        "engine_classification": "fixed",
+        "review_required": false,
+        "repeated_program_ids": [],
+        "same_batch_repeated_program_ids": [],
+        "varying_score_program_ids": [],
+        "legacy_event_review_required": false,
+        "reasons": []
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s401",
+        "workflow_status": "complete",
+        "engine_classification": "fixed",
+        "review_required": false,
+        "repeated_program_ids": [],
+        "same_batch_repeated_program_ids": [],
+        "varying_score_program_ids": [],
+        "legacy_event_review_required": false,
+        "reasons": []
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s402",
+        "workflow_status": "complete",
+        "engine_classification": "fixed",
+        "review_required": false,
+        "repeated_program_ids": [],
+        "same_batch_repeated_program_ids": [],
+        "varying_score_program_ids": [],
+        "legacy_event_review_required": false,
+        "reasons": []
+      }
+    ],
+    "excluded_primary_run_ids": [],
+    "policy": "Score-independent implementation-integrity gate. Keep raw results, withhold affected/ambiguous legacy runs pending documented review or correction. No exclusion based on how well the program scored."
+  },
+  "excluded_primary_runs": [],
+  "diagnostic_errors": [],
+  "writer_parent_audit": {
+    "at_unix": 1795509140.2913556,
+    "rows": [
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s400",
+        "emitted_redesign_directions": 5,
+        "generation_zero_targets": 4,
+        "evolved_targets": 1,
+        "unique_targets": 2,
+        "targets": [
+          {
+            "direction": "i0/planner_0/direction_01",
+            "target": "4f91b6d7",
+            "target_found": true,
+            "generation": 0,
+            "has_parents": false,
+            "training_score": 0.6378533333333334,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_1/direction_00",
+            "target": "4f91b6d7",
+            "target_found": true,
+            "generation": 0,
+            "has_parents": false,
+            "training_score": 0.6378533333333334,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_2/direction_01",
+            "target": "4f91b6d7",
+            "target_found": true,
+            "generation": 0,
+            "has_parents": false,
+            "training_score": 0.6378533333333334,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_3/direction_01",
+            "target": "4f91b6d7",
+            "target_found": true,
+            "generation": 0,
+            "has_parents": false,
+            "training_score": 0.6378533333333334,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i1/planner_0/direction_00",
+            "target": "c19421bb",
+            "target_found": true,
+            "generation": 7,
+            "has_parents": true,
+            "training_score": 0.6392266666666667,
+            "source_hash_matches": true
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s401",
+        "emitted_redesign_directions": 5,
+        "generation_zero_targets": 0,
+        "evolved_targets": 5,
+        "unique_targets": 2,
+        "targets": [
+          {
+            "direction": "i0/planner_0/direction_01",
+            "target": "9c14b529",
+            "target_found": true,
+            "generation": 1,
+            "has_parents": true,
+            "training_score": 0.6386000000000001,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_1/direction_01",
+            "target": "9c14b529",
+            "target_found": true,
+            "generation": 1,
+            "has_parents": true,
+            "training_score": 0.6386000000000001,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_2/direction_01",
+            "target": "9c14b529",
+            "target_found": true,
+            "generation": 1,
+            "has_parents": true,
+            "training_score": 0.6386000000000001,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_3/direction_01",
+            "target": "9c14b529",
+            "target_found": true,
+            "generation": 1,
+            "has_parents": true,
+            "training_score": 0.6386000000000001,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i1/planner_0/direction_00",
+            "target": "35391a44",
+            "target_found": true,
+            "generation": 8,
+            "has_parents": true,
+            "training_score": 0.6392933333333333,
+            "source_hash_matches": true
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s402",
+        "emitted_redesign_directions": 4,
+        "generation_zero_targets": 3,
+        "evolved_targets": 1,
+        "unique_targets": 2,
+        "targets": [
+          {
+            "direction": "i0/planner_0/direction_00",
+            "target": "d0327dca",
+            "target_found": true,
+            "generation": 0,
+            "has_parents": false,
+            "training_score": 0.63788,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_1/direction_01",
+            "target": "d0327dca",
+            "target_found": true,
+            "generation": 0,
+            "has_parents": false,
+            "training_score": 0.63788,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_3/direction_01",
+            "target": "d0327dca",
+            "target_found": true,
+            "generation": 0,
+            "has_parents": false,
+            "training_score": 0.63788,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i1/planner_0/direction_01",
+            "target": "2c4464ad",
+            "target_found": true,
+            "generation": 2,
+            "has_parents": true,
+            "training_score": 0.6383333333333334,
+            "source_hash_matches": true
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s400",
+        "emitted_redesign_directions": 6,
+        "generation_zero_targets": 3,
+        "evolved_targets": 3,
+        "unique_targets": 4,
+        "targets": [
+          {
+            "direction": "i0/planner_0/direction_01",
+            "target": "1cf42978",
+            "target_found": true,
+            "generation": 0,
+            "has_parents": false,
+            "training_score": 0.6378733333333333,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_1/direction_01",
+            "target": "1cf42978",
+            "target_found": true,
+            "generation": 0,
+            "has_parents": false,
+            "training_score": 0.6378733333333333,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_3/direction_00",
+            "target": "1cf42978",
+            "target_found": true,
+            "generation": 0,
+            "has_parents": false,
+            "training_score": 0.6378733333333333,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_3/direction_01",
+            "target": "95830fcb",
+            "target_found": true,
+            "generation": 2,
+            "has_parents": true,
+            "training_score": 0.63832,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i1/planner_3/direction_01",
+            "target": "e5c8adab",
+            "target_found": true,
+            "generation": 6,
+            "has_parents": true,
+            "training_score": 0.6393,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i1/planner_1/direction_01",
+            "target": "4493b556",
+            "target_found": true,
+            "generation": 5,
+            "has_parents": true,
+            "training_score": 0.6392266666666667,
+            "source_hash_matches": true
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s401",
+        "emitted_redesign_directions": 8,
+        "generation_zero_targets": 0,
+        "evolved_targets": 8,
+        "unique_targets": 5,
+        "targets": [
+          {
+            "direction": "i0/planner_0/direction_01",
+            "target": "70650c83",
+            "target_found": true,
+            "generation": 1,
+            "has_parents": true,
+            "training_score": 0.6385266666666667,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_1/direction_00",
+            "target": "061e31bb",
+            "target_found": true,
+            "generation": 2,
+            "has_parents": true,
+            "training_score": 0.6385666666666667,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_2/direction_01",
+            "target": "dfa02b92",
+            "target_found": true,
+            "generation": 1,
+            "has_parents": true,
+            "training_score": 0.6378866666666666,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_3/direction_01",
+            "target": "061e31bb",
+            "target_found": true,
+            "generation": 2,
+            "has_parents": true,
+            "training_score": 0.6385666666666667,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i1/planner_0/direction_00",
+            "target": "8018e190",
+            "target_found": true,
+            "generation": 3,
+            "has_parents": true,
+            "training_score": 0.6386666666666666,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i1/planner_1/direction_01",
+            "target": "d605a34d",
+            "target_found": true,
+            "generation": 5,
+            "has_parents": true,
+            "training_score": 0.63834,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i1/planner_2/direction_00",
+            "target": "8018e190",
+            "target_found": true,
+            "generation": 3,
+            "has_parents": true,
+            "training_score": 0.6386666666666666,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i1/planner_3/direction_00",
+            "target": "8018e190",
+            "target_found": true,
+            "generation": 3,
+            "has_parents": true,
+            "training_score": 0.6386666666666666,
+            "source_hash_matches": true
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s402",
+        "emitted_redesign_directions": 4,
+        "generation_zero_targets": 0,
+        "evolved_targets": 4,
+        "unique_targets": 2,
+        "targets": [
+          {
+            "direction": "i0/planner_0/direction_01",
+            "target": "d111d0ad",
+            "target_found": true,
+            "generation": 2,
+            "has_parents": true,
+            "training_score": 0.6393466666666667,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_1/direction_01",
+            "target": "987e126a",
+            "target_found": true,
+            "generation": 1,
+            "has_parents": true,
+            "training_score": 0.6392599999999999,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_2/direction_00",
+            "target": "d111d0ad",
+            "target_found": true,
+            "generation": 2,
+            "has_parents": true,
+            "training_score": 0.6393466666666667,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_3/direction_01",
+            "target": "d111d0ad",
+            "target_found": true,
+            "generation": 2,
+            "has_parents": true,
+            "training_score": 0.6393466666666667,
+            "source_hash_matches": true
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s400",
+        "emitted_redesign_directions": 4,
+        "generation_zero_targets": 0,
+        "evolved_targets": 4,
+        "unique_targets": 2,
+        "targets": [
+          {
+            "direction": "i0/planner_0/direction_01",
+            "target": "daa35d6c",
+            "target_found": true,
+            "generation": 5,
+            "has_parents": true,
+            "training_score": 5.254575906666666,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_1/direction_01",
+            "target": "b0220ee7",
+            "target_found": true,
+            "generation": 7,
+            "has_parents": true,
+            "training_score": 5.237608313333333,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_2/direction_01",
+            "target": "daa35d6c",
+            "target_found": true,
+            "generation": 5,
+            "has_parents": true,
+            "training_score": 5.254575906666666,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_3/direction_01",
+            "target": "daa35d6c",
+            "target_found": true,
+            "generation": 5,
+            "has_parents": true,
+            "training_score": 5.254575906666666,
+            "source_hash_matches": true
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s401",
+        "emitted_redesign_directions": 4,
+        "generation_zero_targets": 0,
+        "evolved_targets": 4,
+        "unique_targets": 2,
+        "targets": [
+          {
+            "direction": "i0/planner_0/direction_01",
+            "target": "f5fc4c69",
+            "target_found": true,
+            "generation": 2,
+            "has_parents": true,
+            "training_score": 5.228120446666666,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_1/direction_01",
+            "target": "f5fc4c69",
+            "target_found": true,
+            "generation": 2,
+            "has_parents": true,
+            "training_score": 5.228120446666666,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_2/direction_01",
+            "target": "f5fc4c69",
+            "target_found": true,
+            "generation": 2,
+            "has_parents": true,
+            "training_score": 5.228120446666666,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i1/planner_0/direction_01",
+            "target": "83037678",
+            "target_found": true,
+            "generation": 3,
+            "has_parents": true,
+            "training_score": 5.290742866666666,
+            "source_hash_matches": true
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s400",
+        "emitted_redesign_directions": 4,
+        "generation_zero_targets": 0,
+        "evolved_targets": 4,
+        "unique_targets": 2,
+        "targets": [
+          {
+            "direction": "i0/planner_0/direction_01",
+            "target": "a62b3f3d",
+            "target_found": true,
+            "generation": 5,
+            "has_parents": true,
+            "training_score": 5.21893044,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_1/direction_01",
+            "target": "a62b3f3d",
+            "target_found": true,
+            "generation": 5,
+            "has_parents": true,
+            "training_score": 5.21893044,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_2/direction_00",
+            "target": "a62b3f3d",
+            "target_found": true,
+            "generation": 5,
+            "has_parents": true,
+            "training_score": 5.21893044,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_3/direction_01",
+            "target": "4e2b3c18",
+            "target_found": true,
+            "generation": 4,
+            "has_parents": true,
+            "training_score": 5.216945326666667,
+            "source_hash_matches": true
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s401",
+        "emitted_redesign_directions": 4,
+        "generation_zero_targets": 0,
+        "evolved_targets": 4,
+        "unique_targets": 2,
+        "targets": [
+          {
+            "direction": "i0/planner_0/direction_00",
+            "target": "e9844e2c",
+            "target_found": true,
+            "generation": 8,
+            "has_parents": true,
+            "training_score": 5.2134786066666665,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_1/direction_01",
+            "target": "e9844e2c",
+            "target_found": true,
+            "generation": 8,
+            "has_parents": true,
+            "training_score": 5.2134786066666665,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_2/direction_01",
+            "target": "e9844e2c",
+            "target_found": true,
+            "generation": 8,
+            "has_parents": true,
+            "training_score": 5.2134786066666665,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_3/direction_01",
+            "target": "dd6fb667",
+            "target_found": true,
+            "generation": 4,
+            "has_parents": true,
+            "training_score": 5.199944453333333,
+            "source_hash_matches": true
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s402",
+        "emitted_redesign_directions": 4,
+        "generation_zero_targets": 0,
+        "evolved_targets": 4,
+        "unique_targets": 2,
+        "targets": [
+          {
+            "direction": "i0/planner_0/direction_01",
+            "target": "e69d5029",
+            "target_found": true,
+            "generation": 1,
+            "has_parents": true,
+            "training_score": 5.219334086666667,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_1/direction_01",
+            "target": "22f8c05a",
+            "target_found": true,
+            "generation": 3,
+            "has_parents": true,
+            "training_score": 5.2220688399999995,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_2/direction_01",
+            "target": "22f8c05a",
+            "target_found": true,
+            "generation": 3,
+            "has_parents": true,
+            "training_score": 5.2220688399999995,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_3/direction_01",
+            "target": "e69d5029",
+            "target_found": true,
+            "generation": 1,
+            "has_parents": true,
+            "training_score": 5.219334086666667,
+            "source_hash_matches": true
+          }
+        ]
+      }
+    ],
+    "scope": "Only emitted redesign directions in modified/adaptive method audits. Native planner target choice was preserved. Distinct directions can share one target. An evolved-target benefit cannot be inferred from seed-target restarts."
+  },
+  "resource_audit": {
+    "at_unix": 1795509140.36676,
+    "rows": [
+      {
+        "run": "matched-ahc024-molt-s400",
+        "status": "complete",
+        "confirmed_provider_usd": 0.4405274216,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.4405274216,
+        "native_reported_seconds": 3532.2293014526367,
+        "time_to_80th_recorded_evaluation_seconds": 3483.5802414417267,
+        "process_wall_seconds": 3534.611430644989,
+        "receipt_protocol": null
+      },
+      {
+        "run": "matched-ahc024-molt-s401",
+        "status": "complete",
+        "confirmed_provider_usd": 0.4417344848,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.4417344848,
+        "native_reported_seconds": 3924.1210203170776,
+        "time_to_80th_recorded_evaluation_seconds": 3924.110601902008,
+        "process_wall_seconds": 3926.53834605217,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
+        "run": "matched-ahc024-molt-s402",
+        "status": "complete",
+        "confirmed_provider_usd": 0.3800144712,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.3800144712,
+        "native_reported_seconds": 3377.283956050873,
+        "time_to_80th_recorded_evaluation_seconds": 3306.2196278572083,
+        "process_wall_seconds": 3378.5710945129395,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s400",
+        "status": "complete",
+        "confirmed_provider_usd": 0.4020098432,
+        "unknown_request_count": 1,
+        "conservative_total_usd": 1.4020098432,
+        "native_reported_seconds": 3165.2683022022247,
+        "time_to_80th_recorded_evaluation_seconds": 3165.227637529373,
+        "process_wall_seconds": 3166.5330805778503,
+        "receipt_protocol": null
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s401",
+        "status": "complete",
+        "confirmed_provider_usd": 0.4198335512,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.4198335512,
+        "native_reported_seconds": 3487.736009120941,
+        "time_to_80th_recorded_evaluation_seconds": 3487.723439693451,
+        "process_wall_seconds": 3490.552581310272,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s402",
+        "status": "complete",
+        "confirmed_provider_usd": 0.423314332,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.423314332,
+        "native_reported_seconds": 3467.252039670944,
+        "time_to_80th_recorded_evaluation_seconds": 3355.3425347805023,
+        "process_wall_seconds": 3468.7116391658783,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s400",
+        "status": "complete",
+        "confirmed_provider_usd": 0.38940060320000003,
+        "unknown_request_count": 1,
+        "conservative_total_usd": 1.3894006032,
+        "native_reported_seconds": 3384.2638602256775,
+        "time_to_80th_recorded_evaluation_seconds": 3383.9736337661743,
+        "process_wall_seconds": 3386.523317337036,
+        "receipt_protocol": null
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s401",
+        "status": "complete",
+        "confirmed_provider_usd": 0.4077716944,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.4077716944,
+        "native_reported_seconds": 3177.758965730667,
+        "time_to_80th_recorded_evaluation_seconds": 3177.748637676239,
+        "process_wall_seconds": 3180.4569821357727,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s402",
+        "status": "complete",
+        "confirmed_provider_usd": 0.3285951872,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.3285951872,
+        "native_reported_seconds": 3888.6406648159027,
+        "time_to_80th_recorded_evaluation_seconds": 3879.497674226761,
+        "process_wall_seconds": 3890.761634349823,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
+        "run": "matched-ahc024-simpletes-s400",
+        "status": "complete",
+        "confirmed_provider_usd": 0.259912632,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.259912632,
+        "native_reported_seconds": 3082.4359605312347,
+        "time_to_80th_recorded_evaluation_seconds": 3082.4270911216736,
+        "process_wall_seconds": 3084.4637627601624,
+        "receipt_protocol": null
+      },
+      {
+        "run": "matched-ahc024-simpletes-s401",
+        "status": "complete",
+        "confirmed_provider_usd": 0.2763033112,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.2763033112,
+        "native_reported_seconds": 3187.611186981201,
+        "time_to_80th_recorded_evaluation_seconds": 3146.734832763672,
+        "process_wall_seconds": 3190.4834444522858,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
+        "run": "matched-ahc024-simpletes-s402",
+        "status": "complete",
+        "confirmed_provider_usd": 0.3267938744,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.3267938744,
+        "native_reported_seconds": 3224.4534821510315,
+        "time_to_80th_recorded_evaluation_seconds": 3143.7127244472504,
+        "process_wall_seconds": 3226.535574913025,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
+        "run": "matched-ahc058-molt-s400",
+        "status": "complete",
+        "confirmed_provider_usd": 0.2609046888,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.2609046888,
+        "native_reported_seconds": 2643.5740599632263,
+        "time_to_80th_recorded_evaluation_seconds": 2643.5602757930756,
+        "process_wall_seconds": 2646.4120440483093,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
+        "run": "matched-ahc058-molt-s401",
+        "status": "complete",
+        "confirmed_provider_usd": 0.2734551568,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.2734551568,
+        "native_reported_seconds": 2402.3503818511963,
+        "time_to_80th_recorded_evaluation_seconds": 2364.786927461624,
+        "process_wall_seconds": 2404.3245465755463,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
+        "run": "matched-ahc058-molt-s402",
+        "status": "running",
+        "confirmed_provider_usd": 0.0440077344,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.0440077344,
+        "native_reported_seconds": null,
+        "time_to_80th_recorded_evaluation_seconds": null,
+        "process_wall_seconds": null,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s400",
+        "status": "complete",
+        "confirmed_provider_usd": 0.2993412072,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.2993412072,
+        "native_reported_seconds": 3109.8595921993256,
+        "time_to_80th_recorded_evaluation_seconds": 3103.6364963054657,
+        "process_wall_seconds": 3112.4561336040497,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s401",
+        "status": "complete",
+        "confirmed_provider_usd": 0.3152851688,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.3152851688,
+        "native_reported_seconds": 3195.4499909877777,
+        "time_to_80th_recorded_evaluation_seconds": 3118.190239429474,
+        "process_wall_seconds": 3196.5027310848236,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s400",
+        "status": "complete",
+        "confirmed_provider_usd": 0.2462899656,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.2462899656,
+        "native_reported_seconds": 2275.8973717689514,
+        "time_to_80th_recorded_evaluation_seconds": 2275.8893024921417,
+        "process_wall_seconds": 2278.3670394420624,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s401",
+        "status": "complete",
+        "confirmed_provider_usd": 0.2692625432,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.2692625432,
+        "native_reported_seconds": 2521.792617559433,
+        "time_to_80th_recorded_evaluation_seconds": 2521.7841622829437,
+        "process_wall_seconds": 2524.415909051895,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s402",
+        "status": "running",
+        "confirmed_provider_usd": 0.1827952056,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.1827952056,
+        "native_reported_seconds": null,
+        "time_to_80th_recorded_evaluation_seconds": null,
+        "process_wall_seconds": null,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
+        "run": "matched-ahc058-simpletes-s400",
+        "status": "complete",
+        "confirmed_provider_usd": 0.232968708,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.232968708,
+        "native_reported_seconds": 2371.9727120399475,
+        "time_to_80th_recorded_evaluation_seconds": 2332.626755475998,
+        "process_wall_seconds": 2374.343104124069,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
+        "run": "matched-ahc058-simpletes-s401",
+        "status": "complete",
+        "confirmed_provider_usd": 0.2245232584,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.2245232584,
+        "native_reported_seconds": 2340.0092780590057,
+        "time_to_80th_recorded_evaluation_seconds": 2340.0014231204987,
+        "process_wall_seconds": 2342.3485016822815,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
+        "run": "matched-ahc058-simpletes-s402",
+        "status": "complete",
+        "confirmed_provider_usd": 0.2184578424,
+        "unknown_request_count": 1,
+        "conservative_total_usd": 1.2184578424,
+        "native_reported_seconds": 2393.566600084305,
+        "time_to_80th_recorded_evaluation_seconds": 2354.4063913822174,
+        "process_wall_seconds": 2396.444057703018,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      }
+    ],
+    "caution": "Unknown charges remain booked. Confirmed provider totals exclude unknown requests and are not complete billed totals where unknown_count>0. Process wall time and native reported seconds may include receipt waits during worker cleanup. Time to80th recorded evaluation uses actual search-event timestamps and excludes later receipt-only tail; it is withheld if80 calls were not reached."
+  },
+  "baseline_parity": {
+    "at_unix": 1795509140.442122,
+    "observed_starts": 23,
+    "scheduled_trials": 40,
+    "all_observed_sources_match": true,
+    "all_observed_seeds_valid150": true,
+    "rows": [
+      {
+        "run": "matched-ahc024-molt-s400",
+        "task": "ahc024",
+        "starting_source_sha256": "dad6022c8f8422bf66c13e49c7e36c95a6668a84ee5f01b92e2bdada4e571f0e",
+        "matches_fixed_seed": true,
+        "starting_score": 0.6378933333333333,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 8,
+        "selected_is_starting_source": false,
+        "selected_score": 0.6394333333333333
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s400",
+        "task": "ahc024",
+        "starting_source_sha256": "dad6022c8f8422bf66c13e49c7e36c95a6668a84ee5f01b92e2bdada4e571f0e",
+        "matches_fixed_seed": true,
+        "starting_score": 0.6378533333333334,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 7,
+        "selected_is_starting_source": false,
+        "selected_score": 0.6392266666666667
+      },
+      {
+        "run": "matched-ahc024-simpletes-s400",
+        "task": "ahc024",
+        "starting_source_sha256": "dad6022c8f8422bf66c13e49c7e36c95a6668a84ee5f01b92e2bdada4e571f0e",
+        "matches_fixed_seed": true,
+        "starting_score": 0.6378933333333333,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 0,
+        "selected_is_starting_source": true,
+        "selected_score": 0.6378933333333333
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s400",
+        "task": "ahc024",
+        "starting_source_sha256": "dad6022c8f8422bf66c13e49c7e36c95a6668a84ee5f01b92e2bdada4e571f0e",
+        "matches_fixed_seed": true,
+        "starting_score": 0.6378733333333333,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 6,
+        "selected_is_starting_source": false,
+        "selected_score": 0.6393
+      },
+      {
+        "run": "matched-ahc058-molt-s400",
+        "task": "ahc058",
+        "starting_source_sha256": "599fc27b8c744ec7787eb536dfb8906a85ebe7e2b7c0357bbf0004d97d0590f6",
+        "matches_fixed_seed": true,
+        "starting_score": 4.86749216,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 8,
+        "selected_is_starting_source": false,
+        "selected_score": 5.53216096
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s400",
+        "task": "ahc058",
+        "starting_source_sha256": "599fc27b8c744ec7787eb536dfb8906a85ebe7e2b7c0357bbf0004d97d0590f6",
+        "matches_fixed_seed": true,
+        "starting_score": 4.86749216,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 9,
+        "selected_is_starting_source": false,
+        "selected_score": 5.3564282400000005
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s400",
+        "task": "ahc058",
+        "starting_source_sha256": "599fc27b8c744ec7787eb536dfb8906a85ebe7e2b7c0357bbf0004d97d0590f6",
+        "matches_fixed_seed": true,
+        "starting_score": 4.86749216,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 13,
+        "selected_is_starting_source": false,
+        "selected_score": 5.493486346666667
+      },
+      {
+        "run": "matched-ahc058-simpletes-s400",
+        "task": "ahc058",
+        "starting_source_sha256": "599fc27b8c744ec7787eb536dfb8906a85ebe7e2b7c0357bbf0004d97d0590f6",
+        "matches_fixed_seed": true,
+        "starting_score": 4.86749216,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 16,
+        "selected_is_starting_source": false,
+        "selected_score": 5.440964066666666
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s401",
+        "task": "ahc024",
+        "starting_source_sha256": "dad6022c8f8422bf66c13e49c7e36c95a6668a84ee5f01b92e2bdada4e571f0e",
+        "matches_fixed_seed": true,
+        "starting_score": 0.6378666666666667,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 8,
+        "selected_is_starting_source": false,
+        "selected_score": 0.6392933333333333
+      },
+      {
+        "run": "matched-ahc024-simpletes-s401",
+        "task": "ahc024",
+        "starting_source_sha256": "dad6022c8f8422bf66c13e49c7e36c95a6668a84ee5f01b92e2bdada4e571f0e",
+        "matches_fixed_seed": true,
+        "starting_score": 0.6378733333333333,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 11,
+        "selected_is_starting_source": false,
+        "selected_score": 0.6394466666666667
+      },
+      {
+        "run": "matched-ahc024-molt-s401",
+        "task": "ahc024",
+        "starting_source_sha256": "dad6022c8f8422bf66c13e49c7e36c95a6668a84ee5f01b92e2bdada4e571f0e",
+        "matches_fixed_seed": true,
+        "starting_score": 0.6378866666666666,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 4,
+        "selected_is_starting_source": false,
+        "selected_score": 0.63936
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s401",
+        "task": "ahc024",
+        "starting_source_sha256": "dad6022c8f8422bf66c13e49c7e36c95a6668a84ee5f01b92e2bdada4e571f0e",
+        "matches_fixed_seed": true,
+        "starting_score": 0.63788,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 7,
+        "selected_is_starting_source": false,
+        "selected_score": 0.63898
+      },
+      {
+        "run": "matched-ahc058-molt-s401",
+        "task": "ahc058",
+        "starting_source_sha256": "599fc27b8c744ec7787eb536dfb8906a85ebe7e2b7c0357bbf0004d97d0590f6",
+        "matches_fixed_seed": true,
+        "starting_score": 4.86749216,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 5,
+        "selected_is_starting_source": false,
+        "selected_score": 5.416108693333333
+      },
+      {
+        "run": "matched-ahc058-simpletes-s401",
+        "task": "ahc058",
+        "starting_source_sha256": "599fc27b8c744ec7787eb536dfb8906a85ebe7e2b7c0357bbf0004d97d0590f6",
+        "matches_fixed_seed": true,
+        "starting_score": 4.86749216,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 8,
+        "selected_is_starting_source": false,
+        "selected_score": 5.24868346
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s401",
+        "task": "ahc058",
+        "starting_source_sha256": "599fc27b8c744ec7787eb536dfb8906a85ebe7e2b7c0357bbf0004d97d0590f6",
+        "matches_fixed_seed": true,
+        "starting_score": 4.86749216,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 10,
+        "selected_is_starting_source": false,
+        "selected_score": 5.280642126666667
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s401",
+        "task": "ahc058",
+        "starting_source_sha256": "599fc27b8c744ec7787eb536dfb8906a85ebe7e2b7c0357bbf0004d97d0590f6",
+        "matches_fixed_seed": true,
+        "starting_score": 4.86749216,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 7,
+        "selected_is_starting_source": false,
+        "selected_score": 5.320119053333333
+      },
+      {
+        "run": "matched-ahc024-simpletes-s402",
+        "task": "ahc024",
+        "starting_source_sha256": "dad6022c8f8422bf66c13e49c7e36c95a6668a84ee5f01b92e2bdada4e571f0e",
+        "matches_fixed_seed": true,
+        "starting_score": 0.63788,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 11,
+        "selected_is_starting_source": false,
+        "selected_score": 0.6393866666666667
+      },
+      {
+        "run": "matched-ahc024-molt-s402",
+        "task": "ahc024",
+        "starting_source_sha256": "dad6022c8f8422bf66c13e49c7e36c95a6668a84ee5f01b92e2bdada4e571f0e",
+        "matches_fixed_seed": true,
+        "starting_score": 0.6378866666666666,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 7,
+        "selected_is_starting_source": false,
+        "selected_score": 0.63924
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s402",
+        "task": "ahc024",
+        "starting_source_sha256": "dad6022c8f8422bf66c13e49c7e36c95a6668a84ee5f01b92e2bdada4e571f0e",
+        "matches_fixed_seed": true,
+        "starting_score": 0.6379,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 6,
+        "selected_is_starting_source": false,
+        "selected_score": 1.1084733333333334
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s402",
+        "task": "ahc024",
+        "starting_source_sha256": "dad6022c8f8422bf66c13e49c7e36c95a6668a84ee5f01b92e2bdada4e571f0e",
+        "matches_fixed_seed": true,
+        "starting_score": 0.63788,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 3,
+        "selected_is_starting_source": false,
+        "selected_score": 0.6385333333333333
+      },
+      {
+        "run": "matched-ahc058-simpletes-s402",
+        "task": "ahc058",
+        "starting_source_sha256": "599fc27b8c744ec7787eb536dfb8906a85ebe7e2b7c0357bbf0004d97d0590f6",
+        "matches_fixed_seed": true,
+        "starting_score": 4.86749216,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 12,
+        "selected_is_starting_source": false,
+        "selected_score": 5.2483123733333334
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s402",
+        "task": "ahc058",
+        "starting_source_sha256": "599fc27b8c744ec7787eb536dfb8906a85ebe7e2b7c0357bbf0004d97d0590f6",
+        "matches_fixed_seed": true,
+        "starting_score": 4.86749216,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150
+      },
+      {
+        "run": "matched-ahc058-molt-s402",
+        "task": "ahc058",
+        "starting_source_sha256": "599fc27b8c744ec7787eb536dfb8906a85ebe7e2b7c0357bbf0004d97d0590f6",
+        "matches_fixed_seed": true,
+        "starting_score": 4.86749216,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150
+      }
+    ],
+    "caution": "Source parity is distinct from identical stochastic histories. Wall-clock scores and prompt timing metrics can differ even with the same initial source and configured algorithm/model seeds."
+  },
+  "validity_budget_audit": {
+    "at_unix": 1795509140.5457752,
+    "rows": [
+      {
+        "run": "matched-ahc024-molt-s400",
+        "task": "ahc024",
+        "method": "molt",
+        "seed": 400,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 56,
+          "invalid_or_partial": 24
+        },
+        "rejection_reasons": {
+          "148/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 50 must not be adjacent.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 30 must be adjacent.": 2,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 0 are not connected.": 5,
+          "41/150 cases rejected -- case 1: WA Tester nonzero: Squares of color 0 are not connected.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 1 must not be adjacent.": 3,
+          "/tmp/ahc039__23ijzx4/Main.cpp:242:50: error: use of \u2018i\u2019 before deduction of \u2018auto\u2019": 1,
+          "collect2: error: ld returned 1 exit status": 1,
+          "/tmp/ahc039_2_kbavgd/Main.cpp:15:36: error: expected primary-expression before \u2018...\u2019 token": 1,
+          "/tmp/ahc039_awezp59z/Main.cpp:251:50: error: use of \u2018i\u2019 before deduction of \u2018auto\u2019": 1,
+          "11/150 cases rejected -- case 2: WA Tester nonzero: Colors 64 and 99 must not be adjacent.": 2,
+          "10/150 cases rejected -- case 2: WA Tester nonzero: Colors 64 and 99 must not be adjacent.": 1,
+          "150/150 cases rejected -- case 0: TLE CPU limit exceeded (prlimit SIGKILL)": 2,
+          "/tmp/ahc039_ww0vvwsk/Main.cpp:23:17: error: no matching function for call to \u2018std::vector<std::vector<int> >::assign(int, int)\u2019": 1,
+          "2/150 cases rejected -- case 32: TLE CPU limit exceeded (prlimit SIGKILL)": 1,
+          "/tmp/ahc039_n4gs8bam/Main.cpp:212:54: error: use of \u2018i\u2019 before deduction of \u2018auto\u2019": 1
+        }
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s400",
+        "task": "ahc024",
+        "method": "molt2_adaptive_branches",
+        "seed": 400,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 57,
+          "invalid_or_partial": 23
+        },
+        "rejection_reasons": {
+          "68/150 cases rejected -- case 1: WA Tester nonzero: Colors 0 and 100 must not be adjacent.": 3,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 1 must not be adjacent.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 30 must be adjacent.": 4,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 5 must not be adjacent.": 2,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 0 are not connected.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 39 must be adjacent.": 2,
+          "6/150 cases rejected -- case 74: WA Tester nonzero: Colors 8 and 67 must be adjacent.": 1,
+          "133/150 cases rejected -- case 0: WA Tester nonzero: Colors 21 and 41 must be adjacent.": 1,
+          "134/150 cases rejected -- case 0: WA Tester nonzero: Colors 21 and 41 must be adjacent.": 1,
+          "Compilation failed: /tmp/ahc039_nha_d2_q/Main.cpp:4:1: error: expected unqualified-id before \u2018...\u2019 token": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 40 are not connected.": 1,
+          "60/150 cases rejected -- case 1: WA Tester nonzero: Colors 54 and 89 must be adjacent.": 1,
+          "Compilation failed: /tmp/ahc039_w2_6rdk7/Main.cpp:2:194: error: stray \u2018`\u2019 in program": 1,
+          "139/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 39 must be adjacent.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 16 must not be adjacent.": 1,
+          "41/150 cases rejected -- case 2: WA Tester nonzero: Squares of color 39 are not connected.": 1
+        }
+      },
+      {
+        "run": "matched-ahc024-simpletes-s400",
+        "task": "ahc024",
+        "method": "simpletes",
+        "seed": 400,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 65,
+          "invalid_or_partial": 15
+        },
+        "rejection_reasons": {
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 30 must be adjacent.": 3,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 1 must not be adjacent.": 2,
+          "139/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 30 must be adjacent.": 1,
+          "/tmp/ahc039_ck79k6pu/Main.cpp:38:68: error: no match for \u2018operator-\u2019 (operand types are \u2018std::chrono::_V2::steady_clock::time_point\u2019 {aka \u2018std::chrono::time_point<std::chrono::_V2::steady_clock, std::chrono::duration<long int, std::ratio<1, 100000000": 1,
+          "/tmp/ahc039_3a30snr3/Main.cpp:186:28: error: \u2018reverse\u2019 cannot be used as a function": 1,
+          "/tmp/ahc039_3bkh9tjb/Main.cpp:128:32: error: expected \u2018}\u2019 before \u2018]\u2019 token": 1,
+          "36/150 cases rejected -- case 3: WA Tester nonzero: Colors 0 and 7 must not be adjacent.": 1,
+          "Compilation failed: /tmp/ahc039_9ztyl11i/Main.cpp:3:15: error: \u2018vector\u2019 was not declared in this scope": 1,
+          "8/150 cases rejected -- case 8: TLE Wall time 5.07s > 2.5s": 1,
+          "/tmp/ahc039_xdirsxb_/Main.cpp:174:32: error: \u2018rng\u2019 was not declared in this scope": 1,
+          "56/150 cases rejected -- case 1: WA Tester nonzero: Squares of color 0 are not connected.": 1,
+          "126/150 cases rejected -- case 1: WA Tester nonzero: Squares of color 29 are not connected.": 1
+        }
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s400",
+        "task": "ahc024",
+        "method": "molt_modified",
+        "seed": 400,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 56,
+          "invalid_or_partial": 24
+        },
+        "rejection_reasons": {
+          "24/150 cases rejected -- case 3: WA Tester nonzero: Colors 0 and 7 must not be adjacent.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 1 must not be adjacent.": 6,
+          "144/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 24 must not be adjacent.": 1,
+          "/tmp/ahc039_22a6a52b/Main.cpp:12:16: error: \u2018n\u2019 was not declared in this scope; did you mean \u2018yn\u2019?": 1,
+          "115/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 11 are not connected.": 1,
+          "Compilation failed: /tmp/ahc039_jr8xykhe/Main.cpp:3:8: error: \u2018vector\u2019 was not declared in this scope": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 89 are not connected.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 0 are not connected.": 3,
+          "/tmp/ahc039_ub25_pus/Main.cpp:258:13: error: \u2018a\u2019 was not declared in this scope": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 3 must be adjacent.": 1,
+          "/tmp/ahc039_00gw2f1n/Main.cpp:45:16: error: storage size of \u2018mark\u2019 isn\u2019t constant": 1,
+          "41/150 cases rejected -- case 1: WA Tester nonzero: Colors 0 and 100 must not be adjacent.": 1,
+          "Compilation failed: /tmp/ahc039_ci1c0wh1/Main.cpp:2:1: error: expected unqualified-id before \u2018[\u2019 token": 1,
+          "/tmp/ahc039_gdtjefkx/Main.cpp:34:8: error: \u2018argc\u2019 was not declared in this scope": 1,
+          "/tmp/ahc039_ve87jir0/Main.cpp:2:111: error: missing terminating ' character": 1,
+          "Compilation failed: /tmp/ahc039_bubcy_fy/Main.cpp:3:1: error: expected unqualified-id before \u2018for\u2019": 1,
+          "84/150 cases rejected -- case 0: TLE CPU limit exceeded (prlimit SIGKILL)": 1
+        }
+      },
+      {
+        "run": "matched-ahc058-molt-s400",
+        "task": "ahc058",
+        "method": "molt",
+        "seed": 400,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 70,
+          "invalid_or_partial": 10
+        },
+        "rejection_reasons": {
+          "139/150 cases rejected -- case 0: TLE CPU limit exceeded (prlimit SIGKILL)": 1,
+          "/tmp/ahc039_yvdu8q83/Main.cpp:128:47: error: no matching function for call to \u2018max(long long int, int)\u2019": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: wrong answer: Not enough actions: expected 500, got 0": 3,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: wrong answer: Not enough apples at turn 1: have 1, need 7": 1,
+          "150/150 cases rejected -- case 0: TLE CPU limit exceeded (prlimit SIGKILL)": 1,
+          "/tmp/ahc039_ne6bsc5w/Main.cpp:125:40: error: invalid initialization of reference of type \u2018const Core&\u2019 from expression of type \u2018St\u2019": 1,
+          "/tmp/ahc039_d4pnqb6d/Main.cpp:57:22: error: assignment of read-only location \u2018s.State::P[idx]\u2019": 1,
+          "97/150 cases rejected -- case 1: WA Tester nonzero: wrong answer: Not enough actions: expected 500, got 0": 1
+        }
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s400",
+        "task": "ahc058",
+        "method": "molt_modified",
+        "seed": 400,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 77,
+          "invalid_or_partial": 3
+        },
+        "rejection_reasons": {
+          "144/150 cases rejected -- case 0: WA Tester nonzero: wrong answer: Not enough actions: expected 500, got 498": 1,
+          "/tmp/ahc039_vdf2hgcd/Main.cpp:115:27: error: \u2018K\u2019 was not declared in this scope": 1,
+          "Compilation failed: /tmp/ahc039_xh0bpd_4/Main.cpp:2:8: error: \u2018i128\u2019 does not name a type": 1
+        }
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s400",
+        "task": "ahc058",
+        "method": "molt2_adaptive_branches",
+        "seed": 400,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 78,
+          "invalid_or_partial": 2
+        },
+        "rejection_reasons": {
+          "149/150 cases rejected -- case 0: WA Tester nonzero: wrong answer: Not enough apples at turn 34: have 1703, need 1806": 1,
+          "84/150 cases rejected -- case 1: WA Tester nonzero: wrong answer: Not enough apples at turn 92: have 6020, need 6099": 1
+        }
+      },
+      {
+        "run": "matched-ahc058-simpletes-s400",
+        "task": "ahc058",
+        "method": "simpletes",
+        "seed": 400,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 76,
+          "invalid_or_partial": 4
+        },
+        "rejection_reasons": {
+          "Compilation failed: /tmp/ahc039_57oepx69/Main.cpp:2:1: error: expected unqualified-id before \u2018...\u2019 token": 1,
+          "150/150 cases rejected -- case 0: TLE CPU limit exceeded (prlimit SIGKILL)": 1,
+          "/tmp/ahc039_sshrxxxb/Main.cpp:52:26: error: \u2018i\u2019 was not declared in this scope": 1,
+          "/tmp/ahc039_krluz1d6/Main.cpp:117:33: error: \u2018K\u2019 was not declared in this scope": 1
+        }
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s401",
+        "task": "ahc024",
+        "method": "molt2_adaptive_branches",
+        "seed": 401,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 61,
+          "invalid_or_partial": 19
+        },
+        "rejection_reasons": {
+          "144/150 cases rejected -- case 0: WA Tester nonzero: Colors 11 and 20 must be adjacent.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 1 must not be adjacent.": 1,
+          "93/150 cases rejected -- case 2: WA Tester nonzero: Colors 13 and 40 must be adjacent.": 1,
+          "Compilation failed: /tmp/ahc039_2vbo4sp0/Main.cpp:2:1: error: expected unqualified-id before \u2018for\u2019": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 0 are not connected.": 1,
+          "127/150 cases rejected -- case 0: WA Tester nonzero: Colors 26 and 61 must be adjacent.": 1,
+          "Compilation failed: /tmp/ahc039_1od7my9q/Main.cpp:2:1: error: expected unqualified-id before numeric constant": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 4 and 26 must be adjacent.": 1,
+          "/tmp/ahc039_z406sdmj/Main.cpp:3:13: error: \u2018n\u2019 was not declared in this scope": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 89 are not connected.": 1,
+          "55/150 cases rejected -- case 2: WA Tester nonzero: Squares of color 39 are not connected.": 1,
+          "Compilation failed: /tmp/ahc039_8qfxjthp/Main.cpp:3:1: error: expected unqualified-id before \u2018for\u2019": 1,
+          "Compilation failed: /tmp/ahc039_d225fl6c/Main.cpp:2:1: error: expected unqualified-id before \u2018...\u2019 token": 1,
+          "148/150 cases rejected -- case 0: WA Tester nonzero: Colors 31 and 48 must not be adjacent.": 1,
+          "Compilation failed: /tmp/ahc039_k57tnpro/Main.cpp: In function \u2018std::vector<int> steinerForColor(int, const std::vector<int>&, const std::vector<int>&, const std::vector<std::vector<int> >&, const std::vector<int>&, const std::vector<int>&)\u2019:": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 28 and 60 must not be adjacent.": 1,
+          "/tmp/ahc039_7w1sc85c/Main.cpp:16:21: error: cannot convert \u2018const value_type\u2019 {aka \u2018const std::vector<int>\u2019} to \u2018int\u2019 in initialization": 1,
+          "29/150 cases rejected -- case 5: WA Tester nonzero: Colors 0 and 58 must be adjacent.": 1,
+          "/tmp/ahc039_n8kqdf1h/Main.cpp:188:17: error: no matching function for call to \u2018fill(std::vector<std::pair<int, int> >::iterator, std::vector<std::pair<int, int> >::iterator, <brace-enclosed initializer list>)\u2019": 1
+        }
+      },
+      {
+        "run": "matched-ahc024-simpletes-s401",
+        "task": "ahc024",
+        "method": "simpletes",
+        "seed": 401,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 54,
+          "invalid_or_partial": 26
+        },
+        "rejection_reasons": {
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 1 must not be adjacent.": 2,
+          "149/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 1 must not be adjacent.": 1,
+          "68/150 cases rejected -- case 1: WA Tester nonzero: Colors 0 and 100 must not be adjacent.": 2,
+          "Compilation failed: /tmp/ahc039_2u0l8ob_/Main.cpp:2:193: error: too many decimal points in number": 1,
+          "118/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 20 are not connected.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 89 are not connected.": 4,
+          "/tmp/ahc039_80uku13c/Main.cpp:169:28: error: \u2018shuffle\u2019 cannot be used as a function": 1,
+          "136/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 89 are not connected.": 1,
+          "Compilation failed: /tmp/ahc039_hwr4ld07/Main.cpp:2:1: error: expected unqualified-id before \u2018for\u2019": 1,
+          "/tmp/ahc039_nktsse_m/Main.cpp:223:16: error: \u2018ssz\u2019 was not declared in this scope": 1,
+          "1/150 cases rejected -- case 58: WA Tester nonzero: Squares of color 65 are not connected.": 1,
+          "/tmp/ahc039_l0hvfl_f/Main.cpp:63:37: error: no matching function for call to \u2018std::vector<int>::push_back(<brace-enclosed initializer list>)\u2019": 1,
+          "131/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 20 are not connected.": 1,
+          "133/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 20 are not connected.": 1,
+          "collect2: error: ld returned 1 exit status": 1,
+          "123/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 20 are not connected.": 1,
+          "Compilation failed: /tmp/ahc039_c0nlr9bu/Main.cpp:3:1: error: expected unqualified-id before \u2018{\u2019 token": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 0 are not connected.": 2,
+          "131/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 63 are not connected.": 1,
+          "/tmp/ahc039_i41wt8tl/Main.cpp:248:40: error: storage class specified for parameter \u2018dist0\u2019": 1
+        }
+      },
+      {
+        "run": "matched-ahc024-molt-s401",
+        "task": "ahc024",
+        "method": "molt",
+        "seed": 401,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 52,
+          "invalid_or_partial": 28
+        },
+        "rejection_reasons": {
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 30 must be adjacent.": 1,
+          "36/150 cases rejected -- case 1: WA Tester nonzero: Colors 0 and 100 must not be adjacent.": 1,
+          "24/150 cases rejected -- case 3: WA Tester nonzero: Colors 0 and 11 must not be adjacent.": 1,
+          "150/150 cases rejected -- case 0: TLE CPU limit exceeded (prlimit SIGKILL)": 1,
+          "/tmp/ahc039_99itldk7/Main.cpp:45:5: error: reference to \u2018visit\u2019 is ambiguous": 1,
+          "/tmp/ahc039_agzahq49/Main.cpp:55:31: error: cannot convert \u2018std::vector<std::vector<int> >\u2019 to \u2018int\u2019": 1,
+          "Compilation failed: /tmp/ahc039_5_q5j_fk/Main.cpp:2:1: error: expected unqualified-id before \u2018for\u2019": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 89 are not connected.": 1,
+          "48/150 cases rejected -- case 4: TLE CPU limit exceeded (prlimit SIGKILL)": 1,
+          "100/150 cases rejected -- case 1: TLE CPU limit exceeded (prlimit SIGKILL)": 1,
+          "Compilation failed: /tmp/ahc039_2qdcn4au/Main.cpp:2:1: error: expected unqualified-id before \u2018for\u2019": 1,
+          "149/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 22 are not connected.": 1,
+          "25/150 cases rejected -- case 0: TLE CPU limit exceeded (prlimit SIGKILL)": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 1 must not be adjacent.": 1,
+          "84/150 cases rejected -- case 0: TLE CPU limit exceeded (prlimit SIGKILL)": 1,
+          "45/150 cases rejected -- case 1: TLE CPU limit exceeded (prlimit SIGKILL)": 1,
+          "92/150 cases rejected -- case 0: TLE CPU limit exceeded (prlimit SIGKILL)": 1,
+          "/tmp/ahc039_1hnhlo1h/Main.cpp:343:38: error: \u2018chosen\u2019 was not declared in this scope; did you mean \u2018close\u2019?": 1,
+          "137/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 39 must be adjacent.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 11 are not connected.": 1,
+          "Compilation failed: /tmp/ahc039_u8r8khhg/Main.cpp:2:46: error: \u2018mt19937\u2019 has not been declared": 1,
+          "29/150 cases rejected -- case 4: TLE CPU limit exceeded (prlimit SIGKILL)": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 4 and 26 must be adjacent.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 5 must not be adjacent.": 1,
+          "52/150 cases rejected -- case 1: WA Tester nonzero: Colors 0 and 100 must not be adjacent.": 1,
+          "Compilation failed: /tmp/ahc039_fxwtjp1q/Main.cpp: In function \u2018void setCell(int, int, int, int)\u2019:": 1,
+          "/tmp/ahc039_2g6qgewe/Main.cpp:84:32: error: expected unqualified-id before \u2018(\u2019 token": 1,
+          "32/150 cases rejected -- case 1: TLE CPU limit exceeded (prlimit SIGKILL)": 1
+        }
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s401",
+        "task": "ahc024",
+        "method": "molt_modified",
+        "seed": 401,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 57,
+          "invalid_or_partial": 23
+        },
+        "rejection_reasons": {
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 40 are not connected.": 1,
+          "/tmp/ahc039_mbzaix__/Main.cpp:54:25: error: use of \u2018hasAdj\u2019 before deduction of \u2018auto\u2019": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 1 must not be adjacent.": 1,
+          "/tmp/ahc039_ne1kxpy_/Main.cpp:128:56: error: \u2018class std::deque<std::pair<int, int> >\u2019 has no member named \u2018pop\u2019": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 30 must be adjacent.": 5,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 4 and 26 must be adjacent.": 1,
+          "/tmp/ahc039_oz_nvm7g/Main.cpp:333:5: error: \u2018cur\u2019 was not declared in this scope": 1,
+          "128/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 47 must not be adjacent.": 1,
+          "68/150 cases rejected -- case 1: WA Tester nonzero: Colors 0 and 100 must not be adjacent.": 1,
+          "97/150 cases rejected -- case 0: WA Tester nonzero: Colors 61 and 79 must be adjacent.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 1 and 65 must be adjacent.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 1 and 31 must be adjacent.": 1,
+          "148/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 50 must not be adjacent.": 1,
+          "Compilation failed: /tmp/ahc039_stoe1wg9/Main.cpp: In lambda function:": 1,
+          "141/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 3 must be adjacent.": 1,
+          "52/150 cases rejected -- case 1: WA Tester nonzero: Squares of color 0 are not connected.": 1,
+          "55/150 cases rejected -- case 1: WA Tester nonzero: Squares of color 0 are not connected.": 1,
+          "Compilation failed: /tmp/ahc039_4mbrr20g/Main.cpp:2:1: error: \u2018cur\u2019 does not name a type": 1,
+          "Compilation failed: /tmp/ahc039_3rpifztl/Main.cpp:4:1: error: expected unqualified-id before \u2018while\u2019": 1
+        }
+      },
+      {
+        "run": "matched-ahc058-molt-s401",
+        "task": "ahc058",
+        "method": "molt",
+        "seed": 401,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 74,
+          "invalid_or_partial": 6
+        },
+        "rejection_reasons": {
+          "/tmp/ahc039_hchqsiwv/Main.cpp:3:33: error: \u2018atof\u2019 was not declared in this scope": 1,
+          "Compilation failed: /tmp/ahc039_8rfcrh88/Main.cpp: In function \u2018int main(int, char**)\u2019:": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: wrong answer: Not enough apples at turn 0: have 1, need 64284": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: wrong answer: Not enough actions: expected 500, got 0": 1,
+          "142/150 cases rejected -- case 8: WA Tester nonzero: wrong answer: Not enough actions: expected 500, got 0": 1,
+          "/tmp/ahc039_5gcmlzp9/Main.cpp:134:16: error: \u2018init\u2019 is not captured": 1
+        }
+      },
+      {
+        "run": "matched-ahc058-simpletes-s401",
+        "task": "ahc058",
+        "method": "simpletes",
+        "seed": 401,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 75,
+          "invalid_or_partial": 5
+        },
+        "rejection_reasons": {
+          "/tmp/ahc039_iwt02bpc/Main.cpp:54:15: error: could not convert \u2018apply(s, i0, j0)\u2019 from \u2018void\u2019 to \u2018bool\u2019": 1,
+          "/tmp/ahc039_3bg6w448/Main.cpp:72:27: error: \u2018K\u2019 was not declared in this scope": 1,
+          "1/150 cases rejected -- case 7: WA Tester nonzero: wrong answer: Not enough apples at turn 272: have 1676, need 2904": 1,
+          "/tmp/ahc039_o_bhgbes/Main.cpp:75:21: error: \u2018m\u2019 was not declared in this scope": 1,
+          "/tmp/ahc039_hwzfnres/Main.cpp:125:36: error: expected primary-expression before \u2018[\u2019 token": 1
+        }
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s401",
+        "task": "ahc058",
+        "method": "molt_modified",
+        "seed": 401,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 70,
+          "invalid_or_partial": 10
+        },
+        "rejection_reasons": {
+          "Compilation failed: /tmp/ahc039_dqqpvzzs/Main.cpp:2:8: error: \u2018pair\u2019 does not name a type": 1,
+          "Compilation failed: /tmp/ahc039_sy_eillx/Main.cpp:2:23: error: extended character \u00d7 is not valid in an identifier": 1,
+          "2/150 cases rejected -- case 111: TLE CPU limit exceeded (prlimit SIGKILL)": 1,
+          "Compilation failed: /tmp/ahc039_9xkld9dv/Main.cpp: In function \u2018long double marginalPotential(const std::vector<std::vector<__int128> >&, const std::vector<std::vector<long long int> >&, int, int, int)\u2019:": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: wrong answer: Not enough apples at turn 1: have 1, need 37389960078": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: wrong answer: Not enough apples at turn 1: have 1, need 81": 1,
+          "Compilation failed: /tmp/ahc039_vb6bvfzk/Main.cpp:2:1: error: expected unqualified-id before \u2018...\u2019 token": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: wrong answer: Not enough apples at turn 1: have 1, need 64284": 1,
+          "100/150 cases rejected -- case 0: WA Tester nonzero: wrong answer: Out of range: 4": 1,
+          "/tmp/ahc039_my23tyvt/Main.cpp:18:17: error: invalid types \u2018i128 {aka __int128}[int]\u2019 for array subscript": 1
+        }
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s401",
+        "task": "ahc058",
+        "method": "molt2_adaptive_branches",
+        "seed": 401,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 77,
+          "invalid_or_partial": 3
+        },
+        "rejection_reasons": {
+          "/tmp/ahc039_uo86obql/Main.cpp:88:27: error: \u2018K\u2019 was not declared in this scope": 1,
+          "/tmp/ahc039_kl_z7r8v/Main.cpp:188:28: error: \u2018struct Node\u2019 has no member named \u2018firstI2\u2019; did you mean \u2018firstI\u2019?": 1,
+          "5/150 cases rejected -- case 3: WA Tester nonzero: wrong answer: Not enough apples at turn 1: have 1, need 2": 1
+        }
+      },
+      {
+        "run": "matched-ahc024-simpletes-s402",
+        "task": "ahc024",
+        "method": "simpletes",
+        "seed": 402,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 50,
+          "invalid_or_partial": 30
+        },
+        "rejection_reasons": {
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 30 must be adjacent.": 3,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 1 must not be adjacent.": 7,
+          "13/150 cases rejected -- case 6: WA Tester nonzero: Colors 0 and 5 must not be adjacent.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Parse error: :0": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 0 are not connected.": 1,
+          "/tmp/ahc039_zwaaezdh/Main.cpp:96:17: error: no matching function for call to \u2018std::vector<std::v": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 39 must be adjacent.": 2,
+          "26/150 cases rejected -- case 3: WA Tester nonzero: Colors 0 and 11 must not be adjacent.": 1,
+          "68/150 cases rejected -- case 1: WA Tester nonzero: Colors 0 and 100 must not be adjacent.": 3,
+          "149/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 40 are not connected.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 4 and 26 must be adjacent.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 7 must not be adjacent.": 1,
+          "77/150 cases rejected -- case 1: WA Tester nonzero: Colors 0 and 100 must not be adjacent.": 1,
+          "/tmp/ahc039_mxvo3rpb/Main.cpp:89:5: error: expected \u2018,\u2019 or \u2018;\u2019 before \u2018auto\u2019": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 5 must not be adjacent.": 1,
+          "Compilation failed: /tmp/ahc039_glheroi5/Main.cpp:93:12: warning: character constant too long for its type": 1,
+          "/tmp/ahc039_jb93yu_x/Main.cpp:290:1: error: jump to label \u2018OUTPUT\u2019": 1,
+          "Compilation failed: /tmp/ahc039_7j6upbgt/Main.cpp:2:17: error: \u2018tl\u2019 was not declared in this scope": 1,
+          "18/150 cases rejected -- case 1: WA Tester nonzero: Squares of color 88 are not connected.": 1
+        }
+      },
+      {
+        "run": "matched-ahc024-molt-s402",
+        "task": "ahc024",
+        "method": "molt",
+        "seed": 402,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 60,
+          "invalid_or_partial": 20
+        },
+        "rejection_reasons": {
+          "146/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 30 must be adjacent.": 1,
+          "148/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 6 must not be adjacent.": 1,
+          "149/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 30 must be adjacent.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 1 must not be adjacent.": 2,
+          "101/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 30 must be adjacent.": 1,
+          "/tmp/ahc039_bhq9bj1j/Main.cpp:269:15: error: \u2018negp\u2019 was not declared in this scope": 1,
+          "47/150 cases rejected -- case 1: WA Tester nonzero: Colors 62 and 81 must be adjacent.": 1,
+          "147/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 30 must be adjacent.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 11 and 71 must be adjacent.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 0 are not connected.": 4,
+          "/tmp/ahc039_ba021xsu/Main.cpp:315:21: error: \u2018struct main(int, char**)::Edge\u2019 has no member named \u2018first\u2019": 1,
+          "Compilation failed: /tmp/ahc039_6u99f084/Main.cpp:13:21: error: too many decimal points in number": 1,
+          "3/150 cases rejected -- case 39: TLE CPU limit exceeded (prlimit SIGKILL)": 1,
+          "146/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 0 are not connected.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 30 must be adjacent.": 1,
+          "/tmp/ahc039_v2n55yuh/Main.cpp:65:93: error: cannot convert \u2018__gnu_cxx::__alloc_traits<std::allocator<std::vector<int> >, std::vector<int> >::value_type\u2019 {aka \u2018std::vector<int>\u2019} to \u2018int\u2019 in assignment": 1
+        }
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s402",
+        "task": "ahc024",
+        "method": "molt_modified",
+        "seed": 402,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 66,
+          "invalid_or_partial": 14
+        },
+        "rejection_reasons": {
+          "/tmp/ahc039_3mgam2gt/Main.cpp:25:20: error: \u2018n_max\u2019 was not declared in this scope": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 1 must not be adjacent.": 2,
+          "Compilation failed: /tmp/ahc039_rsvsg2_4/Main.cpp: In function \u2018bool tryRemove(int, int, double, double)\u2019:": 1,
+          "142/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 0 are not connected.": 1,
+          "Compilation failed: /tmp/ahc039_asye7cxu/Main.cpp:2:1: error: expected unqualified-id before \u2018for\u2019": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 0 are not connected.": 1,
+          "/tmp/ahc039_mwe2pgjt/Main.cpp:142:9: error: no match for \u2018operator>>\u2019 (operand types are \u2018std::istream\u2019 {aka \u2018std::basic_istream<char>\u2019} and \u2018const int\u2019)": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 30 must be adjacent.": 1,
+          "80/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 0 are not connected.": 1,
+          "68/150 cases rejected -- case 1: WA Tester nonzero: Colors 0 and 100 must not be adjacent.": 1,
+          "Compilation failed: /tmp/ahc039_t7b6h6x2/Main.cpp: In lambda function:": 1,
+          "3/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 0 are not connected.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 5 must not be adjacent.": 1
+        }
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s402",
+        "task": "ahc024",
+        "method": "molt2_adaptive_branches",
+        "seed": 402,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 54,
+          "invalid_or_partial": 26
+        },
+        "rejection_reasons": {
+          "136/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 39 must be adjacent.": 1,
+          "14/150 cases rejected -- case 6: WA Tester nonzero: Colors 0 and 5 must not be adjacent.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 1 must not be adjacent.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 30 must be adjacent.": 4,
+          "Compilation failed: /tmp/ahc039_uam9m_9f/Main.cpp:2:1: error: \u2018Looking\u2019 does not name a type": 1,
+          "42/150 cases rejected -- case 1: WA Tester nonzero: Colors 0 and 100 must not be adjacent.": 1,
+          "137/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 30 must be adjacent.": 1,
+          "Compilation failed: /tmp/ahc039_5vnu64ma/Main.cpp:2:8: error: \u2018pair\u2019 was not declared in this scope": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 1 and 31 must be adjacent.": 1,
+          "Compilation failed: /tmp/ahc039_oz8p4ltv/Main.cpp: In function \u2018bool doErase(int, int)\u2019:": 1,
+          "/tmp/ahc039_bu1aruhh/Main.cpp:81:12: error: no match for \u2018operator!\u2019 (operand type is \u2018__gnu_cxx::__alloc_traits<std::allocator<std::vector<char> >, std::vector<char> >::value_type\u2019 {aka \u2018std::vector<char>\u2019})": 1,
+          "/tmp/ahc039_4ivt0ln0/Main.cpp:300:128: error: operands to \u2018?:\u2019 have different types \u2018bool\u2019 and \u2018std::vector<int>\u2019": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 22 must be adjacent.": 1,
+          "37/150 cases rejected -- case 7: WA Tester nonzero: Colors 57 and 66 must be adjacent.": 1,
+          "149/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 30 must be adjacent.": 1,
+          "/tmp/ahc039_am0kwp4v/Main.cpp:214:24: error: \u2018c\u2019 was not declared in this scope": 1,
+          "68/150 cases rejected -- case 1: WA Tester nonzero: Colors 0 and 100 must not be adjacent.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 5 must not be adjacent.": 1,
+          "Compilation failed: /tmp/ahc039_8f7yiywi/Main.cpp:2:20: error: extended character \u2192 is not valid in an identifier": 1,
+          "150/150 cases rejected -- case 0: TLE CPU limit exceeded (prlimit SIGKILL)": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 0 are not connected.": 1,
+          "121/150 cases rejected -- case 0: WA Tester nonzero: Colors 20 and 22 must be adjacent.": 1,
+          "Compilation failed: /tmp/ahc039_jjim506f/Main.cpp:156:12: error: conflicting declaration \u2018int cellList [130][3025]\u2019": 1
+        }
+      },
+      {
+        "run": "matched-ahc058-simpletes-s402",
+        "task": "ahc058",
+        "method": "simpletes",
+        "seed": 402,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 69,
+          "invalid_or_partial": 11
+        },
+        "rejection_reasons": {
+          "150/150 cases rejected -- case 0: TLE CPU limit exceeded (prlimit SIGKILL)": 9,
+          "Compilation failed: /tmp/ahc039_nhvgdlyh/Main.cpp:2:1: error: expected unqualified-id before \u2018...\u2019 token": 1,
+          "121/150 cases rejected -- case 0: TLE CPU limit exceeded (prlimit SIGKILL)": 1
+        }
+      }
+    ],
+    "scope": "Completed runs only; first80 evaluator-call ceiling, starting program included. No model calls or evaluations.",
+    "limits": "Strict nearest timestamp join (<0.1s). Unmatched and ambiguous events remain explicit; they are not assumed invalid. Counts include repeated-code evaluations and are not counts of distinct programs. No causal or five-seed inference from incomplete groups."
+  },
+  "allocation_diagnostic": {
+    "at_unix": 1795509140.558558,
+    "rows": [
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s400",
+        "work_items_by_reason": {
+          "native_prefix": 7,
+          "incumbent_floor": 10,
+          "thompson_progress_per_evaluation": 22,
+          "minimum_probe": 5
+        },
+        "work_items_by_arm": {
+          "chain:0": 13,
+          "chain:1": 8,
+          "proposal": 7,
+          "chain:2": 4,
+          "chain:3": 4,
+          "chain:4": 4,
+          "chain:5": 3,
+          "chain:6": 1
+        },
+        "thompson_choices": 22,
+        "total_work_items": 44,
+        "retained_window_successes": 0,
+        "retained_window_evaluations": 64
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s401",
+        "work_items_by_reason": {
+          "native_prefix": 7,
+          "incumbent_floor": 10,
+          "thompson_progress_per_evaluation": 22,
+          "minimum_probe": 5
+        },
+        "work_items_by_arm": {
+          "chain:0": 6,
+          "chain:1": 14,
+          "proposal": 7,
+          "chain:2": 3,
+          "chain:3": 4,
+          "chain:4": 4,
+          "chain:5": 4,
+          "chain:6": 2
+        },
+        "thompson_choices": 22,
+        "total_work_items": 44,
+        "retained_window_successes": 0,
+        "retained_window_evaluations": 63
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s402",
+        "work_items_by_reason": {
+          "native_prefix": 7,
+          "incumbent_floor": 10,
+          "thompson_progress_per_evaluation": 24,
+          "minimum_probe": 4
+        },
+        "work_items_by_arm": {
+          "chain:0": 14,
+          "chain:1": 8,
+          "proposal": 8,
+          "chain:2": 4,
+          "chain:3": 4,
+          "chain:4": 4,
+          "chain:5": 3
+        },
+        "thompson_choices": 24,
+        "total_work_items": 45,
+        "retained_window_successes": 0,
+        "retained_window_evaluations": 63
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s400",
+        "work_items_by_reason": {
+          "native_prefix": 16,
+          "incumbent_floor": 7,
+          "thompson_progress_per_evaluation": 17,
+          "minimum_probe": 4
+        },
+        "work_items_by_arm": {
+          "chain:0": 11,
+          "chain:1": 9,
+          "proposal": 8,
+          "chain:2": 7,
+          "chain:3": 4,
+          "chain:4": 3,
+          "chain:5": 2
+        },
+        "thompson_choices": 17,
+        "total_work_items": 44,
+        "retained_window_successes": 2,
+        "retained_window_evaluations": 63
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s401",
+        "work_items_by_reason": {
+          "native_prefix": 11,
+          "incumbent_floor": 9,
+          "thompson_progress_per_evaluation": 21,
+          "minimum_probe": 4
+        },
+        "work_items_by_arm": {
+          "chain:0": 8,
+          "chain:1": 13,
+          "proposal": 8,
+          "chain:2": 5,
+          "chain:3": 5,
+          "chain:4": 4,
+          "chain:5": 2
+        },
+        "thompson_choices": 21,
+        "total_work_items": 45,
+        "retained_window_successes": 3,
+        "retained_window_evaluations": 64
+      }
+    ],
+    "caution": "Work-item counts are not candidate-evaluation counts. Native history is a rolling window, not whole-run reward. When successes are absent, posterior sampling cannot learn which arm produces progress; failure counts still change posterior uncertainty. This descriptive audit does not establish that another allocation would improve scores."
+  },
+  "reward_signal_audit": {
+    "at_unix": 1795509140.620307,
+    "rows": [
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s400",
+        "observed_work_items": 43,
+        "joined_candidate_evaluations": 79,
+        "window_only_accounted_evaluations": 0,
+        "total_accounted_evaluations": 79,
+        "thresholds": [
+          {
+            "relative_threshold": 0.01,
+            "positive_work_items": 0,
+            "by_arm": {}
+          },
+          {
+            "relative_threshold": 0.001,
+            "positive_work_items": 0,
+            "by_arm": {}
+          },
+          {
+            "relative_threshold": 0.0001,
+            "positive_work_items": 5,
+            "by_arm": {
+              "chain:0": 3,
+              "proposal": 2
+            }
+          },
+          {
+            "relative_threshold": 0.0,
+            "positive_work_items": 6,
+            "by_arm": {
+              "chain:0": 4,
+              "proposal": 2
+            }
+          }
+        ],
+        "reconstruction_matches_native_window": true,
+        "native_window_fallback_batches": [],
+        "mismatched_batches": []
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s401",
+        "observed_work_items": 43,
+        "joined_candidate_evaluations": 79,
+        "window_only_accounted_evaluations": 0,
+        "total_accounted_evaluations": 79,
+        "thresholds": [
+          {
+            "relative_threshold": 0.01,
+            "positive_work_items": 0,
+            "by_arm": {}
+          },
+          {
+            "relative_threshold": 0.001,
+            "positive_work_items": 1,
+            "by_arm": {
+              "chain:0": 1
+            }
+          },
+          {
+            "relative_threshold": 0.0001,
+            "positive_work_items": 4,
+            "by_arm": {
+              "chain:0": 1,
+              "chain:1": 2,
+              "proposal": 1
+            }
+          },
+          {
+            "relative_threshold": 0.0,
+            "positive_work_items": 5,
+            "by_arm": {
+              "chain:0": 1,
+              "chain:1": 3,
+              "proposal": 1
+            }
+          }
+        ],
+        "reconstruction_matches_native_window": true,
+        "native_window_fallback_batches": [],
+        "mismatched_batches": []
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s402",
+        "observed_work_items": 44,
+        "joined_candidate_evaluations": 80,
+        "window_only_accounted_evaluations": 0,
+        "total_accounted_evaluations": 80,
+        "thresholds": [
+          {
+            "relative_threshold": 0.01,
+            "positive_work_items": 0,
+            "by_arm": {}
+          },
+          {
+            "relative_threshold": 0.001,
+            "positive_work_items": 0,
+            "by_arm": {}
+          },
+          {
+            "relative_threshold": 0.0001,
+            "positive_work_items": 2,
+            "by_arm": {
+              "chain:0": 1,
+              "proposal": 1
+            }
+          },
+          {
+            "relative_threshold": 0.0,
+            "positive_work_items": 2,
+            "by_arm": {
+              "chain:0": 1,
+              "proposal": 1
+            }
+          }
+        ],
+        "reconstruction_matches_native_window": true,
+        "native_window_fallback_batches": [],
+        "mismatched_batches": []
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s400",
+        "observed_work_items": 43,
+        "joined_candidate_evaluations": 79,
+        "window_only_accounted_evaluations": 0,
+        "total_accounted_evaluations": 79,
+        "thresholds": [
+          {
+            "relative_threshold": 0.01,
+            "positive_work_items": 4,
+            "by_arm": {
+              "chain:0": 2,
+              "chain:1": 1,
+              "proposal": 1
+            }
+          },
+          {
+            "relative_threshold": 0.001,
+            "positive_work_items": 11,
+            "by_arm": {
+              "chain:0": 4,
+              "chain:1": 2,
+              "proposal": 1,
+              "chain:2": 4
+            }
+          },
+          {
+            "relative_threshold": 0.0001,
+            "positive_work_items": 12,
+            "by_arm": {
+              "chain:0": 5,
+              "chain:1": 2,
+              "proposal": 1,
+              "chain:2": 4
+            }
+          },
+          {
+            "relative_threshold": 0.0,
+            "positive_work_items": 12,
+            "by_arm": {
+              "chain:0": 5,
+              "chain:1": 2,
+              "proposal": 1,
+              "chain:2": 4
+            }
+          }
+        ],
+        "reconstruction_matches_native_window": true,
+        "native_window_fallback_batches": [],
+        "mismatched_batches": []
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s401",
+        "observed_work_items": 45,
+        "joined_candidate_evaluations": 81,
+        "window_only_accounted_evaluations": 0,
+        "total_accounted_evaluations": 81,
+        "thresholds": [
+          {
+            "relative_threshold": 0.01,
+            "positive_work_items": 3,
+            "by_arm": {
+              "chain:0": 1,
+              "chain:1": 1,
+              "proposal": 1
+            }
+          },
+          {
+            "relative_threshold": 0.001,
+            "positive_work_items": 6,
+            "by_arm": {
+              "chain:0": 1,
+              "chain:1": 2,
+              "proposal": 1,
+              "chain:4": 2
+            }
+          },
+          {
+            "relative_threshold": 0.0001,
+            "positive_work_items": 7,
+            "by_arm": {
+              "chain:0": 1,
+              "chain:1": 2,
+              "proposal": 2,
+              "chain:4": 2
+            }
+          },
+          {
+            "relative_threshold": 0.0,
+            "positive_work_items": 7,
+            "by_arm": {
+              "chain:0": 1,
+              "chain:1": 2,
+              "proposal": 2,
+              "chain:4": 2
+            }
+          }
+        ],
+        "reconstruction_matches_native_window": true,
+        "native_window_fallback_batches": [],
+        "mismatched_batches": []
+      }
+    ],
+    "caution": "Post-hoc training-only diagnostic of observed signal density, not a policy comparison. Different rewards change future sampling and candidates; no claim that a lower threshold improves performance. Concurrent work uses its recorded dispatch frontier. Tiny differences can reflect scorer timing noise."
+  },
+  "completed_block_curves": {
+    "pdf": "/home/erwinpi/molt2-adaptive-branches-lab/research/COMPLETED_MATCHED_BLOCKS.pdf",
+    "data": "/home/erwinpi/molt2-adaptive-branches-lab/research/COMPLETED_MATCHED_BLOCKS_DATA.json",
+    "scope": "Completed matched task/seed blocks only; individual curves, not pooled inference"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "at_unix": 1795509104.518678,
+  "authorized_cap_usd": 74,
+  "conservative_spent_usd": 58.59283434960003,
+  "provider_reported_usd": 38.5928343496001,
+  "outstanding_reservations_usd": 2.0,
+  "queued_trials": 17,
+  "nominal_queued_soft_caps_usd": 8.5,
+  "caution": "Native caps are soft. Global admission guard remains authoritative; unknown calls stay charged.",
+  "unreserved_headroom_usd": 13.407165650399968
+}
