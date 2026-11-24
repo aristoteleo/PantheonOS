@@ -1,0 +1,12 @@
+{
+  "at_unix": 1795541951.975274,
+  "seed": 500,
+  "scores": {
+    "molt2_adaptive_branches": 0.6491,
+    "molt2_noise_credit": 0.6390266666666666
+  },
+  "difference": -0.010073333333333379,
+  "status": "one_of_three_pairs_complete",
+  "caution": "Single-seed descriptive result. Variant loses this seed; do not generalize or change remaining frozen runs.",
+  "validation_accessed": false
+}

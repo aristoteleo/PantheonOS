@@ -1,0 +1,652 @@
+{
+  "at_unix": 1795541499.9058156,
+  "run": "noise-ahc024-molt2_adaptive_branches-s500",
+  "selection": {
+    "id": "87f44f4c",
+    "score": 0.6491,
+    "sha256": "b4c5ba56a4303ba5643c5073b1a93392f56415bf46fabdc5e359a3f2b94b48c4",
+    "eval_cap": 80,
+    "cases": 150,
+    "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+  },
+  "selected_reading": [
+    {
+      "individual_id": "87f44f4c",
+      "code_sha256": "b4c5ba56a4303ba5643c5073b1a93392f56415bf46fabdc5e359a3f2b94b48c4",
+      "measurement_at": 1795541402.6277766,
+      "search_eval_index": 79,
+      "score": 0.6491,
+      "eligible": true
+    }
+  ],
+  "ancestry_nodes": [
+    {
+      "id": "87f44f4c",
+      "parent_ids": [
+        "e0d38831"
+      ],
+      "meta": {
+        "summary": "Looking at this task, I need to implement a redesign that starts from the greedy erasure result and then alternates between full tryErase passes in random order and random valid color swaps between ad",
+        "candidate": 0,
+        "mutation_seconds": 101.44142055511475
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 0.6491,
+            "raw_score": 649.1,
+            "total_score": 97365.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 45.151169776916504,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 45.249232053756714,
+          "item_id": "w2509c38d",
+          "batch_id": "b1c817554",
+          "at": 1795541402.6277766
+        }
+      ]
+    },
+    {
+      "id": "e0d38831",
+      "parent_ids": [
+        "d5d68170",
+        "f3e42614"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to produce a smaller map (more 0-cells) while preserving:",
+        "candidate": 1,
+        "mutation_seconds": 58.27673149108887
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 0.6385933333333333,
+            "raw_score": 638.5933333333334,
+            "total_score": 95789.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 7.500978946685791,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 7.551743984222412,
+          "item_id": "wf2b1fafe",
+          "batch_id": "bc03e746b",
+          "at": 1795540681.8652081
+        }
+      ]
+    },
+    {
+      "id": "f3e42614",
+      "parent_ids": [
+        "4ba4339d",
+        "010de355"
+      ],
+      "meta": {
+        "summary": "// EVOLVE-BLOCK-START",
+        "candidate": 0,
+        "mutation_seconds": 11.754490613937378
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 0.6384666666666667,
+            "raw_score": 638.4666666666667,
+            "total_score": 95770.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 7.313335657119751,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 8.350330829620361,
+          "item_id": "w40c0b429",
+          "batch_id": "b5423b94f",
+          "at": 1795539642.2747948
+        }
+      ]
+    },
+    {
+      "id": "010de355",
+      "parent_ids": [
+        "962cb4f9"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to:",
+        "candidate": 0,
+        "mutation_seconds": 149.32583951950073
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 0.6384733333333333,
+            "raw_score": 638.4733333333334,
+            "total_score": 95771.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 5.5975306034088135,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 5.65177059173584,
+          "item_id": "w89a6953c",
+          "batch_id": "b1dafcf1d",
+          "at": 1795538980.1871932
+        }
+      ]
+    },
+    {
+      "id": "962cb4f9",
+      "parent_ids": [],
+      "meta": {},
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 0.6365266666666667,
+            "raw_score": 636.5266666666666,
+            "total_score": 95479.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 33.57241463661194,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 33.62364482879639,
+          "item_id": "",
+          "batch_id": "",
+          "at": 1795538700.576823
+        }
+      ]
+    },
+    {
+      "id": "4ba4339d",
+      "parent_ids": [
+        "4874d34b",
+        "962cb4f9"
+      ],
+      "meta": {
+        "summary": "Here's my improved solution. The key insight is to compute the target adjacency graph once, then do a fast local erasure with incremental adjacency checks (rather than rebuilding the whole graph each ",
+        "candidate": 1,
+        "mutation_seconds": 35.36179804801941
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 0.6384666666666667,
+            "raw_score": 638.4666666666667,
+            "total_score": 95770.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 6.0719993114471436,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 6.124007701873779,
+          "item_id": "w18a1a940",
+          "batch_id": "b12b8b18f",
+          "at": 1795539117.5912697
+        }
+      ]
+    },
+    {
+      "id": "4874d34b",
+      "parent_ids": [
+        "427a9eb1",
+        "d56ec315"
+      ],
+      "meta": {
+        "summary": "I'll analyze the problem and the two inspirations, then design an improved solution.",
+        "candidate": 1,
+        "mutation_seconds": 54.29733896255493
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 0.001,
+            "raw_score": 1.0,
+            "total_score": 150.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 5.933577299118042,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 5.985335111618042,
+          "item_id": "w5fdb6f48",
+          "batch_id": "bf34230f7",
+          "at": 1795539070.0015972
+        }
+      ]
+    },
+    {
+      "id": "d56ec315",
+      "parent_ids": [
+        "962cb4f9",
+        "6c657d80"
+      ],
+      "meta": {
+        "summary": "Looking at the two inspirations:",
+        "candidate": 0,
+        "mutation_seconds": 52.10128688812256
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 0.0,
+            "raw_score": 0.0,
+            "validity": 0.0,
+            "num_accepted": 0,
+            "eval_time": 5.951911687850952,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": [],
+            "invalid_reason": "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 1 must not be adjacent.\nScore = 0"
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 6.006433486938477,
+          "item_id": "wa1da4ad3",
+          "batch_id": "b4169e8f1",
+          "at": 1795538997.9282274
+        }
+      ]
+    },
+    {
+      "id": "6c657d80",
+      "parent_ids": [
+        "427a9eb1"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to understand the key challenge:",
+        "candidate": 0,
+        "mutation_seconds": 108.30295443534851
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 0.0,
+            "raw_score": 0.0,
+            "validity": 0.0,
+            "num_accepted": 82,
+            "eval_time": 6.077030420303345,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": [],
+            "invalid_reason": "68/150 cases rejected -- case 1: WA Tester nonzero: Colors 0 and 100 must not be adjacent.\nScore = 0"
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 6.1535115242004395,
+          "item_id": "w9a5203ad",
+          "batch_id": "bfa47883b",
+          "at": 1795538932.6614273
+        }
+      ]
+    },
+    {
+      "id": "427a9eb1",
+      "parent_ids": [
+        "962cb4f9"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to:",
+        "candidate": 0,
+        "mutation_seconds": 96.19294095039368
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 0.055266666666666665,
+            "raw_score": 55.266666666666666,
+            "total_score": 8290.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 7.71112847328186,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 7.762441396713257,
+          "item_id": "w7f10d2aa",
+          "batch_id": "b8807a58d",
+          "at": 1795538804.684082
+        }
+      ]
+    },
+    {
+      "id": "d5d68170",
+      "parent_ids": [
+        "95e515a0",
+        "beabacab"
+      ],
+      "meta": {
+        "summary": "Looking at these two solutions, both use the same core greedy approach: repeatedly try erasing cells to 0, checking that (a) adjacency structure preserved, (b) each color stays connected. Both score ~",
+        "candidate": 1,
+        "mutation_seconds": 74.71652030944824
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 0.6385866666666667,
+            "raw_score": 638.5866666666667,
+            "total_score": 95788.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 7.215940952301025,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 7.267606258392334,
+          "item_id": "w70f26f6f",
+          "batch_id": "b3c9057a7",
+          "at": 1795540261.093013
+        }
+      ]
+    },
+    {
+      "id": "beabacab",
+      "parent_ids": [
+        "80e27b67",
+        "5300133f"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, the goal is to erase cells (set them to 0) while preserving:",
+        "candidate": 1,
+        "mutation_seconds": 46.15590715408325
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 0.6384133333333333,
+            "raw_score": 638.4133333333333,
+            "total_score": 95762.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 6.754460573196411,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 14.213456869125366,
+          "item_id": "w82228c30",
+          "batch_id": "bd119d0e8",
+          "at": 1795539649.1217685
+        }
+      ]
+    },
+    {
+      "id": "5300133f",
+      "parent_ids": [
+        "4ba4339d",
+        "427a9eb1"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, the goal is to erase cells (set to 0) while preserving:",
+        "candidate": 1,
+        "mutation_seconds": 35.42810821533203
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 0.001,
+            "raw_score": 1.0,
+            "total_score": 150.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 6.138647794723511,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 6.190107822418213,
+          "item_id": "w2b3fab59",
+          "batch_id": "b335c855d",
+          "at": 1795539165.354627
+        }
+      ]
+    },
+    {
+      "id": "80e27b67",
+      "parent_ids": [
+        "4ba4339d",
+        "427a9eb1"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to shrink wards (colors 1..m) to 0 while preserving:",
+        "candidate": 1,
+        "mutation_seconds": 44.18477153778076
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 0.6385466666666666,
+            "raw_score": 638.5466666666666,
+            "total_score": 95782.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 7.645915269851685,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 7.698205947875977,
+          "item_id": "wc733ecec",
+          "batch_id": "b79ac1afd",
+          "at": 1795539522.71312
+        }
+      ]
+    },
+    {
+      "id": "95e515a0",
+      "parent_ids": [
+        "4ba4339d"
+      ],
+      "meta": {
+        "summary": "// EVOLVE-BLOCK-START",
+        "candidate": 0,
+        "mutation_seconds": 11.81411862373352
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 0.6383666666666666,
+            "raw_score": 638.3666666666667,
+            "total_score": 95755.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 7.153184413909912,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 36.944212198257446,
+          "item_id": "w966c01b7",
+          "batch_id": "b5a4ef018",
+          "at": 1795540172.0731149
+        }
+      ]
+    }
+  ],
+  "caution": "Single development control run. LLM summary proposes erasure plus swaps; source and ablation analysis still needed before assigning a causal mechanism. Final comparison awaits variant completion."
+}

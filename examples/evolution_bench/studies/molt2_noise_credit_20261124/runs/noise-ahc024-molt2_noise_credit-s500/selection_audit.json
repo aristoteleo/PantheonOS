@@ -1,0 +1,425 @@
+{
+  "budget_limit": 80,
+  "actual_search_eval_calls": 80,
+  "selection_cutoff": 80,
+  "eligible_distinct_codes": 52,
+  "first_valid_code_readings": [
+    {
+      "individual_id": "8bf57656",
+      "code_sha256": "dad6022c8f8422bf66c13e49c7e36c95a6668a84ee5f01b92e2bdada4e571f0e",
+      "measurement_at": 1795538704.227701,
+      "search_eval_index": 1,
+      "score": 0.6264066666666667,
+      "eligible": true
+    },
+    {
+      "individual_id": "307a66fa",
+      "code_sha256": "e147aa3c4d7ef0c640160fb02087a89385f9763dfc911dc47375aa2244c9b5f0",
+      "measurement_at": 1795538801.0626714,
+      "search_eval_index": 2,
+      "score": 0.6380066666666666,
+      "eligible": true
+    },
+    {
+      "individual_id": "45a86548",
+      "code_sha256": "dda3081839761ec6259995574eb21c7e466f88636fea860cbc921a13c1d8c197",
+      "measurement_at": 1795538831.0863473,
+      "search_eval_index": 3,
+      "score": 0.6384333333333333,
+      "eligible": true
+    },
+    {
+      "individual_id": "be3df7cb",
+      "code_sha256": "564a6cd73547729d334fbdb625c1f48fca075d429bfcd21b062d6ae23b394dd4",
+      "measurement_at": 1795538838.3947423,
+      "search_eval_index": 5,
+      "score": 0.6380066666666666,
+      "eligible": true
+    },
+    {
+      "individual_id": "e491e85a",
+      "code_sha256": "d9916bf8b985cfc56a29c834e86dadb9eae3922f581525a80fa2f1ff42f75814",
+      "measurement_at": 1795538900.9740784,
+      "search_eval_index": 6,
+      "score": 0.6372866666666667,
+      "eligible": true
+    },
+    {
+      "individual_id": "af0198ab",
+      "code_sha256": "f77e2d91ff9c8312c059f13f0274114305fa75501bfce9461828e9be6fa3c45e",
+      "measurement_at": 1795538989.7653139,
+      "search_eval_index": 9,
+      "score": 0.6373066666666666,
+      "eligible": true
+    },
+    {
+      "individual_id": "8c680673",
+      "code_sha256": "f0f2d7044eda04943226204d0d36b855254a27089faeec5470fb319e7d41a19e",
+      "measurement_at": 1795539071.2977223,
+      "search_eval_index": 12,
+      "score": 0.63788,
+      "eligible": true
+    },
+    {
+      "individual_id": "ff379c71",
+      "code_sha256": "b1faf66d786be73dacba588eee94f2050ce2c5a3c435b6ff6ac33e0fd23cef43",
+      "measurement_at": 1795539076.974647,
+      "search_eval_index": 13,
+      "score": 0.13512000000000002,
+      "eligible": true
+    },
+    {
+      "individual_id": "7f708d11",
+      "code_sha256": "00d51eb11da73091697ea530a6953d7776bb67dca995bd084695373f8578fbe6",
+      "measurement_at": 1795539239.340278,
+      "search_eval_index": 17,
+      "score": 0.6382466666666666,
+      "eligible": true
+    },
+    {
+      "individual_id": "f1e7e12a",
+      "code_sha256": "f85f88932a5b7fbc367e59a7428a0319ba1fd100d7a75cfa183320c81e50b230",
+      "measurement_at": 1795539416.0485082,
+      "search_eval_index": 18,
+      "score": 0.6385,
+      "eligible": true
+    },
+    {
+      "individual_id": "4adee134",
+      "code_sha256": "44ee9bb2963130c396eb0ff9c6a2fc3e217712425cf552ab98271c0418f2c69c",
+      "measurement_at": 1795539509.4794993,
+      "search_eval_index": 20,
+      "score": 0.6383933333333334,
+      "eligible": true
+    },
+    {
+      "individual_id": "d04949b0",
+      "code_sha256": "4ce2724e4715dfc64cd8238f9e1cca789b88d295a7b7cdf74061cf77fd1e8838",
+      "measurement_at": 1795539552.1351163,
+      "search_eval_index": 21,
+      "score": 0.2509733333333333,
+      "eligible": true
+    },
+    {
+      "individual_id": "4655c283",
+      "code_sha256": "dc829536622d033ec381644f79557dd7143859f543990cf9400da934ee941127",
+      "measurement_at": 1795539682.4044378,
+      "search_eval_index": 22,
+      "score": 0.6149933333333334,
+      "eligible": true
+    },
+    {
+      "individual_id": "327534dd",
+      "code_sha256": "def42565e28fcbb3697d520ae0e79cace301508e99deca590241bacbc04635fb",
+      "measurement_at": 1795539874.7456443,
+      "search_eval_index": 27,
+      "score": 0.6389466666666667,
+      "eligible": true
+    },
+    {
+      "individual_id": "2e1e4692",
+      "code_sha256": "82afe15f4c7c355546e1942f6bb401454b12285506cfb3b208d1fc24eb53950a",
+      "measurement_at": 1795539919.760427,
+      "search_eval_index": 28,
+      "score": 0.6384733333333333,
+      "eligible": true
+    },
+    {
+      "individual_id": "4e047a93",
+      "code_sha256": "bd6636a8731e0b32a1b6d0142a7c5631dfd2513780a9b3cf2aabfbba7abf6fce",
+      "measurement_at": 1795539948.6162443,
+      "search_eval_index": 30,
+      "score": 0.06972,
+      "eligible": true
+    },
+    {
+      "individual_id": "c03ec64a",
+      "code_sha256": "754e444aa9393c62cd50e4dc6622c53d002061fed968b40efa6055a52ac624cf",
+      "measurement_at": 1795540031.3243139,
+      "search_eval_index": 31,
+      "score": 0.6389533333333334,
+      "eligible": true
+    },
+    {
+      "individual_id": "d4ae415b",
+      "code_sha256": "1dfb759a9e044c5bc01dc23e47b4f283d7eb09c182ee3d39b570a77e5d23b2a7",
+      "measurement_at": 1795540039.04075,
+      "search_eval_index": 32,
+      "score": 0.001,
+      "eligible": true
+    },
+    {
+      "individual_id": "20ea1a0d",
+      "code_sha256": "d24f06b240323c1315a8340737e82b54c14d220ae238f42e22c90bf12c574f4c",
+      "measurement_at": 1795540079.3554578,
+      "search_eval_index": 33,
+      "score": 0.6390266666666666,
+      "eligible": true
+    },
+    {
+      "individual_id": "6be859cd",
+      "code_sha256": "c26c18086dac4d7840d9075545341d172f3c273d29dfe35972c0d90a5917f468",
+      "measurement_at": 1795540164.4018419,
+      "search_eval_index": 35,
+      "score": 0.44956666666666667,
+      "eligible": true
+    },
+    {
+      "individual_id": "f55917bd",
+      "code_sha256": "7e7942fd8489da0ee65753f75d4175fdf0b8e352b4c801524e4eeee4eeb6c7bf",
+      "measurement_at": 1795540205.7497306,
+      "search_eval_index": 36,
+      "score": 0.6384133333333333,
+      "eligible": true
+    },
+    {
+      "individual_id": "1b6674ad",
+      "code_sha256": "bf33139fdb7be724a47942a7c5a78477ae571b8bd366033d5df4166314fcbaa1",
+      "measurement_at": 1795540289.8096201,
+      "search_eval_index": 38,
+      "score": 0.6389466666666667,
+      "eligible": true
+    },
+    {
+      "individual_id": "8a75ddaf",
+      "code_sha256": "cdbb997fe8033abec0f3a4dddd7fa822d095f6781efc95c89393c5ce42e3f2ab",
+      "measurement_at": 1795540331.8917515,
+      "search_eval_index": 39,
+      "score": 0.639,
+      "eligible": true
+    },
+    {
+      "individual_id": "b6271167",
+      "code_sha256": "6844197954eff5935cde91bc17802583231db2a8c8e7ac227477ebfd66d78076",
+      "measurement_at": 1795540349.702149,
+      "search_eval_index": 41,
+      "score": 0.6385,
+      "eligible": true
+    },
+    {
+      "individual_id": "392533af",
+      "code_sha256": "39fd78063dc951d867e6645796464957385972b51691b656aead6a57cdfa6035",
+      "measurement_at": 1795540391.5407524,
+      "search_eval_index": 42,
+      "score": 0.2509733333333333,
+      "eligible": true
+    },
+    {
+      "individual_id": "f3429bd0",
+      "code_sha256": "9b789a5b649ad0e30482f283037f8d64c51792830a0cd556a32eddff12924698",
+      "measurement_at": 1795540399.5931895,
+      "search_eval_index": 43,
+      "score": 0.3552533333333333,
+      "eligible": true
+    },
+    {
+      "individual_id": "ae5893f0",
+      "code_sha256": "7ab3f1d3b01b7f67050d2666f2b74204ab46d5d467fffb1f7d02de7b3342a0fc",
+      "measurement_at": 1795540442.6648014,
+      "search_eval_index": 44,
+      "score": 0.001,
+      "eligible": true
+    },
+    {
+      "individual_id": "5ceb59f2",
+      "code_sha256": "8080e0e5d3f05c6e8d787086d562fde00bb47407375ade0f5a4fcbe331899505",
+      "measurement_at": 1795540484.7136638,
+      "search_eval_index": 45,
+      "score": 0.001,
+      "eligible": true
+    },
+    {
+      "individual_id": "052e3502",
+      "code_sha256": "9e0c8afb4387aa60d63a0c524c3d2e64a1278629099980dbcf4c6d4db6dfdfcf",
+      "measurement_at": 1795540530.2654815,
+      "search_eval_index": 46,
+      "score": 0.6386000000000001,
+      "eligible": true
+    },
+    {
+      "individual_id": "751c82b2",
+      "code_sha256": "761c6b730dd4a7fc401f70656f709310f1a344370902a9ede2f72d332f0ea975",
+      "measurement_at": 1795540568.7178476,
+      "search_eval_index": 47,
+      "score": 0.63742,
+      "eligible": true
+    },
+    {
+      "individual_id": "bd4c2f0e",
+      "code_sha256": "39b60f6f93ab2b08e947136c4a99e50db3f48f2ca397ccc555b181a30c4f9c3b",
+      "measurement_at": 1795540695.9847314,
+      "search_eval_index": 49,
+      "score": 0.6389933333333333,
+      "eligible": true
+    },
+    {
+      "individual_id": "8f5ca199",
+      "code_sha256": "fe18d757ce7097633f44c10d1bcf7e2bc9f80ea6903c2e43136e958f9bd768ba",
+      "measurement_at": 1795540779.3615963,
+      "search_eval_index": 51,
+      "score": 0.639,
+      "eligible": true
+    },
+    {
+      "individual_id": "2cf2a780",
+      "code_sha256": "dd4944af6274f59a8370e4f496bd6333bca83c7635171e74626077c31403cc66",
+      "measurement_at": 1795540930.8506145,
+      "search_eval_index": 55,
+      "score": 0.6383266666666667,
+      "eligible": true
+    },
+    {
+      "individual_id": "b1660229",
+      "code_sha256": "f1f90dd60449d951d938320d7629fbd2074a1c948eb40d990b42714391bb0f39",
+      "measurement_at": 1795540965.628389,
+      "search_eval_index": 56,
+      "score": 0.6380399999999999,
+      "eligible": true
+    },
+    {
+      "individual_id": "9daad6e1",
+      "code_sha256": "d724c9c8b5c0adf2736e2bdaf36caf666a86d49419973403955cf460a994323f",
+      "measurement_at": 1795541009.240504,
+      "search_eval_index": 57,
+      "score": 0.63888,
+      "eligible": true
+    },
+    {
+      "individual_id": "bb2585bc",
+      "code_sha256": "506f15ea9e8171ee5e2d7dec0922df0e744c2a9577089e70c92d48f5ad0483b0",
+      "measurement_at": 1795541054.098006,
+      "search_eval_index": 58,
+      "score": 0.6387333333333334,
+      "eligible": true
+    },
+    {
+      "individual_id": "4000bd41",
+      "code_sha256": "12e1a42b501f36f405286784203e5736947b7353dea8a41def05a10f92a9ef0c",
+      "measurement_at": 1795541061.916629,
+      "search_eval_index": 59,
+      "score": 0.001,
+      "eligible": true
+    },
+    {
+      "individual_id": "03d5191f",
+      "code_sha256": "abb27564dff3afc01c65dcda34858dcc6c5ad1402d5ab1e357f231bcba151b6d",
+      "measurement_at": 1795541097.0431583,
+      "search_eval_index": 60,
+      "score": 0.6382866666666667,
+      "eligible": true
+    },
+    {
+      "individual_id": "4ce0ba04",
+      "code_sha256": "1b80a6d136799bb84c6bd0fda2058f8bb6d7572aaa8cf80a73db179661e165a6",
+      "measurement_at": 1795541114.476822,
+      "search_eval_index": 61,
+      "score": 0.6385,
+      "eligible": true
+    },
+    {
+      "individual_id": "724803d6",
+      "code_sha256": "7dbd3250082dc1c447c206c308c144c42fc84102e62cacb92fd91896e465e0cf",
+      "measurement_at": 1795541187.3713064,
+      "search_eval_index": 62,
+      "score": 0.6386066666666667,
+      "eligible": true
+    },
+    {
+      "individual_id": "939e2404",
+      "code_sha256": "5548068a2c7e6d79ee2b7c8b033f368d9896ec49358b73b372a6b50ee982b2aa",
+      "measurement_at": 1795541229.6048553,
+      "search_eval_index": 63,
+      "score": 0.6373933333333334,
+      "eligible": true
+    },
+    {
+      "individual_id": "dfeb07db",
+      "code_sha256": "33f537f75446bb542162c2febb0c4ae7f46995bcadeb5f28b11dda102e4d236e",
+      "measurement_at": 1795541293.992453,
+      "search_eval_index": 64,
+      "score": 0.5496666666666666,
+      "eligible": true
+    },
+    {
+      "individual_id": "e47a9651",
+      "code_sha256": "eb20b06877ad40d0999c6671d24bf3dfda117d8df114a4ce948f61bc8374799c",
+      "measurement_at": 1795541330.5205052,
+      "search_eval_index": 65,
+      "score": 0.6380333333333333,
+      "eligible": true
+    },
+    {
+      "individual_id": "62062d1d",
+      "code_sha256": "cf4fff67afd487ae3a3c8832774d0735a064367355373adc796a35a18481c4ee",
+      "measurement_at": 1795541339.9945214,
+      "search_eval_index": 66,
+      "score": 0.0565,
+      "eligible": true
+    },
+    {
+      "individual_id": "f8d76bb4",
+      "code_sha256": "12a4b2f62b5f66458ba8ca70eb0ac6a7d8051127b6ab2a5d7e0ab0c749010af2",
+      "measurement_at": 1795541465.3349915,
+      "search_eval_index": 69,
+      "score": 0.6380533333333333,
+      "eligible": true
+    },
+    {
+      "individual_id": "5d466922",
+      "code_sha256": "89da5d4d433ab12bfbf861bc04432e1098bc3963cd353ba6359b8fdc274b3a70",
+      "measurement_at": 1795541584.3765004,
+      "search_eval_index": 72,
+      "score": 0.6376000000000001,
+      "eligible": true
+    },
+    {
+      "individual_id": "3c556200",
+      "code_sha256": "40305e57ef273352e8dce9c34a35c5997569f2bc5f07921798e789a695dc9cda",
+      "measurement_at": 1795541591.5496702,
+      "search_eval_index": 73,
+      "score": 0.001,
+      "eligible": true
+    },
+    {
+      "individual_id": "b6411791",
+      "code_sha256": "98931bab8763349ee08482ed73e48349be2cc933c553a4bdad137e97a0d20e97",
+      "measurement_at": 1795541712.7908647,
+      "search_eval_index": 75,
+      "score": 0.6383666666666666,
+      "eligible": true
+    },
+    {
+      "individual_id": "419dd9ce",
+      "code_sha256": "d307e25139eaceafb52943bd6fb89d92fdedf180ccd91cdb190669af5546f62d",
+      "measurement_at": 1795541755.6594944,
+      "search_eval_index": 76,
+      "score": 0.639,
+      "eligible": true
+    },
+    {
+      "individual_id": "d2dde2f1",
+      "code_sha256": "1ecea66e12ab6de8f2794a8dc0f8a3e3410ea44ffc315b1bc7edb77c0ca31016",
+      "measurement_at": 1795541795.7575185,
+      "search_eval_index": 77,
+      "score": 0.6380399999999999,
+      "eligible": true
+    },
+    {
+      "individual_id": "12e5ccaf",
+      "code_sha256": "3142dbc369ea4996d5f9034389e51167e9677b5121be55030cfd1333be504c4f",
+      "measurement_at": 1795541839.3651893,
+      "search_eval_index": 78,
+      "score": 0.6389866666666667,
+      "eligible": true
+    },
+    {
+      "individual_id": "e03c112d",
+      "code_sha256": "e7bd94fcf21c408db7ab7780f297005a18640a3546d02af86a5ed7122a9ba2d1",
+      "measurement_at": 1795541891.4368715,
+      "search_eval_index": 80,
+      "score": 0.001,
+      "eligible": true
+    }
+  ],
+  "join_tolerance_seconds_strict": 0.1
+}

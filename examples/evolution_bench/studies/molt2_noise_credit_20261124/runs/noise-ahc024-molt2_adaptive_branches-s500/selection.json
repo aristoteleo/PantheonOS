@@ -1,0 +1,8 @@
+{
+  "id": "87f44f4c",
+  "score": 0.6491,
+  "sha256": "b4c5ba56a4303ba5643c5073b1a93392f56415bf46fabdc5e359a3f2b94b48c4",
+  "eval_cap": 80,
+  "cases": 150,
+  "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+}

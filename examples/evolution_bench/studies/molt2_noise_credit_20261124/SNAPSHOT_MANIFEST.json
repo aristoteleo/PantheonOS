@@ -1,5 +1,5 @@
 {
-  "at_unix": 1795540788.5129778,
+  "at_unix": 1795541971.1488228,
   "files": {
     "campaign.json": "76ae31478cae9512b735a52ed86b1db2b5c5a1a96049ec3d5f86b93fa526c984",
     "manifest.json": "81174aaf8b227c21ac9c78f0aa79c973292f53c24177f2a42d99cae225763ead",
@@ -26,7 +26,16 @@
     "runner/model_io_confirmation.py": "cab62433b547ef35efcab0f62ccee83d6e3ff3f4108dad91c525aed56be72cb8",
     "runner/priced_math_guard.py": "fab36267c882984c042e8fb54e46db2ad0f196b59081e14a081b46c8a0fc0447",
     "runner/model_io.py": "5b7e1764748708c93ebede580d964b6da2cc93580d108643b78337b754a49f60",
-    "research/SEED500_PROVISIONAL_GAIN.json": "32ad6cc8521b1c9339612ba222c807851bbf7c62b2e9ae9311c0b4e2afa89519"
+    "research/SEED500_PROVISIONAL_GAIN.json": "32ad6cc8521b1c9339612ba222c807851bbf7c62b2e9ae9311c0b4e2afa89519",
+    "research/AHC024_SEED500_PAIRED_INTERIM.json": "3e6db572879e2b42045342564b3c6d43c347342035bb6a7bab478b09c3588efe",
+    "research/AHC024_CONTROL_SEED500_COMPLETED.json": "35da5bdb37b6aef3b0754291ddb60ba917d2dd6691b345a058611a1d1025e224",
+    "research/selected-programs/ahc024-control-s500.cpp": "b4c5ba56a4303ba5643c5073b1a93392f56415bf46fabdc5e359a3f2b94b48c4",
+    "research/BACKUP-noise-ahc024-molt2_noise_credit-s500.json": "ac2262513c4cfe7329df80c8a2b1d784dbc619425b19cecc0854546f07d5a2fe",
+    "research/BACKUP-noise-ahc024-molt2_adaptive_branches-s500.json": "f52963c32d22b12b201c328ca1a57488108ae044c68a6c5cca7bfebfc2e8d90b",
+    "runs/noise-ahc024-molt2_adaptive_branches-s500/selection.json": "f8ed6324798fcccfe8ce638c2ffc01700cd94329dd6007c0c91c9aa1464fcf93",
+    "runs/noise-ahc024-molt2_adaptive_branches-s500/selection_audit.json": "f60e891d47748459025f7b1d316ffb6104ed4214de5cde3c3963c4d687efd4ac",
+    "runs/noise-ahc024-molt2_noise_credit-s500/selection.json": "39b55a56ed7c6d2cfaed86ca42d5876b8110e9b6c43f4330acd6f3f5cf4f40f2",
+    "runs/noise-ahc024-molt2_noise_credit-s500/selection_audit.json": "a9b2eec8eed2b0a554cfaa511c7235768ae60fa75517bec6babc0ede00ac8d83"
   },
   "public_tasks_and_runtime": "Same task files and prequalified public150-case runtime assets as ../molt2_adaptive_branches_20261123; original private archives retain exact data.",
   "engine_branch": "erwin/molt2-noise-credit-20261124",
