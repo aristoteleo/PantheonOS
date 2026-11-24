@@ -1,0 +1,124 @@
+{
+  "original_five_seed_study": {
+    "root": "/home/erwinpi/molt2-adaptive-branches-lab",
+    "seeds": [
+      400,
+      401,
+      402,
+      403,
+      404
+    ],
+    "methods": [
+      "simpletes",
+      "molt",
+      "molt_modified",
+      "molt2_adaptive_branches"
+    ],
+    "means": [
+      {
+        "method": "simpletes",
+        "ahc024": {
+          "search_mean": 0.639124,
+          "repeat_mean": 0.6380393333333334,
+          "seeds": 5
+        },
+        "ahc058": {
+          "search_mean": 5.291043544,
+          "repeat_mean": 5.245444544666666,
+          "seeds": 5
+        }
+      },
+      {
+        "method": "molt",
+        "ahc024": {
+          "search_mean": 0.6391626666666667,
+          "repeat_mean": 0.6391413333333333,
+          "seeds": 5
+        },
+        "ahc058": {
+          "search_mean": 5.433860593333334,
+          "repeat_mean": 5.427198624,
+          "seeds": 5
+        }
+      },
+      {
+        "method": "molt_modified",
+        "ahc024": {
+          "search_mean": 0.7704493333333333,
+          "repeat_mean": 0.754858,
+          "seeds": 5
+        },
+        "ahc058": {
+          "search_mean": 5.368022265333334,
+          "repeat_mean": 5.3600439920000005,
+          "seeds": 5
+        }
+      },
+      {
+        "method": "molt2_adaptive_branches",
+        "ahc024": {
+          "search_mean": 0.8956813333333333,
+          "repeat_mean": 0.8938766666666667,
+          "seeds": 5
+        },
+        "ahc058": {
+          "search_mean": 5.460895562666667,
+          "repeat_mean": 5.4241047380000005,
+          "seeds": 5
+        }
+      }
+    ],
+    "repeat_coverage_verified": true,
+    "validation_accessed": false
+  },
+  "fresh_three_seed_reward_ablation": {
+    "root": "/home/erwinpi/molt2-noise-credit-lab",
+    "seeds": [
+      500,
+      501,
+      502
+    ],
+    "methods": [
+      "molt2_adaptive_branches",
+      "molt2_noise_credit"
+    ],
+    "means": [
+      {
+        "method": "molt2_adaptive_branches",
+        "ahc024": {
+          "search_mean": 1.0479622222222222,
+          "repeat_mean": 1.0450211111111112,
+          "seeds": 3
+        },
+        "ahc058": {
+          "search_mean": 5.392626508888889,
+          "repeat_mean": 5.374885794444445,
+          "seeds": 3
+        }
+      },
+      {
+        "method": "molt2_noise_credit",
+        "ahc024": {
+          "search_mean": 0.6391644444444444,
+          "repeat_mean": 0.6391533333333334,
+          "seeds": 3
+        },
+        "ahc058": {
+          "search_mean": 5.383065311111111,
+          "repeat_mean": 5.37118857,
+          "seeds": 3
+        }
+      }
+    ],
+    "repeat_coverage_verified": true,
+    "validation_accessed": false
+  },
+  "studies_pooled": false,
+  "validation_accessed": false,
+  "limitations": [
+    "Development tasks only.",
+    "Small seed counts and timing-dependent randomized programs.",
+    "Two repeats describe observed variation, not confidence intervals or the full score distribution.",
+    "No claim of general superiority."
+  ]
+}

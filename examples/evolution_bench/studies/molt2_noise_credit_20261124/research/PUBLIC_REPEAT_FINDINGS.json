@@ -1,0 +1,171 @@
+{
+  "at_unix": 1795558496.823152,
+  "tasks": [
+    {
+      "task": "ahc024",
+      "pairs": [
+        {
+          "seed": 500,
+          "methods": {
+            "molt2_adaptive_branches": {
+              "search_score": 0.6491,
+              "repeat_scores": [
+                0.6491,
+                0.6491
+              ],
+              "repeat_mean": 0.6491
+            },
+            "molt2_noise_credit": {
+              "search_score": 0.6390266666666666,
+              "repeat_scores": [
+                0.6389933333333333,
+                0.63902
+              ],
+              "repeat_mean": 0.6390066666666667
+            }
+          },
+          "variant_minus_control_repeat_mean": -0.010093333333333288
+        },
+        {
+          "seed": 501,
+          "methods": {
+            "molt2_adaptive_branches": {
+              "search_score": 0.6384466666666667,
+              "repeat_scores": [
+                0.6384533333333334,
+                0.6381466666666666
+              ],
+              "repeat_mean": 0.6383000000000001
+            },
+            "molt2_noise_credit": {
+              "search_score": 0.6394466666666667,
+              "repeat_scores": [
+                0.6394466666666667,
+                0.63942
+              ],
+              "repeat_mean": 0.6394333333333333
+            }
+          },
+          "variant_minus_control_repeat_mean": 0.0011333333333332085
+        },
+        {
+          "seed": 502,
+          "methods": {
+            "molt2_adaptive_branches": {
+              "search_score": 1.8563399999999999,
+              "repeat_scores": [
+                1.85538,
+                1.8399466666666666
+              ],
+              "repeat_mean": 1.8476633333333332
+            },
+            "molt2_noise_credit": {
+              "search_score": 0.63902,
+              "repeat_scores": [
+                0.63902,
+                0.63902
+              ],
+              "repeat_mean": 0.63902
+            }
+          },
+          "variant_minus_control_repeat_mean": -1.2086433333333333
+        }
+      ],
+      "mean_repeat_scores": {
+        "molt2_adaptive_branches": 1.0450211111111112,
+        "molt2_noise_credit": 0.6391533333333334
+      },
+      "variant_repeat_paired_wins": 1,
+      "search_seeds": 3
+    },
+    {
+      "task": "ahc058",
+      "pairs": [
+        {
+          "seed": 500,
+          "methods": {
+            "molt2_adaptive_branches": {
+              "search_score": 5.500531179999999,
+              "repeat_scores": [
+                5.495128326666667,
+                5.485017686666667
+              ],
+              "repeat_mean": 5.490073006666667
+            },
+            "molt2_noise_credit": {
+              "search_score": 5.383925153333333,
+              "repeat_scores": [
+                5.362436446666666,
+                5.354715006666667
+              ],
+              "repeat_mean": 5.3585757266666665
+            }
+          },
+          "variant_minus_control_repeat_mean": -0.1314972800000005
+        },
+        {
+          "seed": 501,
+          "methods": {
+            "molt2_adaptive_branches": {
+              "search_score": 5.233243633333334,
+              "repeat_scores": [
+                5.233243633333334,
+                5.233243633333334
+              ],
+              "repeat_mean": 5.233243633333334
+            },
+            "molt2_noise_credit": {
+              "search_score": 5.361436473333334,
+              "repeat_scores": [
+                5.363559406666666,
+                5.359613133333334
+              ],
+              "repeat_mean": 5.36158627
+            }
+          },
+          "variant_minus_control_repeat_mean": 0.128342636666666
+        },
+        {
+          "seed": 502,
+          "methods": {
+            "molt2_adaptive_branches": {
+              "search_score": 5.444104713333333,
+              "repeat_scores": [
+                5.436071746666667,
+                5.36660974
+              ],
+              "repeat_mean": 5.401340743333334
+            },
+            "molt2_noise_credit": {
+              "search_score": 5.403834306666667,
+              "repeat_scores": [
+                5.409421586666667,
+                5.37738584
+              ],
+              "repeat_mean": 5.393403713333333
+            }
+          },
+          "variant_minus_control_repeat_mean": -0.007937030000000789
+        }
+      ],
+      "mean_repeat_scores": {
+        "molt2_adaptive_branches": 5.374885794444445,
+        "molt2_noise_credit": 5.37118857
+      },
+      "variant_repeat_paired_wins": 1,
+      "search_seeds": 3
+    }
+  ],
+  "repeats_per_selected_source": 2,
+  "public_cases_per_repeat": 150,
+  "validation_accessed": false,
+  "selection_changed": false,
+  "studies_pooled": false,
+  "development_decision": "Retain original molt2_adaptive_branches as the development baseline; do not promote the noise-credit ablation.",
+  "limitations": [
+    "Three search seeds per task; repeats are not additional independent search seeds.",
+    "AHC024 mean advantage is concentrated in one breakthrough.",
+    "AHC058 means are close relative to observed repeat variation.",
+    "No general superiority over Molt or SimpleTES is established; held-out evaluation is reserved."
+  ]
+}

@@ -1,10 +1,12 @@
 {
-  "at_unix": 1795554620.8340738,
-  "status": "pending",
-  "verified": false,
-  "missing": [
-    "FINALIST_FREEZE.json",
-    "research/PUBLIC_REREAD_REPORT.json",
-    "research/PUBLIC_REREAD_BACKUP.json"
-  ]
+  "at_unix": 1795558335.2585676,
+  "status": "verified",
+  "verified": true,
+  "scheduled_runs": 12,
+  "selected_runs": 12,
+  "unique_sources": 12,
+  "expected_repeats": 24,
+  "observed_repeats": 24,
+  "errors": [],
+  "limitation": "Coverage and source identity audit; two repeats do not establish statistical superiority or fully characterize score noise."
 }

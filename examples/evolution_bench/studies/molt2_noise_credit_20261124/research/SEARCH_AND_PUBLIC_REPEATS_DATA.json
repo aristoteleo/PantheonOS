@@ -1,0 +1,150 @@
+{
+  "rows": [
+    {
+      "task": "ahc024",
+      "seed": 500,
+      "method": "molt2_adaptive_branches",
+      "run": "noise-ahc024-molt2_adaptive_branches-s500",
+      "search_score": 0.6491,
+      "repeat_scores": [
+        0.6491,
+        0.6491
+      ],
+      "repeat_mean": 0.6491
+    },
+    {
+      "task": "ahc024",
+      "seed": 500,
+      "method": "molt2_noise_credit",
+      "run": "noise-ahc024-molt2_noise_credit-s500",
+      "search_score": 0.6390266666666666,
+      "repeat_scores": [
+        0.6389933333333333,
+        0.63902
+      ],
+      "repeat_mean": 0.6390066666666667
+    },
+    {
+      "task": "ahc024",
+      "seed": 501,
+      "method": "molt2_adaptive_branches",
+      "run": "noise-ahc024-molt2_adaptive_branches-s501",
+      "search_score": 0.6384466666666667,
+      "repeat_scores": [
+        0.6384533333333334,
+        0.6381466666666666
+      ],
+      "repeat_mean": 0.6383000000000001
+    },
+    {
+      "task": "ahc024",
+      "seed": 501,
+      "method": "molt2_noise_credit",
+      "run": "noise-ahc024-molt2_noise_credit-s501",
+      "search_score": 0.6394466666666667,
+      "repeat_scores": [
+        0.6394466666666667,
+        0.63942
+      ],
+      "repeat_mean": 0.6394333333333333
+    },
+    {
+      "task": "ahc024",
+      "seed": 502,
+      "method": "molt2_adaptive_branches",
+      "run": "noise-ahc024-molt2_adaptive_branches-s502",
+      "search_score": 1.8563399999999999,
+      "repeat_scores": [
+        1.85538,
+        1.8399466666666666
+      ],
+      "repeat_mean": 1.8476633333333332
+    },
+    {
+      "task": "ahc024",
+      "seed": 502,
+      "method": "molt2_noise_credit",
+      "run": "noise-ahc024-molt2_noise_credit-s502",
+      "search_score": 0.63902,
+      "repeat_scores": [
+        0.63902,
+        0.63902
+      ],
+      "repeat_mean": 0.63902
+    },
+    {
+      "task": "ahc058",
+      "seed": 500,
+      "method": "molt2_adaptive_branches",
+      "run": "noise-ahc058-molt2_adaptive_branches-s500",
+      "search_score": 5.500531179999999,
+      "repeat_scores": [
+        5.495128326666667,
+        5.485017686666667
+      ],
+      "repeat_mean": 5.490073006666667
+    },
+    {
+      "task": "ahc058",
+      "seed": 500,
+      "method": "molt2_noise_credit",
+      "run": "noise-ahc058-molt2_noise_credit-s500",
+      "search_score": 5.383925153333333,
+      "repeat_scores": [
+        5.362436446666666,
+        5.354715006666667
+      ],
+      "repeat_mean": 5.3585757266666665
+    },
+    {
+      "task": "ahc058",
+      "seed": 501,
+      "method": "molt2_adaptive_branches",
+      "run": "noise-ahc058-molt2_adaptive_branches-s501",
+      "search_score": 5.233243633333334,
+      "repeat_scores": [
+        5.233243633333334,
+        5.233243633333334
+      ],
+      "repeat_mean": 5.233243633333334
+    },
+    {
+      "task": "ahc058",
+      "seed": 501,
+      "method": "molt2_noise_credit",
+      "run": "noise-ahc058-molt2_noise_credit-s501",
+      "search_score": 5.361436473333334,
+      "repeat_scores": [
+        5.363559406666666,
+        5.359613133333334
+      ],
+      "repeat_mean": 5.36158627
+    },
+    {
+      "task": "ahc058",
+      "seed": 502,
+      "method": "molt2_adaptive_branches",
+      "run": "noise-ahc058-molt2_adaptive_branches-s502",
+      "search_score": 5.444104713333333,
+      "repeat_scores": [
+        5.436071746666667,
+        5.36660974
+      ],
+      "repeat_mean": 5.401340743333334
+    },
+    {
+      "task": "ahc058",
+      "seed": 502,
+      "method": "molt2_noise_credit",
+      "run": "noise-ahc058-molt2_noise_credit-s502",
+      "search_score": 5.403834306666667,
+      "repeat_scores": [
+        5.409421586666667,
+        5.37738584
+      ],
+      "repeat_mean": 5.393403713333333
+    }
+  ],
+  "repeat_coverage_verified": true,
+  "validation_accessed": false
+}

@@ -1,0 +1,27 @@
+{
+  "at_unix": 1795558708.3395445,
+  "objective": "Separate Molt2; preserve vanilla Molt; reproducible development comparisons, evidence-driven iteration, reserved validation, honest uncertainty.",
+  "requirements": {
+    "separate_implementation": "/home/erwinpi/molt2-noise-credit-engine/pantheon/evolution/methods/molt2_adaptive_branches.py",
+    "controls_byte_identical": true,
+    "engine_clean": true,
+    "targeted_tests_passed": true,
+    "primary_searches": 40,
+    "primary_verified_repeats": 80,
+    "reward_ablation_searches": 12,
+    "ablation_verified_repeats": 24,
+    "reports_rendered_pages": 2,
+    "validation_reserved": true,
+    "general_superiority_claimed": false
+  },
+  "evidence": {
+    "/home/erwinpi/molt2-adaptive-branches-lab/research/PUBLIC_REPEAT_COVERAGE_AUDIT.json": "8b4574f51a849889e2da8c67d1adf9ca03cedc68980e05319b83ea30b3545dce",
+    "/home/erwinpi/molt2-adaptive-branches-lab/research/PUBLIC_REREAD_BACKUP.json": "dea74543652662e97141ac15e4ddcbdb1a2f04f5e239c63706c30015be62cd22",
+    "/home/erwinpi/molt2-adaptive-branches-lab/CAMPAIGN_COMPLETE.json": "e4c54a23cdf40875d3469050cdec5074130fc83000b41a0a4ab672b615dbe769",
+    "/home/erwinpi/molt2-noise-credit-lab/research/PUBLIC_REPEAT_COVERAGE_AUDIT.json": "9ec331bc4a9b95ebb59c515fe2c91c6b89932e00296cef1e8af24d71f572e91d",
+    "/home/erwinpi/molt2-noise-credit-lab/research/PUBLIC_REREAD_BACKUP.json": "fdac605604ebd4b9d1a2dc295aff6753c33760a2784c12151af520eafec3785a",
+    "/home/erwinpi/molt2-noise-credit-lab/research/PILOT_COMPLETION_AUDIT.json": "c16773f6d5d2a54c25a33ef1072978f8abc345ff71f9c9e974bd6a7d9b3fc5cc",
+    "/home/erwinpi/molt2-noise-credit-lab/CAMPAIGN_COMPLETE.json": "7937e9db10b0c03ffb1b22dfde872e075b4eeb9fcb2a189653133b7ae2c34277"
+  },
+  "decision": "Retain adaptive Molt2; reject noise-credit promotion. Development objective complete; superiority not established."
+}

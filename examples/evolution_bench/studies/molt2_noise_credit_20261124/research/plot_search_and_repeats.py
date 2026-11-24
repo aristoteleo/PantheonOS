@@ -34,7 +34,7 @@ legend.append(Line2D([],[],marker='x',linestyle='',color='black',label='Selected
 fig.suptitle('Selected search scores and post-search TRAIN repeats',fontsize=14)
 fig.legend(handles=legend,loc='upper center',bbox_to_anchor=(.5,.92),ncol=min(3,len(legend)),frameon=False,fontsize=10)
 fig.text(.5,.025,'Whiskers: range of two TRAIN repeats, not confidence intervals · 150 cases · no reselection or held-out evaluation',ha='center',fontsize=8)
-fig.tight_layout(rect=(0,.07,1,.76))
+fig.tight_layout(rect=(.03,.07,.99,.76))
 for suffix in ['pdf','png']:fig.savefig(root/'research'/f'SEARCH_AND_PUBLIC_REPEATS.{suffix}',dpi=170)
 (root/'research/SEARCH_AND_PUBLIC_REPEATS_DATA.json').write_text(json.dumps(dict(rows=data,repeat_coverage_verified=True,validation_accessed=False),indent=2)+'\n')
 print('Saved search/repeat figure:',len(data),'frozen finalists')
