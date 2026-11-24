@@ -1,0 +1,155 @@
+{
+  "at_unix": 1795556372.279897,
+  "run": "noise-ahc058-molt2_noise_credit-s502",
+  "selection": {
+    "id": "4162fc23",
+    "score": 5.403834306666667,
+    "sha256": "57e61f7ab28cddb374248d0c3586db9ebefa788c57af7d1fdcc690cb2afd4ae0",
+    "eval_cap": 80,
+    "cases": 150,
+    "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+  },
+  "source_hash_verified": true,
+  "chain_memberships": [
+    3
+  ],
+  "chain_roles": [
+    "established"
+  ],
+  "ancestry": [
+    {
+      "id": "4162fc23",
+      "parents": [
+        "4e7022e1",
+        "e845d5a4"
+      ],
+      "meta": {
+        "summary": "Looking at the reference implementations and the chain's design, I'll build an improved stochastic local search over the full action sequence. Key improvements to consider:",
+        "candidate": 1,
+        "mutation_seconds": 31.360912561416626
+      }
+    },
+    {
+      "id": "e845d5a4",
+      "parents": [
+        "a95cf4b2"
+      ],
+      "meta": {
+        "summary": "Looking at the reference solution, I can identify several critical bugs and weaknesses, and I'll develop an improved version that keeps the same stochastic local search design.",
+        "candidate": 1,
+        "mutation_seconds": 29.888530731201172
+      }
+    },
+    {
+      "id": "a95cf4b2",
+      "parents": [
+        "47bcd209"
+      ],
+      "meta": {
+        "summary": "Looking at this task, I need to redesign the main loop of the target program to use stochastic local search over the entire action sequence.",
+        "candidate": 0,
+        "mutation_seconds": 39.067362785339355
+      }
+    },
+    {
+      "id": "47bcd209",
+      "parents": [
+        "ac013dd7",
+        "7e595eb2"
+      ],
+      "meta": {
+        "summary": "Looking at the problem, I need to think carefully about the mechanics and find a better strategy than pure greedy/rollout.",
+        "candidate": 0,
+        "mutation_seconds": 52.00547957420349
+      }
+    },
+    {
+      "id": "7e595eb2",
+      "parents": [
+        "df1d7ca6"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to understand the mechanics carefully:",
+        "candidate": 0,
+        "mutation_seconds": 60.008262634277344
+      }
+    },
+    {
+      "id": "df1d7ca6",
+      "parents": [
+        "a1d57528"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, it's an incremental game optimization. Let me analyze the reference solution's weaknesses and design a better approach.",
+        "candidate": 1,
+        "mutation_seconds": 73.23819494247437
+      }
+    },
+    {
+      "id": "a1d57528",
+      "parents": [],
+      "meta": {}
+    },
+    {
+      "id": "ac013dd7",
+      "parents": [
+        "df1d7ca6"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to understand the mechanics deeply.",
+        "candidate": 0,
+        "mutation_seconds": 31.351354598999023
+      }
+    },
+    {
+      "id": "4e7022e1",
+      "parents": [
+        "bc82da79",
+        "a95cf4b2"
+      ],
+      "meta": {
+        "summary": "Looking at this design, I need to fix the failures and improve the stochastic local search. The key observations:",
+        "candidate": 1,
+        "mutation_seconds": 29.516751527786255
+      }
+    },
+    {
+      "id": "bc82da79",
+      "parents": [
+        "e845d5a4",
+        "de5f9dff"
+      ],
+      "meta": {
+        "summary": "Looking at the results, the design (stochastic local search on entire action sequence) achieved its best result with a95cf4b2 at 5.274964. The subsequent attempts (e845d5a4, b60fa941, de5f9dff) all re",
+        "candidate": 0,
+        "mutation_seconds": 34.5556104183197
+      }
+    },
+    {
+      "id": "de5f9dff",
+      "parents": [
+        "a95cf4b2"
+      ],
+      "meta": {
+        "summary": "Looking at the failures in this chain:",
+        "candidate": 1,
+        "mutation_seconds": 60.14537167549133
+      }
+    }
+  ],
+  "redesign_directions": [
+    {
+      "intervention": 0,
+      "direction": "i0/planner_2/direction_01",
+      "task": "Rewrite 47bcd209's main loop as a stochastic local search over the entire T=500 action sequence: initialize with the target's greedy sequence, then repeatedly apply one of {single-action replacement, adjacent swap, insert/delete -1}, accept improving moves and occasionally worse moves with a small temperature, evaluate by exact simulation from the first changed turn, and output the best valid sequence found within the time limit.",
+      "old": 5.135248753333333,
+      "hypothesis": "All live branches choose actions myopically using a surrogate score and never revise earlier decisions. A global sequence local search directly maximizes final apple count and can correct early misallocations; if the greedy sequence is locally improvable, the search will find a higher-scoring sequence.",
+      "fate": "graduated",
+      "opened_at": 43,
+      "best": 5.30029732,
+      "decided_at": 67
+    }
+  ],
+  "validation_accessed": false,
+  "comparison_status": "Matching control seed still running; all TRAIN repeats pending."
+}

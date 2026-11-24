@@ -1,7 +1,7 @@
 {
-  "at_unix": 1795554997.29369,
+  "at_unix": 1795556372.323988,
   "expected_run_count": 12,
-  "completed_run_count": 10,
+  "completed_run_count": 11,
   "rows": [
     {
       "run": "noise-ahc024-molt2_adaptive_branches-s500",
@@ -71,9 +71,9 @@
     },
     {
       "run": "noise-ahc058-molt2_noise_credit-s502",
-      "status": "running",
-      "strict_selection_verified": false,
-      "remote_archive_verified": false
+      "status": "complete",
+      "strict_selection_verified": true,
+      "remote_archive_verified": true
     }
   ],
   "frozen_file_count": 17,
