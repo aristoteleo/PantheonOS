@@ -1,0 +1,313 @@
+{
+  "at_unix": 1795512879.0046356,
+  "scope": "Completed AHC058 public development seed402; strict first80 selection, no validation",
+  "selection": {
+    "id": "7ad13aea",
+    "score": 5.554382913333333,
+    "sha256": "3e775aedacf6369b7d07354fa155148a3743647c3a9efa559368b66cb3654344",
+    "eval_cap": 80,
+    "cases": 150,
+    "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+  },
+  "first_parent_lineage": [
+    {
+      "id": "12c578ed",
+      "generation": 0,
+      "parents": [],
+      "measurements": [
+        {
+          "combined_score": 4.86749216,
+          "validity": 1.0,
+          "num_cases": 150,
+          "num_accepted": 150
+        }
+      ]
+    },
+    {
+      "id": "966792e4",
+      "generation": 1,
+      "parents": [
+        "12c578ed"
+      ],
+      "measurements": [
+        {
+          "combined_score": 4.82238512,
+          "validity": 1.0,
+          "num_cases": 150,
+          "num_accepted": 150
+        }
+      ]
+    },
+    {
+      "id": "8adae7f4",
+      "generation": 2,
+      "parents": [
+        "966792e4",
+        "02260f0b"
+      ],
+      "measurements": [
+        {
+          "combined_score": 5.08409004,
+          "validity": 1.0,
+          "num_cases": 150,
+          "num_accepted": 150
+        }
+      ]
+    },
+    {
+      "id": "cbc5a0fe",
+      "generation": 3,
+      "parents": [
+        "8adae7f4",
+        "12c578ed"
+      ],
+      "measurements": [
+        {
+          "combined_score": 5.216364706666667,
+          "validity": 1.0,
+          "num_cases": 150,
+          "num_accepted": 150
+        }
+      ]
+    },
+    {
+      "id": "c65af8ee",
+      "generation": 4,
+      "parents": [
+        "cbc5a0fe"
+      ],
+      "measurements": [
+        {
+          "combined_score": 5.387619526666667,
+          "validity": 1.0,
+          "num_cases": 150,
+          "num_accepted": 150
+        }
+      ]
+    },
+    {
+      "id": "fc32520d",
+      "generation": 5,
+      "parents": [
+        "c65af8ee"
+      ],
+      "measurements": [
+        {
+          "combined_score": 5.418292413333333,
+          "validity": 1.0,
+          "num_cases": 150,
+          "num_accepted": 150
+        }
+      ]
+    },
+    {
+      "id": "259a199c",
+      "generation": 6,
+      "parents": [
+        "fc32520d"
+      ],
+      "measurements": [
+        {
+          "combined_score": 5.50039878,
+          "validity": 1.0,
+          "num_cases": 150,
+          "num_accepted": 150
+        }
+      ]
+    },
+    {
+      "id": "521571e7",
+      "generation": 7,
+      "parents": [
+        "259a199c",
+        "c65af8ee"
+      ],
+      "measurements": [
+        {
+          "combined_score": 5.5357424533333335,
+          "validity": 1.0,
+          "num_cases": 150,
+          "num_accepted": 150
+        }
+      ]
+    },
+    {
+      "id": "1092b3ec",
+      "generation": 8,
+      "parents": [
+        "521571e7",
+        "fc32520d"
+      ],
+      "measurements": [
+        {
+          "combined_score": 5.387532393333333,
+          "validity": 1.0,
+          "num_cases": 150,
+          "num_accepted": 150
+        }
+      ]
+    },
+    {
+      "id": "1b564eed",
+      "generation": 9,
+      "parents": [
+        "1092b3ec",
+        "259a199c"
+      ],
+      "measurements": [
+        {
+          "combined_score": 5.493677873333333,
+          "validity": 1.0,
+          "num_cases": 150,
+          "num_accepted": 150
+        }
+      ]
+    },
+    {
+      "id": "7ad13aea",
+      "generation": 10,
+      "parents": [
+        "1b564eed",
+        "521571e7"
+      ],
+      "measurements": [
+        {
+          "combined_score": 5.554382913333333,
+          "validity": 1.0,
+          "num_cases": 150,
+          "num_accepted": 150
+        }
+      ]
+    }
+  ],
+  "winning_chains": [
+    4
+  ],
+  "designs": [
+    {
+      "intervention": 0,
+      "direction": "i0/planner_2/direction_00",
+      "task": "Write a new complete program that reuses the target's State/apply/produce/marginalValue helpers. Generate an initial valid length-T action sequence using the target's per-turn policy. Then run a time-bounded simulated-annealing/local search on the full sequence: repeatedly mutate by changing one action to a different valid action, swapping two adjacent actions, or moving an action to another turn; evaluate each mutation by exact forward simulation from the first changed turn, rejecting any sequence that makes apples negative; accept improvements and occasionally accept small worsening with a decreasing temperature. Keep the best valid sequence and output it.",
+      "old": 5.216364706666667,
+      "hypothesis": "The incumbent makes irrevocable per-turn decisions via one-step rollout with a greedy marginal-ROI continuation; it cannot revise early commitments. A global local search over the entire 500-action sequence can coordinate upgrades across turns and escape the greedy local optimum.",
+      "fate": "graduated",
+      "opened_at": 51,
+      "best": 5.5357424533333335,
+      "decided_at": 71
+    }
+  ],
+  "allocation_window_rows": [
+    {
+      "arm": "chain:4",
+      "reason": "incumbent_floor",
+      "samples": {},
+      "frontier": 5.387619526666667,
+      "batch_id": "bc92cc15c",
+      "evaluations": 2,
+      "best_child": 5.418292413333333,
+      "dispatch": 16,
+      "success": 1
+    },
+    {
+      "arm": "chain:4",
+      "reason": "thompson_progress_per_evaluation",
+      "samples": {
+        "chain:0": 0.019672176074827925,
+        "chain:1": 0.11401738442529154,
+        "chain:2": 0.14058817954144212,
+        "chain:4": 0.24652163955679834,
+        "proposal": 0.20252628412797954
+      },
+      "frontier": 5.418292413333333,
+      "batch_id": "b570af0be",
+      "evaluations": 2,
+      "best_child": 5.50039878,
+      "dispatch": 19,
+      "success": 1
+    },
+    {
+      "arm": "chain:4",
+      "reason": "thompson_progress_per_evaluation",
+      "samples": {
+        "chain:0": 0.1392751338464507,
+        "chain:1": 0.15577708967300605,
+        "chain:2": 0.14630517701507664,
+        "chain:3": 0.33068264216590076,
+        "chain:4": 0.47273140937566754,
+        "proposal": 0.1117188929892041
+      },
+      "frontier": 5.50039878,
+      "batch_id": "b25d66659",
+      "evaluations": 2,
+      "best_child": 5.5357424533333335,
+      "dispatch": 23,
+      "success": 1
+    },
+    {
+      "arm": "chain:4",
+      "reason": "thompson_progress_per_evaluation",
+      "samples": {
+        "chain:0": 0.15373338208315607,
+        "chain:1": 0.07227396720605442,
+        "chain:3": 0.43198680960017466,
+        "chain:4": 0.8063625401553137,
+        "chain:5": 0.0854218480158888,
+        "proposal": 0.2645005554951244
+      },
+      "frontier": 5.5357424533333335,
+      "batch_id": "b45b78c99",
+      "evaluations": 2,
+      "best_child": 5.387532393333333,
+      "dispatch": 25,
+      "success": 0
+    },
+    {
+      "arm": "chain:4",
+      "reason": "thompson_progress_per_evaluation",
+      "samples": {
+        "chain:0": 0.21740031964436363,
+        "chain:1": 0.10656396264516622,
+        "chain:2": 0.04175928164719707,
+        "chain:3": 0.04228163292223753,
+        "chain:4": 0.5734960114274594,
+        "proposal": 0.014136344132117637
+      },
+      "frontier": 5.5357424533333335,
+      "batch_id": "b8a5ee2b7",
+      "evaluations": 2,
+      "best_child": 5.493677873333333,
+      "dispatch": 27,
+      "success": 0
+    },
+    {
+      "arm": "chain:4",
+      "reason": "thompson_progress_per_evaluation",
+      "samples": {
+        "chain:1": 0.13588882837720967,
+        "chain:2": 0.16489852234449806,
+        "chain:3": 0.021535360134496112,
+        "chain:4": 0.43373068736404297,
+        "chain:5": 0.21174849914798027,
+        "proposal": 0.2892039162684346
+      },
+      "frontier": 5.5357424533333335,
+      "batch_id": "b559b0b79",
+      "evaluations": 2,
+      "best_child": 5.554382913333333,
+      "dispatch": 30,
+      "success": 1
+    }
+  ],
+  "backup": {
+    "run": "matched-ahc058-molt2_adaptive_branches-s402",
+    "sha256": "7218e765e2b938aabac5e51acc4641da2562d0cbd9c634be35407179c6240fb6",
+    "remote": "/archives/molt2-adaptive-branches-20261123/runs/matched-ahc058-molt2_adaptive_branches-s402-7218e765e2b938aabac5e51acc4641da2562d0cbd9c634be35407179c6240fb6.tar.gz",
+    "volume": "molt-cardiac4d-runs",
+    "readback_verified": true,
+    "selected_source_sha256": "3e775aedacf6369b7d07354fa155148a3743647c3a9efa559368b66cb3654344",
+    "at_unix": 1795512539.6554992,
+    "validation_accessed": false
+  },
+  "caution": "Retained allocation history is a rolling window, not all work. First-parent ancestry can omit donor inputs. A successful single run does not isolate an architecture effect.",
+  "allocation_interpretation": "Winning chain4 received six resolved work items retained in the final64-evaluation window (12 candidate evaluations). Four items crossed the1% dispatch-frontier reward gate. These observations show useful adaptive feedback in this run, contrasting with reward starvation on AHC024; they do not prove sampling caused the gain. The sprout best field was recorded at graduation and is not the final global selected score."
+}
