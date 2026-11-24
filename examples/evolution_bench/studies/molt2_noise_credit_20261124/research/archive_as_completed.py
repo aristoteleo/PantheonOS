@@ -8,7 +8,7 @@ while time.monotonic()<deadline:
   workflow=run/'workflow.json';receipt=R/'research'/f'BACKUP-{run.name}.json'
   if receipt.exists() or not workflow.exists():continue
   state=json.loads(workflow.read_text())
-  if state.get('status')!='complete' or attempts.get(run.name,0)>=3:continue
+  if state.get('status') not in ('complete','failed','timeout_or_stop','not_admitted_stop') or attempts.get(run.name,0)>=3:continue
   attempts[run.name]=attempts.get(run.name,0)+1
   result=subprocess.run([sys.executable,str(R/'research/archive_completed_run.py'),run.name],capture_output=True,text=True,timeout=900)
   if result.returncode:errors[run.name]=result.stderr[-2000:]

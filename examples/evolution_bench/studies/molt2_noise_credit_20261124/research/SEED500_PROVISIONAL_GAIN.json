@@ -1,0 +1,14 @@
+{
+  "at_unix": 1795539975.524848,
+  "run": "noise-ahc024-molt2_noise_credit-s500",
+  "candidate_id": "327534dd",
+  "observed_score": 0.6389466666666667,
+  "retained_chain_membership": [
+    {
+      "chain": 0,
+      "role": "base",
+      "contains_current_best": true
+    }
+  ],
+  "caution": "Provisional source observation only; no causal attribution of small gain or final selection."
+}
