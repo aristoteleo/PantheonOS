@@ -1,0 +1,56 @@
+{
+  "at_unix": 1795550297.7629588,
+  "run": "noise-ahc058-molt2_noise_credit-s501",
+  "best_progress_observation": {
+    "t": 1621.5,
+    "n": 40,
+    "score": 5.3250611333333335,
+    "id": "f978d6d0",
+    "fidelity": "full",
+    "valid": 1.0
+  },
+  "checkpoint_contains_candidate": true,
+  "chain_memberships": [
+    3
+  ],
+  "roles": [
+    "sprout"
+  ],
+  "redesign_directions": [
+    {
+      "intervention": 0,
+      "direction": "i0/planner_1/direction_01",
+      "task": "Replace e94d2902's main loop with a two-phase algorithm: (1) generate an initial action sequence using a fast greedy policy (e.g., pick the highest analyticValue action each turn without rollout); (2) use the remaining time to run hill-climbing local search on the sequence: repeatedly pick a random turn, change its action to a random feasible action (including -1), simulate the full sequence from the initial state to compute final apples, and accept if the final apples increase. Output the best sequence found.",
+      "old": 5.222830453333333,
+      "hypothesis": "e94d2902's per-turn rollout is a one-step lookahead with a fixed policy, which can commit to locally optimal actions that are globally suboptimal. A local search over the full 500-action sequence can fix coordinated multi-turn inefficiencies because simulation is cheap and exact, allowing many mutations to be evaluated within the time limit.",
+      "fate": "probation",
+      "opened_at": 40
+    }
+  ],
+  "parent_ids": [
+    "e94d2902"
+  ],
+  "status": "provisional, selection not final",
+  "validation_accessed": false,
+  "credit_observations_for_gain": [
+    {
+      "arm": "proposal",
+      "reason": "thompson_progress_per_evaluation",
+      "samples": {
+        "chain:0": 0.07439820455654779,
+        "chain:1": 0.04509099748621924,
+        "proposal": 0.22414369189433106
+      },
+      "frontier": 5.222830453333333,
+      "batch_id": "b3d50e024",
+      "evaluations": 1,
+      "best_child": 5.3250611333333335,
+      "dispatch": 10,
+      "success": 0.5494326215171518,
+      "frontier_gain": 0.1022306800000008,
+      "binary_credit_reference": 1
+    }
+  ],
+  "source_sha256": "6d9e0a8a6be81fc472b42a5b48974156228c310a0fdc3f84c16888e7fad473de",
+  "source_file": "provisional-candidates/ahc058-noise-credit-s501-f978d6d0.cpp"
+}
