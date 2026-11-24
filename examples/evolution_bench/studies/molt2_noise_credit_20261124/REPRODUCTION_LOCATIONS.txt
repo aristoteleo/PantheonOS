@@ -1,0 +1,44 @@
+Reward-only development pilot, 2026-11-24
+
+Local campaign: /home/erwinpi/molt2-noise-credit-lab
+Engine: /home/erwinpi/molt2-noise-credit-engine
+Engine Git branch: erwin/molt2-noise-credit-20261124
+Engine commit: 4185a14 (full hash in campaign.json)
+Records repository: https://github.com/aristoteleo/PantheonOS
+Records branch: erwin/molt2-campaign-records-20261124
+Study: examples/evolution_bench/studies/molt2_noise_credit_20261124
+
+Protocol: PROTOCOL.json; exact commands: manifest.json and runs/*/job.json.
+Two tasks, seeds 500–502, original Molt2 adaptive branches versus noise-credit.
+150 public training cases per task; first 80 evaluator calls include baseline.
+Development only. No validation or held-out files are read.
+
+The tasks link points to /home/erwinpi/molt2-adaptive-branches-lab/tasks.
+Exact public inputs and runtime dependency hashes are enumerated in
+research/RUNTIME_DEPENDENCIES.json. The original study preserves those assets
+in research/runtime-assets and its verified private Modal source archive.
+For another machine, restore those assets and matching compiler/runtime,
+then rewrite absolute paths explicitly; a symlink alone is not a data backup.
+Original study's REPRODUCTION_LOCATIONS.txt documents its source archives.
+
+Raw terminal pilot traces are privately archived in Modal volume
+molt-cardiac4d-runs under /archives/molt2-noise-credit-20261124/runs/.
+Use research/BACKUP-<run>.json for exact immutable archive path and SHA256;
+readback_verified must be true. Selected source is selected/solution.cpp.
+Do not use native best_solution.cpp as the strict 80-call finalist.
+
+Important correction: native progress_rel is 0.002 (0.2%), not 1%.
+The frozen campaign.json contains an earlier prose typo; its executable
+configuration never overrides this native default. See
+research/NATIVE_REWARD_THRESHOLD_CORRECTION.json. Preserve the frozen file
+and report the correction separately instead of changing a running protocol.
+
+Noise gates were frozen from the prior cohort's public repeat variation.
+They are heuristic sensitivity parameters, not calibrated confidence bounds.
+The reward variant changes credit only; original method sources are unchanged.
+All seed outcomes, invalid candidates, early stops and model costs remain.
+
+Terminal paired results: research/PAIRED_PILOT_REPORT.json (when complete).
+Post-search repeats: research/PUBLIC_REREAD_REPORT.json and its backup receipt
+(when complete). These never change selection or feed back into evolution.
+Shared cumulative math model cap remains $74; biology budgets are separate.
