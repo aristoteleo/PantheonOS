@@ -1,0 +1,135 @@
+{
+  "at_unix": 1795510170.199893,
+  "scope": "Completed public development run, not validation",
+  "run": "matched-ahc058-molt_modified-s402",
+  "selection": {
+    "id": "f6ce3644",
+    "score": 5.4490837800000005,
+    "sha256": "fe0b76c7a41d6c60cf09113ceb3b171c5f1e47e398be391e55daec092ac5be4e",
+    "eval_cap": 80,
+    "cases": 150,
+    "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+  },
+  "first_parent_lineage": [
+    {
+      "id": "44dfaa3c",
+      "generation": 0,
+      "parent_ids": [],
+      "score": 4.86749216
+    },
+    {
+      "id": "8df33201",
+      "generation": 1,
+      "parent_ids": [
+        "44dfaa3c"
+      ],
+      "score": 5.151472746666667
+    },
+    {
+      "id": "67693e2b",
+      "generation": 2,
+      "parent_ids": [
+        "8df33201"
+      ],
+      "score": 5.218071766666666
+    },
+    {
+      "id": "22f8c05a",
+      "generation": 3,
+      "parent_ids": [
+        "67693e2b",
+        "44dfaa3c"
+      ],
+      "score": 5.2220688399999995
+    },
+    {
+      "id": "f33da26f",
+      "generation": 4,
+      "parent_ids": [
+        "22f8c05a"
+      ],
+      "score": 0.0
+    },
+    {
+      "id": "c3be3dd3",
+      "generation": 5,
+      "parent_ids": [
+        "f33da26f"
+      ],
+      "score": 0.0
+    },
+    {
+      "id": "6b0bc7e8",
+      "generation": 6,
+      "parent_ids": [
+        "c3be3dd3"
+      ],
+      "score": 5.3629587999999995
+    },
+    {
+      "id": "066d5d3f",
+      "generation": 7,
+      "parent_ids": [
+        "6b0bc7e8",
+        "f33da26f"
+      ],
+      "score": 5.38953452
+    },
+    {
+      "id": "130a158d",
+      "generation": 8,
+      "parent_ids": [
+        "066d5d3f",
+        "c3be3dd3"
+      ],
+      "score": 5.44326366
+    },
+    {
+      "id": "f6ce3644",
+      "generation": 9,
+      "parent_ids": [
+        "130a158d",
+        "6b0bc7e8"
+      ],
+      "score": 5.4490837800000005
+    }
+  ],
+  "backup": {
+    "run": "matched-ahc058-molt_modified-s402",
+    "sha256": "e723ea4baa264872d460f6ba356c7996e6ca46450fc38b90d0c447eb6782d657",
+    "remote": "/archives/molt2-adaptive-branches-20261123/runs/matched-ahc058-molt_modified-s402-e723ea4baa264872d460f6ba356c7996e6ca46450fc38b90d0c447eb6782d657.tar.gz",
+    "volume": "molt-cardiac4d-runs",
+    "readback_verified": true,
+    "selected_source_sha256": "fe0b76c7a41d6c60cf09113ceb3b171c5f1e47e398be391e55daec092ac5be4e",
+    "at_unix": 1795510103.1290014,
+    "validation_accessed": false
+  },
+  "interpretation": "The provisional annealing child130a158d was an ancestor, not the final selected program. Preserve all intermediate evidence; final selection is f6ce3644. This lineage is descriptive and does not isolate effects of the framework.",
+  "zero_score_validity_audit": [
+    {
+      "id": "f33da26f",
+      "validity": 0.0,
+      "num_accepted": 5,
+      "interpretation": "Rejected by all-cases validity rule, not a valid low-scoring solution"
+    },
+    {
+      "id": "c3be3dd3",
+      "validity": 0.0,
+      "num_accepted": 8,
+      "interpretation": "Rejected by all-cases validity rule, not a valid low-scoring solution"
+    }
+  ],
+  "relevant_planner_branch": {
+    "chain": 2,
+    "intervention": 0,
+    "direction": "i0/planner_1/direction_01",
+    "task": "Write a complete new solution.cpp that (1) uses the 22f8c05a heuristic/rollout to generate an initial legal action sequence of length T, (2) simulates it to obtain the current best final apple count, (3) while time remains, repeatedly proposes a bounded mutation to the sequence (change one turn's action to another legal action or -1, swap two actions, or move one action to another turn), simulates the mutated sequence from the earliest changed turn using a saved prefix state, and accepts it if final apples increase (or via simulated annealing), (4) outputs the best sequence found.",
+    "old": 5.2220688399999995,
+    "hypothesis": "The current online greedy+one-step rollout makes irreversible per-turn choices and cannot reorder early investments to coordinate a later cascade. An offline sequence optimizer can evaluate complete T-action schedules exactly and search for small rearrangements that improve final apples, escaping the myopic frontier.",
+    "fate": "graduated",
+    "opened_at": 19,
+    "best": 5.44326366,
+    "decided_at": 64
+  },
+  "mechanism_caution": "Planner described a full-sequence optimizer seeded by an online heuristic. The first two implementations failed validity before later repair. This demonstrates delayed implementation payoff in this observed lineage; it does not estimate the optimal probe budget or establish framework superiority."
+}

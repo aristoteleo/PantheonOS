@@ -67,7 +67,7 @@
   "planned_comparisons": 6,
   "caution": "Exploratory development tasks and n=5 seeds. No validation accessed. Descriptive bootstrap coverage can be poor at n=5. With six comparisons, even five wins alone cannot establish familywise significance at 0.05.",
   "measurement_event_audit": {
-    "at_unix": 1795509140.2406344,
+    "at_unix": 1795510792.998112,
     "rows": [
       {
         "run": "matched-ahc024-molt2_adaptive_branches-s400",
@@ -123,6 +123,17 @@
         "varying_score_program_ids": [],
         "legacy_event_review_required": false,
         "reasons": []
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s402",
+        "workflow_status": "running",
+        "engine_classification": "fixed",
+        "review_required": false,
+        "repeated_program_ids": [],
+        "same_batch_repeated_program_ids": [],
+        "varying_score_program_ids": [],
+        "legacy_event_review_required": false,
+        "reasons": []
       }
     ],
     "excluded_primary_run_ids": [],
@@ -131,7 +142,7 @@
   "excluded_primary_runs": [],
   "diagnostic_errors": [],
   "writer_parent_audit": {
-    "at_unix": 1795509140.2913556,
+    "at_unix": 1795510793.040066,
     "rows": [
       {
         "run": "matched-ahc024-molt2_adaptive_branches-s400",
@@ -566,6 +577,14 @@
         ]
       },
       {
+        "run": "matched-ahc058-molt2_adaptive_branches-s402",
+        "emitted_redesign_directions": 0,
+        "generation_zero_targets": 0,
+        "evolved_targets": 0,
+        "unique_targets": 0,
+        "targets": []
+      },
+      {
         "run": "matched-ahc058-molt_modified-s400",
         "emitted_redesign_directions": 4,
         "generation_zero_targets": 0,
@@ -657,10 +676,10 @@
       },
       {
         "run": "matched-ahc058-molt_modified-s402",
-        "emitted_redesign_directions": 4,
+        "emitted_redesign_directions": 5,
         "generation_zero_targets": 0,
-        "evolved_targets": 4,
-        "unique_targets": 2,
+        "evolved_targets": 5,
+        "unique_targets": 3,
         "targets": [
           {
             "direction": "i0/planner_0/direction_01",
@@ -697,6 +716,15 @@
             "has_parents": true,
             "training_score": 5.219334086666667,
             "source_hash_matches": true
+          },
+          {
+            "direction": "i1/planner_0/direction_00",
+            "target": "f6ce3644",
+            "target_found": true,
+            "generation": 9,
+            "has_parents": true,
+            "training_score": 5.4490837800000005,
+            "source_hash_matches": true
           }
         ]
       }
@@ -704,7 +732,7 @@
     "scope": "Only emitted redesign directions in modified/adaptive method audits. Native planner target choice was preserved. Distinct directions can share one target. An evolved-target benefit cannot be inferred from seed-target restarts."
   },
   "resource_audit": {
-    "at_unix": 1795509140.36676,
+    "at_unix": 1795510793.1014574,
     "rows": [
       {
         "run": "matched-ahc024-molt-s400",
@@ -913,9 +941,9 @@
       {
         "run": "matched-ahc058-molt-s402",
         "status": "running",
-        "confirmed_provider_usd": 0.0440077344,
+        "confirmed_provider_usd": 0.2193343096,
         "unknown_request_count": 0,
-        "conservative_total_usd": 0.0440077344,
+        "conservative_total_usd": 0.2193343096,
         "native_reported_seconds": null,
         "time_to_80th_recorded_evaluation_seconds": null,
         "process_wall_seconds": null,
@@ -959,6 +987,22 @@
         }
       },
       {
+        "run": "matched-ahc058-molt2_adaptive_branches-s402",
+        "status": "running",
+        "confirmed_provider_usd": 0.0766682784,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.0766682784,
+        "native_reported_seconds": null,
+        "time_to_80th_recorded_evaluation_seconds": null,
+        "process_wall_seconds": null,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
         "run": "matched-ahc058-molt_modified-s400",
         "status": "complete",
         "confirmed_provider_usd": 0.2462899656,
@@ -992,13 +1036,13 @@
       },
       {
         "run": "matched-ahc058-molt_modified-s402",
-        "status": "running",
-        "confirmed_provider_usd": 0.1827952056,
+        "status": "complete",
+        "confirmed_provider_usd": 0.26987898,
         "unknown_request_count": 0,
-        "conservative_total_usd": 0.1827952056,
-        "native_reported_seconds": null,
-        "time_to_80th_recorded_evaluation_seconds": null,
-        "process_wall_seconds": null,
+        "conservative_total_usd": 0.26987898,
+        "native_reported_seconds": 2798.940128326416,
+        "time_to_80th_recorded_evaluation_seconds": 2798.931799888611,
+        "process_wall_seconds": 2800.503599882126,
         "receipt_protocol": {
           "amendment": "20261124-receipt-drain-v1",
           "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
@@ -1058,8 +1102,8 @@
     "caution": "Unknown charges remain booked. Confirmed provider totals exclude unknown requests and are not complete billed totals where unknown_count>0. Process wall time and native reported seconds may include receipt waits during worker cleanup. Time to80th recorded evaluation uses actual search-event timestamps and excludes later receipt-only tail; it is withheld if80 calls were not reached."
   },
   "baseline_parity": {
-    "at_unix": 1795509140.442122,
-    "observed_starts": 23,
+    "at_unix": 1795510793.1657526,
+    "observed_starts": 24,
     "scheduled_trials": 40,
     "all_observed_sources_match": true,
     "all_observed_seeds_valid150": true,
@@ -1323,10 +1367,22 @@
         "matches_fixed_seed": true,
         "starting_score": 4.86749216,
         "starting_validity": 1.0,
-        "starting_cases_accepted": 150
+        "starting_cases_accepted": 150,
+        "selected_generation": 9,
+        "selected_is_starting_source": false,
+        "selected_score": 5.4490837800000005
       },
       {
         "run": "matched-ahc058-molt-s402",
+        "task": "ahc058",
+        "starting_source_sha256": "599fc27b8c744ec7787eb536dfb8906a85ebe7e2b7c0357bbf0004d97d0590f6",
+        "matches_fixed_seed": true,
+        "starting_score": 4.86749216,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s402",
         "task": "ahc058",
         "starting_source_sha256": "599fc27b8c744ec7787eb536dfb8906a85ebe7e2b7c0357bbf0004d97d0590f6",
         "matches_fixed_seed": true,
@@ -1338,7 +1394,7 @@
     "caution": "Source parity is distinct from identical stochastic histories. Wall-clock scores and prompt timing metrics can differ even with the same initial source and configured algorithm/model seeds."
   },
   "validity_budget_audit": {
-    "at_unix": 1795509140.5457752,
+    "at_unix": 1795510793.253568,
     "rows": [
       {
         "run": "matched-ahc024-molt-s400",
@@ -1873,13 +1929,35 @@
           "Compilation failed: /tmp/ahc039_nhvgdlyh/Main.cpp:2:1: error: expected unqualified-id before \u2018...\u2019 token": 1,
           "121/150 cases rejected -- case 0: TLE CPU limit exceeded (prlimit SIGKILL)": 1
         }
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s402",
+        "task": "ahc058",
+        "method": "molt_modified",
+        "seed": 402,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 67,
+          "invalid_or_partial": 13
+        },
+        "rejection_reasons": {
+          "149/150 cases rejected -- case 0: WA Tester nonzero: wrong answer: Parse error: -1": 1,
+          "145/150 cases rejected -- case 0: WA Tester nonzero: wrong answer: Not enough apples at turn 1: have 1, need 7": 1,
+          "11/150 cases rejected -- case 0: WA Tester nonzero: wrong answer: Not enough apples at turn 128: have 522313, need 3678800": 1,
+          "142/150 cases rejected -- case 0: WA Tester nonzero: wrong answer: Not enough apples at turn 1: have 1, need 41": 1,
+          "144/150 cases rejected -- case 0: WA Tester nonzero: wrong answer: Not enough apples at turn 1: have 1, need 1792432832": 1,
+          "7/150 cases rejected -- case 17: WA Tester nonzero: wrong answer: Not enough apples at turn 26: have 218, need 236": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: wrong answer: Not enough actions: expected 500, got 0": 4,
+          "2/150 cases rejected -- case 43: TLE CPU limit exceeded (prlimit SIGKILL)": 1,
+          "150/150 cases rejected -- case 0: TLE CPU limit exceeded (prlimit SIGKILL)": 2
+        }
       }
     ],
     "scope": "Completed runs only; first80 evaluator-call ceiling, starting program included. No model calls or evaluations.",
     "limits": "Strict nearest timestamp join (<0.1s). Unmatched and ambiguous events remain explicit; they are not assumed invalid. Counts include repeated-code evaluations and are not counts of distinct programs. No causal or five-seed inference from incomplete groups."
   },
   "allocation_diagnostic": {
-    "at_unix": 1795509140.558558,
+    "at_unix": 1795510793.261886,
     "rows": [
       {
         "run": "matched-ahc024-molt2_adaptive_branches-s400",
@@ -1996,8 +2074,3475 @@
     ],
     "caution": "Work-item counts are not candidate-evaluation counts. Native history is a rolling window, not whole-run reward. When successes are absent, posterior sampling cannot learn which arm produces progress; failure counts still change posterior uncertainty. This descriptive audit does not establish that another allocation would improve scores."
   },
+  "branch_recovery_audit": {
+    "at_unix": 1795510793.3311174,
+    "rows": [
+      {
+        "run": "matched-ahc024-molt-s400",
+        "chain": 2,
+        "fate": "probation",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 2,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6393466666666667,
+        "best_retained_score": 0.6380066666666666,
+        "retained_entries": [
+          {
+            "id": "b9135c09",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "25ba2b48",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "e635ef18",
+            "score": 0.6380066666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 51
+          },
+          {
+            "id": "c40d8a7c",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s400",
+        "chain": 3,
+        "fate": "probation",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 1,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6393466666666667,
+        "best_retained_score": 0.3035733333333333,
+        "retained_entries": [
+          {
+            "id": "1877c39b",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "f6664cf1",
+            "score": 0.3035733333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 41
+          },
+          {
+            "id": "f41094a3",
+            "score": 0.21791333333333332,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 50
+          },
+          {
+            "id": "52180d56",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s400",
+        "chain": 4,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6393466666666667,
+        "best_retained_score": 0.6388666666666667,
+        "retained_entries": [
+          {
+            "id": "4c6dc53b",
+            "score": 0.5764733333333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 33
+          },
+          {
+            "id": "0bf70c8d",
+            "score": 0.6269533333333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 47
+          },
+          {
+            "id": "80c8fb7b",
+            "score": 0.6387266666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 61
+          },
+          {
+            "id": "21fe5470",
+            "score": 0.6388666666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 79
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s400",
+        "chain": 5,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6393466666666667,
+        "best_retained_score": 0.595,
+        "retained_entries": [
+          {
+            "id": "1687a4ff",
+            "score": 0.595,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 54
+          },
+          {
+            "id": "817c443b",
+            "score": 0.5805266666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 66
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s400",
+        "chain": 6,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6393466666666667,
+        "best_retained_score": 0.6390133333333333,
+        "retained_entries": [
+          {
+            "id": "c3a9d8b5",
+            "score": 0.6380133333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 56
+          },
+          {
+            "id": "e7687bb7",
+            "score": 0.6390133333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 65
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s400",
+        "chain": 7,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6393466666666667,
+        "best_retained_score": 0.6384866666666666,
+        "retained_entries": [
+          {
+            "id": "09d44a37",
+            "score": 0.25271333333333335,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 57
+          },
+          {
+            "id": "5a33f9e2",
+            "score": 0.6384866666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 70
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s400",
+        "chain": 8,
+        "fate": "probation",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": null,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6393466666666667,
+        "best_retained_score": 0.0,
+        "retained_entries": [
+          {
+            "id": "6acea7dc",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "946e484f",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s401",
+        "chain": 2,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6383933333333334,
+        "best_retained_score": 0.001,
+        "retained_entries": [
+          {
+            "id": "3c8459e9",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 16
+          },
+          {
+            "id": "7a066d4b",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 25
+          },
+          {
+            "id": "9eb94219",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "b3d640a2",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 58
+          },
+          {
+            "id": "fde0e2e0",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 79
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s401",
+        "chain": 3,
+        "fate": "retired",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6383933333333334,
+        "best_retained_score": 0.015393333333333332,
+        "retained_entries": [
+          {
+            "id": "50d22f37",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 17
+          },
+          {
+            "id": "b6ac3bf8",
+            "score": 0.015233333333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 28
+          },
+          {
+            "id": "273b983d",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "6c3c025c",
+            "score": 0.015393333333333332,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 62
+          },
+          {
+            "id": "947ec255",
+            "score": 0.015393333333333332,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 78
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s401",
+        "chain": 4,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6383933333333334,
+        "best_retained_score": 0.6381266666666666,
+        "retained_entries": [
+          {
+            "id": "46fc6d28",
+            "score": 0.6381266666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 19
+          },
+          {
+            "id": "94705f2c",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "d934ca37",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "01384829",
+            "score": 0.6316466666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 63
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s401",
+        "chain": 5,
+        "fate": "probation",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": null,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6393266666666667,
+        "best_retained_score": 0.0,
+        "retained_entries": [
+          {
+            "id": "40b0dc5a",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "bddb1aad",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "d089dfce",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s401",
+        "chain": 6,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6393266666666667,
+        "best_retained_score": 0.2840666666666667,
+        "retained_entries": [
+          {
+            "id": "fa6cc404",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 37
+          },
+          {
+            "id": "a418ba3c",
+            "score": 0.21309999999999998,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 49
+          },
+          {
+            "id": "597917c1",
+            "score": 0.2840666666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 66
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s401",
+        "chain": 7,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6393266666666667,
+        "best_retained_score": 0.6360666666666667,
+        "retained_entries": [
+          {
+            "id": "d9bdbe94",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 39
+          },
+          {
+            "id": "a5e3ea90",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 50
+          },
+          {
+            "id": "1422065c",
+            "score": 0.6360666666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 71
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s401",
+        "chain": 8,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6393266666666667,
+        "best_retained_score": 0.3617066666666667,
+        "retained_entries": [
+          {
+            "id": "d8bb864c",
+            "score": 0.3617066666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 40
+          },
+          {
+            "id": "fe9e3e94",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 54
+          },
+          {
+            "id": "4ca65ca3",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s402",
+        "chain": 2,
+        "fate": "graduated",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6384733333333333,
+        "best_retained_score": 0.6384333333333333,
+        "retained_entries": [
+          {
+            "id": "b79e670e",
+            "score": 0.0074333333333333335,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 17
+          },
+          {
+            "id": "efeaf911",
+            "score": 0.63842,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 26
+          },
+          {
+            "id": "40adc7a8",
+            "score": 0.6384333333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 45
+          },
+          {
+            "id": "18c48b01",
+            "score": 0.6384333333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 60
+          },
+          {
+            "id": "a083b7d5",
+            "score": 0.6384333333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 79
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s402",
+        "chain": 3,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6384733333333333,
+        "best_retained_score": 0.24764,
+        "retained_entries": [
+          {
+            "id": "5b71b2ea",
+            "score": 0.24764,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 19
+          },
+          {
+            "id": "853ca68a",
+            "score": 0.005226666666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 30
+          },
+          {
+            "id": "71eb8065",
+            "score": 0.013026666666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 42
+          },
+          {
+            "id": "143bd98b",
+            "score": 0.017,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 61
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s402",
+        "chain": 4,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6384733333333333,
+        "best_retained_score": 0.6178733333333334,
+        "retained_entries": [
+          {
+            "id": "50147881",
+            "score": 0.60634,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 20
+          },
+          {
+            "id": "581ecf30",
+            "score": 0.6024066666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 27
+          },
+          {
+            "id": "4969f54f",
+            "score": 0.6178733333333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 47
+          },
+          {
+            "id": "562e3395",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "72d4aab6",
+            "score": 0.6155533333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 80
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s402",
+        "chain": 5,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6386533333333333,
+        "best_retained_score": 0.5144533333333334,
+        "retained_entries": [
+          {
+            "id": "f61d3d84",
+            "score": 0.4193,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 36
+          },
+          {
+            "id": "90c27166",
+            "score": 0.5144533333333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 46
+          },
+          {
+            "id": "b00b5bfe",
+            "score": 0.3961533333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 65
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s402",
+        "chain": 6,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6386533333333333,
+        "best_retained_score": 0.6384533333333334,
+        "retained_entries": [
+          {
+            "id": "e99e09d6",
+            "score": 0.6384533333333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 37
+          },
+          {
+            "id": "c5225260",
+            "score": 0.10820666666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 53
+          },
+          {
+            "id": "a2450bc7",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 71
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s402",
+        "chain": 7,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6386533333333333,
+        "best_retained_score": 0.6384066666666667,
+        "retained_entries": [
+          {
+            "id": "e5e5ab7c",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 40
+          },
+          {
+            "id": "25e5d716",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 50
+          },
+          {
+            "id": "5831746c",
+            "score": 0.6384066666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 69
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s402",
+        "chain": 8,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6386533333333333,
+        "best_retained_score": 0.001,
+        "retained_entries": [
+          {
+            "id": "ce0421ab",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 41
+          },
+          {
+            "id": "bd9d9066",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 54
+          },
+          {
+            "id": "a726f4ea",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 73
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s400",
+        "chain": 2,
+        "fate": "graduated",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6381533333333334,
+        "best_retained_score": 0.6379266666666666,
+        "retained_entries": [
+          {
+            "id": "e7595fe3",
+            "score": 0.52424,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 18
+          },
+          {
+            "id": "c9047be4",
+            "score": 0.63736,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 20
+          },
+          {
+            "id": "ee9a51f7",
+            "score": 0.6147266666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 34
+          },
+          {
+            "id": "4d490491",
+            "score": 0.6375066666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 39
+          },
+          {
+            "id": "9ff91a4c",
+            "score": 0.6379266666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 68
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s400",
+        "chain": 3,
+        "fate": "retired",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6381533333333334,
+        "best_retained_score": 0.5952000000000001,
+        "retained_entries": [
+          {
+            "id": "14787634",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 24
+          },
+          {
+            "id": "4f25b91d",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 27
+          },
+          {
+            "id": "5d1b0342",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 33
+          },
+          {
+            "id": "9dc5edac",
+            "score": 0.5952000000000001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 35
+          },
+          {
+            "id": "18ae31c0",
+            "score": 0.5788066666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 53
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s400",
+        "chain": 4,
+        "fate": "retired",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 2,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6381533333333334,
+        "best_retained_score": 0.001,
+        "retained_entries": [
+          {
+            "id": "99ef4655",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "883a8239",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "53a35254",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 48
+          },
+          {
+            "id": "f99fe3e4",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 60
+          },
+          {
+            "id": "6081570b",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 63
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s400",
+        "chain": 5,
+        "fate": "probation",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 1,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6381533333333334,
+        "best_retained_score": 0.43875333333333333,
+        "retained_entries": [
+          {
+            "id": "0b2484d9",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "fe20d406",
+            "score": 0.26606,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 55
+          },
+          {
+            "id": "3fd67353",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "729076ac",
+            "score": 0.43875333333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 70
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s400",
+        "chain": 6,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6392266666666667,
+        "best_retained_score": 0.17749333333333334,
+        "retained_entries": [
+          {
+            "id": "b1f910a4",
+            "score": 0.12476000000000001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 76
+          },
+          {
+            "id": "9f05ba3f",
+            "score": 0.17749333333333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 79
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s401",
+        "chain": 2,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6386000000000001,
+        "best_retained_score": 0.001,
+        "retained_entries": [
+          {
+            "id": "40bfb9a1",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 19
+          },
+          {
+            "id": "c04c98a6",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 24
+          },
+          {
+            "id": "a84a7409",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 33
+          },
+          {
+            "id": "c210f8d2",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s401",
+        "chain": 3,
+        "fate": "probation",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 1,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6386000000000001,
+        "best_retained_score": 0.63854,
+        "retained_entries": [
+          {
+            "id": "d5b863b1",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "921e8a59",
+            "score": 0.5786399999999999,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 28
+          },
+          {
+            "id": "4319320e",
+            "score": 0.6318066666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 42
+          },
+          {
+            "id": "40949e7e",
+            "score": 0.63854,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 72
+          },
+          {
+            "id": "aff5df6a",
+            "score": 0.63838,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 80
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s401",
+        "chain": 4,
+        "fate": "retired",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 1,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6386000000000001,
+        "best_retained_score": 0.5993066666666667,
+        "retained_entries": [
+          {
+            "id": "f0222a6e",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "2853f73e",
+            "score": 0.3017666666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 36
+          },
+          {
+            "id": "3723fed4",
+            "score": 0.5619133333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 39
+          },
+          {
+            "id": "bda700ea",
+            "score": 0.5695533333333332,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 52
+          },
+          {
+            "id": "d377f6af",
+            "score": 0.5993066666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 56
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s401",
+        "chain": 5,
+        "fate": "graduated",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6386000000000001,
+        "best_retained_score": 0.6386866666666666,
+        "retained_entries": [
+          {
+            "id": "f324cd5d",
+            "score": 0.6386333333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 45
+          },
+          {
+            "id": "3fa72e53",
+            "score": 0.6073733333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 49
+          },
+          {
+            "id": "dff7135b",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 65
+          },
+          {
+            "id": "f05b4714",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 71
+          },
+          {
+            "id": "3cbed6f7",
+            "score": 0.6386866666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 79
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s401",
+        "chain": 6,
+        "fate": "probation",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 2,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6392933333333333,
+        "best_retained_score": 0.001,
+        "retained_entries": [
+          {
+            "id": "5f376e42",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "d8ece160",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "d4b11862",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 75
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s402",
+        "chain": 2,
+        "fate": "retired",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 1,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.63788,
+        "best_retained_score": 0.23899333333333334,
+        "retained_entries": [
+          {
+            "id": "19d66ca5",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "c1350558",
+            "score": 0.1667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 20
+          },
+          {
+            "id": "8e101da9",
+            "score": 0.019006666666666668,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 24
+          },
+          {
+            "id": "524855bf",
+            "score": 0.22546000000000002,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 26
+          },
+          {
+            "id": "dfd30da8",
+            "score": 0.23899333333333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 38
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s402",
+        "chain": 3,
+        "fate": "graduated",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 2,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.63788,
+        "best_retained_score": 0.6383333333333334,
+        "retained_entries": [
+          {
+            "id": "42027750",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "4519a0a2",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "2c4464ad",
+            "score": 0.6383333333333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 43
+          },
+          {
+            "id": "f0468d1d",
+            "score": 0.01396,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 51
+          },
+          {
+            "id": "2c336bfe",
+            "score": 0.03312,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 59
+          },
+          {
+            "id": "c6a33538",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s402",
+        "chain": 4,
+        "fate": "retired",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.63788,
+        "best_retained_score": 0.001,
+        "retained_entries": [
+          {
+            "id": "c27025d8",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 40
+          },
+          {
+            "id": "ecb16899",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 46
+          },
+          {
+            "id": "11160311",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 47
+          },
+          {
+            "id": "f3b666c5",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 53
+          },
+          {
+            "id": "d00b7437",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 57
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s402",
+        "chain": 5,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.63844,
+        "best_retained_score": 0.6380333333333333,
+        "retained_entries": [
+          {
+            "id": "dc24b513",
+            "score": 0.6380333333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 68
+          },
+          {
+            "id": "f105a65f",
+            "score": 0.6380333333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 71
+          },
+          {
+            "id": "6bf2290a",
+            "score": 0.6380333333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 75
+          },
+          {
+            "id": "9c7b69cc",
+            "score": 0.6380333333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s400",
+        "chain": 2,
+        "fate": "retired",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.63832,
+        "best_retained_score": 0.001,
+        "retained_entries": [
+          {
+            "id": "b106e07e",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 17
+          },
+          {
+            "id": "db24611b",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "b734b464",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 38
+          },
+          {
+            "id": "41120e73",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 52
+          },
+          {
+            "id": "ce8c1bb1",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 61
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s400",
+        "chain": 3,
+        "fate": "retired",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.63832,
+        "best_retained_score": 0.001,
+        "retained_entries": [
+          {
+            "id": "2ca8d120",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 19
+          },
+          {
+            "id": "60e350ad",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 27
+          },
+          {
+            "id": "97c2c97d",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 41
+          },
+          {
+            "id": "f048d063",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 51
+          },
+          {
+            "id": "cc0710d8",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 64
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s400",
+        "chain": 4,
+        "fate": "graduated",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.63832,
+        "best_retained_score": 0.6393,
+        "retained_entries": [
+          {
+            "id": "99805bed",
+            "score": 0.6382466666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 21
+          },
+          {
+            "id": "f647518e",
+            "score": 0.6382733333333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 30
+          },
+          {
+            "id": "4493b556",
+            "score": 0.6392266666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 42
+          },
+          {
+            "id": "e5c8adab",
+            "score": 0.6393,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 55
+          },
+          {
+            "id": "4c2452eb",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "32e047aa",
+            "score": 0.6393,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 66
+          },
+          {
+            "id": "450bcd32",
+            "score": 0.6393,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 69
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s400",
+        "chain": 5,
+        "fate": "retired",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 1,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.63832,
+        "best_retained_score": 0.2825533333333333,
+        "retained_entries": [
+          {
+            "id": "b352456f",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "65d7e90c",
+            "score": 0.27482,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 32
+          },
+          {
+            "id": "72940548",
+            "score": 0.2825533333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 45
+          },
+          {
+            "id": "296e8f0f",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 54
+          },
+          {
+            "id": "692d65e2",
+            "score": 0.1732,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 72
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s400",
+        "chain": 6,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6393,
+        "best_retained_score": 0.001,
+        "retained_entries": [
+          {
+            "id": "94208793",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 67
+          },
+          {
+            "id": "9b274bb6",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 71
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s400",
+        "chain": 7,
+        "fate": "probation",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 1,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6393,
+        "best_retained_score": 0.001,
+        "retained_entries": [
+          {
+            "id": "b3b40aba",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "f6b952ef",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 79
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s401",
+        "chain": 2,
+        "fate": "graduated",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 1,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6385666666666667,
+        "best_retained_score": 0.6355933333333333,
+        "retained_entries": [
+          {
+            "id": "7b1cb62f",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "f1e0f6f9",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 25
+          },
+          {
+            "id": "23c9ad18",
+            "score": 0.6355933333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 37
+          },
+          {
+            "id": "597e52d2",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 52
+          },
+          {
+            "id": "a3fd66c7",
+            "score": 0.21409333333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 61
+          },
+          {
+            "id": "5d56a04b",
+            "score": 0.6224133333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 70
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s401",
+        "chain": 3,
+        "fate": "graduated",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6385666666666667,
+        "best_retained_score": 0.6383533333333333,
+        "retained_entries": [
+          {
+            "id": "d515a4cd",
+            "score": 0.6382133333333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 19
+          },
+          {
+            "id": "a650000c",
+            "score": 0.63812,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 27
+          },
+          {
+            "id": "d605a34d",
+            "score": 0.63834,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 40
+          },
+          {
+            "id": "95fc4bf0",
+            "score": 0.63834,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 51
+          },
+          {
+            "id": "775e2948",
+            "score": 0.6383533333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 62
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s401",
+        "chain": 4,
+        "fate": "retired",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6385666666666667,
+        "best_retained_score": 0.50598,
+        "retained_entries": [
+          {
+            "id": "4b12a2ce",
+            "score": 0.09162000000000001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 21
+          },
+          {
+            "id": "aedb579e",
+            "score": 0.09245333333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 29
+          },
+          {
+            "id": "0be356f7",
+            "score": 0.09245333333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 42
+          },
+          {
+            "id": "460578e6",
+            "score": 0.50598,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 54
+          },
+          {
+            "id": "a2cf21b9",
+            "score": 0.09245333333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 74
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s401",
+        "chain": 5,
+        "fate": "retired",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 2,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6385666666666667,
+        "best_retained_score": 0.6316733333333333,
+        "retained_entries": [
+          {
+            "id": "fd96a319",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "9086b2c6",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "53094eae",
+            "score": 0.12212666666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 45
+          },
+          {
+            "id": "1c8fea33",
+            "score": 0.13132,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 55
+          },
+          {
+            "id": "c5fbcf27",
+            "score": 0.6316733333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 77
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s401",
+        "chain": 6,
+        "fate": "probation",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 1,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6386666666666666,
+        "best_retained_score": 0.6387666666666667,
+        "retained_entries": [
+          {
+            "id": "4ac719f6",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "1baaf36b",
+            "score": 0.6387666666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 75
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s401",
+        "chain": 7,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6386666666666666,
+        "best_retained_score": 0.63898,
+        "retained_entries": [
+          {
+            "id": "e9c96f64",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 68
+          },
+          {
+            "id": "b0965d62",
+            "score": 0.63898,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 79
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s401",
+        "chain": 8,
+        "fate": "probation",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": null,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6386666666666666,
+        "best_retained_score": 0.0,
+        "retained_entries": [
+          {
+            "id": "906dba16",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s401",
+        "chain": 9,
+        "fate": "probation",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": null,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6386666666666666,
+        "best_retained_score": 0.0,
+        "retained_entries": [
+          {
+            "id": "b6dd12ad",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s402",
+        "chain": 2,
+        "fate": "retired",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6393466666666667,
+        "best_retained_score": 0.06991333333333333,
+        "retained_entries": [
+          {
+            "id": "b88b854b",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 27
+          },
+          {
+            "id": "dc16ffb1",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 37
+          },
+          {
+            "id": "e5e3c83f",
+            "score": 0.03933333333333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 49
+          },
+          {
+            "id": "9a4d011b",
+            "score": 0.06991333333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 60
+          },
+          {
+            "id": "86ae1c4f",
+            "score": 0.06991333333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 74
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s402",
+        "chain": 3,
+        "fate": "graduated",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 1,
+        "first_over_1pct_retained_index": 2,
+        "reference_score": 0.6393466666666667,
+        "best_retained_score": 1.1084733333333334,
+        "retained_entries": [
+          {
+            "id": "51fcf163",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "2d372a7d",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 40
+          },
+          {
+            "id": "5e1b842d",
+            "score": 0.9900933333333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 51
+          },
+          {
+            "id": "08faa613",
+            "score": 1.08646,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 63
+          },
+          {
+            "id": "3bab2a58",
+            "score": 1.1084733333333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 75
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s402",
+        "chain": 4,
+        "fate": "graduated",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 2,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6393466666666667,
+        "best_retained_score": 0.6380533333333333,
+        "retained_entries": [
+          {
+            "id": "b4dff3cd",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "b8898359",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "73db3da0",
+            "score": 0.6380533333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 54
+          },
+          {
+            "id": "d5ac69a5",
+            "score": 0.033786666666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 65
+          },
+          {
+            "id": "92b5b463",
+            "score": 0.36585333333333336,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 79
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s402",
+        "chain": 5,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6393466666666667,
+        "best_retained_score": 0.0668,
+        "retained_entries": [
+          {
+            "id": "1791b011",
+            "score": 0.0010466666666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 32
+          },
+          {
+            "id": "15105052",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 41
+          },
+          {
+            "id": "c4e8fd4d",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 56
+          },
+          {
+            "id": "71d725ea",
+            "score": 0.005173333333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 68
+          },
+          {
+            "id": "f5b15801",
+            "score": 0.0668,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 78
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt-s400",
+        "chain": 2,
+        "fate": "graduated",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 1,
+        "first_over_1pct_retained_index": 2,
+        "reference_score": 5.224688686666666,
+        "best_retained_score": 5.53216096,
+        "retained_entries": [
+          {
+            "id": "9bf12599",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "95de2f32",
+            "score": 2.7702406600000002,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 27
+          },
+          {
+            "id": "4b7a2bff",
+            "score": 5.3236126200000005,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 39
+          },
+          {
+            "id": "c6992d87",
+            "score": 5.345368126666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 60
+          },
+          {
+            "id": "e69c3722",
+            "score": 5.53216096,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 76
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt-s400",
+        "chain": 3,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.224688686666666,
+        "best_retained_score": 3.7383601533333333,
+        "retained_entries": [
+          {
+            "id": "3fb0eb80",
+            "score": 2.3499496866666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 24
+          },
+          {
+            "id": "d4b2934d",
+            "score": 3.7383601533333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 30
+          },
+          {
+            "id": "26313e55",
+            "score": 2.856617593333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 46
+          },
+          {
+            "id": "30289966",
+            "score": 2.88397708,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 61
+          },
+          {
+            "id": "f5bcc216",
+            "score": 3.44392348,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 80
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt-s400",
+        "chain": 4,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.224688686666666,
+        "best_retained_score": 1.81431214,
+        "retained_entries": [
+          {
+            "id": "a7ea850c",
+            "score": 1.81431214,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 25
+          },
+          {
+            "id": "3d77b1ed",
+            "score": 1.6835637266666665,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 31
+          },
+          {
+            "id": "d072e418",
+            "score": 1.6848061399999998,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 49
+          },
+          {
+            "id": "1f6c81a9",
+            "score": 1.734749,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 64
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt-s400",
+        "chain": 5,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": 0,
+        "reference_score": 5.224688686666666,
+        "best_retained_score": 5.387901373333333,
+        "retained_entries": [
+          {
+            "id": "9cfb7d76",
+            "score": 5.38217342,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 41
+          },
+          {
+            "id": "176663d7",
+            "score": 5.387901373333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 50
+          },
+          {
+            "id": "21d6a67b",
+            "score": 5.3321445800000005,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 67
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt-s400",
+        "chain": 6,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.224688686666666,
+        "best_retained_score": 2.6083380133333334,
+        "retained_entries": [
+          {
+            "id": "725a8504",
+            "score": 1.94323556,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 42
+          },
+          {
+            "id": "3bc1d56c",
+            "score": 1.9172143400000001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 54
+          },
+          {
+            "id": "95171657",
+            "score": 2.6083380133333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 69
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt-s400",
+        "chain": 7,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.224688686666666,
+        "best_retained_score": 5.136569286666667,
+        "retained_entries": [
+          {
+            "id": "ca2fa4cf",
+            "score": 2.8306350266666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 45
+          },
+          {
+            "id": "b6f57ca5",
+            "score": 2.8308117933333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 52
+          },
+          {
+            "id": "5b37353c",
+            "score": 5.136569286666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 71
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt-s401",
+        "chain": 2,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.236350846666666,
+        "best_retained_score": 3.6437817933333334,
+        "retained_entries": [
+          {
+            "id": "d12666a0",
+            "score": 2.7913992866666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 32
+          },
+          {
+            "id": "db974106",
+            "score": 3.6437817933333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 42
+          },
+          {
+            "id": "16f07b7c",
+            "score": 3.103761153333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 51
+          },
+          {
+            "id": "fd84484b",
+            "score": 3.2472526866666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 71
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt-s401",
+        "chain": 3,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.236350846666666,
+        "best_retained_score": 4.43038996,
+        "retained_entries": [
+          {
+            "id": "ddcd06d8",
+            "score": 3.087061526666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 34
+          },
+          {
+            "id": "6e07b877",
+            "score": 3.3380587866666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 41
+          },
+          {
+            "id": "2e042a61",
+            "score": 3.361084153333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 56
+          },
+          {
+            "id": "752eaedb",
+            "score": 4.43038996,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 74
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt-s401",
+        "chain": 4,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.236350846666666,
+        "best_retained_score": 0.93416808,
+        "retained_entries": [
+          {
+            "id": "29942ffe",
+            "score": 0.050775393333333335,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 37
+          },
+          {
+            "id": "583832f6",
+            "score": 0.050775393333333335,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 45
+          },
+          {
+            "id": "28ccb2e0",
+            "score": 0.050775393333333335,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 62
+          },
+          {
+            "id": "c075eb2c",
+            "score": 0.93416808,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 75
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt-s401",
+        "chain": 5,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.236350846666666,
+        "best_retained_score": 3.2576428733333334,
+        "retained_entries": [
+          {
+            "id": "126d063e",
+            "score": 2.0275100533333332,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 53
+          },
+          {
+            "id": "e099d0ec",
+            "score": 2.98034994,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 59
+          },
+          {
+            "id": "bb7a27d8",
+            "score": 3.2576428733333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 78
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt-s401",
+        "chain": 6,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": 0,
+        "reference_score": 5.236350846666666,
+        "best_retained_score": 5.416108693333333,
+        "retained_entries": [
+          {
+            "id": "8427523e",
+            "score": 5.416108693333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 54
+          },
+          {
+            "id": "cca03af9",
+            "score": 4.763316013333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 65
+          },
+          {
+            "id": "915d65a9",
+            "score": 5.1365173933333335,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 79
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt-s401",
+        "chain": 7,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.236350846666666,
+        "best_retained_score": 1.589112,
+        "retained_entries": [
+          {
+            "id": "aa94077c",
+            "score": 1.589112,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 58
+          },
+          {
+            "id": "41d5cdee",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s400",
+        "chain": 2,
+        "fate": "graduated",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": 0,
+        "reference_score": 5.254575906666666,
+        "best_retained_score": 5.493486346666667,
+        "retained_entries": [
+          {
+            "id": "862e9e2c",
+            "score": 5.458982313333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 34
+          },
+          {
+            "id": "d1767677",
+            "score": 5.456152299999999,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 38
+          },
+          {
+            "id": "f7f57961",
+            "score": 5.4649503600000005,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 43
+          },
+          {
+            "id": "332202a1",
+            "score": 5.446760513333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 48
+          },
+          {
+            "id": "d19ab44c",
+            "score": 5.473236646666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 52
+          },
+          {
+            "id": "27e8dd30",
+            "score": 5.482558253333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 57
+          },
+          {
+            "id": "318338f2",
+            "score": 5.476612113333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 66
+          },
+          {
+            "id": "fa9b3107",
+            "score": 5.493486346666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 76
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s400",
+        "chain": 3,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.254575906666666,
+        "best_retained_score": 5.053880793333333,
+        "retained_entries": [
+          {
+            "id": "4cf96582",
+            "score": 4.955958646666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 40
+          },
+          {
+            "id": "fc043512",
+            "score": 4.956186506666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 44
+          },
+          {
+            "id": "cea620ae",
+            "score": 5.053880793333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 71
+          },
+          {
+            "id": "bdcc625e",
+            "score": 5.024405053333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 75
+          },
+          {
+            "id": "73f5de6f",
+            "score": 5.053209273333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 79
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s400",
+        "chain": 4,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.254575906666666,
+        "best_retained_score": 5.153461013333334,
+        "retained_entries": [
+          {
+            "id": "69799085",
+            "score": 5.10810518,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 51
+          },
+          {
+            "id": "e8754ace",
+            "score": 4.66761286,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 56
+          },
+          {
+            "id": "478744ff",
+            "score": 5.148275586666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 61
+          },
+          {
+            "id": "563c41e7",
+            "score": 5.153461013333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 65
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s400",
+        "chain": 5,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.254575906666666,
+        "best_retained_score": 3.59256858,
+        "retained_entries": [
+          {
+            "id": "adbfa0fb",
+            "score": 2.9073968666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 55
+          },
+          {
+            "id": "e805f6be",
+            "score": 3.4129892666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 58
+          },
+          {
+            "id": "dec52918",
+            "score": 3.59256858,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 70
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s401",
+        "chain": 2,
+        "fate": "graduated",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.228120446666666,
+        "best_retained_score": 5.184165673333333,
+        "retained_entries": [
+          {
+            "id": "009f3f27",
+            "score": 4.651080566666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 25
+          },
+          {
+            "id": "9b26aafb",
+            "score": 5.178090766666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 29
+          },
+          {
+            "id": "58fb4b59",
+            "score": 3.678445866666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 30
+          },
+          {
+            "id": "71fc3db3",
+            "score": 5.178818453333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 38
+          },
+          {
+            "id": "c4bb45e1",
+            "score": 5.184165673333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 46
+          },
+          {
+            "id": "5d88295a",
+            "score": 5.179184373333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 60
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s401",
+        "chain": 3,
+        "fate": "graduated",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": 0,
+        "reference_score": 5.228120446666666,
+        "best_retained_score": 5.290742866666666,
+        "retained_entries": [
+          {
+            "id": "83037678",
+            "score": 5.290742866666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 39
+          },
+          {
+            "id": "4cbb634e",
+            "score": 5.28733286,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 43
+          },
+          {
+            "id": "ac32b9a4",
+            "score": 5.288711033333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 48
+          },
+          {
+            "id": "b99c19a4",
+            "score": 5.28872146,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 58
+          },
+          {
+            "id": "8f70db78",
+            "score": 5.284943393333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 64
+          },
+          {
+            "id": "86fe11b2",
+            "score": 5.272775626666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 66
+          },
+          {
+            "id": "dbafe274",
+            "score": 5.28707744,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 73
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s401",
+        "chain": 4,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": 3,
+        "reference_score": 5.228120446666666,
+        "best_retained_score": 5.340775893333333,
+        "retained_entries": [
+          {
+            "id": "1c17c63d",
+            "score": 4.64816232,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 51
+          },
+          {
+            "id": "3352529d",
+            "score": 4.705956513333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 53
+          },
+          {
+            "id": "57a9d068",
+            "score": 5.031102953333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 68
+          },
+          {
+            "id": "c50d9887",
+            "score": 5.3128996,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 77
+          },
+          {
+            "id": "f6d5e6d3",
+            "score": 5.340775893333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s401",
+        "chain": 5,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.290742866666666,
+        "best_retained_score": 3.7021217533333335,
+        "retained_entries": [
+          {
+            "id": "7210ccdd",
+            "score": 3.5503437599999996,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 71
+          },
+          {
+            "id": "a81aea6e",
+            "score": 3.7021217533333335,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 74
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s400",
+        "chain": 2,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.21893044,
+        "best_retained_score": 5.094980233333334,
+        "retained_entries": [
+          {
+            "id": "1d4d0e68",
+            "score": 4.665841553333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 32
+          },
+          {
+            "id": "08e2bd76",
+            "score": 4.63583248,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 46
+          },
+          {
+            "id": "d4e15502",
+            "score": 4.774230966666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 53
+          },
+          {
+            "id": "89a3b5a3",
+            "score": 5.094980233333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 68
+          },
+          {
+            "id": "f8e136a2",
+            "score": 4.919787293333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 78
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s400",
+        "chain": 3,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.21893044,
+        "best_retained_score": 5.21885282,
+        "retained_entries": [
+          {
+            "id": "139f1004",
+            "score": 5.21885282,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 34
+          },
+          {
+            "id": "ef1d5eb7",
+            "score": 5.019058133333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 43
+          },
+          {
+            "id": "9cfe4efd",
+            "score": 5.21885282,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 57
+          },
+          {
+            "id": "c3b61c35",
+            "score": 5.21885282,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 70
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s400",
+        "chain": 4,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": 0,
+        "reference_score": 5.21893044,
+        "best_retained_score": 5.3564282400000005,
+        "retained_entries": [
+          {
+            "id": "63692b17",
+            "score": 5.282034113333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 35
+          },
+          {
+            "id": "605008ed",
+            "score": 5.3399194266666665,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 47
+          },
+          {
+            "id": "e5f0e83b",
+            "score": 5.328086473333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 59
+          },
+          {
+            "id": "eaa92db5",
+            "score": 5.3564282400000005,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 73
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s400",
+        "chain": 5,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.21893044,
+        "best_retained_score": 1.5579248600000002,
+        "retained_entries": [
+          {
+            "id": "b9a5cbe4",
+            "score": 1.54028534,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 38
+          },
+          {
+            "id": "d87a3b70",
+            "score": 1.4206842866666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 50
+          },
+          {
+            "id": "af5e367d",
+            "score": 1.5113492666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 60
+          },
+          {
+            "id": "f5d61bbc",
+            "score": 1.5579248600000002,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 74
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s401",
+        "chain": 2,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.2134786066666665,
+        "best_retained_score": 5.02500726,
+        "retained_entries": [
+          {
+            "id": "e4df26cc",
+            "score": 3.0556578266666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 34
+          },
+          {
+            "id": "bd0f6165",
+            "score": 4.935437833333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 45
+          },
+          {
+            "id": "3b606c4d",
+            "score": 4.964741093333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 56
+          },
+          {
+            "id": "2834d837",
+            "score": 5.02500726,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 67
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s401",
+        "chain": 3,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.2134786066666665,
+        "best_retained_score": 4.220017893333334,
+        "retained_entries": [
+          {
+            "id": "dba26e02",
+            "score": 4.0289198399999995,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 37
+          },
+          {
+            "id": "a2943319",
+            "score": 4.220017893333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 47
+          },
+          {
+            "id": "3f9e851e",
+            "score": 3.953063546666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 60
+          },
+          {
+            "id": "577ae67f",
+            "score": 4.209557786666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 71
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s401",
+        "chain": 4,
+        "fate": "probation",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 2,
+        "first_over_1pct_retained_index": 2,
+        "reference_score": 5.2134786066666665,
+        "best_retained_score": 5.280642126666667,
+        "retained_entries": [
+          {
+            "id": "c0088415",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "be2bbdde",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "7bdfcd8a",
+            "score": 5.280642126666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 59
+          },
+          {
+            "id": "c9265fc1",
+            "score": 5.192689406666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 72
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s401",
+        "chain": 5,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.2134786066666665,
+        "best_retained_score": 5.21447044,
+        "retained_entries": [
+          {
+            "id": "5be6073c",
+            "score": 4.950318073333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 43
+          },
+          {
+            "id": "ddcacd0e",
+            "score": 5.1815516399999995,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 48
+          },
+          {
+            "id": "ad5cbbf4",
+            "score": 5.197010766666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 62
+          },
+          {
+            "id": "7957f6b8",
+            "score": 5.21447044,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 76
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s402",
+        "chain": 2,
+        "fate": "graduated",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 2,
+        "first_over_1pct_retained_index": 2,
+        "reference_score": 5.2220688399999995,
+        "best_retained_score": 5.4490837800000005,
+        "retained_entries": [
+          {
+            "id": "f33da26f",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "c3be3dd3",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "6b0bc7e8",
+            "score": 5.3629587999999995,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 41
+          },
+          {
+            "id": "066d5d3f",
+            "score": 5.38953452,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 54
+          },
+          {
+            "id": "130a158d",
+            "score": 5.44326366,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 66
+          },
+          {
+            "id": "f6ce3644",
+            "score": 5.4490837800000005,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 75
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s402",
+        "chain": 3,
+        "fate": "retired",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.2220688399999995,
+        "best_retained_score": 4.91737586,
+        "retained_entries": [
+          {
+            "id": "6c222294",
+            "score": 3.195965993333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 22
+          },
+          {
+            "id": "7e222879",
+            "score": 3.3342028399999997,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 32
+          },
+          {
+            "id": "f0d5bc74",
+            "score": 4.91737586,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 43
+          },
+          {
+            "id": "ffdfbdf0",
+            "score": 4.5174132333333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 55
+          },
+          {
+            "id": "c37a8f83",
+            "score": 3.39424176,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 65
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s402",
+        "chain": 4,
+        "fate": "retired",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.2220688399999995,
+        "best_retained_score": 1.6353042199999999,
+        "retained_entries": [
+          {
+            "id": "181e20fd",
+            "score": 1.5404807933333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 24
+          },
+          {
+            "id": "a5e606b1",
+            "score": 1.5411221733333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 31
+          },
+          {
+            "id": "d3d13db6",
+            "score": 1.6348203133333332,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 46
+          },
+          {
+            "id": "5da5e105",
+            "score": 1.6353042199999999,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 56
+          },
+          {
+            "id": "3e65d064",
+            "score": 1.5938741733333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 68
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s402",
+        "chain": 5,
+        "fate": "graduated",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 1,
+        "first_over_1pct_retained_index": 1,
+        "reference_score": 5.2220688399999995,
+        "best_retained_score": 5.354009033333333,
+        "retained_entries": [
+          {
+            "id": "7f3bd793",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "b6458a42",
+            "score": 5.312183686666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 35
+          },
+          {
+            "id": "11b5d158",
+            "score": 5.354009033333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 44
+          },
+          {
+            "id": "71abb28e",
+            "score": 5.34033388,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 59
+          },
+          {
+            "id": "8c7ddce9",
+            "score": 5.34274778,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 69
+          },
+          {
+            "id": "ae7fa77f",
+            "score": 5.353467719999999,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 78
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s402",
+        "chain": 6,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.4490837800000005,
+        "best_retained_score": 5.3567069400000005,
+        "retained_entries": [
+          {
+            "id": "2f026687",
+            "score": 5.3567069400000005,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 80
+          }
+        ]
+      }
+    ],
+    "caution": "Indices count retained chain entries, zero-based, not evaluations or all children. Full saved chains can include entries beyond80; recovery gains require an eligible first80 valid reading. The completed-run endpoint can censor late branches. Repeated-genome ambiguity is exposed. Observed recovery does not estimate counterfactual pruning performance or an optimal probation length."
+  },
   "reward_signal_audit": {
-    "at_unix": 1795509140.620307,
+    "at_unix": 1795510793.3863153,
     "rows": [
       {
         "run": "matched-ahc024-molt2_adaptive_branches-s400",
