@@ -1,5 +1,5 @@
 {
-  "at_unix": 1795500601.6470628,
+  "at_unix": 1795500770.6932304,
   "initial_engine_commit": "b496461",
   "corrected_engine_commit": "54856f08436fbda0b5256dbe8438bb6f873a900e",
   "campaign_source_files": {
@@ -50,7 +50,7 @@
     "research/BACKUP-matched-ahc024-molt2_adaptive_branches-s400.json": "26cc988494b64e6cde3e5a8134f42169c6a8da8f2922882ea6c830e95e776149",
     "research/paired_inference.py": "80a9d4e38dfe507320a88f92ded9f84c64efcd351347cd73aa9ffb26df975323",
     "research/archive_completed_run.py": "063f41705493950223899a1f9a131a393e79b0ca59f616b30378c447115a5a87",
-    "research/reread_finalists.py": "86997963f95e147dfec3864f2d17b898cb5b190f3684c52dc99041b5f8e8ed6a",
+    "research/reread_finalists.py": "3a46942ef1401e9336e8e90b0a3d0c497b3a0183cad50a0918826ee2b59eac1b",
     "research/preserve_runtime_assets.py": "f9db11aa2d701730443addb5a526391bac5928c7b7e46a16605bd7bb6e72682f",
     "research/FIRST_PAIR_DIAGNOSTIC.png": "18ed2a033dbb576ba4050803e304ed664fdc587ad6d62ddc642e59086de9b6d5",
     "research/PUBLIC_REREAD_PLAN.json": "de463fb1c681a9ea07c1d3a2998f1c6c670f7b1e307066cad98266f89648bd4e",
@@ -95,7 +95,8 @@
     "research/AHC058_SEED400_WINNING_DIRECTIONS.json": "6b755a256754a7bc10135d5cc8ceb654effa9587772e5e113231acdd09b3a732",
     "research/validity_budget_audit.py": "c8190484053aa261beec17de1822135851d36d2f577f0397dca71e38000cc524",
     "research/AHC058_SEED400_SELECTED_CODE_DIFFERENCES.json": "ee1862caaf95668df8a412aecfa290ad0e0e2fa0dc31dbd5d9a8627666875f57",
-    "research/AHC058_SEED400_REFINEMENT_COUNTERCHECK.json": "8c22a4491284a9807e6480fa22cd8329ac9befc6a540aa5be45994c2016e5e9f"
+    "research/AHC058_SEED400_REFINEMENT_COUNTERCHECK.json": "8c22a4491284a9807e6480fa22cd8329ac9befc6a540aa5be45994c2016e5e9f",
+    "research/AHC058_SELECTED_RANDOMNESS_AUDIT.json": "a34f4b520b3f1ff6986d425a8b7a630935f57a8fc19c7c20be14219a420bc2b6"
   },
   "runtime_assets_location": "Private Modal source archive in research/SOURCE_BACKUP_RECEIPT.json",
   "scope": "Versioned campaign records and diagnostics; raw traces remain in checksum-verified private Modal archives."

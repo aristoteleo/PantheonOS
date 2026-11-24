@@ -1,0 +1,48 @@
+{
+  "at_unix": 1795500649.350227,
+  "scope": "Manual source review of four completed selected AHC058 programs, seeds400/401",
+  "rows": [
+    {
+      "run": "matched-ahc058-molt-s400",
+      "sha256": "6056663f275642c5ed427473ea28cb79ecfd32c6594e074666af52ffa07d9fc6",
+      "rng_initialization": {
+        "line": 141,
+        "source": "mt19937_64 rng(0x9E3779B97F4A7C15ULL ^ (unsigned long long)chrono::steady_clock::now().time_since_epoch().count());"
+      },
+      "classification": "clock_seeded",
+      "time_bounded_search": true
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s400",
+      "sha256": "c4cc9ce8317d36ee5bc2c90a5e6a5aa50b8dc7f73e7845b79c98c876b2adbb76",
+      "rng_initialization": {
+        "line": 68,
+        "source": "mt19937_64 rng(0xD1B54A32D192ED03ULL);"
+      },
+      "classification": "fixed_seed",
+      "time_bounded_search": true
+    },
+    {
+      "run": "matched-ahc058-molt-s401",
+      "sha256": "7f5d2545bae122fa554ee6594c4383c7c8492b8bbdf1f5315d5f7fbe731c582c",
+      "rng_initialization": {
+        "line": 141,
+        "source": "mt19937_64 rng(chrono::steady_clock::now().time_since_epoch().count());"
+      },
+      "classification": "clock_seeded",
+      "time_bounded_search": true
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s401",
+      "sha256": "f31b7292ecd0f2f69533024d7036246fb2e0314faec9776ceb64aa431faebcdf",
+      "rng_initialization": {
+        "line": 131,
+        "source": "mt19937_64 rng(987654321);"
+      },
+      "classification": "fixed_seed",
+      "time_bounded_search": true
+    }
+  ],
+  "implication": "Vanilla Molt selected programs use clock-seeded randomness; reviewed Molt2 programs use fixed RNG seeds. All are time bounded, so repeated outcomes can vary from random initialization and/or timing-dependent iteration counts and cooling.",
+  "reread_limit": "Two scheduled public-case rereads per unique source assess gross repeatability, not a precise stochastic score distribution or a reliable significance test. Preserve selected code unchanged; no deterministic-source rewrite or selection based on rereads."
+}
