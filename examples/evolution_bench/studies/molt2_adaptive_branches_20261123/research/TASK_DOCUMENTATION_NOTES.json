@@ -1,0 +1,24 @@
+{
+  "at_unix": 1795504151.0660737,
+  "task": "ahc024",
+  "authoritative_identity": {
+    "objective": "Topological Map, 50x50 grid, adjacency/connectivity constraints",
+    "evaluator_PROBLEM_ID": "ahc024",
+    "score_transform": "mean valid case score /1000",
+    "training_cases": 150,
+    "compiler": "/usr/bin/g++-11, as pinned in task.json and launch metadata"
+  },
+  "stale_documentation": [
+    {
+      "file": "tasks/ahc024/evaluator.py",
+      "issue": "Leading docstring describes AHC039 purse-seine fishing; executable PROBLEM_ID and tester/input paths are AHC024."
+    },
+    {
+      "file": "tasks/ahc024/objective.md",
+      "issue": "Mentions g++-12; actual pinned direct runner uses GCC11. The same original objective and compiler setting were supplied to every arm."
+    }
+  ],
+  "evidence": "Saved seed402 baseline passes150/150 AHC024 cases and generated invalid maps receive adjacency-rule rejection feedback. Frozen runtime asset manifest records exact input/tester/compiler hashes.",
+  "action": "Preserve original task text and frozen sources for this campaign; use executable configuration and runtime hash manifests when reproducing. A documentation correction in a future campaign must be versioned consistently across arms.",
+  "numerical_results_changed": false
+}

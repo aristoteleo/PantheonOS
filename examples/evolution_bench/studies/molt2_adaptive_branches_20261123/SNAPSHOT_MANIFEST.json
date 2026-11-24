@@ -1,5 +1,5 @@
 {
-  "at_unix": 1795500770.6932304,
+  "at_unix": 1795504472.956435,
   "initial_engine_commit": "b496461",
   "corrected_engine_commit": "54856f08436fbda0b5256dbe8438bb6f873a900e",
   "campaign_source_files": {
@@ -96,7 +96,8 @@
     "research/validity_budget_audit.py": "c8190484053aa261beec17de1822135851d36d2f577f0397dca71e38000cc524",
     "research/AHC058_SEED400_SELECTED_CODE_DIFFERENCES.json": "ee1862caaf95668df8a412aecfa290ad0e0e2fa0dc31dbd5d9a8627666875f57",
     "research/AHC058_SEED400_REFINEMENT_COUNTERCHECK.json": "8c22a4491284a9807e6480fa22cd8329ac9befc6a540aa5be45994c2016e5e9f",
-    "research/AHC058_SELECTED_RANDOMNESS_AUDIT.json": "a34f4b520b3f1ff6986d425a8b7a630935f57a8fc19c7c20be14219a420bc2b6"
+    "research/AHC058_SELECTED_RANDOMNESS_AUDIT.json": "a34f4b520b3f1ff6986d425a8b7a630935f57a8fc19c7c20be14219a420bc2b6",
+    "research/TASK_DOCUMENTATION_NOTES.json": "3ca29d10ef8567ab2730f45e36d79c38412bd870a5eefb764061999074edf8d6"
   },
   "runtime_assets_location": "Private Modal source archive in research/SOURCE_BACKUP_RECEIPT.json",
   "scope": "Versioned campaign records and diagnostics; raw traces remain in checksum-verified private Modal archives."
