@@ -79,6 +79,13 @@ def build_method(name: str, seed: int, judge=None, norm: str = "minmax", sched=N
         from pantheon.evolution.methods import Molt
         return Molt(num_chains=2, k_candidates=2, num_inspirations=2,
                     selector=(ln_opts or {}).get("tes_selector") or "rpucg", seed=seed)
+    if name == "molt2_noise_credit":
+        from pantheon.evolution.methods.molt2_noise_credit import Molt2NoiseCredit
+        tolerance = (ln_opts or {}).get("noise_tolerance")
+        if tolerance is None:
+            raise ValueError("molt2_noise_credit requires an explicitly frozen --noise-tolerance")
+        return Molt2NoiseCredit(noise_tolerance=tolerance, num_chains=2, k_candidates=2,
+                               num_inspirations=2, selector=(ln_opts or {}).get("tes_selector") or "rpucg", seed=seed)
     if name in ("molt_modified", "molt2_adaptive_branches"):
         from pantheon.evolution.methods.molt_modified import ModifiedMolt
         from pantheon.evolution.methods.molt2_adaptive_branches import Molt2AdaptiveBranches
@@ -217,6 +224,8 @@ async def main(a) -> None:
                "fidelity_planning": a.ln_fidelity_planning or None,
                "trajectory_fidelity": a.ln_trajectory_fidelity,
                "family_cycles": a.ln_family_cycles, "family_keep": a.ln_family_keep}
+    if a.method == "molt2_noise_credit":
+        ln_opts["noise_tolerance"] = a.noise_tolerance
     method = build_method(a.method, a.seed, judge=judge, norm=a.norm, sched=sched, ln_opts=ln_opts,
                           low_fidelity=(a.inner_fidelity or cfg.get("inner_fidelity")) == "low")
 
@@ -495,7 +504,8 @@ if __name__ == "__main__":
     p.add_argument("--task", required=True)
     p.add_argument("--method", default="agent_map_elites",
                    choices=["agent_map_elites", "map_elites", "simpletes", "idea_code", "annealed",
-                            "pantheon_evo", "hypothesis_bandit", "lab_notebook", "molt", "molt_noredesign", "molt_noprotect", "molt_noprobation", "molt_periodic", "simpletes4", "molt_overlap", "molt_gated", "molt2", "molt2_conservative", "molt2_explore", "molt2_factorial", "molt2_discovery", "molt2_decision", "molt2_scout", "molt2_patch", "molt2_lns", "molt2_lns_depth", "molt2_lns_vns2", "molt2_lns_global", "molt2_lns_adaptive", "molt2_lns_coupled", "molt_modified", "molt2_adaptive_branches"])
+                            "pantheon_evo", "hypothesis_bandit", "lab_notebook", "molt", "molt_noredesign", "molt_noprotect", "molt_noprobation", "molt_periodic", "simpletes4", "molt_overlap", "molt_gated", "molt2", "molt2_conservative", "molt2_explore", "molt2_factorial", "molt2_discovery", "molt2_decision", "molt2_scout", "molt2_patch", "molt2_lns", "molt2_lns_depth", "molt2_lns_vns2", "molt2_lns_global", "molt2_lns_adaptive", "molt2_lns_coupled", "molt_modified", "molt2_adaptive_branches", "molt2_noise_credit"])
+    p.add_argument("--noise-tolerance", type=float, default=None, help="Frozen development repeat-variation gate for molt2_noise_credit")
     p.add_argument("--iterations", type=int, default=40)
     p.add_argument("--model", default="openai/gpt-5.6-luna")
     p.add_argument("--eval-server", default=os.environ.get("EVAL_SERVER_URL", ""),
