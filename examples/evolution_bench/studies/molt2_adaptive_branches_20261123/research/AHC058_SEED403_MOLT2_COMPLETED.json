@@ -1,0 +1,486 @@
+{
+  "run": "matched-ahc058-molt2_adaptive_branches-s403",
+  "selection": {
+    "id": "b48dadd9",
+    "score": 5.5140018799999995,
+    "sha256": "4d499364045d12f0f9dcae842cbb7c70f910875fdfbeb6b0fd8e815c39f7efca",
+    "eval_cap": 80,
+    "cases": 150,
+    "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+  },
+  "ancestry_dag": {
+    "b48dadd9": {
+      "parents": [
+        "8d1df2cc",
+        "4af1246c"
+      ],
+      "summary": "Looking at these solutions, I see two main approaches:",
+      "measurements": [
+        {
+          "at": 1795523405.422168,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.5140018799999995,
+            "raw_score": 5514001.88,
+            "total_score": 827100282.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 36.63633465766907,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          }
+        }
+      ]
+    },
+    "4af1246c": {
+      "parents": [
+        "ac975a3c",
+        "3e412e04"
+      ],
+      "summary": "Looking at these two inspirations, they both use analytic marginal value estimates combined with rollout-based selection. Let me analyze the key insights and identify improvements:",
+      "measurements": [
+        {
+          "at": 1795522702.8590724,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.1830704,
+            "raw_score": 5183070.4,
+            "total_score": 777460560.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 23.015735387802124,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          }
+        }
+      ]
+    },
+    "3e412e04": {
+      "parents": [
+        "423cc651",
+        "9e872251"
+      ],
+      "summary": "Looking at the two inspirations, they are nearly identical. The key insight: the game has a massive number of dimensions (40 machines), but each machine's level chain is relatively independent. The an",
+      "measurements": [
+        {
+          "at": 1795522305.4962666,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.17885282,
+            "raw_score": 5178852.82,
+            "total_score": 776827923.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 20.201616287231445,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          }
+        }
+      ]
+    },
+    "9e872251": {
+      "parents": [
+        "ba6405bd",
+        "68b963c2"
+      ],
+      "summary": "Looking at this problem, I need to understand the mechanics carefully:",
+      "measurements": [
+        {
+          "at": 1795521538.2358167,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.02532158,
+            "raw_score": 5025321.58,
+            "total_score": 753798237.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 24.290501356124878,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          }
+        }
+      ]
+    },
+    "68b963c2": {
+      "parents": [
+        "5f95abb7",
+        "3c2aa8e0"
+      ],
+      "summary": "Looking at this problem, I need to understand the mechanics deeply before designing an improved solution.",
+      "measurements": [
+        {
+          "at": 1795521404.395922,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.005761253333333,
+            "raw_score": 5005761.253333333,
+            "total_score": 750864188.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 20.532615184783936,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          }
+        }
+      ]
+    },
+    "3c2aa8e0": {
+      "parents": [
+        "83f372f7"
+      ],
+      "summary": "Looking at this problem, I need to understand the mechanics deeply:",
+      "measurements": [
+        {
+          "at": 1795521173.3784735,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 4.944277133333334,
+            "raw_score": 4944277.133333334,
+            "total_score": 741641570.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 20.356286764144897,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          }
+        }
+      ]
+    },
+    "83f372f7": {
+      "parents": [],
+      "summary": null,
+      "measurements": [
+        {
+          "at": 1795521008.473506,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 4.86749216,
+            "raw_score": 4867492.16,
+            "total_score": 730123824.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 8.760631561279297,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          }
+        }
+      ]
+    },
+    "5f95abb7": {
+      "parents": [
+        "ba6405bd",
+        "83f372f7"
+      ],
+      "summary": "Looking at this problem, I need to understand the mechanics deeply:",
+      "measurements": [
+        {
+          "at": 1795521348.3863854,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.028824233333333,
+            "raw_score": 5028824.233333333,
+            "total_score": 754323635.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 21.632385969161987,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          }
+        }
+      ]
+    },
+    "ba6405bd": {
+      "parents": [
+        "3c2aa8e0"
+      ],
+      "summary": "Looking at this problem, I need to analyze the mechanics carefully.",
+      "measurements": [
+        {
+          "at": 1795521248.971786,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.214810366666666,
+            "raw_score": 5214810.366666666,
+            "total_score": 782221555.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 21.49561357498169,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          }
+        }
+      ]
+    },
+    "423cc651": {
+      "parents": [
+        "e372d294",
+        "ba6405bd"
+      ],
+      "summary": "Looking at the two inspirations, they both use greedy analytic value estimation combined with rollout-based lookahead. Inspiration 1 uses all L*N candidates for rollout; Inspiration 2 prunes to top-K.",
+      "measurements": [
+        {
+          "at": 1795521998.065311,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.024032113333333,
+            "raw_score": 5024032.113333333,
+            "total_score": 753604817.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 19.704521894454956,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          }
+        }
+      ]
+    },
+    "e372d294": {
+      "parents": [
+        "9e872251",
+        "5f95abb7"
+      ],
+      "summary": "Looking at the two reference solutions, they both use a similar approach:",
+      "measurements": [
+        {
+          "at": 1795521644.452501,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.017712246666667,
+            "raw_score": 5017712.246666667,
+            "total_score": 752656837.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 14.602076053619385,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          }
+        }
+      ]
+    },
+    "ac975a3c": {
+      "parents": [
+        "ba6405bd",
+        "9304a92e"
+      ],
+      "summary": "// EVOLVE-BLOCK-START",
+      "measurements": [
+        {
+          "at": 1795522337.9328551,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.220592693333334,
+            "raw_score": 5220592.693333333,
+            "total_score": 783088904.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 26.441696882247925,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          }
+        }
+      ]
+    },
+    "9304a92e": {
+      "parents": [
+        "922b912e",
+        "83f372f7"
+      ],
+      "summary": "Looking at this problem, I need to understand the mechanics deeply:",
+      "measurements": [
+        {
+          "at": 1795521556.2951794,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.2157458666666665,
+            "raw_score": 5215745.866666666,
+            "total_score": 782361880.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 15.717040538787842,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          }
+        }
+      ]
+    },
+    "922b912e": {
+      "parents": [
+        "e2e30b83"
+      ],
+      "summary": "Looking at this problem, I need to understand the mechanics:",
+      "measurements": [
+        {
+          "at": 1795521446.8440309,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.1032171733333325,
+            "raw_score": 5103217.173333333,
+            "total_score": 765482576.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 22.966859817504883,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          }
+        }
+      ]
+    },
+    "e2e30b83": {
+      "parents": [
+        "83f372f7"
+      ],
+      "summary": "Looking at this problem, I need to understand the game mechanics deeply:",
+      "measurements": [
+        {
+          "at": 1795521094.8442936,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.0863521,
+            "raw_score": 5086352.1,
+            "total_score": 762952815.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 20.862443208694458,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          }
+        }
+      ]
+    },
+    "8d1df2cc": {
+      "parents": [
+        "1f355ea0",
+        "ac975a3c"
+      ],
+      "summary": "Looking at the two inspirations, they both use a greedy rollout policy with an analytic marginal value heuristic. The key differences:",
+      "measurements": [
+        {
+          "at": 1795523282.9521556,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.433807093333334,
+            "raw_score": 5433807.093333334,
+            "total_score": 815071064.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 36.61297035217285,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          }
+        },
+        {
+          "at": 1795523480.1507168,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.433825006666667,
+            "raw_score": 5433825.006666667,
+            "total_score": 815073751.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 36.66182279586792,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          }
+        }
+      ]
+    },
+    "1f355ea0": {
+      "parents": [
+        "4af1246c",
+        "ba6405bd"
+      ],
+      "summary": "Looking at the two reference solutions, they both use single-step greedy rollouts with a cheap analytic policy for the remaining turns. The key insight is the value function for upgrades.",
+      "measurements": [
+        {
+          "at": 1795523004.8290334,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.1238174,
+            "raw_score": 5123817.4,
+            "total_score": 768572610.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 24.762357234954834,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          }
+        }
+      ]
+    }
+  },
+  "scope": "Completed strict-first-80 selection. Includes every recorded parent edge, not only first-parent path. No isolated causal inference.",
+  "source": "/home/erwinpi/molt2-adaptive-branches-lab/research/selected-programs/ahc058-molt2-s403.cpp",
+  "validation_accessed": false
+}

@@ -1,5 +1,5 @@
 {
-  "at_unix": 1795521227.5976024,
+  "at_unix": 1795523735.4125342,
   "initial_engine_commit": "b496461",
   "corrected_engine_commit": "54856f08436fbda0b5256dbe8438bb6f873a900e",
   "campaign_source_files": {
@@ -146,7 +146,11 @@
     "research/BACKUP-matched-ahc024-molt-s403.json": "9aa8e01ba16df98df0c78f50a10796ed9a50113017964c2d1e0f5920cb2b76dc",
     "research/AHC058_SEED403_MODIFIED_LATE_GAIN.json": "3e80f7d73cf25ae3b6f646f912fb110090e1d2e5fcee06da7dc5b01a02b29a49",
     "research/selected-programs/ahc058-modified-s403.cpp": "9a961b8bd07f6edc721c68c1e85aa24410d6b2c533bed57ee89d1738a13e3396",
-    "research/BACKUP-matched-ahc058-molt_modified-s403.json": "4fc58834c5fdab55d39698ee946a9d541326fda8f1f417db774fc4bdd31b4055"
+    "research/BACKUP-matched-ahc058-molt_modified-s403.json": "4fc58834c5fdab55d39698ee946a9d541326fda8f1f417db774fc4bdd31b4055",
+    "research/AHC058_SEED403_MOLT2_COMPLETED.json": "b466e4b22d72e1fa16919f05d170c60f92c770b6a86fb59c85709a4c5c81386a",
+    "research/selected-programs/ahc058-molt2-s403.cpp": "4d499364045d12f0f9dcae842cbb7c70f910875fdfbeb6b0fd8e815c39f7efca",
+    "research/BACKUP-matched-ahc058-molt2_adaptive_branches-s403.json": "12720a179b5cc0cf57f98868ff9ea1d43961340151f24393854933de220fad58",
+    "research/BACKUP-matched-ahc058-molt-s403.json": "3df7094a46e40209220ac05ab5bdf0666d37049b1e9a41a228a9ed5a01a6f8a6"
   },
   "runtime_assets_location": "Private Modal source archive in research/SOURCE_BACKUP_RECEIPT.json",
   "scope": "Versioned campaign records and diagnostics; raw traces remain in checksum-verified private Modal archives."

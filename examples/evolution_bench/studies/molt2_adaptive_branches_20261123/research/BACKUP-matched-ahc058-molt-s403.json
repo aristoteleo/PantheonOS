@@ -1,0 +1,10 @@
+{
+  "run": "matched-ahc058-molt-s403",
+  "sha256": "0ba3d7cd2a5f0ab06142f86886267465717609690a03e33fd3b445687d245ff1",
+  "remote": "/archives/molt2-adaptive-branches-20261123/runs/matched-ahc058-molt-s403-0ba3d7cd2a5f0ab06142f86886267465717609690a03e33fd3b445687d245ff1.tar.gz",
+  "volume": "molt-cardiac4d-runs",
+  "readback_verified": true,
+  "selected_source_sha256": "548d68871cfbcde7d0a892b5da40cefd44ec68b17c306f4906ca14569aa3396a",
+  "at_unix": 1795521917.6502461,
+  "validation_accessed": false
+}
