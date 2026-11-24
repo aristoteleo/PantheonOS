@@ -1,0 +1,26 @@
+{
+  "at_unix": 1795545003.8455508,
+  "rows": [
+    {
+      "task": "ahc024",
+      "seed": 500,
+      "scores": {
+        "molt2_adaptive_branches": 0.6491,
+        "molt2_noise_credit": 0.6390266666666666
+      },
+      "difference": -0.010073333333333379
+    },
+    {
+      "task": "ahc058",
+      "seed": 500,
+      "scores": {
+        "molt2_adaptive_branches": 5.500531179999999,
+        "molt2_noise_credit": 5.383925153333333
+      },
+      "difference": -0.1166060266666662
+    }
+  ],
+  "status": "first_of_three_seeds_complete",
+  "validation_accessed": false,
+  "caution": "Variant loses both tasks for this seed; preserve all remaining frozen seeds and do not generalize from one seed."
+}

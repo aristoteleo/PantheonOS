@@ -1,5 +1,5 @@
 {
-  "at_unix": 1795543930.2382095,
+  "at_unix": 1795545028.7119477,
   "files": {
     "campaign.json": "76ae31478cae9512b735a52ed86b1db2b5c5a1a96049ec3d5f86b93fa526c984",
     "manifest.json": "81174aaf8b227c21ac9c78f0aa79c973292f53c24177f2a42d99cae225763ead",
@@ -39,7 +39,18 @@
     "research/NATIVE_REWARD_THRESHOLD_CORRECTION.json": "41c27519accfc97aa7b4c4840c077096c1a8ad38ac9e7f0f5b19ffd8b7c60952",
     "research/AHC058_CONTROL_SEED500_PROVISIONAL_GAIN.json": "561757cc42e9e6b29c0b8a88518aca99a119cf2630f3e0cbc2a0885d9e74e482",
     "research/AHC058_LIVE_CREDIT_AUDIT.json": "92762edfea929791673e5cc0569ce41cab3c1f51116281614eb47bc7b343e5e1",
-    "research/provisional-candidates/ahc058-control-s500-252bb12c.cpp": "7b4125c333182c065971fb0d4a74bc18872e4463c5d9e96777729e84e83ca495"
+    "research/provisional-candidates/ahc058-control-s500-252bb12c.cpp": "7b4125c333182c065971fb0d4a74bc18872e4463c5d9e96777729e84e83ca495",
+    "research/SEED500_MATCHED_RESULTS.json": "72404a4ab1d62be7f5d6fcb40428ce2d9d6c2d219fbc4d38ee9595be40f8f1c6",
+    "research/AHC058_CONTROL_SEED500_COMPLETED.json": "1e765114a863f49db5f2a597ff38779b5e87e7090d83d8b02f65887c2744b2ea",
+    "research/AHC058_NOISE_CREDIT_SEED500_COMPLETED.json": "7266899477de415080704b7ddae6778b1dd1dd52a56e2aeff99907174ad5c4d5",
+    "research/selected-programs/ahc058-control-s500.cpp": "7b4125c333182c065971fb0d4a74bc18872e4463c5d9e96777729e84e83ca495",
+    "research/selected-programs/ahc058-noise-credit-s500.cpp": "dea788d434171eb83acd19c487c6e497aaa4edf515e6c15c010f39a597f4d2ad",
+    "research/BACKUP-noise-ahc058-molt2_adaptive_branches-s500.json": "a6e89a71dec82afc9640c775cf904cc3e4882b127669a7cfcef2d6d04a1af7f9",
+    "runs/noise-ahc058-molt2_adaptive_branches-s500/selection.json": "0cf98e7b7154959c9508f9781215adc492d4c21fc4bfb7162b7ac9e1bd62cc11",
+    "runs/noise-ahc058-molt2_adaptive_branches-s500/selection_audit.json": "d3c14f0a2981712595a2b17aa76994951e417d3289385c09b7381623568aa76b",
+    "research/BACKUP-noise-ahc058-molt2_noise_credit-s500.json": "c1b8fd4d6f035d7deb4ba8b0f0179aaa20091f61d6835b6f112b9ef660b5055a",
+    "runs/noise-ahc058-molt2_noise_credit-s500/selection.json": "707f1b17976e9ce03a06ca997527a4ebf9a376ff024475e9548444121b58b784",
+    "runs/noise-ahc058-molt2_noise_credit-s500/selection_audit.json": "e356228f50c0343f636d957942f03c9ad5b44d2440b722d76309845353d049ca"
   },
   "public_tasks_and_runtime": "Same task files and prequalified public150-case runtime assets as ../molt2_adaptive_branches_20261123; original private archives retain exact data.",
   "engine_branch": "erwin/molt2-noise-credit-20261124",

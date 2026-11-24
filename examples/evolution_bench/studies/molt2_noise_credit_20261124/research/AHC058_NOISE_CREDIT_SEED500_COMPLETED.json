@@ -1,0 +1,441 @@
+{
+  "at_unix": 1795544475.3619213,
+  "run": "noise-ahc058-molt2_noise_credit-s500",
+  "selection": {
+    "id": "1787a6fa",
+    "score": 5.383925153333333,
+    "sha256": "dea788d434171eb83acd19c487c6e497aaa4edf515e6c15c010f39a597f4d2ad",
+    "eval_cap": 80,
+    "cases": 150,
+    "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+  },
+  "selected_reading": [
+    {
+      "individual_id": "1787a6fa",
+      "code_sha256": "dea788d434171eb83acd19c487c6e497aaa4edf515e6c15c010f39a597f4d2ad",
+      "measurement_at": 1795544316.974233,
+      "search_eval_index": 77,
+      "score": 5.383925153333333,
+      "eligible": true
+    }
+  ],
+  "ancestry_nodes": [
+    {
+      "id": "1787a6fa",
+      "parent_ids": [
+        "d7d7ad98",
+        "19a0230e"
+      ],
+      "meta": {
+        "summary": "// EVOLVE-BLOCK-START",
+        "candidate": 0,
+        "mutation_seconds": 34.528132915496826
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.383925153333333,
+            "raw_score": 5383925.153333333,
+            "total_score": 807588773.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 41.147111654281616,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 41.224207639694214,
+          "item_id": "wd382f649",
+          "batch_id": "b19b858a5",
+          "at": 1795544316.974233
+        }
+      ]
+    },
+    {
+      "id": "19a0230e",
+      "parent_ids": [
+        "ea5df35a"
+      ],
+      "meta": {
+        "summary": "Looking at the rejection reason: the previous attempt scored 0.0. The reference implementation has a bug \u2014 `analyticBest` uses `T - tt` for `r`, but the local search loop's `simulate` is fine. The rea",
+        "candidate": 1,
+        "mutation_seconds": 35.53242301940918
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.324249933333333,
+            "raw_score": 5324249.933333334,
+            "total_score": 798637490.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 41.3316650390625,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 75.33154058456421,
+          "item_id": "w30731bbe",
+          "batch_id": "bee3eefbf",
+          "at": 1795543937.1570637
+        }
+      ]
+    },
+    {
+      "id": "ea5df35a",
+      "parent_ids": [
+        "b7f7b1cf"
+      ],
+      "meta": {
+        "summary": "We need to implement the redesign: run the existing b7f7b1cf online greedy to produce an initial 500-action sequence, then spend the remaining time on local search (hill climbing with random mutations",
+        "candidate": 0,
+        "mutation_seconds": 32.9945502281189
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 0.0,
+            "raw_score": 0.0,
+            "validity": 0.0,
+            "num_accepted": 96,
+            "eval_time": 41.60722613334656,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": [],
+            "invalid_reason": "54/150 cases rejected -- case 1: WA Tester nonzero: wrong answer: Not enough apples at turn 25: have 66, need 70"
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 41.72709608078003,
+          "item_id": "w2084fcc2",
+          "batch_id": "b2cc61c31",
+          "at": 1795543769.4920819
+        }
+      ]
+    },
+    {
+      "id": "b7f7b1cf",
+      "parent_ids": [
+        "42a64d9f",
+        "1514901b"
+      ],
+      "meta": {
+        "summary": "Looking at the two reference solutions, both use a similar structure: an analytic marginal-value heuristic combined with rollout-based lookahead. The main differences are in the marginal-value formula",
+        "candidate": 1,
+        "mutation_seconds": 53.884169578552246
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.2354317733333335,
+            "raw_score": 5235431.773333333,
+            "total_score": 785314766.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 21.012314796447754,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 56.858546018600464,
+          "item_id": "w142c8a5a",
+          "batch_id": "bd42e3c0a",
+          "at": 1795542040.9758809
+        }
+      ]
+    },
+    {
+      "id": "1514901b",
+      "parent_ids": [
+        "1ddf9ea5"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to understand the dynamics:",
+        "candidate": 0,
+        "mutation_seconds": 101.8808126449585
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.171541313333334,
+            "raw_score": 5171541.3133333335,
+            "total_score": 775731197.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 34.05222678184509,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 34.16408133506775,
+          "item_id": "wa96f4355",
+          "batch_id": "b4c5544cb",
+          "at": 1795541581.3928518
+        }
+      ]
+    },
+    {
+      "id": "1ddf9ea5",
+      "parent_ids": [],
+      "meta": {},
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 4.86749216,
+            "raw_score": 4867492.16,
+            "total_score": 730123824.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 13.389453172683716,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 13.442288637161255,
+          "item_id": "",
+          "batch_id": "",
+          "at": 1795541445.0618653
+        }
+      ]
+    },
+    {
+      "id": "42a64d9f",
+      "parent_ids": [
+        "8e6f0283",
+        "1ddf9ea5"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to understand the key dynamics:",
+        "candidate": 1,
+        "mutation_seconds": 48.38354468345642
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.214815906666666,
+            "raw_score": 5214815.906666666,
+            "total_score": 782222386.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 23.63810443878174,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 23.689157724380493,
+          "item_id": "wab55f168",
+          "batch_id": "b763f2cf9",
+          "at": 1795541897.5054622
+        }
+      ]
+    },
+    {
+      "id": "8e6f0283",
+      "parent_ids": [
+        "1514901b"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to understand the mechanics carefully:",
+        "candidate": 1,
+        "mutation_seconds": 131.2770917415619
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.217911320000001,
+            "raw_score": 5217911.32,
+            "total_score": 782686698.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 36.04622960090637,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 36.13978099822998,
+          "item_id": "w03740fe0",
+          "batch_id": "b10a49470",
+          "at": 1795541802.5442207
+        }
+      ]
+    },
+    {
+      "id": "d7d7ad98",
+      "parent_ids": [
+        "4e64b927",
+        "ea5df35a"
+      ],
+      "meta": {
+        "summary": "// EVOLVE-BLOCK-START",
+        "candidate": 0,
+        "mutation_seconds": 39.784672260284424
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.35254668,
+            "raw_score": 5352546.68,
+            "total_score": 802882002.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 41.251389265060425,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 55.478970527648926,
+          "item_id": "we121f0aa",
+          "batch_id": "bc2d03bc1",
+          "at": 1795544199.986831
+        }
+      ]
+    },
+    {
+      "id": "4e64b927",
+      "parent_ids": [
+        "19a0230e"
+      ],
+      "meta": {
+        "summary": "Looking at this chain's history, attempt ea5df35a scored 0.0 (the previous version failed), and 19a0230e (the reference inspiration) scored 5.324. The design is: run greedy+rollout for the initial seq",
+        "candidate": 1,
+        "mutation_seconds": 50.253514528274536
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.3197203,
+            "raw_score": 5319720.3,
+            "total_score": 797958045.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 41.44300103187561,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 74.87743210792542,
+          "item_id": "wb2324827",
+          "batch_id": "b9a1cd1ed",
+          "at": 1795544104.7131176
+        }
+      ]
+    }
+  ],
+  "validation_accessed": false,
+  "caution": "Single completed variant run; control still running; no policy changes based on interim outcome."
+}

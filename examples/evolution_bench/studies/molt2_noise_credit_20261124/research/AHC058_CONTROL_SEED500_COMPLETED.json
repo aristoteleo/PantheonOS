@@ -1,0 +1,314 @@
+{
+  "at_unix": 1795545028.4701946,
+  "selection": {
+    "id": "252bb12c",
+    "score": 5.500531179999999,
+    "sha256": "7b4125c333182c065971fb0d4a74bc18872e4463c5d9e96777729e84e83ca495",
+    "eval_cap": 80,
+    "cases": 150,
+    "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+  },
+  "ancestry_nodes": [
+    {
+      "id": "252bb12c",
+      "parent_ids": [
+        "8b150fb6"
+      ],
+      "meta": {
+        "summary": "// EVOLVE-BLOCK-START",
+        "candidate": 1,
+        "mutation_seconds": 38.924763679504395
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.500531179999999,
+            "raw_score": 5500531.18,
+            "total_score": 825079677.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 39.86642003059387,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 39.934529304504395,
+          "item_id": "wb7adba37",
+          "batch_id": "b1164952a",
+          "at": 1795543784.463239
+        }
+      ]
+    },
+    {
+      "id": "8b150fb6",
+      "parent_ids": [
+        "fa2b7d9e"
+      ],
+      "meta": {
+        "summary": "We need to redesign the program to do offline sequence optimization. The plan:",
+        "candidate": 0,
+        "mutation_seconds": 44.94472599029541
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 3.409077513333333,
+            "raw_score": 3409077.513333333,
+            "total_score": 511361627.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 39.76999640464783,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 60.271411418914795,
+          "item_id": "w8bc9f81c",
+          "batch_id": "b0a3fcee8",
+          "at": 1795543698.8119404
+        }
+      ]
+    },
+    {
+      "id": "fa2b7d9e",
+      "parent_ids": [
+        "4a996153",
+        "934b6065"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need a stronger approach than the sampled inspirations. Let me analyze the key insight:",
+        "candidate": 0,
+        "mutation_seconds": 23.94921875
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.2322666133333335,
+            "raw_score": 5232266.613333333,
+            "total_score": 784839992.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 20.271185874938965,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 20.32472324371338,
+          "item_id": "w0f7a8fb4",
+          "batch_id": "bdc078eca",
+          "at": 1795542347.8274736
+        }
+      ]
+    },
+    {
+      "id": "934b6065",
+      "parent_ids": [
+        "37e5031d"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to understand the structure:",
+        "candidate": 0,
+        "mutation_seconds": 90.79342198371887
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.217737126666667,
+            "raw_score": 5217737.126666667,
+            "total_score": 782660569.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 29.470420360565186,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 29.57404851913452,
+          "item_id": "wdc82bd58",
+          "batch_id": "b56c6ea10",
+          "at": 1795542027.939478
+        }
+      ]
+    },
+    {
+      "id": "37e5031d",
+      "parent_ids": [],
+      "meta": {},
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 4.86749216,
+            "raw_score": 4867492.16,
+            "total_score": 730123824.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 13.522476434707642,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 13.622440814971924,
+          "item_id": "",
+          "batch_id": "",
+          "at": 1795541907.571206
+        }
+      ]
+    },
+    {
+      "id": "4a996153",
+      "parent_ids": [
+        "04fcc794",
+        "37e5031d"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to understand the mechanics:",
+        "candidate": 0,
+        "mutation_seconds": 139.400981426239
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.211898873333333,
+            "raw_score": 5211898.873333333,
+            "total_score": 781784831.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 12.095932006835938,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 12.149280786514282,
+          "item_id": "we82ddbb7",
+          "batch_id": "b806c3d0b",
+          "at": 1795542303.37241
+        }
+      ]
+    },
+    {
+      "id": "04fcc794",
+      "parent_ids": [
+        "934b6065"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to understand the mechanics deeply:",
+        "candidate": 0,
+        "mutation_seconds": 42.5053985118866
+      },
+      "measurements": [
+        {
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 5.095841106666667,
+            "raw_score": 5095841.106666666,
+            "total_score": 764376166.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 30.247529983520508,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          },
+          "fidelity": "full",
+          "ok": true,
+          "cost": 0.0,
+          "duration": 30.344656467437744,
+          "item_id": "wb7406bc3",
+          "batch_id": "b2d375b04",
+          "at": 1795542119.6596408
+        }
+      ]
+    }
+  ],
+  "selected_reading": [
+    {
+      "individual_id": "252bb12c",
+      "code_sha256": "7b4125c333182c065971fb0d4a74bc18872e4463c5d9e96777729e84e83ca495",
+      "measurement_at": 1795543784.463239,
+      "search_eval_index": 55,
+      "score": 5.500531179999999,
+      "eligible": true
+    }
+  ],
+  "validation_accessed": false
+}

@@ -1,0 +1,11 @@
+{
+  "run": "noise-ahc058-molt2_noise_credit-s500",
+  "terminal_status": "complete",
+  "sha256": "013af78b8f01860f41d9f4f28c221e44fe77f6ca8fe33b8d1b67a69db312d543",
+  "remote": "/archives/molt2-noise-credit-20261124/runs/noise-ahc058-molt2_noise_credit-s500-013af78b8f01860f41d9f4f28c221e44fe77f6ca8fe33b8d1b67a69db312d543.tar.gz",
+  "volume": "molt-cardiac4d-runs",
+  "readback_verified": true,
+  "selected_source_sha256": "dea788d434171eb83acd19c487c6e497aaa4edf515e6c15c010f39a597f4d2ad",
+  "at_unix": 1795544470.9933484,
+  "validation_accessed": false
+}

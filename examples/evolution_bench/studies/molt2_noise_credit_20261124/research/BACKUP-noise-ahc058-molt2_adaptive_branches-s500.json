@@ -1,0 +1,11 @@
+{
+  "run": "noise-ahc058-molt2_adaptive_branches-s500",
+  "terminal_status": "complete",
+  "sha256": "90b4053bc56d9ee0f900be1defe8e28c176f35fceed2429e000bbfdef189dbcd",
+  "remote": "/archives/molt2-noise-credit-20261124/runs/noise-ahc058-molt2_adaptive_branches-s500-90b4053bc56d9ee0f900be1defe8e28c176f35fceed2429e000bbfdef189dbcd.tar.gz",
+  "volume": "molt-cardiac4d-runs",
+  "readback_verified": true,
+  "selected_source_sha256": "7b4125c333182c065971fb0d4a74bc18872e4463c5d9e96777729e84e83ca495",
+  "at_unix": 1795544985.0185838,
+  "validation_accessed": false
+}
