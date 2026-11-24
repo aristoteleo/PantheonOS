@@ -45,7 +45,7 @@ def build_analysis():
   result['diagnostic_errors']=errors
   p=R/'research/PAIRED_INFERENCE.json';tmp=p.with_suffix('.tmp');tmp.write_text(json.dumps(result,indent=2)+'\n');tmp.replace(p)
  save()  # retain core paired results even if a later optional diagnostic fails
- for field,module in [('writer_parent_audit','writer_parent_audit'),('resource_audit','run_resource_audit'),('baseline_parity','baseline_parity')]:
+ for field,module in [('writer_parent_audit','writer_parent_audit'),('resource_audit','run_resource_audit'),('baseline_parity','baseline_parity'),('validity_budget_audit','validity_budget_audit')]:
   result[field]=optional(field,lambda module=module:importlib.import_module(module).build(),errors);save()
  def rewards():
   subprocess.run([sys.executable,str(R/'research/reward_sensitivity.py')],check=True,capture_output=True,text=True,timeout=120)
