@@ -1,0 +1,170 @@
+{
+  "at_unix": 1795547598.4612448,
+  "run": "noise-ahc024-molt2_noise_credit-s501",
+  "workflow_status": "complete",
+  "selection": {
+    "id": "1669d38e",
+    "score": 0.6394466666666667,
+    "sha256": "06ee183e06f7f6e188b47bad66899f11b4d001d82933ae3bee08b6523f7a2bb9",
+    "eval_cap": 80,
+    "cases": 150,
+    "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+  },
+  "source_hash_verified": true,
+  "chain_memberships": [
+    1
+  ],
+  "chain_roles": [
+    "base"
+  ],
+  "ancestry": [
+    {
+      "id": "1669d38e",
+      "parents": [
+        "9e320005",
+        "c52e232c"
+      ],
+      "meta": {
+        "summary": "Looking at the two reference solutions, they both use essentially the same greedy approach: repeatedly try to remove cells (turn to 0) one at a time, checking that the removal preserves the adjacency ",
+        "candidate": 0,
+        "mutation_seconds": 78.99962878227234
+      }
+    },
+    {
+      "id": "c52e232c",
+      "parents": [
+        "ce03e115",
+        "dacc4bc2"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to erase cells to 0 while preserving:",
+        "candidate": 1,
+        "mutation_seconds": 33.497597455978394
+      }
+    },
+    {
+      "id": "dacc4bc2",
+      "parents": [
+        "855cd708",
+        "d2700986"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to:",
+        "candidate": 0,
+        "mutation_seconds": 66.43930125236511
+      }
+    },
+    {
+      "id": "d2700986",
+      "parents": [
+        "1f5bfca1",
+        "d76533e5"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to design an algorithm that:",
+        "candidate": 0,
+        "mutation_seconds": 52.46718215942383
+      }
+    },
+    {
+      "id": "d76533e5",
+      "parents": [],
+      "meta": {}
+    },
+    {
+      "id": "1f5bfca1",
+      "parents": [
+        "8c0231ab"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to shrink wards (colors 1..m) as much as possible while:",
+        "candidate": 1,
+        "mutation_seconds": 75.19454574584961
+      }
+    },
+    {
+      "id": "8c0231ab",
+      "parents": [
+        "d76533e5"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to produce a 50\u00d750 map where each ward (color 1..m) is connected, color 0 is connected (possibly through the outside), and the adjacency structure between colors is pre",
+        "candidate": 1,
+        "mutation_seconds": 162.64460110664368
+      }
+    },
+    {
+      "id": "855cd708",
+      "parents": [
+        "f25a9774",
+        "57a61b58"
+      ],
+      "meta": {
+        "summary": "## Key Insight",
+        "candidate": 1,
+        "mutation_seconds": 30.199333429336548
+      }
+    },
+    {
+      "id": "57a61b58",
+      "parents": [
+        "d2700986",
+        "8c0231ab"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to maximize the number of zero cells in the output while preserving:",
+        "candidate": 1,
+        "mutation_seconds": 42.26643919944763
+      }
+    },
+    {
+      "id": "f25a9774",
+      "parents": [
+        "734346f2",
+        "d2700986"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to erase cells to 0 while:",
+        "candidate": 0,
+        "mutation_seconds": 43.91304063796997
+      }
+    },
+    {
+      "id": "734346f2",
+      "parents": [
+        "57a61b58",
+        "1f5bfca1"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to understand the key constraints:",
+        "candidate": 1,
+        "mutation_seconds": 33.24887251853943
+      }
+    },
+    {
+      "id": "ce03e115",
+      "parents": [
+        "d2700986"
+      ],
+      "meta": {
+        "summary": "Here's the implementation. I'll add simulated annealing over the binary kept/erased mask, starting from the best greedy result, maintaining incremental counts (color-adjacency `cnt`, per-ward cell cou",
+        "candidate": 0,
+        "mutation_seconds": 29.27815580368042
+      }
+    },
+    {
+      "id": "9e320005",
+      "parents": [
+        "d2700986",
+        "57a61b58"
+      ],
+      "meta": {
+        "summary": "// EVOLVE-BLOCK-START",
+        "candidate": 0,
+        "mutation_seconds": 14.0519540309906
+      }
+    }
+  ],
+  "comparison_status": "Matching control seed still running; no paired outcome yet.",
+  "validation_accessed": false
+}
