@@ -1,0 +1,14 @@
+......................                                                   [100%]
+=============================== warnings summary ===============================
+../miniconda3/lib/python3.13/site-packages/_pytest/config/__init__.py:1434
+  /home/erwinpi/miniconda3/lib/python3.13/site-packages/_pytest/config/__init__.py:1434: PytestConfigWarning: Unknown config option: asyncio_default_fixture_loop_scope
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+../miniconda3/lib/python3.13/site-packages/_pytest/config/__init__.py:1434
+  /home/erwinpi/miniconda3/lib/python3.13/site-packages/_pytest/config/__init__.py:1434: PytestConfigWarning: Unknown config option: asyncio_mode
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+22 passed, 2 warnings in 0.23s

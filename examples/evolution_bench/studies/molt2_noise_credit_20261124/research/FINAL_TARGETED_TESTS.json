@@ -1,0 +1,26 @@
+{
+  "at_unix": 1795557975.9751801,
+  "command": [
+    "taskset",
+    "-c",
+    "0-3",
+    "/home/erwinpi/molt2-lab/runtime/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "tests/test_molt2_adaptive_branches.py",
+    "tests/test_molt2_noise_credit.py"
+  ],
+  "cwd": "/home/erwinpi/molt2-noise-credit-engine",
+  "returncode": 0,
+  "passed": true,
+  "source_sha256": {
+    "tests/test_molt2_adaptive_branches.py": "cd00e30c93cddfbcfa6fb496fff462f05ce506d96151634973f3bfb9fed277e6",
+    "tests/test_molt2_noise_credit.py": "886d8226e64dbca75cdb022e224f3ea70caadd18a54ce03a61977145b59f96d5",
+    "pantheon/evolution/methods/molt2_adaptive_branches.py": "df8412e5712a13d9c5c7fdd80d085ff4aa104517d857041f2432f6c43b7b026d",
+    "pantheon/evolution/methods/molt2_noise_credit.py": "a4f121e0f5794e07f6261ff2d4833176c9c00952334f954e6005a1cd8e460f1c",
+    "pantheon/evolution/methods/progress_credit.py": "ac8238d482ef40d7c370cf8e7bb9160a80cd2ad3228927fd7208ae9757411040"
+  },
+  "engine_commit": "4185a143274dd2db748f74b62601e51a1040529c",
+  "scope": "Targeted method accounting, prefix behavior, parent selection and checkpoint tests. Synthetic programs, no API calls; does not establish performance superiority."
+}
