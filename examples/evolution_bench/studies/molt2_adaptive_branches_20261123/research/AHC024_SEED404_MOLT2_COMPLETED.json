@@ -1,0 +1,92 @@
+{
+  "run": "matched-ahc024-molt2_adaptive_branches-s404",
+  "selection": {
+    "id": "cb8651bb",
+    "score": 1.9219666666666666,
+    "sha256": "0276be03b2936df5d1277bf2fa3e7844005ad8f0466704b47d57723f81a24249",
+    "eval_cap": 80,
+    "cases": 150,
+    "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+  },
+  "ancestry_dag": {
+    "cb8651bb": {
+      "parents": [
+        "b273072d"
+      ],
+      "summary": "Looking at this task, I need to implement a deterministic priority-queue erosion system that:",
+      "measurements": [
+        {
+          "at": 1795530631.9208806,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 1.9219666666666666,
+            "raw_score": 1921.9666666666667,
+            "total_score": 288295.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 40.284767389297485,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          }
+        }
+      ]
+    },
+    "b273072d": {
+      "parents": [
+        "10a36260"
+      ],
+      "summary": "Looking at this task, I need to implement a simulated annealing / hill-climbing local search that starts from the greedy output and applies moves: erase to 0, recolor to adjacent color, swap adjacent ",
+      "measurements": [
+        {
+          "at": 1795528191.1992812,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 1.8993933333333335,
+            "raw_score": 1899.3933333333334,
+            "total_score": 284909.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 40.184542179107666,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          }
+        }
+      ]
+    },
+    "10a36260": {
+      "parents": [],
+      "summary": null,
+      "measurements": [
+        {
+          "at": 1795527188.0020695,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 0.6378733333333333,
+            "raw_score": 637.8733333333333,
+            "total_score": 95681.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 28.856295824050903,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          }
+        }
+      ]
+    }
+  },
+  "source": "/home/erwinpi/molt2-adaptive-branches-lab/research/selected-programs/ahc024-molt2-s404.cpp",
+  "scope": "Completed strict-first-80 selection; complete recorded ancestry DAG, not a causal ablation.",
+  "validation_accessed": false
+}

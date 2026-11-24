@@ -1,0 +1,63 @@
+{
+  "task": "ahc024",
+  "seeds": [
+    400,
+    401,
+    402,
+    403,
+    404
+  ],
+  "methods": [
+    {
+      "method": "simpletes",
+      "scores": [
+        0.6378933333333333,
+        0.6394466666666667,
+        0.6393866666666667,
+        0.63948,
+        0.6394133333333333
+      ],
+      "mean": 0.639124,
+      "median": 0.6394133333333333
+    },
+    {
+      "method": "molt",
+      "scores": [
+        0.6394333333333333,
+        0.63936,
+        0.63924,
+        0.6392733333333334,
+        0.6385066666666667
+      ],
+      "mean": 0.6391626666666667,
+      "median": 0.6392733333333334
+    },
+    {
+      "method": "molt_modified",
+      "scores": [
+        0.6393,
+        0.63898,
+        1.1084733333333334,
+        0.6393933333333334,
+        0.8261000000000001
+      ],
+      "mean": 0.7704493333333333,
+      "median": 0.6393933333333334
+    },
+    {
+      "method": "molt2_adaptive_branches",
+      "scores": [
+        0.6392266666666667,
+        0.6392933333333333,
+        0.6385333333333333,
+        0.6393866666666667,
+        1.9219666666666666
+      ],
+      "mean": 0.8956813333333333,
+      "median": 0.6392933333333333
+    }
+  ],
+  "scope": "Public training, first 80 native evaluator calls including baseline; independent searches. No validation or reproducibility rereads yet.",
+  "caution": "Molt2 mean is dominated by seed 404; it loses to vanilla Molt and SimpleTES on four of five seeds.",
+  "at_unix": 1795531090.0978684
+}

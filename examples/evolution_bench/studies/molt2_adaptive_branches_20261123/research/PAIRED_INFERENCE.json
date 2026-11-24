@@ -3,69 +3,117 @@
     {
       "task": "ahc024",
       "control": "simpletes",
-      "n_pairs": 4,
+      "n_pairs": 5,
       "deltas": [
         0.0013333333333334085,
         -0.00015333333333344967,
         -0.0008533333333333726,
-        -9.333333333338967e-05
+        -9.333333333338967e-05,
+        1.2825533333333334
       ],
-      "status": "incomplete_withheld"
+      "status": "complete_development_only",
+      "mean_difference": 0.2565573333333333,
+      "median_difference": -9.333333333338967e-05,
+      "observed_difference_range": [
+        -0.0008533333333333726,
+        1.2825533333333334
+      ],
+      "wins": 2,
+      "non_tied_pairs": 5,
+      "one_sided_sign_p": 0.8125,
+      "bootstrap_mean_95pct": [
+        -0.00042133333333340686,
+        0.7696280000000001
+      ],
+      "holm_adjusted_p": 1.0
     },
     {
       "task": "ahc024",
       "control": "molt",
-      "n_pairs": 4,
+      "n_pairs": 5,
       "deltas": [
         -0.0002066666666665773,
         -6.666666666677035e-05,
         -0.0007066666666667443,
-        0.00011333333333329865
+        0.00011333333333329865,
+        1.2834599999999998
       ],
-      "status": "incomplete_withheld"
+      "status": "complete_development_only",
+      "mean_difference": 0.2565186666666666,
+      "median_difference": -6.666666666677035e-05,
+      "observed_difference_range": [
+        -0.0007066666666667443,
+        1.2834599999999998
+      ],
+      "wins": 2,
+      "non_tied_pairs": 5,
+      "one_sided_sign_p": 0.8125,
+      "bootstrap_mean_95pct": [
+        -0.0004146666666667409,
+        0.7700493333333331
+      ],
+      "holm_adjusted_p": 1.0
     },
     {
       "task": "ahc024",
       "control": "molt_modified",
-      "n_pairs": 4,
+      "n_pairs": 5,
       "deltas": [
         -7.333333333325864e-05,
         0.0003133333333332766,
         -0.46994000000000014,
-        -6.666666666710341e-06
+        -6.666666666710341e-06,
+        1.0958666666666665
       ],
-      "status": "incomplete_withheld"
+      "status": "complete_development_only",
+      "mean_difference": 0.12523199999999995,
+      "median_difference": -6.666666666710341e-06,
+      "observed_difference_range": [
+        -0.46994000000000014,
+        1.0958666666666665
+      ],
+      "wins": 2,
+      "non_tied_pairs": 5,
+      "one_sided_sign_p": 0.8125,
+      "bootstrap_mean_95pct": [
+        -0.28191600000000006,
+        0.6575173333333333
+      ],
+      "holm_adjusted_p": 1.0
     },
     {
       "task": "ahc058",
       "control": "simpletes",
-      "n_pairs": 3,
+      "n_pairs": 4,
       "deltas": [
         0.0525222800000007,
         0.07143559333333371,
-        0.30607053999999945
+        0.30607053999999945,
+        0.2685926199999997
       ],
       "status": "incomplete_withheld"
     },
     {
       "task": "ahc058",
       "control": "molt",
-      "n_pairs": 3,
+      "n_pairs": 4,
       "deltas": [
         -0.038674613333332886,
         -0.09598963999999999,
-        0.15622812666666608
+        0.15622812666666608,
+        0.16222591999999914
       ],
       "status": "incomplete_withheld"
     },
     {
       "task": "ahc058",
       "control": "molt_modified",
-      "n_pairs": 3,
+      "n_pairs": 4,
       "deltas": [
         0.1370581066666663,
         0.03947692666666658,
-        0.1052991333333324
+        0.1052991333333324,
+        0.0841075999999994
       ],
       "status": "incomplete_withheld"
     }
@@ -73,7 +121,7 @@
   "planned_comparisons": 6,
   "caution": "Exploratory development tasks and n=5 seeds. No validation accessed. Descriptive bootstrap coverage can be poor at n=5. With six comparisons, even five wins alone cannot establish familywise significance at 0.05.",
   "measurement_event_audit": {
-    "at_unix": 1795519279.747981,
+    "at_unix": 1795531090.1316283,
     "rows": [
       {
         "run": "matched-ahc024-molt2_adaptive_branches-s400",
@@ -151,6 +199,32 @@
         "varying_score_program_ids": [],
         "legacy_event_review_required": false,
         "reasons": []
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s403",
+        "workflow_status": "complete",
+        "engine_classification": "fixed",
+        "review_required": false,
+        "repeated_program_ids": [
+          "8d1df2cc"
+        ],
+        "same_batch_repeated_program_ids": [],
+        "varying_score_program_ids": [
+          "8d1df2cc"
+        ],
+        "legacy_event_review_required": false,
+        "reasons": []
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s404",
+        "workflow_status": "complete",
+        "engine_classification": "fixed",
+        "review_required": false,
+        "repeated_program_ids": [],
+        "same_batch_repeated_program_ids": [],
+        "varying_score_program_ids": [],
+        "legacy_event_review_required": false,
+        "reasons": []
       }
     ],
     "excluded_primary_run_ids": [],
@@ -159,7 +233,7 @@
   "excluded_primary_runs": [],
   "diagnostic_errors": [],
   "writer_parent_audit": {
-    "at_unix": 1795519279.7992923,
+    "at_unix": 1795531090.8519318,
     "rows": [
       {
         "run": "matched-ahc024-molt2_adaptive_branches-s400",
@@ -355,6 +429,78 @@
             "generation": 2,
             "has_parents": true,
             "training_score": 0.6393866666666667,
+            "source_hash_matches": true
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s404",
+        "emitted_redesign_directions": 7,
+        "generation_zero_targets": 1,
+        "evolved_targets": 6,
+        "unique_targets": 5,
+        "targets": [
+          {
+            "direction": "i0/planner_0/direction_01",
+            "target": "6c15c479",
+            "target_found": true,
+            "generation": 1,
+            "has_parents": true,
+            "training_score": 0.6380066666666666,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_2/direction_01",
+            "target": "10a36260",
+            "target_found": true,
+            "generation": 0,
+            "has_parents": false,
+            "training_score": 0.6378733333333333,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_3/direction_01",
+            "target": "6c15c479",
+            "target_found": true,
+            "generation": 1,
+            "has_parents": true,
+            "training_score": 0.6380066666666666,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i1/planner_0/direction_01",
+            "target": "65be83e1",
+            "target_found": true,
+            "generation": 5,
+            "has_parents": true,
+            "training_score": 1.8864,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i1/planner_1/direction_01",
+            "target": "b273072d",
+            "target_found": true,
+            "generation": 1,
+            "has_parents": true,
+            "training_score": 1.8993933333333335,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i1/planner_2/direction_01",
+            "target": "b273072d",
+            "target_found": true,
+            "generation": 1,
+            "has_parents": true,
+            "training_score": 1.8993933333333335,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i1/planner_3/direction_01",
+            "target": "af0c77c0",
+            "target_found": true,
+            "generation": 4,
+            "has_parents": true,
+            "training_score": 1.8878933333333334,
             "source_hash_matches": true
           }
         ]
@@ -621,6 +767,78 @@
         ]
       },
       {
+        "run": "matched-ahc024-molt_modified-s404",
+        "emitted_redesign_directions": 7,
+        "generation_zero_targets": 0,
+        "evolved_targets": 7,
+        "unique_targets": 5,
+        "targets": [
+          {
+            "direction": "i0/planner_1/direction_01",
+            "target": "7b26134c",
+            "target_found": true,
+            "generation": 1,
+            "has_parents": true,
+            "training_score": 0.6384533333333334,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_2/direction_00",
+            "target": "8771aceb",
+            "target_found": true,
+            "generation": 2,
+            "has_parents": true,
+            "training_score": 0.6386266666666667,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_3/direction_00",
+            "target": "8771aceb",
+            "target_found": true,
+            "generation": 2,
+            "has_parents": true,
+            "training_score": 0.6386266666666667,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i1/planner_0/direction_01",
+            "target": "c41c5ca2",
+            "target_found": true,
+            "generation": 3,
+            "has_parents": true,
+            "training_score": 0.6389866666666667,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i1/planner_1/direction_00",
+            "target": "c41c5ca2",
+            "target_found": true,
+            "generation": 3,
+            "has_parents": true,
+            "training_score": 0.6389866666666667,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i1/planner_2/direction_01",
+            "target": "51caaa30",
+            "target_found": true,
+            "generation": 4,
+            "has_parents": true,
+            "training_score": 0.6388733333333333,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i1/planner_3/direction_01",
+            "target": "f6411153",
+            "target_found": true,
+            "generation": 4,
+            "has_parents": true,
+            "training_score": 0.6385266666666667,
+            "source_hash_matches": true
+          }
+        ]
+      },
+      {
         "run": "matched-ahc058-molt2_adaptive_branches-s400",
         "emitted_redesign_directions": 4,
         "generation_zero_targets": 0,
@@ -751,6 +969,42 @@
             "generation": 4,
             "has_parents": true,
             "training_score": 5.216364706666667,
+            "source_hash_matches": true
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s403",
+        "emitted_redesign_directions": 3,
+        "generation_zero_targets": 0,
+        "evolved_targets": 3,
+        "unique_targets": 2,
+        "targets": [
+          {
+            "direction": "i0/planner_0/direction_01",
+            "target": "ba6405bd",
+            "target_found": true,
+            "generation": 2,
+            "has_parents": true,
+            "training_score": 5.214810366666666,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_1/direction_01",
+            "target": "9304a92e",
+            "target_found": true,
+            "generation": 3,
+            "has_parents": true,
+            "training_score": 5.2157458666666665,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_2/direction_01",
+            "target": "9304a92e",
+            "target_found": true,
+            "generation": 3,
+            "has_parents": true,
+            "training_score": 5.2157458666666665,
             "source_hash_matches": true
           }
         ]
@@ -901,17 +1155,90 @@
       },
       {
         "run": "matched-ahc058-molt_modified-s403",
-        "emitted_redesign_directions": 0,
+        "emitted_redesign_directions": 8,
         "generation_zero_targets": 0,
-        "evolved_targets": 0,
-        "unique_targets": 0,
-        "targets": []
+        "evolved_targets": 8,
+        "unique_targets": 3,
+        "targets": [
+          {
+            "direction": "i0/planner_0/direction_01",
+            "target": "3d45a256",
+            "target_found": true,
+            "generation": 2,
+            "has_parents": true,
+            "training_score": 5.21776382,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_1/direction_01",
+            "target": "3d45a256",
+            "target_found": true,
+            "generation": 2,
+            "has_parents": true,
+            "training_score": 5.21776382,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_2/direction_01",
+            "target": "3d45a256",
+            "target_found": true,
+            "generation": 2,
+            "has_parents": true,
+            "training_score": 5.21776382,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i0/planner_3/direction_01",
+            "target": "3d45a256",
+            "target_found": true,
+            "generation": 2,
+            "has_parents": true,
+            "training_score": 5.21776382,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i1/planner_0/direction_01",
+            "target": "3a4b91af",
+            "target_found": true,
+            "generation": 6,
+            "has_parents": true,
+            "training_score": 5.247888146666667,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i1/planner_1/direction_01",
+            "target": "ebaab289",
+            "target_found": true,
+            "generation": 6,
+            "has_parents": true,
+            "training_score": 5.261537866666666,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i1/planner_2/direction_00",
+            "target": "3a4b91af",
+            "target_found": true,
+            "generation": 6,
+            "has_parents": true,
+            "training_score": 5.247888146666667,
+            "source_hash_matches": true
+          },
+          {
+            "direction": "i1/planner_3/direction_00",
+            "target": "ebaab289",
+            "target_found": true,
+            "generation": 6,
+            "has_parents": true,
+            "training_score": 5.261537866666666,
+            "source_hash_matches": true
+          }
+        ]
       }
     ],
     "scope": "Only emitted redesign directions in modified/adaptive method audits. Native planner target choice was preserved. Distinct directions can share one target. An evolved-target benefit cannot be inferred from seed-target restarts."
   },
   "resource_audit": {
-    "at_unix": 1795519279.8754048,
+    "at_unix": 1795531090.9464548,
     "rows": [
       {
         "run": "matched-ahc024-molt-s400",
@@ -965,6 +1292,22 @@
         "native_reported_seconds": 3574.5047764778137,
         "time_to_80th_recorded_evaluation_seconds": 3564.317462205887,
         "process_wall_seconds": 3576.7479453086853,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
+        "run": "matched-ahc024-molt-s404",
+        "status": "complete",
+        "confirmed_provider_usd": 0.39673662,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.39673662,
+        "native_reported_seconds": 3590.2690517902374,
+        "time_to_80th_recorded_evaluation_seconds": 3451.550945520401,
+        "process_wall_seconds": 3592.901951789856,
         "receipt_protocol": {
           "amendment": "20261124-receipt-drain-v1",
           "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
@@ -1032,6 +1375,22 @@
         }
       },
       {
+        "run": "matched-ahc024-molt2_adaptive_branches-s404",
+        "status": "complete",
+        "confirmed_provider_usd": 0.3861329248,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.3861329248,
+        "native_reported_seconds": 3712.045834541321,
+        "time_to_80th_recorded_evaluation_seconds": 3671.8686079978943,
+        "process_wall_seconds": 3714.904354095459,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
         "run": "matched-ahc024-molt_modified-s400",
         "status": "complete",
         "confirmed_provider_usd": 0.38940060320000003,
@@ -1083,6 +1442,22 @@
         "native_reported_seconds": 3499.8779850006104,
         "time_to_80th_recorded_evaluation_seconds": 3458.0926604270935,
         "process_wall_seconds": 3502.7057197093964,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s404",
+        "status": "complete",
+        "confirmed_provider_usd": 0.3768236808,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.3768236808,
+        "native_reported_seconds": 3439.0654196739197,
+        "time_to_80th_recorded_evaluation_seconds": 3397.7429230213165,
+        "process_wall_seconds": 3440.8351905345917,
         "receipt_protocol": {
           "amendment": "20261124-receipt-drain-v1",
           "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
@@ -1150,6 +1525,22 @@
         }
       },
       {
+        "run": "matched-ahc024-simpletes-s404",
+        "status": "complete",
+        "confirmed_provider_usd": 0.2536425024,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.2536425024,
+        "native_reported_seconds": 3532.4373795986176,
+        "time_to_80th_recorded_evaluation_seconds": 3435.1904060840607,
+        "process_wall_seconds": 3534.8632185459137,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
         "run": "matched-ahc058-molt-s400",
         "status": "complete",
         "confirmed_provider_usd": 0.2609046888,
@@ -1199,13 +1590,13 @@
       },
       {
         "run": "matched-ahc058-molt-s403",
-        "status": "running",
-        "confirmed_provider_usd": 0,
+        "status": "complete",
+        "confirmed_provider_usd": 0.2589308736,
         "unknown_request_count": 0,
-        "conservative_total_usd": 0,
-        "native_reported_seconds": null,
-        "time_to_80th_recorded_evaluation_seconds": null,
-        "process_wall_seconds": null,
+        "conservative_total_usd": 0.2589308736,
+        "native_reported_seconds": 2667.6437871456146,
+        "time_to_80th_recorded_evaluation_seconds": 2592.3733756542206,
+        "process_wall_seconds": 2668.5771148204803,
         "receipt_protocol": {
           "amendment": "20261124-receipt-drain-v1",
           "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
@@ -1254,6 +1645,22 @@
         "native_reported_seconds": 2407.2084081172943,
         "time_to_80th_recorded_evaluation_seconds": 2366.548139333725,
         "process_wall_seconds": 2408.477424144745,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s403",
+        "status": "complete",
+        "confirmed_provider_usd": 0.2436244832,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.2436244832,
+        "native_reported_seconds": 2564.8662559986115,
+        "time_to_80th_recorded_evaluation_seconds": 2560.5556769371033,
+        "process_wall_seconds": 2566.4852888584137,
         "receipt_protocol": {
           "amendment": "20261124-receipt-drain-v1",
           "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
@@ -1311,10 +1718,26 @@
       },
       {
         "run": "matched-ahc058-molt_modified-s403",
-        "status": "running",
-        "confirmed_provider_usd": 0.0760255832,
+        "status": "complete",
+        "confirmed_provider_usd": 0.2446214736,
         "unknown_request_count": 0,
-        "conservative_total_usd": 0.0760255832,
+        "conservative_total_usd": 0.2446214736,
+        "native_reported_seconds": 2446.296270608902,
+        "time_to_80th_recorded_evaluation_seconds": 2446.2833774089813,
+        "process_wall_seconds": 2448.485697746277,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s404",
+        "status": "running",
+        "confirmed_provider_usd": 0.0193013688,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.0193013688,
         "native_reported_seconds": null,
         "time_to_80th_recorded_evaluation_seconds": null,
         "process_wall_seconds": null,
@@ -1372,13 +1795,45 @@
           "max_receipt_drain_seconds": 300.0,
           "late_responses_returned_to_optimizer": false
         }
+      },
+      {
+        "run": "matched-ahc058-simpletes-s403",
+        "status": "complete",
+        "confirmed_provider_usd": 0.2025565864,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.2025565864,
+        "native_reported_seconds": 2138.9344997406006,
+        "time_to_80th_recorded_evaluation_seconds": 2094.3893551826477,
+        "process_wall_seconds": 2140.447178840637,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
+      },
+      {
+        "run": "matched-ahc058-simpletes-s404",
+        "status": "running",
+        "confirmed_provider_usd": 0.001544508,
+        "unknown_request_count": 0,
+        "conservative_total_usd": 0.001544508,
+        "native_reported_seconds": null,
+        "time_to_80th_recorded_evaluation_seconds": null,
+        "process_wall_seconds": null,
+        "receipt_protocol": {
+          "amendment": "20261124-receipt-drain-v1",
+          "receipt_guard_sha256": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+          "max_receipt_drain_seconds": 300.0,
+          "late_responses_returned_to_optimizer": false
+        }
       }
     ],
     "caution": "Unknown charges remain booked. Confirmed provider totals exclude unknown requests and are not complete billed totals where unknown_count>0. Process wall time and native reported seconds may include receipt waits during worker cleanup. Time to80th recorded evaluation uses actual search-event timestamps and excludes later receipt-only tail; it is withheld if80 calls were not reached."
   },
   "baseline_parity": {
-    "at_unix": 1795519279.9532096,
-    "observed_starts": 29,
+    "at_unix": 1795531091.0440586,
+    "observed_starts": 36,
     "scheduled_trials": 40,
     "all_observed_sources_match": true,
     "all_observed_seeds_valid150": true,
@@ -1726,13 +2181,100 @@
         "matches_fixed_seed": true,
         "starting_score": 4.86749216,
         "starting_validity": 1.0,
-        "starting_cases_accepted": 150
+        "starting_cases_accepted": 150,
+        "selected_generation": 7,
+        "selected_is_starting_source": false,
+        "selected_score": 5.42989428
+      },
+      {
+        "run": "matched-ahc058-molt-s403",
+        "task": "ahc058",
+        "starting_source_sha256": "599fc27b8c744ec7787eb536dfb8906a85ebe7e2b7c0357bbf0004d97d0590f6",
+        "matches_fixed_seed": true,
+        "starting_score": 4.86749216,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 6,
+        "selected_is_starting_source": false,
+        "selected_score": 5.35177596
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s403",
+        "task": "ahc058",
+        "starting_source_sha256": "599fc27b8c744ec7787eb536dfb8906a85ebe7e2b7c0357bbf0004d97d0590f6",
+        "matches_fixed_seed": true,
+        "starting_score": 4.86749216,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 12,
+        "selected_is_starting_source": false,
+        "selected_score": 5.5140018799999995
+      },
+      {
+        "run": "matched-ahc058-simpletes-s403",
+        "task": "ahc058",
+        "starting_source_sha256": "599fc27b8c744ec7787eb536dfb8906a85ebe7e2b7c0357bbf0004d97d0590f6",
+        "matches_fixed_seed": true,
+        "starting_score": 4.86749216,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 13,
+        "selected_is_starting_source": false,
+        "selected_score": 5.24540926
+      },
+      {
+        "run": "matched-ahc024-molt-s404",
+        "task": "ahc024",
+        "starting_source_sha256": "dad6022c8f8422bf66c13e49c7e36c95a6668a84ee5f01b92e2bdada4e571f0e",
+        "matches_fixed_seed": true,
+        "starting_score": 0.6378866666666666,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 5,
+        "selected_is_starting_source": false,
+        "selected_score": 0.6385066666666667
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s404",
+        "task": "ahc024",
+        "starting_source_sha256": "dad6022c8f8422bf66c13e49c7e36c95a6668a84ee5f01b92e2bdada4e571f0e",
+        "matches_fixed_seed": true,
+        "starting_score": 0.6378733333333333,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 4,
+        "selected_is_starting_source": false,
+        "selected_score": 0.8261000000000001
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s404",
+        "task": "ahc024",
+        "starting_source_sha256": "dad6022c8f8422bf66c13e49c7e36c95a6668a84ee5f01b92e2bdada4e571f0e",
+        "matches_fixed_seed": true,
+        "starting_score": 0.6378733333333333,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 2,
+        "selected_is_starting_source": false,
+        "selected_score": 1.9219666666666666
+      },
+      {
+        "run": "matched-ahc024-simpletes-s404",
+        "task": "ahc024",
+        "starting_source_sha256": "dad6022c8f8422bf66c13e49c7e36c95a6668a84ee5f01b92e2bdada4e571f0e",
+        "matches_fixed_seed": true,
+        "starting_score": 0.6378733333333333,
+        "starting_validity": 1.0,
+        "starting_cases_accepted": 150,
+        "selected_generation": 12,
+        "selected_is_starting_source": false,
+        "selected_score": 0.6394133333333333
       }
     ],
     "caution": "Source parity is distinct from identical stochastic histories. Wall-clock scores and prompt timing metrics can differ even with the same initial source and configured algorithm/model seeds."
   },
   "validity_budget_audit": {
-    "at_unix": 1795519280.0654202,
+    "at_unix": 1795531091.187391,
     "rows": [
       {
         "run": "matched-ahc024-molt-s400",
@@ -2461,13 +3003,202 @@
           "Compilation failed: /tmp/ahc039_rq0_biv9/Main.cpp:2:12: error: \u2018i\u2019 was not declared in this scope": 1,
           "Compilation failed: /tmp/ahc039_d971kdm4/Main.cpp:4:6: error: stray \u2018`\u2019 in program": 1
         }
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s403",
+        "task": "ahc058",
+        "method": "molt_modified",
+        "seed": 403,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 73,
+          "invalid_or_partial": 7
+        },
+        "rejection_reasons": {
+          "19/150 cases rejected -- case 24: TLE CPU limit exceeded (prlimit SIGKILL)": 1,
+          "150/150 cases rejected -- case 0: TLE CPU limit exceeded (prlimit SIGKILL)": 3,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: wrong answer: Not enough apples at turn 114: have 649314, need 1839400": 1,
+          "/tmp/ahc039_wce9__63/Main.cpp:207:16: error: \u2018beamHist\u2019 was not declared in this scope": 1,
+          "Compilation failed: /tmp/ahc039_er7qb6xz/Main.cpp:7:25: error: stray \u2018`\u2019 in program": 1
+        }
+      },
+      {
+        "run": "matched-ahc058-molt-s403",
+        "task": "ahc058",
+        "method": "molt",
+        "seed": 403,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 78,
+          "invalid_or_partial": 2
+        },
+        "rejection_reasons": {
+          "Compilation failed: /tmp/ahc039_m1vlr475/Main.cpp:28:69: error: too many decimal points in number": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: wrong answer: Not enough actions: expected 500, got 0": 1
+        }
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s403",
+        "task": "ahc058",
+        "method": "molt2_adaptive_branches",
+        "seed": 403,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 72,
+          "invalid_or_partial": 8
+        },
+        "rejection_reasons": {
+          "/tmp/ahc039_1dbzem7j/Main.cpp:139:13: error: \u2018turn_remaining_ok\u2019 was not declared in this scope": 1,
+          "/tmp/ahc039_cdls15wv/Main.cpp:186:21: error: \u2018t\u2019 was not declared in this scope": 1,
+          "8/150 cases rejected -- case 15: WA Tester nonzero: wrong answer: Not enough apples at turn 76: have 3448, need 4632": 1,
+          "8/150 cases rejected -- case 3: WA Tester nonzero: wrong answer: Not enough apples at turn 48: have 114, need 116": 1,
+          "/tmp/ahc039_el8x_a1y/Main.cpp:62:104: error: no matching function for call to \u2018State::State(<brace-enclosed initializer list>)\u2019": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: wrong answer: Not enough actions: expected 500, got 0": 1,
+          "143/150 cases rejected -- case 0: WA Tester nonzero: wrong answer: Not enough actions: expected 500, got 0": 1,
+          "Compilation failed: /tmp/ahc039_egtfh5zw/Main.cpp:6:50: error: stray \u2018`\u2019 in program": 1
+        }
+      },
+      {
+        "run": "matched-ahc058-simpletes-s403",
+        "task": "ahc058",
+        "method": "simpletes",
+        "seed": 403,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 75,
+          "invalid_or_partial": 5
+        },
+        "rejection_reasons": {
+          "150/150 cases rejected -- case 0: WA Tester nonzero: wrong answer: Not enough actions: expected 500, got 0": 2,
+          "/tmp/ahc039_kj4zrob9/Main.cpp:2:38: error: missing terminating ' character": 1,
+          "56/150 cases rejected -- case 0: TLE CPU limit exceeded (prlimit SIGKILL)": 1,
+          "Compilation failed: /tmp/ahc039_czrycb3u/Main.cpp:21:33: error: \u2018ld\u2019 was not declared in this scope; did you mean \u2018ll\u2019?": 1
+        }
+      },
+      {
+        "run": "matched-ahc024-molt-s404",
+        "task": "ahc024",
+        "method": "molt",
+        "seed": 404,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 61,
+          "invalid_or_partial": 19
+        },
+        "rejection_reasons": {
+          "19/150 cases rejected -- case 3: WA Tester nonzero: Colors 0 and 11 must not be adjacent.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 1 must not be adjacent.": 1,
+          "68/150 cases rejected -- case 1: WA Tester nonzero: Colors 0 and 100 must not be adjacent.": 2,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 30 must be adjacent.": 1,
+          "39/150 cases rejected -- case 1: TLE CPU limit exceeded (prlimit SIGKILL)": 1,
+          "67/150 cases rejected -- case 1: WA Tester nonzero: Colors 0 and 100 must not be adjacent.": 2,
+          "27/150 cases rejected -- case 3: WA Tester nonzero: Colors 0 and 11 must not be adjacent.": 1,
+          "1/150 cases rejected -- case 56: TLE CPU limit exceeded (prlimit SIGKILL)": 1,
+          "/tmp/ahc039_3lbrghdl/Main.cpp:130:5: error: inconsistent deduction for \u2018auto\u2019: \u2018std::vector<std::vector<int> >\u2019 and then \u2018std::vector<std::vector<char> >\u2019": 1,
+          "/tmp/ahc039_6cconalu/Main.cpp:307:12: error: \u2018error\u2019 was not declared in this scope; did you mean \u2018perror\u2019?": 1,
+          "61/150 cases rejected -- case 5: TLE CPU limit exceeded (prlimit SIGKILL)": 1,
+          "9/150 cases rejected -- case 3: WA Tester nonzero: Colors 0 and 11 must not be adjacent.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 5 must not be adjacent.": 1,
+          "149/150 cases rejected -- case 0: TLE CPU limit exceeded (prlimit SIGKILL)": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 6 must not be adjacent.": 1,
+          "/tmp/ahc039_3hukcpvk/Main.cpp:261:16: error: \u2018A0\u2019 was not declared in this scope; did you mean \u2018Ac\u2019?": 1,
+          "85/150 cases rejected -- case 2: WA Tester nonzero: Colors 0 and 4 must not be adjacent.": 1
+        }
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s404",
+        "task": "ahc024",
+        "method": "molt_modified",
+        "seed": 404,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 55,
+          "invalid_or_partial": 25
+        },
+        "rejection_reasons": {
+          "84/150 cases rejected -- case 1: WA Tester nonzero: Colors 0 and 82 must not be adjacent.": 1,
+          "36/150 cases rejected -- case 1: WA Tester nonzero: Colors 0 and 100 must not be adjacent.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 1 must not be adjacent.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 0 are not connected.": 2,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 30 must be adjacent.": 1,
+          "140/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 24 must not be adjacent.": 1,
+          "Compilation failed: /tmp/ahc039_3mqnzg80/Main.cpp:2:12: error: expected constructor, destructor, or type conversion before \u2018;\u2019 token": 1,
+          "Compilation failed: /tmp/ahc039_0_i2kpur/Main.cpp:2:14: error: \u2018chrono\u2019 has not been declared": 1,
+          "6/150 cases rejected -- case 8: WA Tester nonzero: Squares of color 79 are not connected.": 1,
+          "141/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 5 must not be adjacent.": 1,
+          "108/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 1 must not be adjacent.": 1,
+          "/tmp/ahc039_llsw7nzv/Main.cpp:2:126: error: missing terminating ' character": 1,
+          "56/150 cases rejected -- case 1: WA Tester nonzero: Squares of color 0 are not connected.": 1,
+          "/tmp/ahc039_n2bborm6/Main.cpp:443:30: error: cannot convert \u2018__gnu_cxx::__a": 1,
+          "1/150 cases rejected -- case 133: WA Tester nonzero: Colors 0 and 87 must not be adjacent.": 1,
+          "1/150 cases rejected -- case 85: WA Tester nonzero: Squares of color 0 are not connected.": 1,
+          "1/150 cases rejected -- case 6: WA Tester nonzero: Squares of color 0 are not connected.": 1,
+          "1/150 cases rejected -- case 27: WA Tester nonzero: Squares of color 0 are not connected.": 1,
+          "/tmp/ahc039_0l1by463/Main.cpp:69:5: error: cannot convert \u2018main(int, char**)::<lambda()>\u2019 to \u2018int\u2019 in initialization": 1,
+          "/tmp/ahc039_2jvb42lg/Main.cpp:137:23: error: \u2018c\u2019 was not declared in this scope": 1,
+          "Compilation failed: /tmp/ahc039_k7k_3si6/Main.cpp:2:60: error: too many decimal points in number": 1,
+          "137/150 cases rejected -- case 1: WA Tester nonzero: Squares of color 0 are not connected.": 1,
+          "1/150 cases rejected -- case 10: WA Tester nonzero: Squares of color 0 are not connected.": 1,
+          "36/150 cases rejected -- case 1: WA Tester nonzero: Squares of color 0 are not connected.": 1
+        }
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s404",
+        "task": "ahc024",
+        "method": "molt2_adaptive_branches",
+        "seed": 404,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 63,
+          "invalid_or_partial": 17
+        },
+        "rejection_reasons": {
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 30 must be adjacent.": 3,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 0 are not connected.": 1,
+          "68/150 cases rejected -- case 1: WA Tester nonzero: Colors 0 and 100 must not be adjacent.": 2,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 1 must not be adjacent.": 2,
+          "collect2: error: ld returned 1 exit status": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 1 and 31 must be adjacent.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 23 are not connected.": 1,
+          "72/150 cases rejected -- case 1: WA Tester nonzero: Colors 0 and 100 must not be adjacent.": 2,
+          "142/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 0 are not connected.": 1,
+          "138/150 cases rejected -- case 0: WA Tester nonzero: Squares of color 70 are not connected.": 1,
+          "62/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 30 must be adjacent.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 3 must be adjacent.": 1
+        }
+      },
+      {
+        "run": "matched-ahc024-simpletes-s404",
+        "task": "ahc024",
+        "method": "simpletes",
+        "seed": 404,
+        "selection_cutoff": 80,
+        "counts": {
+          "fully_valid": 63,
+          "invalid_or_partial": 17
+        },
+        "rejection_reasons": {
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 22 must be adjacent.": 1,
+          "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 30 must be adjacent.": 4,
+          "68/150 cases rejected -- case 1: WA Tester nonzero: Colors 0 and 100 must not be adjacent.": 2,
+          "22/150 cases rejected -- case 0: WA Tester nonzero: Colors 40 and 44 must be adjacent.": 1,
+          "/tmp/ahc039_qjo4j4rj/Main.cpp:93:53: error: \u2018cur\u2019 was not declared in this scope": 1,
+          "/tmp/ahc039_k3lavavp/Main.cpp:2:38: error: missing terminating ' character": 1,
+          "/tmp/ahc039__2b08gp6/Main.cpp:122:5: error: a template declaration cannot appear at block scope": 1,
+          "20/150 cases rejected -- case 1: WA Tester nonzero: Squares of color 88 are not connected.": 1,
+          "/tmp/ahc039_lzccpd7m/Main.cpp:6:53: error: missing terminating ' character": 1,
+          "Compilation failed: /tmp/ahc039_x5e09vbg/Main.cpp:3:1: error: expected unqualified-id before \u2018...\u2019 token": 1,
+          "150/150 cases rejected -- case 0: TLE CPU limit exceeded (prlimit SIGKILL)": 1,
+          "/tmp/ahc039_m1kmxeyc/Main.cpp:175:5: error: a template declaration cannot appear at block scope": 1,
+          "2/150 cases rejected -- case 27: WA Tester nonzero: Squares of color 68 are not connected.": 1
+        }
       }
     ],
     "scope": "Completed runs only; first80 evaluator-call ceiling, starting program included. No model calls or evaluations.",
     "limits": "Strict nearest timestamp join (<0.1s). Unmatched and ambiguous events remain explicit; they are not assumed invalid. Counts include repeated-code evaluations and are not counts of distinct programs. No causal or five-seed inference from incomplete groups."
   },
   "allocation_diagnostic": {
-    "at_unix": 1795519280.0752087,
+    "at_unix": 1795531091.1996665,
     "rows": [
       {
         "run": "matched-ahc024-molt2_adaptive_branches-s400",
@@ -2560,6 +3291,30 @@
         "retained_window_evaluations": 64
       },
       {
+        "run": "matched-ahc024-molt2_adaptive_branches-s404",
+        "work_items_by_reason": {
+          "native_prefix": 7,
+          "incumbent_floor": 10,
+          "thompson_progress_per_evaluation": 25,
+          "minimum_probe": 5
+        },
+        "work_items_by_arm": {
+          "chain:0": 6,
+          "chain:1": 4,
+          "proposal": 13,
+          "chain:2": 5,
+          "chain:3": 10,
+          "chain:4": 4,
+          "chain:5": 3,
+          "chain:6": 1,
+          "chain:7": 1
+        },
+        "thompson_choices": 25,
+        "total_work_items": 47,
+        "retained_window_successes": 4,
+        "retained_window_evaluations": 64
+      },
+      {
         "run": "matched-ahc058-molt2_adaptive_branches-s400",
         "work_items_by_reason": {
           "native_prefix": 16,
@@ -2624,12 +3379,33 @@
         "total_work_items": 44,
         "retained_window_successes": 7,
         "retained_window_evaluations": 63
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s403",
+        "work_items_by_reason": {
+          "native_prefix": 10,
+          "incumbent_floor": 9,
+          "thompson_progress_per_evaluation": 21,
+          "minimum_probe": 3
+        },
+        "work_items_by_arm": {
+          "chain:0": 13,
+          "chain:1": 8,
+          "proposal": 5,
+          "chain:2": 4,
+          "chain:3": 10,
+          "chain:4": 3
+        },
+        "thompson_choices": 21,
+        "total_work_items": 43,
+        "retained_window_successes": 5,
+        "retained_window_evaluations": 63
       }
     ],
     "caution": "Work-item counts are not candidate-evaluation counts. Native history is a rolling window, not whole-run reward. When successes are absent, posterior sampling cannot learn which arm produces progress; failure counts still change posterior uncertainty. This descriptive audit does not establish that another allocation would improve scores."
   },
   "branch_recovery_audit": {
-    "at_unix": 1795519280.163216,
+    "at_unix": 1795531091.3133996,
     "rows": [
       {
         "run": "matched-ahc024-molt-s400",
@@ -3680,6 +4456,284 @@
         ]
       },
       {
+        "run": "matched-ahc024-molt-s404",
+        "chain": 2,
+        "fate": "graduated",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6384333333333333,
+        "best_retained_score": 0.6379933333333333,
+        "retained_entries": [
+          {
+            "id": "4e689fe6",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 17
+          },
+          {
+            "id": "553c357b",
+            "score": 0.03663333333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 26
+          },
+          {
+            "id": "6a0fc87a",
+            "score": 0.04089333333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 43
+          },
+          {
+            "id": "9dfa4907",
+            "score": 0.6379933333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 51
+          },
+          {
+            "id": "71363af5",
+            "score": 0.6379733333333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 62
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s404",
+        "chain": 3,
+        "fate": "retired",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6384333333333333,
+        "best_retained_score": 0.45785333333333333,
+        "retained_entries": [
+          {
+            "id": "5c3ee161",
+            "score": 0.42496666666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 20
+          },
+          {
+            "id": "c2881bdb",
+            "score": 0.4054333333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 29
+          },
+          {
+            "id": "5b181411",
+            "score": 0.44752,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 38
+          },
+          {
+            "id": "d250852e",
+            "score": 0.45785333333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 52
+          },
+          {
+            "id": "ba76764a",
+            "score": 0.4490933333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 65
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s404",
+        "chain": 4,
+        "fate": "retired",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6384333333333333,
+        "best_retained_score": 0.5564,
+        "retained_entries": [
+          {
+            "id": "b083601e",
+            "score": 0.4789933333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 21
+          },
+          {
+            "id": "da2a0fc5",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "a53905eb",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "71a63255",
+            "score": 0.5135,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 54
+          },
+          {
+            "id": "9aa47a37",
+            "score": 0.5564,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 74
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s404",
+        "chain": 5,
+        "fate": "retired",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 1,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6384333333333333,
+        "best_retained_score": 0.015619999999999998,
+        "retained_entries": [
+          {
+            "id": "0b7ee259",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "d83d424e",
+            "score": 0.011006666666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 31
+          },
+          {
+            "id": "023b92bc",
+            "score": 0.015619999999999998,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 45
+          },
+          {
+            "id": "51691dc2",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 58
+          },
+          {
+            "id": "d59de8ba",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s404",
+        "chain": 6,
+        "fate": "probation",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": null,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6385066666666667,
+        "best_retained_score": 0.0,
+        "retained_entries": [
+          {
+            "id": "d435cea4",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "befdf320",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s404",
+        "chain": 7,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6385066666666667,
+        "best_retained_score": 0.63852,
+        "retained_entries": [
+          {
+            "id": "f2660bd9",
+            "score": 0.63766,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 69
+          },
+          {
+            "id": "d51d5ceb",
+            "score": 0.63852,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s404",
+        "chain": 8,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6385066666666667,
+        "best_retained_score": 0.44617333333333337,
+        "retained_entries": [
+          {
+            "id": "c7e80089",
+            "score": 0.44617333333333337,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 70
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt-s404",
+        "chain": 9,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6385066666666667,
+        "best_retained_score": 0.03394,
+        "retained_entries": [
+          {
+            "id": "d24aef6c",
+            "score": 0.03394,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 73
+          }
+        ]
+      },
+      {
         "run": "matched-ahc024-molt2_adaptive_branches-s400",
         "chain": 2,
         "fate": "graduated",
@@ -4466,6 +5520,309 @@
             "validity": 1.0,
             "eligible_first80_valid_reading": true,
             "search_eval_index": 73
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s404",
+        "chain": 2,
+        "fate": "graduated",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": 0,
+        "reference_score": 0.6380066666666666,
+        "best_retained_score": 1.5745066666666667,
+        "retained_entries": [
+          {
+            "id": "b15a62a5",
+            "score": 1.5065466666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 19
+          },
+          {
+            "id": "f345367a",
+            "score": 1.5423266666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 22
+          },
+          {
+            "id": "42481a8f",
+            "score": 1.4926533333333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 26
+          },
+          {
+            "id": "8ee8e417",
+            "score": 1.5745066666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 30
+          },
+          {
+            "id": "2c6752f5",
+            "score": 1.57012,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 44
+          },
+          {
+            "id": "5f095e9b",
+            "score": 1.5473866666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 71
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s404",
+        "chain": 3,
+        "fate": "graduated",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": 0,
+        "reference_score": 0.6380066666666666,
+        "best_retained_score": 1.8993933333333335,
+        "retained_entries": [
+          {
+            "id": "b273072d",
+            "score": 1.8993933333333335,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 23
+          },
+          {
+            "id": "02620bb0",
+            "score": 1.8842466666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 27
+          },
+          {
+            "id": "c32bb512",
+            "score": 1.8855066666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 32
+          },
+          {
+            "id": "af0c77c0",
+            "score": 1.8878933333333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 34
+          },
+          {
+            "id": "65be83e1",
+            "score": 1.8864,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 38
+          },
+          {
+            "id": "c4308f13",
+            "score": 1.5505733333333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 40
+          },
+          {
+            "id": "540b04f8",
+            "score": 1.8796133333333331,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 48
+          },
+          {
+            "id": "fdbd6160",
+            "score": 1.5291533333333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 51
+          },
+          {
+            "id": "4d0e131b",
+            "score": 1.8915799999999998,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 52
+          },
+          {
+            "id": "097b08b7",
+            "score": 1.8735133333333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 54
+          },
+          {
+            "id": "a74ae0ab",
+            "score": 1.8828466666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 58
+          },
+          {
+            "id": "135e67bb",
+            "score": 0.5918133333333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 61
+          },
+          {
+            "id": "d6aa3c1a",
+            "score": 1.7891400000000002,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 68
+          },
+          {
+            "id": "4150f00c",
+            "score": 1.7869666666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 76
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s404",
+        "chain": 4,
+        "fate": "graduated",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 1,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6380066666666666,
+        "best_retained_score": 0.6380066666666666,
+        "retained_entries": [
+          {
+            "id": "03843e05",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "f03d8154",
+            "score": 0.4703466666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 36
+          },
+          {
+            "id": "78010f62",
+            "score": 0.6376466666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 43
+          },
+          {
+            "id": "a80623af",
+            "score": 0.6380066666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 63
+          },
+          {
+            "id": "fd2e0159",
+            "score": 0.6380066666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 69
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s404",
+        "chain": 5,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 1.8993933333333335,
+        "best_retained_score": 0.45241333333333333,
+        "retained_entries": [
+          {
+            "id": "9f5d040d",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 50
+          },
+          {
+            "id": "830990e1",
+            "score": 0.43593333333333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 55
+          },
+          {
+            "id": "2d7aa4e0",
+            "score": 0.45241333333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 64
+          },
+          {
+            "id": "3a705e58",
+            "score": 0.44384666666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s404",
+        "chain": 6,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 1.8993933333333335,
+        "best_retained_score": 0.47742666666666667,
+        "retained_entries": [
+          {
+            "id": "cc7df211",
+            "score": 0.46410666666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 56
+          },
+          {
+            "id": "2d3475d8",
+            "score": 0.47742666666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 60
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt2_adaptive_branches-s404",
+        "chain": 7,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": 0,
+        "reference_score": 1.8993933333333335,
+        "best_retained_score": 1.9219666666666666,
+        "retained_entries": [
+          {
+            "id": "cb8651bb",
+            "score": 1.9219666666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 75
+          },
+          {
+            "id": "c54290d2",
+            "score": 1.8336199999999998,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 79
           }
         ]
       },
@@ -5456,6 +6813,272 @@
         ]
       },
       {
+        "run": "matched-ahc024-molt_modified-s404",
+        "chain": 2,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6386266666666667,
+        "best_retained_score": 0.1512,
+        "retained_entries": [
+          {
+            "id": "1a7d2ff3",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 18
+          },
+          {
+            "id": "0b57cce0",
+            "score": 0.11706666666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 26
+          },
+          {
+            "id": "f515755e",
+            "score": 0.01394,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 44
+          },
+          {
+            "id": "12d05838",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 62
+          },
+          {
+            "id": "0fa37a98",
+            "score": 0.1512,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s404",
+        "chain": 3,
+        "fate": "probation",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 1,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6386266666666667,
+        "best_retained_score": 0.6386133333333334,
+        "retained_entries": [
+          {
+            "id": "132f5f61",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "f6411153",
+            "score": 0.6385266666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 31
+          },
+          {
+            "id": "45e1af89",
+            "score": 0.6386133333333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 45
+          },
+          {
+            "id": "de5dadf3",
+            "score": 0.6385466666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 63
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s404",
+        "chain": 4,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6386266666666667,
+        "best_retained_score": 0.6389466666666667,
+        "retained_entries": [
+          {
+            "id": "bf81d010",
+            "score": 0.46802,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 21
+          },
+          {
+            "id": "d55f5c81",
+            "score": 0.6386799999999999,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 28
+          },
+          {
+            "id": "114566e0",
+            "score": 0.6389466666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 36
+          },
+          {
+            "id": "db412bb3",
+            "score": 0.6389466666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 50
+          },
+          {
+            "id": "733ee544",
+            "score": 0.6389466666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 67
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s404",
+        "chain": 5,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": 0,
+        "reference_score": 0.6389866666666667,
+        "best_retained_score": 0.8261000000000001,
+        "retained_entries": [
+          {
+            "id": "c0372f80",
+            "score": 0.8261000000000001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 37
+          },
+          {
+            "id": "b983d580",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "464a12af",
+            "score": 0.001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 68
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s404",
+        "chain": 6,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6389866666666667,
+        "best_retained_score": 0.6390800000000001,
+        "retained_entries": [
+          {
+            "id": "f110ae99",
+            "score": 0.63906,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 38
+          },
+          {
+            "id": "ef51976f",
+            "score": 0.63906,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 52
+          },
+          {
+            "id": "65460184",
+            "score": 0.6390800000000001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 72
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s404",
+        "chain": 7,
+        "fate": "probation",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 2,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6389866666666667,
+        "best_retained_score": 0.6384733333333333,
+        "retained_entries": [
+          {
+            "id": "f98e1ae8",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "c4a48d4f",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "5edd642b",
+            "score": 0.6384733333333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 71
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc024-molt_modified-s404",
+        "chain": 8,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 0.6389866666666667,
+        "best_retained_score": 0.6380066666666666,
+        "retained_entries": [
+          {
+            "id": "c1fba0d2",
+            "score": 0.6380066666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 43
+          },
+          {
+            "id": "05482cc5",
+            "score": 0.638,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 56
+          },
+          {
+            "id": "27dfdae9",
+            "score": 0.6117266666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 76
+          }
+        ]
+      },
+      {
         "run": "matched-ahc058-molt-s400",
         "chain": 2,
         "fate": "graduated",
@@ -6094,6 +7717,225 @@
         ]
       },
       {
+        "run": "matched-ahc058-molt-s403",
+        "chain": 2,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.2317836799999995,
+        "best_retained_score": 4.5888131266666665,
+        "retained_entries": [
+          {
+            "id": "bfb30212",
+            "score": 3.1848151733333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 26
+          },
+          {
+            "id": "5906dff9",
+            "score": 2.7107417066666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 32
+          },
+          {
+            "id": "25795b6b",
+            "score": 2.6872228666666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 42
+          },
+          {
+            "id": "acf5375e",
+            "score": 4.5888131266666665,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 66
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt-s403",
+        "chain": 3,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.2317836799999995,
+        "best_retained_score": 2.9260374666666666,
+        "retained_entries": [
+          {
+            "id": "9e5113c0",
+            "score": 2.238475033333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 27
+          },
+          {
+            "id": "6376b966",
+            "score": 2.8443418533333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 34
+          },
+          {
+            "id": "41243dc2",
+            "score": 2.8543154066666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 52
+          },
+          {
+            "id": "2502631f",
+            "score": 2.9260374666666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 69
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt-s403",
+        "chain": 4,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.2317836799999995,
+        "best_retained_score": 5.14744772,
+        "retained_entries": [
+          {
+            "id": "02c432f2",
+            "score": 4.880944946666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 29
+          },
+          {
+            "id": "f9742095",
+            "score": 4.901024286666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 37
+          },
+          {
+            "id": "3e487677",
+            "score": 5.14744772,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 56
+          },
+          {
+            "id": "b16e3399",
+            "score": 5.145833606666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 70
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt-s403",
+        "chain": 5,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.2333903,
+        "best_retained_score": 4.667140246666667,
+        "retained_entries": [
+          {
+            "id": "cffce79f",
+            "score": 4.519193506666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 45
+          },
+          {
+            "id": "84d1f5c4",
+            "score": 4.667140246666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 57
+          },
+          {
+            "id": "59e5fd08",
+            "score": 4.667140246666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 71
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt-s403",
+        "chain": 6,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": 1,
+        "reference_score": 5.2333903,
+        "best_retained_score": 5.35177596,
+        "retained_entries": [
+          {
+            "id": "6df8c8e0",
+            "score": 4.86749216,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 47
+          },
+          {
+            "id": "9e523316",
+            "score": 5.35177596,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 59
+          },
+          {
+            "id": "7b97d1f2",
+            "score": 5.351773273333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 76
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt-s403",
+        "chain": 7,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.2333903,
+        "best_retained_score": 2.15043268,
+        "retained_entries": [
+          {
+            "id": "6407693a",
+            "score": 1.957247,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 51
+          },
+          {
+            "id": "936e6225",
+            "score": 2.15043268,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 58
+          },
+          {
+            "id": "be7505ec",
+            "score": 2.1449354533333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 77
+          }
+        ]
+      },
+      {
         "run": "matched-ahc058-molt2_adaptive_branches-s400",
         "chain": 2,
         "fate": "graduated",
@@ -6679,6 +8521,182 @@
         ]
       },
       {
+        "run": "matched-ahc058-molt2_adaptive_branches-s403",
+        "chain": 2,
+        "fate": "retired",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 1,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.2157458666666665,
+        "best_retained_score": 2.443122986666667,
+        "retained_entries": [
+          {
+            "id": "1e48360d",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "cab430fc",
+            "score": 1.5238024399999999,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 27
+          },
+          {
+            "id": "bf9c3543",
+            "score": 1.5238024399999999,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 30
+          },
+          {
+            "id": "9dd7cccd",
+            "score": 1.5778644199999998,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 51
+          },
+          {
+            "id": "4ba580ec",
+            "score": 2.443122986666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 68
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s403",
+        "chain": 3,
+        "fate": "graduated",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 1,
+        "first_over_1pct_retained_index": 1,
+        "reference_score": 5.2157458666666665,
+        "best_retained_score": 5.4236961,
+        "retained_entries": [
+          {
+            "id": "845899f1",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "b27c3561",
+            "score": 5.352767553333334,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 39
+          },
+          {
+            "id": "503c6cf0",
+            "score": 5.398959046666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 44
+          },
+          {
+            "id": "25093917",
+            "score": 5.419554406666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 48
+          },
+          {
+            "id": "42dcbdab",
+            "score": 5.41863078,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 54
+          },
+          {
+            "id": "3fde69da",
+            "score": 5.4188615066666665,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 60
+          },
+          {
+            "id": "6dba2ccb",
+            "score": 5.402549606666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 62
+          },
+          {
+            "id": "4c96da9b",
+            "score": 5.366592253333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 67
+          },
+          {
+            "id": "aabe70c2",
+            "score": 5.417140466666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 70
+          },
+          {
+            "id": "0a39c32b",
+            "score": 5.40009048,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 74
+          },
+          {
+            "id": "1de102bd",
+            "score": 5.4236961,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 80
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s403",
+        "chain": 4,
+        "fate": "probation",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": 1,
+        "first_over_1pct_retained_index": 1,
+        "reference_score": 5.2157458666666665,
+        "best_retained_score": 5.371375226666666,
+        "retained_entries": [
+          {
+            "id": "6dfcc5d2",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          },
+          {
+            "id": "46893348",
+            "score": 5.371375226666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 49
+          },
+          {
+            "id": "130f3a95",
+            "score": 5.343354833333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 58
+          },
+          {
+            "id": "94ff82b2",
+            "score": 5.3393011066666665,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 75
+          }
+        ]
+      },
+      {
         "run": "matched-ahc058-molt_modified-s400",
         "chain": 2,
         "fate": "probation",
@@ -7225,12 +9243,290 @@
             "search_eval_index": 80
           }
         ]
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s403",
+        "chain": 2,
+        "fate": "graduated",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": 7,
+        "reference_score": 5.22102866,
+        "best_retained_score": 5.4036325,
+        "retained_entries": [
+          {
+            "id": "798a24bf",
+            "score": 5.2605948399999996,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 23
+          },
+          {
+            "id": "e81a7d54",
+            "score": 5.26064896,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 32
+          },
+          {
+            "id": "780ec6fc",
+            "score": 5.261122406666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 42
+          },
+          {
+            "id": "ebaab289",
+            "score": 5.261537866666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 53
+          },
+          {
+            "id": "d94d6e2f",
+            "score": 5.26064896,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 68
+          },
+          {
+            "id": "af5a7a13",
+            "score": 5.261537866666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 71
+          },
+          {
+            "id": "1c8879b1",
+            "score": 5.26211882,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 75
+          },
+          {
+            "id": "c36a2829",
+            "score": 5.4036325,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 77
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s403",
+        "chain": 3,
+        "fate": "graduated",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.22102866,
+        "best_retained_score": 5.236682900000001,
+        "retained_entries": [
+          {
+            "id": "bfe250cb",
+            "score": 5.191220226666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 24
+          },
+          {
+            "id": "c58f5997",
+            "score": 5.202657206666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 33
+          },
+          {
+            "id": "29ce316a",
+            "score": 5.236682900000001,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 47
+          },
+          {
+            "id": "d3d41e80",
+            "score": 5.106499019999999,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 56
+          },
+          {
+            "id": "389b9e9b",
+            "score": 4.998977473333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 69
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s403",
+        "chain": 4,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.22102866,
+        "best_retained_score": 5.24793032,
+        "retained_entries": [
+          {
+            "id": "0b8df2a5",
+            "score": 5.246785233333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 26
+          },
+          {
+            "id": "b72fa726",
+            "score": 5.24679246,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 36
+          },
+          {
+            "id": "2fb9b629",
+            "score": 5.247868853333333,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 46
+          },
+          {
+            "id": "3a4b91af",
+            "score": 5.247888146666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 61
+          },
+          {
+            "id": "d26707c4",
+            "score": 5.24793032,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 78
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s403",
+        "chain": 5,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.22102866,
+        "best_retained_score": 4.109075146666666,
+        "retained_entries": [
+          {
+            "id": "02a203c0",
+            "score": 3.8965158466666665,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 28
+          },
+          {
+            "id": "416f287b",
+            "score": 3.87091328,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 38
+          },
+          {
+            "id": "5149e8c5",
+            "score": 4.109075146666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 50
+          },
+          {
+            "id": "f89fdcf1",
+            "score": 4.109075146666666,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 60
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s403",
+        "chain": 6,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.261537866666666,
+        "best_retained_score": 4.381228086666667,
+        "retained_entries": [
+          {
+            "id": "951aad3a",
+            "score": 4.381228086666667,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 72
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s403",
+        "chain": 7,
+        "fate": "probation",
+        "initial_validity": 0.0,
+        "first_valid_retained_index": null,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.261537866666666,
+        "best_retained_score": 0.0,
+        "retained_entries": [
+          {
+            "id": "f0fd9d75",
+            "score": 0.0,
+            "validity": 0.0,
+            "eligible_first80_valid_reading": false,
+            "search_eval_index": null
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s403",
+        "chain": 8,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": null,
+        "reference_score": 5.261537866666666,
+        "best_retained_score": 3.2840676066666665,
+        "retained_entries": [
+          {
+            "id": "7693a996",
+            "score": 3.2840676066666665,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 74
+          }
+        ]
+      },
+      {
+        "run": "matched-ahc058-molt_modified-s403",
+        "chain": 9,
+        "fate": "probation",
+        "initial_validity": 1.0,
+        "first_valid_retained_index": 0,
+        "first_over_1pct_retained_index": 0,
+        "reference_score": 5.261537866666666,
+        "best_retained_score": 5.42989428,
+        "retained_entries": [
+          {
+            "id": "e00c0eda",
+            "score": 5.42989428,
+            "validity": 1.0,
+            "eligible_first80_valid_reading": true,
+            "search_eval_index": 76
+          }
+        ]
       }
     ],
     "caution": "Indices count retained chain entries, zero-based, not evaluations or all children. Full saved chains can include entries beyond80; recovery gains require an eligible first80 valid reading. The completed-run endpoint can censor late branches. Repeated-genome ambiguity is exposed. Observed recovery does not estimate counterfactual pruning performance or an optimal probation length."
   },
   "reward_signal_audit": {
-    "at_unix": 1795519280.227054,
+    "at_unix": 1795531091.3868902,
     "rows": [
       {
         "run": "matched-ahc024-molt2_adaptive_branches-s400",
@@ -7391,6 +9687,54 @@
         "mismatched_batches": []
       },
       {
+        "run": "matched-ahc024-molt2_adaptive_branches-s404",
+        "observed_work_items": 46,
+        "joined_candidate_evaluations": 80,
+        "window_only_accounted_evaluations": 0,
+        "total_accounted_evaluations": 80,
+        "thresholds": [
+          {
+            "relative_threshold": 0.01,
+            "positive_work_items": 4,
+            "by_arm": {
+              "proposal": 3,
+              "chain:2": 1
+            }
+          },
+          {
+            "relative_threshold": 0.001,
+            "positive_work_items": 4,
+            "by_arm": {
+              "proposal": 3,
+              "chain:2": 1
+            }
+          },
+          {
+            "relative_threshold": 0.0001,
+            "positive_work_items": 7,
+            "by_arm": {
+              "chain:1": 1,
+              "chain:0": 1,
+              "proposal": 4,
+              "chain:2": 1
+            }
+          },
+          {
+            "relative_threshold": 0.0,
+            "positive_work_items": 7,
+            "by_arm": {
+              "chain:1": 1,
+              "chain:0": 1,
+              "proposal": 4,
+              "chain:2": 1
+            }
+          }
+        ],
+        "reconstruction_matches_native_window": true,
+        "native_window_fallback_batches": [],
+        "mismatched_batches": []
+      },
+      {
         "run": "matched-ahc058-molt2_adaptive_branches-s400",
         "observed_work_items": 43,
         "joined_candidate_evaluations": 79,
@@ -7539,6 +9883,56 @@
               "chain:2": 4,
               "proposal": 1,
               "chain:4": 4
+            }
+          }
+        ],
+        "reconstruction_matches_native_window": true,
+        "native_window_fallback_batches": [],
+        "mismatched_batches": []
+      },
+      {
+        "run": "matched-ahc058-molt2_adaptive_branches-s403",
+        "observed_work_items": 42,
+        "joined_candidate_evaluations": 79,
+        "window_only_accounted_evaluations": 0,
+        "total_accounted_evaluations": 79,
+        "thresholds": [
+          {
+            "relative_threshold": 0.01,
+            "positive_work_items": 5,
+            "by_arm": {
+              "chain:0": 3,
+              "chain:1": 1,
+              "chain:3": 1
+            }
+          },
+          {
+            "relative_threshold": 0.001,
+            "positive_work_items": 8,
+            "by_arm": {
+              "chain:0": 4,
+              "chain:1": 1,
+              "chain:3": 3
+            }
+          },
+          {
+            "relative_threshold": 0.0001,
+            "positive_work_items": 10,
+            "by_arm": {
+              "chain:0": 4,
+              "chain:1": 2,
+              "proposal": 1,
+              "chain:3": 3
+            }
+          },
+          {
+            "relative_threshold": 0.0,
+            "positive_work_items": 12,
+            "by_arm": {
+              "chain:0": 4,
+              "chain:1": 4,
+              "proposal": 1,
+              "chain:3": 3
             }
           }
         ],

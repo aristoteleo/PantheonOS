@@ -1,0 +1,10 @@
+{
+  "run": "matched-ahc024-simpletes-s404",
+  "sha256": "36f469b22ec627202b7ff55221aff48fcdd90ed3dc2a83e89d5e7a3ca2dfe3fd",
+  "remote": "/archives/molt2-adaptive-branches-20261123/runs/matched-ahc024-simpletes-s404-36f469b22ec627202b7ff55221aff48fcdd90ed3dc2a83e89d5e7a3ca2dfe3fd.tar.gz",
+  "volume": "molt-cardiac4d-runs",
+  "readback_verified": true,
+  "selected_source_sha256": "02aabf93927cf1f37a3831bf34d76fb0b77e1114ad39ffdae186714ac4b0cbe4",
+  "at_unix": 1795531056.7078512,
+  "validation_accessed": false
+}

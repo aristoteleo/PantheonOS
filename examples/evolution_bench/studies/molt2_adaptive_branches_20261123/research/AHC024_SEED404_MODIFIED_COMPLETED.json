@@ -1,0 +1,207 @@
+{
+  "run": "matched-ahc024-molt_modified-s404",
+  "selection": {
+    "id": "c0372f80",
+    "score": 0.8261000000000001,
+    "sha256": "6f2070d7dd5ef15a419abc5d6972f8914246d3abf8dc65c25eed83bf8b2ccb43",
+    "eval_cap": 80,
+    "cases": 150,
+    "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+  },
+  "selected_measurement": {
+    "individual_id": "c0372f80",
+    "code_sha256": "6f2070d7dd5ef15a419abc5d6972f8914246d3abf8dc65c25eed83bf8b2ccb43",
+    "measurement_at": 1795525808.4642048,
+    "search_eval_index": 37,
+    "score": 0.8261000000000001,
+    "eligible": true
+  },
+  "ancestry_dag": {
+    "c0372f80": {
+      "parents": [
+        "c41c5ca2"
+      ],
+      "summary": "Below is a redesigned program that starts from the original/local-best map and performs simulated annealing local search with both **erase-to-0** and **recolor-to-neighbor** moves. It keeps incrementa",
+      "measurements": [
+        {
+          "at": 1795525808.4642048,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 0.8261000000000001,
+            "raw_score": 826.1,
+            "total_score": 123915.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 42.33956503868103,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          }
+        }
+      ]
+    },
+    "c41c5ca2": {
+      "parents": [
+        "8771aceb",
+        "7b26134c"
+      ],
+      "summary": "Looking at the task, I need to wrap the existing greedy erosion loop of 8771aceb in an outer restart loop. Let me analyze the structure:",
+      "measurements": [
+        {
+          "at": 1795524841.613364,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 0.6389866666666667,
+            "raw_score": 638.9866666666667,
+            "total_score": 95848.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 39.575937032699585,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          }
+        }
+      ]
+    },
+    "7b26134c": {
+      "parents": [
+        "a1430877"
+      ],
+      "summary": "Looking at this problem, I need to understand it deeply:",
+      "measurements": [
+        {
+          "at": 1795524336.8894944,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 0.6384533333333334,
+            "raw_score": 638.4533333333334,
+            "total_score": 95768.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 5.14746880531311,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          }
+        }
+      ]
+    },
+    "a1430877": {
+      "parents": [],
+      "summary": null,
+      "measurements": [
+        {
+          "at": 1795524083.043277,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 0.6378733333333333,
+            "raw_score": 637.8733333333333,
+            "total_score": 95681.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 28.680004596710205,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          }
+        }
+      ]
+    },
+    "8771aceb": {
+      "parents": [
+        "7b26134c",
+        "ca030327"
+      ],
+      "summary": "Looking at the problem, I need to shrink wards (colors) to 0-cells while preserving the exact adjacency structure. Let me analyze the key insights:",
+      "measurements": [
+        {
+          "at": 1795524439.164645,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 0.6386266666666667,
+            "raw_score": 638.6266666666667,
+            "total_score": 95794.0,
+            "score_spread": 0.0,
+            "num_accepted": 150,
+            "num_cases": 150,
+            "n_eval_runs": 1,
+            "validity": 1.0,
+            "eval_time": 5.372244358062744,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": []
+          }
+        }
+      ]
+    },
+    "ca030327": {
+      "parents": [
+        "a1430877"
+      ],
+      "summary": "Looking at this problem, I need to erase cells to 0 while:",
+      "measurements": [
+        {
+          "at": 1795524155.7275317,
+          "metrics": {
+            "llm_score": 0.5,
+            "combined_score": 0.0,
+            "raw_score": 0.0,
+            "validity": 0.0,
+            "num_accepted": 66,
+            "eval_time": 5.236706256866455,
+            "fitness_weights": {
+              "combined_score": 1.0
+            }
+          },
+          "artifacts": {
+            "llm_feedback": "",
+            "issues": [],
+            "suggestions": [],
+            "invalid_reason": "84/150 cases rejected -- case 1: WA Tester nonzero: Colors 0 and 82 must not be adjacent.\nScore = 0"
+          }
+        }
+      ]
+    }
+  },
+  "scope": "Completed strict-first-80 finalist. All recorded parent edges retained. No isolated causal attribution.",
+  "source": "/home/erwinpi/molt2-adaptive-branches-lab/research/selected-programs/ahc024-modified-s404.cpp",
+  "validation_accessed": false
+}
