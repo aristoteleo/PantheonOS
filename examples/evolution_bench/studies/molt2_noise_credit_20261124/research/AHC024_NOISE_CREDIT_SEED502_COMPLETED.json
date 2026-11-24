@@ -1,0 +1,158 @@
+{
+  "at_unix": 1795554997.2112777,
+  "run": "noise-ahc024-molt2_noise_credit-s502",
+  "selection": {
+    "id": "a9dd8d69",
+    "score": 0.63902,
+    "sha256": "acbf1a7b20787cc08ffa5ee2b90336c6887649a60524100bae953a8d07182fa2",
+    "eval_cap": 80,
+    "cases": 150,
+    "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+  },
+  "source_hash_verified": true,
+  "chain_memberships": [
+    0
+  ],
+  "chain_roles": [
+    "base"
+  ],
+  "ancestry": [
+    {
+      "id": "a9dd8d69",
+      "parents": [
+        "d43825c0",
+        "6facf2d5"
+      ],
+      "meta": {
+        "summary": "Looking at these two solutions, they both use a greedy cell-erasing approach with adjacency tracking. Let me identify optimization opportunities and design a novel, more effective approach.",
+        "candidate": 0,
+        "mutation_seconds": 86.23640084266663
+      }
+    },
+    {
+      "id": "6facf2d5",
+      "parents": [
+        "c5bcebf7",
+        "4196459a"
+      ],
+      "meta": {
+        "summary": "Looking at the two inspirations, they both use greedy cell-by-cell erasure with random restarts. The key insight I want to leverage is that the score is directly the number of zero cells, and both sol",
+        "candidate": 1,
+        "mutation_seconds": 39.87124800682068
+      }
+    },
+    {
+      "id": "4196459a",
+      "parents": [
+        "21accbe1",
+        "72349aec"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to understand the key constraints:",
+        "candidate": 1,
+        "mutation_seconds": 91.59091806411743
+      }
+    },
+    {
+      "id": "72349aec",
+      "parents": [
+        "6525e395"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to understand the key insight:",
+        "candidate": 1,
+        "mutation_seconds": 161.88533973693848
+      }
+    },
+    {
+      "id": "6525e395",
+      "parents": [],
+      "meta": {}
+    },
+    {
+      "id": "21accbe1",
+      "parents": [
+        "c5c7d440",
+        "6525e395"
+      ],
+      "meta": {
+        "summary": "Looking at these solutions, they perform simple greedy erasure with full validity checks. The key insight is that we want to maximize zeros while maintaining:",
+        "candidate": 1,
+        "mutation_seconds": 36.763203144073486
+      }
+    },
+    {
+      "id": "c5c7d440",
+      "parents": [
+        "72349aec"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to understand the key insight: we want to erase as many cells to 0 as possible while preserving:",
+        "candidate": 1,
+        "mutation_seconds": 86.07781529426575
+      }
+    },
+    {
+      "id": "c5bcebf7",
+      "parents": [
+        "f51f0e6f",
+        "21accbe1"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, the key insight is that we want to maximize the number of 0-cells while preserving the exact adjacency structure.",
+        "candidate": 1,
+        "mutation_seconds": 34.88667130470276
+      }
+    },
+    {
+      "id": "f51f0e6f",
+      "parents": [
+        "4196459a",
+        "c5c7d440"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to understand the key insight: we want to erase as many cells as possible to 0 while preserving:",
+        "candidate": 1,
+        "mutation_seconds": 73.80078291893005
+      }
+    },
+    {
+      "id": "d43825c0",
+      "parents": [
+        "16784e83",
+        "8c98e9ef"
+      ],
+      "meta": {
+        "summary": "Looking at the problem, I need to erase cells (turn them to 0) while preserving:",
+        "candidate": 1,
+        "mutation_seconds": 39.435160636901855
+      }
+    },
+    {
+      "id": "8c98e9ef",
+      "parents": [
+        "6facf2d5",
+        "f51f0e6f"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to understand the key constraints:",
+        "candidate": 1,
+        "mutation_seconds": 60.54621338844299
+      }
+    },
+    {
+      "id": "16784e83",
+      "parents": [
+        "21accbe1",
+        "4196459a"
+      ],
+      "meta": {
+        "summary": "Looking at the target program (21accbe1), I need to make three specific changes:",
+        "candidate": 0,
+        "mutation_seconds": 12.525386333465576
+      }
+    }
+  ],
+  "validation_accessed": false,
+  "scope": "Final third AHC024 pilot seed; TRAIN repeats pending."
+}

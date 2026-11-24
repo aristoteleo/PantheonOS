@@ -1,0 +1,32 @@
+{
+  "at_unix": 1795554997.2117794,
+  "task": "ahc024",
+  "seed": 502,
+  "rows": [
+    {
+      "method": "molt2_adaptive_branches",
+      "selection": {
+        "id": "ffb64cf0",
+        "score": 1.8563399999999999,
+        "sha256": "b5fb0e512545722d3a135c051d14b75a33675730c0a00ba87189e9e52cd67517",
+        "eval_cap": 80,
+        "cases": 150,
+        "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+      }
+    },
+    {
+      "method": "molt2_noise_credit",
+      "selection": {
+        "id": "a9dd8d69",
+        "score": 0.63902,
+        "sha256": "acbf1a7b20787cc08ffa5ee2b90336c6887649a60524100bae953a8d07182fa2",
+        "eval_cap": 80,
+        "cases": 150,
+        "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+      }
+    }
+  ],
+  "difference": -1.21732,
+  "validation_accessed": false,
+  "repeat_scores_pending": true
+}

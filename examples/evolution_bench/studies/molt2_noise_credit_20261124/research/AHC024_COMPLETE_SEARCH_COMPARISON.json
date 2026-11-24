@@ -1,0 +1,41 @@
+{
+  "at_unix": 1795555025.4525414,
+  "task": "ahc024",
+  "rows": [
+    {
+      "seed": 500,
+      "scores": {
+        "molt2_adaptive_branches": 0.6491,
+        "molt2_noise_credit": 0.6390266666666666
+      },
+      "variant_minus_control": -0.010073333333333379
+    },
+    {
+      "seed": 501,
+      "scores": {
+        "molt2_adaptive_branches": 0.6384466666666667,
+        "molt2_noise_credit": 0.6394466666666667
+      },
+      "variant_minus_control": 0.0010000000000000009
+    },
+    {
+      "seed": 502,
+      "scores": {
+        "molt2_adaptive_branches": 1.8563399999999999,
+        "molt2_noise_credit": 0.63902
+      },
+      "variant_minus_control": -1.21732
+    }
+  ],
+  "mean_scores": {
+    "molt2_adaptive_branches": 1.0479622222222222,
+    "molt2_noise_credit": 0.6391644444444444
+  },
+  "variant_paired_wins": 1,
+  "seeds": 3,
+  "public_train_cases": 150,
+  "evaluation_cap_including_baseline": 80,
+  "validation_accessed": false,
+  "repeat_scores_pending": true,
+  "interpretation": "Original Molt2 has the higher search mean and wins two of three matched seeds. The mean difference is dominated by seed 502. Three development seeds do not establish general superiority."
+}
