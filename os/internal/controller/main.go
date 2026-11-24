@@ -703,8 +703,10 @@ func Main(args []string) {
 			// The owner's Agent App (the Pantheon Agent's turns wait while it starts).
 			AgentApp: agentAppState(store),
 			// A DM, a mention or a followed thread reaches the owner's own devices through their Hub.
-			Push:    teamPush(&hosted.Hub{Secrets: secrets}),
-			Connect: func() (*nats.Conn, error) { return connectTeamChat(authority, *natsURL) }}
+			Push: teamPush(&hosted.Hub{Secrets: secrets}),
+			// How long an agent's computer is away, messages waiting, before its owner is told.
+			NudgeAfter: envDuration("TEAMCHAT_NUDGE_AFTER"),
+			Connect:    func() (*nats.Conn, error) { return connectTeamChat(authority, *natsURL) }}
 		host.Register("team-chat", teamChat)
 		go teamChat.Run(context.Background())
 		// The Hub's change to a person of a space (docs/apps/team-chat.md,
@@ -1353,4 +1355,14 @@ func teamPush(hub *hosted.Hub) func(fleet string, n hosted.TeamPush) {
 		default:
 		}
 	}
+}
+
+// envDuration reads a duration from the environment ("90s", "10m"); 0 when
+// it is unset or not a duration (the setting's default then).
+func envDuration(name string) time.Duration {
+	d, err := time.ParseDuration(strings.TrimSpace(os.Getenv(name)))
+	if err != nil || d < 0 {
+		return 0
+	}
+	return d
 }

@@ -638,6 +638,11 @@ func (fl *tcFleet) statusView(status map[string]any, mid, viewer string) map[str
 	if a == nil || !a.agent() || viewer == ownerOf(a) {
 		return out
 	}
+	if _, told := out["nudge"]; told {
+		// Someone else's agent: only that its owner was told.
+		delete(out, "nudge")
+		out["told"] = true
+	}
 	friendly := fl.friendlyComputer(a)
 	raw, _ := status["computer"].(string)
 	plain := func(s string) string {

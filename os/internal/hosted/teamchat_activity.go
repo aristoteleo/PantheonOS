@@ -182,6 +182,10 @@ func (t *TeamChat) activity(ctx context.Context, fl *tcFleet, me, filter string)
 			}
 		}
 	}
+	if filter == "all" {
+		// My agents waiting for a computer of mine that is away (once I was told).
+		rows = append(rows, t.awayRows(fl, me)...)
+	}
 	if filter == "all" || filter == "review" {
 		for _, tk := range t.taskList(fl, me, "", "", "", "in_review") {
 			// A task waits for the person who made it (an agent's or a

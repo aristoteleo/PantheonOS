@@ -371,6 +371,10 @@ func (t *TeamChat) Call(ctx context.Context, c *Call) (any, error) {
 			return nil, err
 		}
 		return with(func(fl *tcFleet) (any, error) { return t.readAll(ctx, fl, who.mid) })
+	case "agents_on_nodes":
+		// My agents by the computer each lives on (the Fleet App and the
+		// computers menu list them under each computer).
+		return with(func(fl *tcFleet) (any, error) { return t.agentsOnNodes(fl, who.mid), nil })
 	case "activity":
 		var a struct {
 			Filter string `json:"filter"`

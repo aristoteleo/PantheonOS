@@ -3815,6 +3815,51 @@ their messages.
   away (not the live view, which cannot be read then), and starts the live
   view afresh when it is back.
 
+### The owner is told (2026-11-24, second batch)
+
+* **Nudge.** When an agent's computer has been away `NudgeAfter` (10 min;
+  the controller reads `TEAMCHAT_NUDGE_AFTER`, e.g. `90s`) and messages wait
+  for it, the sweep tells the agent's owner once per time away: the status
+  gets `nudge: {at, count, since}` (the owner's view; anyone else reads only
+  `told: true`), Activity (filter All) gets a row `kind: "away"` with the
+  text "2 messages waiting for Tally: acct4-local offline since 8:07 PM"
+  ("…: your Cloud Workspace is paused" for the Workspace), and one push goes
+  to the owner's devices (title "Tally is waiting for acct4-local", opens
+  `/app/team-chat?agent=<mid>`). The count follows while it is away (no
+  second push). It goes when the computer is back, the agent moved, it is
+  stopped, or nothing waits. The time away is the node's last heartbeat
+  when the service saw it go, else when the sweep first saw the agent wait
+  (after a controller restart). The page's Activity row offers "How to bring
+  it back" (the computer's panel) or, for the Workspace, "Start your Cloud
+  Workspace", and "Move Tally…" (the profile's Settings with its computers
+  listed); the Activity badge counts it. Someone else's waiting line and
+  composer note end "; @weize has been told." once the nudge was sent.
+* **The profile's offline note** (owner): "acct4-local is offline since
+  8:07 PM. Messages wait and are answered when it's back.", "Messages
+  waiting: 2", How to bring it back (the App page's ComputerHelp) and "Move
+  to another computer…"; the Workspace's says paused with Start. Anyone else
+  reads the short note without actions. The DM header adds since when and
+  how many wait. Every note says "Messages wait and are answered when it's
+  back." (`WAIT_BACK`); the Cloud Workspace reads paused everywhere (the
+  rail, panels, computers menu, picker rows, Fleet), never offline; computer
+  names are never capitalised (also in create and move refusals).
+* **What counts as a computer.** The computers menu and the Fleet App count
+  the same set: the Cloud Workspace (listed or not: the Hub's word) and the
+  machines connected to the Fleet. Platform nodes (the Agent's own pod, a
+  page's frontend node) are listed in Fleet but are not computers. Fleet's
+  header reads "1/2 computers online". An offline node shows no load (—),
+  no Files and no Update (it updates once back). `agents_on_nodes` (the
+  caller's own agents with node_id, state, queue) lists each computer's
+  agents in Fleet ("Agents: Tally") and under each computer in the menu
+  ("last seen 5 min ago · 1 agent"); a menu row opens the computer's panel
+  in Chorus (`/app/team-chat?computer=<node>`; in place on a Chorus page).
+* **Log lines** (ids and counts, never message text): an agent waiting for
+  an away computer (once per time away), the computer back, a turn cut off
+  and how many re-queued, a failed turn's re-queue, a Stop while away, a
+  nudge sent and taken back, and messages dropped (stale check-ins, a person
+  who may no longer use the agent or an agents' run at its limit, an agent
+  that left the space).
+
 ## Out of scope
 
 Payments, mobile native apps, external chat bridges, prod rollout (asked

@@ -127,7 +127,7 @@ func (t *TeamChat) agentCreate(ctx context.Context, fid string, spec agentSpec, 
 	}
 	node = t.noteNode(fl, node)
 	if !node.Online {
-		return nil, &ArgumentError{capFirst(nodeLabel(node, spec.NodeID)) + " is offline; pick an online computer"}
+		return nil, &ArgumentError{sentenceStart(nodeLabel(node, spec.NodeID)) + " is " + awayWord(node) + "; pick an online computer"}
 	}
 	// Only runtimes installed (and not known to be signed out) on that computer.
 	detect, err := t.Nodes.Call(ctx, nf, spec.NodeID, "agents_detect", map[string]any{}, 60*time.Second)
@@ -745,6 +745,9 @@ func (t *TeamChat) retire(ctx context.Context, fl *tcFleet, mid string) (*tcMemb
 	// Its reminders end with it.
 	for _, r := range remindersOf(fl, mid) {
 		_ = t.cancelReminder(ctx, fl, r)
+	}
+	if n := len(fl.queues[mid]); n > 0 {
+		log.Printf("[team-chat] %s %s: %d dropped (it left the space)", fl.fid, mid, n)
 	}
 	_ = t.del(ctx, fl, "queue."+mid)
 	_ = t.del(ctx, fl, "turn."+mid)

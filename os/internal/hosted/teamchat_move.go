@@ -211,7 +211,7 @@ func (t *TeamChat) agentMove(ctx context.Context, fid string, spec agentMoveSpec
 	source = withMemberNode(source, &agent)
 	from, to := nodeLabel(source, agent.NodeID), nodeLabel(target, spec.NodeID)
 	if !target.Online {
-		return nil, &ArgumentError{capFirst(to) + " is offline. Start it (or resume your Cloud Workspace), then move " + agent.Name + "."}
+		return nil, &ArgumentError{sentenceStart(to) + " is " + awayWord(target) + ". Start it, then move " + agent.Name + "."}
 	}
 	// Its runtime there: installed and signed in.
 	detect, err := t.Nodes.Call(ctx, nf, spec.NodeID, "agents_detect", map[string]any{}, 60*time.Second)
@@ -306,7 +306,7 @@ func (t *TeamChat) moveFolder(ctx context.Context, fid string, agent *tcMember, 
 		return &ArgumentError{"This service cannot copy folders between computers; move it with Start fresh."}
 	}
 	if !source.Online {
-		return &ArgumentError{capFirst(from) + " is offline, so " + agent.Name + "'s folder cannot be copied. " +
+		return &ArgumentError{sentenceStart(from) + " is " + awayWord(source) + ", so " + agent.Name + "'s folder cannot be copied. " +
 			"Start " + from + " and try again, or start fresh on " + to + " (without its folder and memory)."}
 	}
 	// Where the folder is on its computer ("~" as it resolves there).

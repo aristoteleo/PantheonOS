@@ -121,6 +121,10 @@ type TeamChat struct {
 	// Push sends a notification to the owner's own devices (nil: none are
 	// sent). It must not block: a message is posted whether or not it works.
 	Push func(fleet string, n TeamPush)
+	// NudgeAfter: how long an agent's computer is away, with messages
+	// waiting for it, before its owner is told (0: tcNudgeAfter, 10 min; the
+	// controller reads TEAMCHAT_NUDGE_AFTER).
+	NudgeAfter time.Duration
 
 	mu     sync.Mutex
 	infoMu sync.Mutex // the stream handle caches its info
@@ -732,10 +736,26 @@ type tcLive struct {
 	// its node is asked to stop it once it is back (before the agent's next
 	// turn).
 	pendingStop *tcPendingStop
+	// awayLogged: its wait for an away computer is in the log (once per
+	// time away); awaySeen: when the sweep first saw it wait for one whose
+	// time away is not known; nudge: its owner was told (docs/apps/team-chat.md,
+	// "Offline computers").
+	awayLogged bool
+	awaySeen   time.Time
+	nudge      *tcNudge
 	// remPosted: people's reminders of this agent that Team Chat posted
 	// itself while the agent was in a turn (inbox and remind list say so,
 	// so the agent does not post them again).
 	remPosted []tcRemPosted
+}
+
+// tcNudge: an agent's owner was told that messages wait for its away
+// computer: when, how many wait, on which computer, away since when.
+type tcNudge struct {
+	At    time.Time
+	Count int
+	Node  string
+	Since time.Time
 }
 
 // tcPendingStop is where a turn stopped while its computer was away runs.

@@ -205,6 +205,7 @@ func (t *TeamChat) dropStaleCheckins(ctx context.Context, fl *tcFleet, mid strin
 		log.Printf("[team-chat] %s queue %s: %v", fl.fid, mid, err)
 		return
 	}
+	log.Printf("[team-chat] %s %s: %d check-in(s) dropped (older than %v)", fl.fid, mid, len(q)-len(keep), tcCheckinWindow)
 	fl.queues[mid] = keep
 	t.emitStatus(fl, mid)
 }
@@ -433,6 +434,10 @@ func (t *TeamChat) statusOf(fl *tcFleet, m *tcMember) map[string]any {
 			out["waiting"] = w
 		}
 	}
+	if l.nudge != nil {
+		// Its owner was told (others read only that: statusView).
+		out["nudge"] = nudgeView(l.nudge)
+	}
 	return out
 }
 
@@ -470,6 +475,15 @@ func sentenceStart(label string) string {
 		return capFirst(label)
 	}
 	return label
+}
+
+// awayWord: a computer that is not online is offline; the Cloud Workspace is
+// paused (it is never called offline).
+func awayWord(n TeamNode) string {
+	if n.Kind == "sandbox" {
+		return "paused"
+	}
+	return "offline"
 }
 
 // cutOffLine says that an agent's computer went away during its turn and
@@ -845,6 +859,7 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 		return false
 	}
 	if kept := t.dropPaused(ctx, fl, m, q); len(kept) != len(q) {
+		log.Printf("[team-chat] %s %s (%s): %d dropped (the person may not use it, or an agents' run is at its limit)", fl.fid, m.Handle, mid, len(q)-len(kept))
 		t.saveQueue(ctx, fl, mid, kept)
 		t.emitStatus(fl, mid)
 		if q = kept; len(q) == 0 {
@@ -893,8 +908,12 @@ func (t *TeamChat) tryStart(ctx context.Context, fl *tcFleet, mid string) bool {
 		// Its computer is away: no turn is written (its status stays offline,
 		// it does not flicker to working each sweep). The sweep notes the
 		// computer every tick and starts the turn once it is back (noteNode).
-		t.remindNow(ctx, fl, m, "its computer is offline")
+		q = t.remindNow(ctx, fl, m, "its computer is offline")
 		l.retryAt = time.Time{}
+		if !l.awayLogged {
+			l.awayLogged = true
+			log.Printf("[team-chat] %s %s (%s): waiting for %s (offline); %d waiting", fl.fid, m.Handle, mid, m.NodeID, len(q))
+		}
 		fl.mu.Unlock()
 		return false
 	}
@@ -1209,8 +1228,13 @@ func (t *TeamChat) noteNode(fl *tcFleet, n TeamNode) TeamNode {
 				if known && n.Online {
 					// Back: its waiting agents start now, not after a backoff
 					// (and a turn stopped while it was away is stopped there first).
+					// Its owner's nudge goes: nothing waits for the computer now.
 					l := fl.liveOf(mid)
 					l.retries, l.retryAt = 0, time.Time{}
+					if l.awayLogged || l.nudge != nil {
+						log.Printf("[team-chat] %s %s (%s): %s is back; %d waiting", fl.fid, m.Handle, mid, n.ID, len(fl.queues[mid]))
+					}
+					l.awayLogged, l.awaySeen, l.nudge = false, time.Time{}, nil
 					if (len(fl.queues[mid]) > 0 || l.pendingStop != nil) && fl.turns[mid] == nil {
 						t.kick(fl.fid, mid)
 					}
@@ -1824,6 +1848,8 @@ func (t *TeamChat) endAway(ctx context.Context, fl *tcFleet, m *tcMember, tr *tc
 		text = m.Name + "'s turn was stopped while its Cloud Workspace is not running; what it was doing there stops when it runs again."
 	}
 	cid, root := tr.Cause.CID, tr.Cause.Root
+	log.Printf("[team-chat] %s %s (%s): turn %s stopped by its owner while %s is away; %d message(s) not asked again",
+		fl.fid, m.Handle, m.MID, tr.ID, tr.NodeID, len(tr.Events))
 	t.finishLocked(ctx, fl, m.MID, codingagents.Event{Type: "done", Stopped: true})
 	_, _ = t.system(ctx, fl, cid, root, m.MID, "", text)
 }
@@ -1901,6 +1927,7 @@ func (t *TeamChat) finishLocked(ctx context.Context, fl *tcFleet, mid string, do
 			}
 		}
 		t.saveQueue(ctx, fl, mid, append(back, fl.queues[mid]...))
+		log.Printf("[team-chat] %s %s (%s): turn %s failed; %d re-queued", fl.fid, m.Handle, mid, tr.ID, len(back))
 		if m.Session != "" && modelSourceChanged(done.Error) {
 			// Its session was made on other models than it now uses: the
 			// events go to a new session.
@@ -1945,7 +1972,7 @@ func (t *TeamChat) finishLocked(ctx context.Context, fl *tcFleet, mid string, do
 		if len(back) > 0 {
 			t.saveQueue(ctx, fl, mid, append(back, fl.queues[mid]...))
 		}
-		log.Printf("[team-chat] %s %s: turn cut off by its computer (%d waiting again)", fl.fid, m.Handle, len(back))
+		log.Printf("[team-chat] %s %s (%s): turn %s cut off by its computer %s; %d re-queued", fl.fid, m.Handle, mid, tr.ID, tr.NodeID, len(back))
 	case done.Stopped:
 		// Stopped by the owner: nothing is posted for it.
 	case tr.Skipped != "":
@@ -2755,6 +2782,7 @@ func (t *TeamChat) sweep(ctx context.Context) {
 			}
 			cancel()
 		}
+		t.nudges(ctx, fl)
 		for _, mid := range waiting {
 			t.kick(fl.fid, mid)
 		}

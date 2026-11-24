@@ -42,7 +42,8 @@
           "read_all",
           "search",
           "notify_set",
-          "files"
+          "files",
+          "agents_on_nodes"
         ]
       }
     ],
@@ -685,6 +686,11 @@
             "required": true
           }
         ]
+      },
+      {
+        "name": "agents_on_nodes",
+        "description": "The caller's own agents with the computer each lives on (node_id), its state and queue, for the Fleet App and the computers menu.",
+        "params": []
       }
     ]
   }

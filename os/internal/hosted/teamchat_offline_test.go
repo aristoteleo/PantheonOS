@@ -3,6 +3,8 @@ package hosted
 import (
 	"context"
 	"encoding/json"
+	"log"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -258,3 +260,121 @@ func TestComputerNamesAreNotCapitalised(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+// An agent's owner is told once per time its computer is away with messages
+// waiting (Activity row, status, one push); the count follows; others read
+// only that the owner was told; it goes when the computer is back. The log
+// says what happened without any message text.
+func TestTheOwnerIsToldOnceWhileTheComputerIsAway(t *testing.T) {
+	var logs strings.Builder
+	var logMu sync.Mutex
+	log.SetOutput(writerFunc(func(p []byte) (int, error) { logMu.Lock(); defer logMu.Unlock(); return logs.Write(p) }))
+	defer log.SetOutput(os.Stderr)
+	url := jetStream(t)
+	nodes := newFakeAgents()
+	tc := teamOn(t, url, nodes)
+	tc.tick = 30 * time.Millisecond
+	tc.NudgeAfter = 80 * time.Millisecond
+	var pushMu sync.Mutex
+	var pushes []TeamPush
+	tc.Push = func(_ string, n TeamPush) { pushMu.Lock(); pushes = append(pushes, n); pushMu.Unlock() }
+	h, mine, _ := teamHost(t, tc)
+	writer := makeAgent(t, h, mine, "Writer", "n_mac", "claude", nil)
+	call := func(method string, args map[string]any) map[string]any { return call(t, h, mine, method, args) }
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go tc.Run(ctx)
+	set := func(f func()) { nodes.mu.Lock(); f(); nodes.mu.Unlock() }
+	pushed := func() []TeamPush { pushMu.Lock(); defer pushMu.Unlock(); return append([]TeamPush(nil), pushes...) }
+
+	set(func() { nodes.online["n_mac"] = false })
+	call("post", map[string]any{"cid": "general", "text": "@writer secret-one"})
+	call("post", map[string]any{"cid": "general", "text": "@writer secret-two"})
+	eventually(t, "the nudge", func() bool {
+		n, _ := statusOfAgent(call, writer)["nudge"].(map[string]any)
+		return n != nil && n["count"] == float64(2)
+	})
+	time.Sleep(200 * time.Millisecond) // more sweeps: still one push
+	if p := pushed(); len(p) != 1 || !strings.HasPrefix(p[0].Body, "2 messages waiting for Writer: Node n_mac offline since ") ||
+		p[0].URL != "/app/team-chat?agent="+writer || p[0].Title != "Writer is waiting for Node n_mac" {
+		t.Fatalf("%+v", p)
+	}
+	rows := call("activity", map[string]any{"filter": "all"})["rows"].([]any)
+	var away map[string]any
+	for _, r := range rows {
+		if r.(map[string]any)["kind"] == "away" {
+			away = r.(map[string]any)
+		}
+	}
+	if away == nil || away["mid"] != writer || away["count"] != float64(2) || away["node_id"] != "n_mac" {
+		t.Fatalf("%v", rows)
+	}
+
+	// A third message: the count follows, no second push.
+	call("post", map[string]any{"cid": "general", "text": "@writer secret-three"})
+	eventually(t, "the count", func() bool {
+		n, _ := statusOfAgent(call, writer)["nudge"].(map[string]any)
+		return n != nil && n["count"] == float64(3)
+	})
+	if p := pushed(); len(p) != 1 {
+		t.Fatalf("pushed again: %+v", p)
+	}
+
+	// Someone else reads only that the owner was told.
+	fl, err := tc.lockFleet(context.Background(), fleetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := fl.statusView(tc.statusOf(fl, fl.members[writer]), writer, "pmember")
+	fl.mu.Unlock()
+	if other["told"] != true || other["nudge"] != nil {
+		t.Fatalf("%v", other)
+	}
+
+	// Mine by computer.
+	on := call("agents_on_nodes", map[string]any{})["agents"].([]any)
+	if len(on) != 1 || on[0].(map[string]any)["node_id"] != "n_mac" || on[0].(map[string]any)["state"] != "offline" {
+		t.Fatalf("%v", on)
+	}
+
+	// Back: answered, and the notice goes.
+	set(func() { nodes.online["n_mac"] = true })
+	eventually(t, "answered and taken back", func() bool {
+		s := statusOfAgent(call, writer)
+		return s["nudge"] == nil && s["queue"] == float64(0) && s["state"] == "ready"
+	})
+	for _, r := range call("activity", map[string]any{"filter": "all"})["rows"].([]any) {
+		if r.(map[string]any)["kind"] == "away" {
+			t.Fatalf("still there: %v", r)
+		}
+	}
+	logMu.Lock()
+	out := logs.String()
+	logMu.Unlock()
+	for _, want := range []string{"waiting for n_mac (offline)", "nudge sent to its owner: 2 waiting", "n_mac is back"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("no %q in the log:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "secret-") {
+		t.Fatalf("message text in the log:\n%s", out)
+	}
+}
+
+func TestNudgeWords(t *testing.T) {
+	loc := time.UTC
+	now := time.Date(2026, 11, 24, 20, 30, 0, 0, loc)
+	if got := nudgeText("Tally", 2, "acct4-local", "machine", now.Add(-23*time.Minute), now, loc); got != "2 messages waiting for Tally: acct4-local offline since 8:07 PM" {
+		t.Fatal(got)
+	}
+	if got := nudgeText("Pax", 1, "your Cloud Workspace", "sandbox", now, now, loc); got != "1 message waiting for Pax: your Cloud Workspace is paused" {
+		t.Fatal(got)
+	}
+	if got := sinceClock(now.Add(-48*time.Hour), now, loc); got != "Nov 22, 8:30 PM" {
+		t.Fatal(got)
+	}
+}
+
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
