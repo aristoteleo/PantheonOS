@@ -1,0 +1,85 @@
+{
+  "at_unix": 1795537561.1957657,
+  "selection": {
+    "id": "cb8651bb",
+    "score": 1.9219666666666666,
+    "sha256": "0276be03b2936df5d1277bf2fa3e7844005ad8f0466704b47d57723f81a24249",
+    "eval_cap": 80,
+    "cases": 150,
+    "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+  },
+  "rereads": [
+    {
+      "key": "ahc024-0276be03b2936df5d1277bf2fa3e7844005ad8f0466704b47d57723f81a24249",
+      "task": "ahc024",
+      "source_sha256": "0276be03b2936df5d1277bf2fa3e7844005ad8f0466704b47d57723f81a24249",
+      "slot": 1,
+      "cores": [
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51
+      ],
+      "outside_search_budget": true,
+      "used_for_selection": false,
+      "status": "valid",
+      "result": {
+        "combined_score": 1.9073266666666666,
+        "raw_score": 1907.3266666666666,
+        "total_score": 286099.0,
+        "score_spread": 0.0,
+        "num_accepted": 150,
+        "num_cases": 150,
+        "n_eval_runs": 1,
+        "validity": 1.0,
+        "eval_time": 42.52759075164795,
+        "fitness_weights": {
+          "combined_score": 1.0
+        }
+      },
+      "wall_seconds": 42.62042832374573,
+      "at_unix": 1795537353.3372445
+    },
+    {
+      "key": "ahc024-0276be03b2936df5d1277bf2fa3e7844005ad8f0466704b47d57723f81a24249",
+      "task": "ahc024",
+      "source_sha256": "0276be03b2936df5d1277bf2fa3e7844005ad8f0466704b47d57723f81a24249",
+      "slot": 0,
+      "cores": [
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23
+      ],
+      "outside_search_budget": true,
+      "used_for_selection": false,
+      "status": "valid",
+      "result": {
+        "combined_score": 1.9187666666666667,
+        "raw_score": 1918.7666666666667,
+        "total_score": 287815.0,
+        "score_spread": 0.0,
+        "num_accepted": 150,
+        "num_cases": 150,
+        "n_eval_runs": 1,
+        "validity": 1.0,
+        "eval_time": 42.12885236740112,
+        "fitness_weights": {
+          "combined_score": 1.0
+        }
+      },
+      "wall_seconds": 42.18381667137146,
+      "at_unix": 1795537061.063448
+    }
+  ],
+  "complete": true,
+  "scope": "public training only; no reselection or optimizer feedback"
+}

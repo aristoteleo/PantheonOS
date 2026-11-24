@@ -1,5 +1,5 @@
 {
-  "at_unix": 1795536788.7723467,
+  "at_unix": 1795538370.8022742,
   "initial_engine_commit": "b496461",
   "corrected_engine_commit": "54856f08436fbda0b5256dbe8438bb6f873a900e",
   "campaign_source_files": {
@@ -117,7 +117,7 @@
     "research/COMPLETED_MATCHED_BLOCKS.png": "f2f516bcaf8f103755c7aa2c32edfed58e289e652450a821ce89b4ee8d9f8fe6",
     "research/COMPLETED_MATCHED_BLOCKS_DATA.json": "85194f7ed0818cd27a4061644526c85c0b06d4bc6cac4f9c11bbb5ff790fe20d",
     "research/BACKUP-matched-ahc024-molt2_adaptive_branches-s402.json": "6a2ceb4f5bb9b66f97fb1183104fcef092fac236a65e3812bf9cf7e604fffd0f",
-    "research/PAIRED_INFERENCE.json": "6458c3f44dc07846e0fb69a84c913d39878837f0eb56d9afd773d868134d861f",
+    "research/PAIRED_INFERENCE.json": "497bc6f656119e07c6bf98b5136c37ed79f6eea58c48d252b7e46136a7241882",
     "research/COMPLETED_RECEIPT_HEALTH.json": "da6221160ccc5cacbcdae9f2ac1800289244ede9789b62bb45d678595b88aa88",
     "research/AHC058_SEED402_PROVISIONAL_ANNEALING_CHANGE.json": "c1c75adf5eba9d77acc902fed0726d4ab22a4d8e63f2d940ddc28e5da9849632",
     "research/provisional-candidates/ahc058-s402-parent.cpp": "344f0e22c48ad785e49acdc3af4dc1f8df40e47218dd13947d985ef880ce2579",
@@ -165,7 +165,17 @@
     "research/AHC058_MOLT2_FIVE_SEED_INTERIM.json": "b0d3cc2f879dd68d68768d8e45c7202403c97739400d1ef649b649cd7f659bb4",
     "research/BACKUP-matched-ahc058-molt-s404.json": "9c005921ec059bc7ca13c434be30ca34ff23dec83b5bd6be266c1fbeeebaf3e7",
     "research/BACKUP-matched-ahc058-molt2_adaptive_branches-s404.json": "0a73fcc68752e85f4d1518481f6fc63eae80424ad1774220115f1a4b937f7886",
-    "research/COMPLETE_SEARCH_FINDINGS.json": "78babc167df1d04982fc2cd60e97f7e40ce64b10bed4a055c059289fb20932b2"
+    "research/COMPLETE_SEARCH_FINDINGS.json": "78babc167df1d04982fc2cd60e97f7e40ce64b10bed4a055c059289fb20932b2",
+    "research/summarize_public_rereads.py": "4a3a68e29c07bf817a3c84e064fa1fb3058c33bc3bc24838022c5a4d5c163fe7",
+    "research/PUBLIC_REREAD_VARIABILITY.json": "c4f905d8980784d4584333a0677be8925daa967f197887e3c797b243ba60a70a",
+    "research/PUBLIC_REREAD_REPORT.json": "2398b9baf12cc51e0765e03b53090ae62213adb581d5a8487d7a6e92ddb24fda",
+    "research/PUBLIC_REREAD_BACKUP.json": "dea74543652662e97141ac15e4ddcbdb1a2f04f5e239c63706c30015be62cd22",
+    "research/PUBLIC_REPRODUCIBILITY_FINDINGS.json": "9084f728e6c8b6c0def8846c84f826f5d7312ed29084af659e09ad5232773a26",
+    "research/POST_COHORT_REWARD_DIAGNOSIS.json": "e950ca80cbaf5d403da518988513273ff764ce4d376da6d482d4f84913a1df38",
+    "research/REREAD_VARIABILITY_EXAMPLE.json": "ab025c9b3a768863361c29096d427b2b43f0f35898be07477ebae3908d378eb7",
+    "research/AHC024_MOLT2_BREAKTHROUGH_REREAD_INTERIM.json": "a0c78a421169f304cee84608e5432c9b3b1e3a7c45c6860503c2d9e2e3fdfcda",
+    "research/ANALYSIS_WATCH_STATUS.json": "fc5407f11a5d394719431bb38df0fa8513e133afd51fa0a7557c6ec557e0fa70",
+    "research/ablation-relabel/run.py": "ef448fa201b1250ae836555fc1de4b82c857d6d5d71027167329da28de21c90d"
   },
   "runtime_assets_location": "Private Modal source archive in research/SOURCE_BACKUP_RECEIPT.json",
   "scope": "Versioned campaign records and diagnostics; raw traces remain in checksum-verified private Modal archives."

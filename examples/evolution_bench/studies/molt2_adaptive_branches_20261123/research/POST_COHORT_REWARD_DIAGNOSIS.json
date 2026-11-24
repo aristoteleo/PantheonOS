@@ -1,0 +1,15 @@
+{
+  "at_unix": 1795536830.4126055,
+  "scope": "post-cohort development diagnosis; no policy modification or new evolution",
+  "ahc024_positive_work_items_at_one_percent": {
+    "matched-ahc024-molt2_adaptive_branches-s400": 0,
+    "matched-ahc024-molt2_adaptive_branches-s401": 0,
+    "matched-ahc024-molt2_adaptive_branches-s402": 0,
+    "matched-ahc024-molt2_adaptive_branches-s403": 0,
+    "matched-ahc024-molt2_adaptive_branches-s404": 4
+  },
+  "revised_interpretation": "Seeds400-403 had no positive work-item credits at the original threshold, but seed404 produced four and a large score breakthrough. Sparse early credit is a plausible sensitivity issue, not evidence that the policy prevents discovery. Lowering the threshold is unproven and could reward incumbent micro-improvements over redesign.",
+  "next_gate": "Finish public training rereads before choosing a noise tolerance or integrating the prepared scale-normalized credit ablation. Keep original results unchanged.",
+  "causal_claim": false,
+  "validation_accessed": false
+}

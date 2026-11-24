@@ -1,0 +1,25 @@
+{
+  "at_unix": 1795536964.9395435,
+  "run": "matched-ahc024-molt_modified-s402",
+  "search_score": 1.1084733333333334,
+  "observed_reread_score": 1.0008733333333333,
+  "source_verified_unchanged": true,
+  "source_timing_rng_line_references": {
+    "chrono": [
+      4,
+      19
+    ],
+    "steady_clock": [
+      4
+    ],
+    "high_resolution_clock": [],
+    "mt19937": [
+      159
+    ],
+    "clock()": [],
+    "time(": []
+  },
+  "interpretation": "Changed score with identical source; timing/RNG dependence is a plausible mechanism, not isolated causal proof. All150 cases remained valid. Do not change finalist or primary search score.",
+  "status": "interim_remaining_rereads_pending",
+  "validation_accessed": false
+}

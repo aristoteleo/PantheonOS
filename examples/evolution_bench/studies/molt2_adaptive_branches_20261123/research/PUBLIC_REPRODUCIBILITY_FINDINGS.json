@@ -1,0 +1,74 @@
+{
+  "at_unix": 1795538311.7678466,
+  "status": "all80_public_training_repeats_valid",
+  "groups": [
+    {
+      "task": "ahc024",
+      "method": "simpletes",
+      "n_frozen_finalists": 5,
+      "search_mean": 0.639124,
+      "two_repeat_mean": 0.6380393333333334,
+      "max_observed_within_source_range": 0.003960000000000075
+    },
+    {
+      "task": "ahc024",
+      "method": "molt",
+      "n_frozen_finalists": 5,
+      "search_mean": 0.6391626666666667,
+      "two_repeat_mean": 0.6391413333333333,
+      "max_observed_within_source_range": 2.6666666666730343e-05
+    },
+    {
+      "task": "ahc024",
+      "method": "molt_modified",
+      "n_frozen_finalists": 5,
+      "search_mean": 0.7704493333333333,
+      "two_repeat_mean": 0.754858,
+      "max_observed_within_source_range": 0.07354666666666687
+    },
+    {
+      "task": "ahc024",
+      "method": "molt2_adaptive_branches",
+      "n_frozen_finalists": 5,
+      "search_mean": 0.8956813333333333,
+      "two_repeat_mean": 0.8938766666666667,
+      "max_observed_within_source_range": 0.011440000000000117
+    },
+    {
+      "task": "ahc058",
+      "method": "simpletes",
+      "n_frozen_finalists": 5,
+      "search_mean": 5.291043544,
+      "two_repeat_mean": 5.245444544666666,
+      "max_observed_within_source_range": 0.280034033333334
+    },
+    {
+      "task": "ahc058",
+      "method": "molt",
+      "n_frozen_finalists": 5,
+      "search_mean": 5.433860593333334,
+      "two_repeat_mean": 5.427198624,
+      "max_observed_within_source_range": 0.0399168199999993
+    },
+    {
+      "task": "ahc058",
+      "method": "molt_modified",
+      "n_frozen_finalists": 5,
+      "search_mean": 5.368022265333334,
+      "two_repeat_mean": 5.3600439920000005,
+      "max_observed_within_source_range": 0.016314900000000243
+    },
+    {
+      "task": "ahc058",
+      "method": "molt2_adaptive_branches",
+      "n_frozen_finalists": 5,
+      "search_mean": 5.460895562666667,
+      "two_repeat_mean": 5.4241047380000005,
+      "max_observed_within_source_range": 0.14957341333333396
+    }
+  ],
+  "conclusion": "Molt2 AHC024 breakthrough reproduced twice, but mean gain remains one-seed-driven. On AHC058 its small search-mean lead over vanilla Molt disappears in two-repeat means (5.4241 versus5.4272). No reliable advantage over vanilla Molt established. Preserve primary search results and report repeats separately.",
+  "next_development_implication": "Do not use lower reward thresholds alone as a presumed fix: measured variability can exceed small frontier gains. Investigate noise-aware credit with explicit resampling cost and independent development replication. Two repeats cannot calibrate a noise distribution.",
+  "validation_accessed": false,
+  "selection_changed": false
+}

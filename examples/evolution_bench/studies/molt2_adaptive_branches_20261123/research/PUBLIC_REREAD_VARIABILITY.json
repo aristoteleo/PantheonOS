@@ -1,0 +1,730 @@
+{
+  "at_unix": 1795538291.1521578,
+  "complete": true,
+  "observed_checks": 80,
+  "rows": [
+    {
+      "run": "matched-ahc024-molt-s400",
+      "search_score": 0.6394333333333333,
+      "repeat_scores": [
+        0.6394133333333333,
+        0.6394
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 0.6394066666666667,
+      "repeat_range": 1.333333333330966e-05,
+      "differences_from_search": [
+        -2.0000000000020002e-05,
+        -3.333333333332966e-05
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt-s401",
+      "search_score": 0.63936,
+      "repeat_scores": [
+        0.63932,
+        0.6392933333333333
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 0.6393066666666667,
+      "repeat_range": 2.6666666666730343e-05,
+      "differences_from_search": [
+        -4.0000000000040004e-05,
+        -6.666666666677035e-05
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt-s402",
+      "search_score": 0.63924,
+      "repeat_scores": [
+        0.6392066666666667,
+        0.6392266666666667
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 0.6392166666666668,
+      "repeat_range": 2.0000000000020002e-05,
+      "differences_from_search": [
+        -3.333333333332966e-05,
+        -1.333333333330966e-05
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt-s403",
+      "search_score": 0.6392733333333334,
+      "repeat_scores": [
+        0.6392733333333334,
+        0.6392666666666666
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 0.63927,
+      "repeat_range": 6.666666666710341e-06,
+      "differences_from_search": [
+        0.0,
+        -6.666666666710341e-06
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt-s404",
+      "search_score": 0.6385066666666667,
+      "repeat_scores": [
+        0.6385066666666667,
+        0.6385066666666667
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 0.6385066666666667,
+      "repeat_range": 0.0,
+      "differences_from_search": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s400",
+      "search_score": 0.6392266666666667,
+      "repeat_scores": [
+        0.6392133333333334,
+        0.6392133333333334
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 0.6392133333333334,
+      "repeat_range": 0.0,
+      "differences_from_search": [
+        -1.333333333330966e-05,
+        -1.333333333330966e-05
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s401",
+      "search_score": 0.6392933333333333,
+      "repeat_scores": [
+        0.6392266666666667,
+        0.6392266666666667
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 0.6392266666666667,
+      "repeat_range": 0.0,
+      "differences_from_search": [
+        -6.66666666665483e-05,
+        -6.66666666665483e-05
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s402",
+      "search_score": 0.6385333333333333,
+      "repeat_scores": [
+        0.6385333333333333,
+        0.6385333333333333
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 0.6385333333333333,
+      "repeat_range": 0.0,
+      "differences_from_search": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s403",
+      "search_score": 0.6393866666666667,
+      "repeat_scores": [
+        0.6393866666666667,
+        0.63934
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 0.6393633333333333,
+      "repeat_range": 4.666666666663932e-05,
+      "differences_from_search": [
+        0.0,
+        -4.666666666663932e-05
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s404",
+      "search_score": 1.9219666666666666,
+      "repeat_scores": [
+        1.9187666666666667,
+        1.9073266666666666
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 1.9130466666666668,
+      "repeat_range": 0.011440000000000117,
+      "differences_from_search": [
+        -0.0031999999999998696,
+        -0.014639999999999986
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt_modified-s400",
+      "search_score": 0.6393,
+      "repeat_scores": [
+        0.6393,
+        0.6393
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 0.6393,
+      "repeat_range": 0.0,
+      "differences_from_search": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt_modified-s401",
+      "search_score": 0.63898,
+      "repeat_scores": [
+        0.6389466666666667,
+        0.63898
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 0.6389633333333333,
+      "repeat_range": 3.333333333332966e-05,
+      "differences_from_search": [
+        -3.333333333332966e-05,
+        0.0
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt_modified-s402",
+      "search_score": 1.1084733333333334,
+      "repeat_scores": [
+        1.0744200000000002,
+        1.0008733333333333
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 1.0376466666666668,
+      "repeat_range": 0.07354666666666687,
+      "differences_from_search": [
+        -0.03405333333333327,
+        -0.10760000000000014
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt_modified-s403",
+      "search_score": 0.6393933333333334,
+      "repeat_scores": [
+        0.63938,
+        0.63938
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 0.63938,
+      "repeat_range": 0.0,
+      "differences_from_search": [
+        -1.3333333333420683e-05,
+        -1.3333333333420683e-05
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt_modified-s404",
+      "search_score": 0.8261000000000001,
+      "repeat_scores": [
+        0.8235800000000001,
+        0.8144199999999999
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 0.819,
+      "repeat_range": 0.009160000000000168,
+      "differences_from_search": [
+        -0.0025199999999999667,
+        -0.011680000000000135
+      ]
+    },
+    {
+      "run": "matched-ahc024-simpletes-s400",
+      "search_score": 0.6378933333333333,
+      "repeat_scores": [
+        0.63448,
+        0.63052
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 0.6325000000000001,
+      "repeat_range": 0.003960000000000075,
+      "differences_from_search": [
+        -0.0034133333333332683,
+        -0.007373333333333343
+      ]
+    },
+    {
+      "run": "matched-ahc024-simpletes-s401",
+      "search_score": 0.6394466666666667,
+      "repeat_scores": [
+        0.6394466666666667,
+        0.6394466666666667
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 0.6394466666666667,
+      "repeat_range": 0.0,
+      "differences_from_search": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "run": "matched-ahc024-simpletes-s402",
+      "search_score": 0.6393866666666667,
+      "repeat_scores": [
+        0.63936,
+        0.6393533333333333
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 0.6393566666666667,
+      "repeat_range": 6.666666666710341e-06,
+      "differences_from_search": [
+        -2.666666666661932e-05,
+        -3.333333333332966e-05
+      ]
+    },
+    {
+      "run": "matched-ahc024-simpletes-s403",
+      "search_score": 0.63948,
+      "repeat_scores": [
+        0.63948,
+        0.63948
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 0.63948,
+      "repeat_range": 0.0,
+      "differences_from_search": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "run": "matched-ahc024-simpletes-s404",
+      "search_score": 0.6394133333333333,
+      "repeat_scores": [
+        0.6394133333333333,
+        0.6394133333333333
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 0.6394133333333333,
+      "repeat_range": 0.0,
+      "differences_from_search": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt-s400",
+      "search_score": 5.53216096,
+      "repeat_scores": [
+        5.517321233333333,
+        5.5100908466666665
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 5.51370604,
+      "repeat_range": 0.007230386666666533,
+      "differences_from_search": [
+        -0.014839726666666664,
+        -0.022070113333333197
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt-s401",
+      "search_score": 5.416108693333333,
+      "repeat_scores": [
+        5.411373893333334,
+        5.451290713333333
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 5.431332303333333,
+      "repeat_range": 0.0399168199999993,
+      "differences_from_search": [
+        -0.004734799999999595,
+        0.0351820199999997
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt-s402",
+      "search_score": 5.398154786666667,
+      "repeat_scores": [
+        5.387625186666667,
+        5.378548013333334
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 5.3830866,
+      "repeat_range": 0.009077173333333022,
+      "differences_from_search": [
+        -0.010529599999999917,
+        -0.01960677333333294
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt-s403",
+      "search_score": 5.35177596,
+      "repeat_scores": [
+        5.35089846,
+        5.3513192400000005
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 5.35110885,
+      "repeat_range": 0.0004207800000006756,
+      "differences_from_search": [
+        -0.0008775000000005306,
+        -0.000456719999999855
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt-s404",
+      "search_score": 5.471102566666667,
+      "repeat_scores": [
+        5.462461873333333,
+        5.45105678
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 5.456759326666667,
+      "repeat_range": 0.01140509333333295,
+      "differences_from_search": [
+        -0.008640693333333616,
+        -0.020045786666666565
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s400",
+      "search_score": 5.493486346666667,
+      "repeat_scores": [
+        5.488256953333333,
+        5.4779767999999995
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 5.483116876666666,
+      "repeat_range": 0.01028015333333343,
+      "differences_from_search": [
+        -0.005229393333333832,
+        -0.015509546666667262
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s401",
+      "search_score": 5.320119053333333,
+      "repeat_scores": [
+        5.293451326666667,
+        5.143877913333333
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 5.21866462,
+      "repeat_range": 0.14957341333333396,
+      "differences_from_search": [
+        -0.02666772666666617,
+        -0.17624114000000013
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s402",
+      "search_score": 5.554382913333333,
+      "repeat_scores": [
+        5.54699076,
+        5.536408773333333
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 5.5416997666666665,
+      "repeat_range": 0.010581986666666765,
+      "differences_from_search": [
+        -0.007392153333332985,
+        -0.01797413999999975
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s403",
+      "search_score": 5.5140018799999995,
+      "repeat_scores": [
+        5.512018940000001,
+        5.51205006
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 5.5120345,
+      "repeat_range": 3.111999999916293e-05,
+      "differences_from_search": [
+        -0.0019829399999986563,
+        -0.0019518199999994934
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s404",
+      "search_score": 5.42248762,
+      "repeat_scores": [
+        5.3683668266666675,
+        5.361649026666666
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 5.365007926666667,
+      "repeat_range": 0.006717800000001439,
+      "differences_from_search": [
+        -0.05412079333333253,
+        -0.06083859333333397
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt_modified-s400",
+      "search_score": 5.3564282400000005,
+      "repeat_scores": [
+        5.35519984,
+        5.352186626666667
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 5.353693233333333,
+      "repeat_range": 0.0030132133333333755,
+      "differences_from_search": [
+        -0.0012284000000004625,
+        -0.004241613333333838
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt_modified-s401",
+      "search_score": 5.280642126666667,
+      "repeat_scores": [
+        5.2371687,
+        5.2534836
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 5.24532615,
+      "repeat_range": 0.016314900000000243,
+      "differences_from_search": [
+        -0.04347342666666698,
+        -0.027158526666666738
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt_modified-s402",
+      "search_score": 5.4490837800000005,
+      "repeat_scores": [
+        5.443900486666666,
+        5.437242086666667
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 5.440571286666667,
+      "repeat_range": 0.006658399999999176,
+      "differences_from_search": [
+        -0.005183293333334227,
+        -0.011841693333333403
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt_modified-s403",
+      "search_score": 5.42989428,
+      "repeat_scores": [
+        5.440214786666667,
+        5.442201753333333
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 5.441208270000001,
+      "repeat_range": 0.001986966666666312,
+      "differences_from_search": [
+        0.010320506666666951,
+        0.012307473333333263
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt_modified-s404",
+      "search_score": 5.3240629,
+      "repeat_scores": [
+        5.317315440000001,
+        5.321526599999999
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 5.31942102,
+      "repeat_range": 0.00421115999999877,
+      "differences_from_search": [
+        -0.006747459999999705,
+        -0.002536300000000935
+      ]
+    },
+    {
+      "run": "matched-ahc058-simpletes-s400",
+      "search_score": 5.440964066666666,
+      "repeat_scores": [
+        5.432444893333334,
+        5.4191810333333335
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 5.425812963333334,
+      "repeat_range": 0.01326386000000035,
+      "differences_from_search": [
+        -0.008519173333332297,
+        -0.021783033333332646
+      ]
+    },
+    {
+      "run": "matched-ahc058-simpletes-s401",
+      "search_score": 5.24868346,
+      "repeat_scores": [
+        5.2349914533333335,
+        5.248592606666667
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 5.24179203,
+      "repeat_range": 0.013601153333333116,
+      "differences_from_search": [
+        -0.013692006666666146,
+        -9.08533333330297e-05
+      ]
+    },
+    {
+      "run": "matched-ahc058-simpletes-s402",
+      "search_score": 5.2483123733333334,
+      "repeat_scores": [
+        5.215388933333333,
+        5.19133272
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 5.203360826666667,
+      "repeat_range": 0.024056213333333076,
+      "differences_from_search": [
+        -0.03292344000000025,
+        -0.056979653333333324
+      ]
+    },
+    {
+      "run": "matched-ahc058-simpletes-s403",
+      "search_score": 5.24540926,
+      "repeat_scores": [
+        5.244719679999999,
+        5.24717684
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 5.24594826,
+      "repeat_range": 0.0024571600000005134,
+      "differences_from_search": [
+        -0.0006895800000004115,
+        0.0017675800000001018
+      ]
+    },
+    {
+      "run": "matched-ahc058-simpletes-s404",
+      "search_score": 5.27184856,
+      "repeat_scores": [
+        5.250325660000001,
+        4.970291626666667
+      ],
+      "repeat_statuses": [
+        "valid",
+        "valid"
+      ],
+      "repeat_mean": 5.110308643333333,
+      "repeat_range": 0.280034033333334,
+      "differences_from_search": [
+        -0.021522899999999012,
+        -0.301556933333333
+      ]
+    }
+  ],
+  "selection_changed": false,
+  "validation_accessed": false,
+  "caution": "Two repeats describe observed variability only; they do not calibrate a noise distribution. Public training scores are post-search diagnostics, never optimizer feedback or reselection. Missing and invalid repeats remain explicit; no selective retries."
+}
