@@ -1,0 +1,22 @@
+{
+  "at_unix": 1795500578.3804336,
+  "rows": [
+    {
+      "run": "matched-ahc058-molt-s400",
+      "winning_chain": 2,
+      "followup_batches_that_produced_programs": 4,
+      "birth_inclusive_turns": 5,
+      "selected_score": 5.53216096
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s400",
+      "winning_chain": 2,
+      "followup_batches_that_produced_programs": 7,
+      "birth_inclusive_turns": 8,
+      "selected_score": 5.493486346666667
+    }
+  ],
+  "counter_semantics": "Verified against Molt._turns and _count_turn: raw turns counts follow-up batches producing a program, not individual evaluations; birth adds one.",
+  "conclusion": "For this completed math seed, Molt2 winning chain received more producing follow-up batches than vanilla Molt (7 vs4). Insufficient refinement depth of that winning chain alone is not supported as the explanation of its lower score. This does not disprove other allocation effects or explain the biological-task traces.",
+  "scope": "One seed, AHC058 only; no causal policy claim."
+}

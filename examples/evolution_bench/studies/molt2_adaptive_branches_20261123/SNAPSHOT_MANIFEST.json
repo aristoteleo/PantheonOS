@@ -1,5 +1,5 @@
 {
-  "at_unix": 1795500277.3655202,
+  "at_unix": 1795500601.6470628,
   "initial_engine_commit": "b496461",
   "corrected_engine_commit": "54856f08436fbda0b5256dbe8438bb6f873a900e",
   "campaign_source_files": {
@@ -85,7 +85,7 @@
     "tasks/ahc058/solution.cpp": "599fc27b8c744ec7787eb536dfb8906a85ebe7e2b7c0357bbf0004d97d0590f6",
     "research/archive_validation.py": "8ee3ff7e7d1f1158d824df7d24dbf80487b5abd1623626b80e6ec9ff5928995b",
     "research/REPORTING_TEST_EVIDENCE.json": "7f189ec0a143f08caf153876dec3a4cfb38ba9a9cbf7307bdcb09f44eed57a29",
-    "research/plot_completed_blocks.py": "ab1d507af0b5ee0e1be46729e50953aa3bc98bb896de934d73b768bffe6c61e9",
+    "research/plot_completed_blocks.py": "271bdbdd30855c727d27ffd1f0bd8c0be042f9c950679985e0bfdefcc037678c",
     "research/CREDIT_SIGNAL_HYPOTHESIS.json": "cc2ca8c437bc939018f8cfddbca32b8cedf15d20a5a59d3da32aa640640fb400",
     "research/AHC058_SEED400_WINNING_ANCESTRY.json": "6d3e1e5d6762181ffea8140951675fad4c6278717bd2a341b3548ccd90f6859f",
     "research/SOURCE_INTEGRITY_LATEST.json": "bb93dfec607830a6e0f7c358d807185c56e7564809addd4867e4a73ac644a314",
@@ -93,7 +93,9 @@
     "research/SEED402_INITIAL_VALIDITY_AUDIT.json": "4ebf95d61b16e552afdb4f12d02fee156fce58daa0318d62d826025c0b669394",
     "research/AHC058_SEED400_WINNER_CHAINS.json": "8232e77a5a21e89cc4a9569fef2813c86270cd11ed0e1123ad971bc5ca073b6a",
     "research/AHC058_SEED400_WINNING_DIRECTIONS.json": "6b755a256754a7bc10135d5cc8ceb654effa9587772e5e113231acdd09b3a732",
-    "research/validity_budget_audit.py": "c8190484053aa261beec17de1822135851d36d2f577f0397dca71e38000cc524"
+    "research/validity_budget_audit.py": "c8190484053aa261beec17de1822135851d36d2f577f0397dca71e38000cc524",
+    "research/AHC058_SEED400_SELECTED_CODE_DIFFERENCES.json": "ee1862caaf95668df8a412aecfa290ad0e0e2fa0dc31dbd5d9a8627666875f57",
+    "research/AHC058_SEED400_REFINEMENT_COUNTERCHECK.json": "8c22a4491284a9807e6480fa22cd8329ac9befc6a540aa5be45994c2016e5e9f"
   },
   "runtime_assets_location": "Private Modal source archive in research/SOURCE_BACKUP_RECEIPT.json",
   "scope": "Versioned campaign records and diagnostics; raw traces remain in checksum-verified private Modal archives."

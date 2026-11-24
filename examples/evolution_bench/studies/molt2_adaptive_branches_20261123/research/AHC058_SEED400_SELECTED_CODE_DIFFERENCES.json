@@ -1,0 +1,33 @@
+{
+  "at_unix": 1795500485.9300385,
+  "scope": "Differences inside selected generated AHC058 programs, not changes to the evolution framework",
+  "sources": [
+    {
+      "path": "runs/matched-ahc058-molt-s400/best_solution.cpp",
+      "sha256": "6056663f275642c5ed427473ea28cb79ecfd32c6594e074666af52ffa07d9fc6"
+    },
+    {
+      "path": "runs/matched-ahc058-molt2_adaptive_branches-s400/best_solution.cpp",
+      "sha256": "c4cc9ce8317d36ee5bc2c90a5e6a5aa50b8dc7f73e7845b79c98c876b2adbb76"
+    }
+  ],
+  "observations": [
+    {
+      "feature": "Feasibility handling during sequence search",
+      "molt": "evaluateAndMaybeCommit repairs unaffordable downstream actions to do-nothing and continues simulation",
+      "molt2": "evalFrom returns -1 on an unaffordable action and the proposed sequence is rejected"
+    },
+    {
+      "feature": "Replacement proposal distribution",
+      "molt": "Builds a candidate pool containing high-ranked affordable actions by marginal gain/cost plus random actions",
+      "molt2": "Samples mostly uniform actions or same-machine/same-level alternatives"
+    },
+    {
+      "feature": "Suffix reuse",
+      "both": "Both use saved prefix states and simulate suffixes. A claim that Molt2 always re-simulates the whole trajectory would be false."
+    }
+  ],
+  "hypothesis": "Repair and guided moves can create a more useful neighborhood than rejecting infeasible moves and proposing largely random replacements. This may contribute to the observed selected-program score difference, but remains confounded with initialization, temperature schedule, stochastic timing, and other code differences.",
+  "framework_implication": "Do not hardcode task-specific repair into Molt2. Test framework credit and parent-selection changes separately; richer mechanism descriptions or diagnostics would require a general interface and a fresh matched study.",
+  "causal_test_not_launched": "A future public-development component ablation could change only repair/reject handling or proposal distribution, with fixed selected source and repeated score readings. Do not treat such a program ablation as proof of framework superiority."
+}

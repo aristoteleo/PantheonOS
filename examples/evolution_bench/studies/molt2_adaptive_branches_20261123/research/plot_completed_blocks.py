@@ -11,7 +11,7 @@ rows=json.loads((R/'comparison.json').read_text())['rows']
 complete={(x['task'],x['seed'],x['method']):x for x in rows if x['status']=='complete'}
 blocks=[(task,seed) for task,seed in sorted({(x['task'],x['seed']) for x in rows}) if all((task,seed,m) in complete for m,_,_ in METHODS)]
 if not blocks:raise SystemExit('No complete matched blocks yet')
-cols=min(3,len(blocks));nrows=math.ceil(len(blocks)/cols)
+cols=2 if len(blocks)==4 else min(3,len(blocks));nrows=math.ceil(len(blocks)/cols)
 fig,axes=plt.subplots(nrows,cols,figsize=(5*cols,4.4*nrows),squeeze=False)
 for ax in axes.flat[len(blocks):]:ax.set_visible(False)
 export=[]
