@@ -132,12 +132,16 @@ class Molt2AdaptiveBranches(ModifiedMolt):
             self.allocation_history.pop(0)
 
     async def on_measured(self, ctx, ind, measurement):
-        token = f'{measurement.batch_id}:{ind.id}'
+        # Store deduplicates identical genomes, but separate evaluator results
+        # still consume separate budget slots. Only redelivery of the same
+        # timestamped measurement should be ignored.
+        token = f'{measurement.batch_id}:{ind.id}:{measurement.at!r}'
         if token in self._allocation_seen:
             return
         self._allocation_seen.add(token)
         await super().on_measured(ctx, ind, measurement)
-        self._resolve(measurement.batch_id, score_of(ind, self.score_key))
+        score = measurement.metrics.get(self.score_key)
+        self._resolve(measurement.batch_id, float(score) if isinstance(score, (int, float)) else None)
 
     async def on_failed(self, ctx, failure):
         await super().on_failed(ctx, failure)
