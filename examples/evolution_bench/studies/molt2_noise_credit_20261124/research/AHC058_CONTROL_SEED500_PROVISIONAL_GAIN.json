@@ -1,0 +1,44 @@
+{
+  "at_unix": 1795543834.1252046,
+  "run": "noise-ahc058-molt2_adaptive_branches-s500",
+  "candidate_id": "252bb12c",
+  "observed_score": 5.500531179999999,
+  "parents": [
+    "8b150fb6"
+  ],
+  "summary": "// EVOLVE-BLOCK-START",
+  "measurement": {
+    "metrics": {
+      "llm_score": 0.5,
+      "combined_score": 5.500531179999999,
+      "raw_score": 5500531.18,
+      "total_score": 825079677.0,
+      "score_spread": 0.0,
+      "num_accepted": 150,
+      "num_cases": 150,
+      "n_eval_runs": 1,
+      "validity": 1.0,
+      "eval_time": 39.86642003059387,
+      "fitness_weights": {
+        "combined_score": 1.0
+      }
+    },
+    "artifacts": {
+      "llm_feedback": "",
+      "issues": [],
+      "suggestions": []
+    },
+    "fidelity": "full",
+    "ok": true,
+    "cost": 0.0,
+    "duration": 39.934529304504395,
+    "item_id": "wb7adba37",
+    "batch_id": "b1164952a",
+    "at": 1795543784.463239
+  },
+  "source_sha256": "7b4125c333182c065971fb0d4a74bc18872e4463c5d9e96777729e84e83ca495",
+  "source_path": "research/provisional-candidates/ahc058-control-s500-252bb12c.cpp",
+  "status": "provisional_not_final_selection",
+  "validation_accessed": false,
+  "caution": "One running control seed; do not infer population superiority or alter frozen comparison."
+}

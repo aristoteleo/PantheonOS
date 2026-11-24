@@ -1,5 +1,5 @@
 {
-  "at_unix": 1795538870.9776094,
+  "at_unix": 1795543930.2204175,
   "initial_engine_commit": "b496461",
   "corrected_engine_commit": "54856f08436fbda0b5256dbe8438bb6f873a900e",
   "campaign_source_files": {
@@ -182,7 +182,10 @@
     "research/ablation-relabel/results/manual-no-relabel/slot1/AUDIT.json": "2413f87154e77a13b2bcb72b64a748ced04d9fab4dfb2dccba54c343edc234e2",
     "research/ablation-relabel/results/manual-no-relabel/slot0/AUDIT.json": "bca189cf875a407226bf74b7271748abf84ed01a21c5aa3f251764f15c20de17",
     "research/ablation-relabel/results/selected-original/slot1/AUDIT.json": "840d7db94f32493e4d61daa173fb11dd7f1cf07fb174448da847bcc17541dcd3",
-    "research/ablation-relabel/results/selected-original/slot0/AUDIT.json": "d11c993a774bb082618ce08f3ff24312ab7fec21792a55d00121efed26f0e958"
+    "research/ablation-relabel/results/selected-original/slot0/AUDIT.json": "d11c993a774bb082618ce08f3ff24312ab7fec21792a55d00121efed26f0e958",
+    "research/NATIVE_REWARD_THRESHOLD_CORRECTION.json": "41c27519accfc97aa7b4c4840c077096c1a8ad38ac9e7f0f5b19ffd8b7c60952",
+    "research/reward_sensitivity_corrected.py": "e5bcd07f1518a7e4d17f5e7562cf1d7d58a6a8db2d1469f7b1b8e27fe69f9ef0",
+    "research/REWARD_SENSITIVITY_CORRECTED.json": "ab4fa296096a4cc390599b867db7d5eb7dd183e289df1db5f86bca58d6a10256"
   },
   "runtime_assets_location": "Private Modal source archive in research/SOURCE_BACKUP_RECEIPT.json",
   "scope": "Versioned campaign records and diagnostics; raw traces remain in checksum-verified private Modal archives."

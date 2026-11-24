@@ -1,0 +1,12 @@
+{
+  "at_unix": 1795543896.3015203,
+  "correction": "Native Molt/Molt2 progress_rel is0.002 (0.2%), not0.01 (1%). Earlier prose and pilot campaign reward label incorrectly described1%.",
+  "runtime_impact": "None: all campaigns used unchanged native source default0.002. The noise-credit variant replaces only reward accounting as intended. Do not modify the live frozen campaign.json; this correction supersedes its prose reward label.",
+  "analysis_impact": "Earlier sensitivity rows at0.01 remain hypothetical thresholds, not the native threshold. Corrected report adds0.002. Reassess sparse-credit diagnosis using corrected native counts.",
+  "sources": [
+    "/home/erwinpi/molt2-noise-credit-engine/pantheon/evolution/methods/molt.py:338",
+    "/home/erwinpi/molt2-noise-credit-engine/pantheon/evolution/methods/molt2_adaptive_branches.py:127"
+  ],
+  "live_pilot_unchanged": true,
+  "validation_accessed": false
+}

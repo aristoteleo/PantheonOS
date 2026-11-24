@@ -1,0 +1,9 @@
+{
+  "at_unix": 1795542787.9370759,
+  "run": "noise-ahc058-molt2_noise_credit-s500",
+  "noise_tolerance": 0.009678663333333226,
+  "retained_work_items": 14,
+  "bounded_credits_and_positive_costs": true,
+  "no_credit_below_noise_gate": true,
+  "performance_claim": false
+}
