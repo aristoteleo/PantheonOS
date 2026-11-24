@@ -1,5 +1,5 @@
 {
-  "at_unix": 1795485187.7722414,
+  "at_unix": 1795494120.8616939,
   "rows": [
     {
       "run": "matched-ahc024-molt2_adaptive_branches-s400",
@@ -14,8 +14,19 @@
     },
     {
       "run": "matched-ahc058-molt2_adaptive_branches-s400",
-      "workflow_status": "running",
+      "workflow_status": "complete",
       "engine_classification": "legacy",
+      "review_required": false,
+      "repeated_program_ids": [],
+      "same_batch_repeated_program_ids": [],
+      "varying_score_program_ids": [],
+      "legacy_event_review_required": false,
+      "reasons": []
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s401",
+      "workflow_status": "complete",
+      "engine_classification": "fixed",
       "review_required": false,
       "repeated_program_ids": [],
       "same_batch_repeated_program_ids": [],

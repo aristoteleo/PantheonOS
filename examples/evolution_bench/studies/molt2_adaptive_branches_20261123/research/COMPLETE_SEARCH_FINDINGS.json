@@ -1,0 +1,68 @@
+{
+  "status": "complete_search_reproducibility_pending",
+  "search_runs": 40,
+  "development_tasks": 2,
+  "seeds_per_method_task": 5,
+  "evaluation_ceiling_including_baseline": 80,
+  "cases": 150,
+  "comparisons": [
+    {
+      "task": "ahc024",
+      "control": "simpletes",
+      "wins": 2,
+      "n_pairs": 5,
+      "mean_difference": 0.2565573333333333,
+      "median_difference": -9.333333333338967e-05,
+      "holm_adjusted_p": 1.0
+    },
+    {
+      "task": "ahc024",
+      "control": "molt",
+      "wins": 2,
+      "n_pairs": 5,
+      "mean_difference": 0.2565186666666666,
+      "median_difference": -6.666666666677035e-05,
+      "holm_adjusted_p": 1.0
+    },
+    {
+      "task": "ahc024",
+      "control": "molt_modified",
+      "wins": 2,
+      "n_pairs": 5,
+      "mean_difference": 0.12523199999999995,
+      "median_difference": -6.666666666710341e-06,
+      "holm_adjusted_p": 1.0
+    },
+    {
+      "task": "ahc058",
+      "control": "simpletes",
+      "wins": 5,
+      "n_pairs": 5,
+      "mean_difference": 0.16985201866666683,
+      "median_difference": 0.1506390600000005,
+      "holm_adjusted_p": 0.1875
+    },
+    {
+      "task": "ahc058",
+      "control": "molt",
+      "wins": 2,
+      "n_pairs": 5,
+      "mean_difference": 0.02703496933333316,
+      "median_difference": -0.038674613333332886,
+      "holm_adjusted_p": 1.0
+    },
+    {
+      "task": "ahc058",
+      "control": "molt_modified",
+      "wins": 5,
+      "n_pairs": 5,
+      "mean_difference": 0.09287329733333287,
+      "median_difference": 0.09842471999999969,
+      "holm_adjusted_p": 0.1875
+    }
+  ],
+  "conclusion": "Highest observed Molt2 mean on both tasks; not consistently better than vanilla Molt across seeds. AHC024 mean is dominated by seed404. AHC058 beats SimpleTES and modified Molt in all five paired seeds, but not familywise significant across six planned comparisons. Public training rereads pending; validation remains reserved.",
+  "curves_visually_checked": true,
+  "curve_png_sha256": "f2f516bcaf8f103755c7aa2c32edfed58e289e652450a821ce89b4ee8d9f8fe6",
+  "at_unix": 1795536767.3128176
+}

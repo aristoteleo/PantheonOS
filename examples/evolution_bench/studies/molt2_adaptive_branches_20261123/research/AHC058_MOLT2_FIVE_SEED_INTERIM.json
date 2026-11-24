@@ -1,0 +1,31 @@
+{
+  "task": "ahc058",
+  "method": "molt2_adaptive_branches",
+  "seeds": [
+    400,
+    401,
+    402,
+    403,
+    404
+  ],
+  "scores": [
+    5.493486346666667,
+    5.320119053333333,
+    5.554382913333333,
+    5.5140018799999995,
+    5.42248762
+  ],
+  "mean": 5.460895562666666,
+  "selected_final_seed": {
+    "id": "192b6cb2",
+    "score": 5.42248762,
+    "sha256": "d8ad113b5d39e089e27fd75451372a6215d0ae0cbdf7e9e7bed6e0fe1865530c",
+    "eval_cap": 80,
+    "cases": 150,
+    "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+  },
+  "selected_source_hash_verified": true,
+  "status": "search_complete_public_rereads_pending",
+  "validation_accessed": false,
+  "at_unix": 1795536616.4834242
+}

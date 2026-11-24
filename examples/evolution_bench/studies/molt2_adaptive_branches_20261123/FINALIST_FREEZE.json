@@ -1,0 +1,325 @@
+{
+  "selections": {
+    "matched-ahc024-molt-s400": {
+      "id": "174a8dd3",
+      "score": 0.6394333333333333,
+      "sha256": "5cb9c05ffc97981952c96f0186e0e61703bad61ed3bde93f6c7b63238af9bbbe",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc024-molt2_adaptive_branches-s400": {
+      "id": "c19421bb",
+      "score": 0.6392266666666667,
+      "sha256": "e9b960a9a7fd90cf1a3151baea96d692855b89fc14bc4e2fa075817d2b9a5f03",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc024-simpletes-s400": {
+      "id": "5d320f45",
+      "score": 0.6378933333333333,
+      "sha256": "dad6022c8f8422bf66c13e49c7e36c95a6668a84ee5f01b92e2bdada4e571f0e",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc024-molt_modified-s400": {
+      "id": "e5c8adab",
+      "score": 0.6393,
+      "sha256": "8b812e0b21c5964bbdd705d2d3b82084c093cf56ffff50e9c770d8c6d58c563e",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc058-molt-s400": {
+      "id": "e69c3722",
+      "score": 5.53216096,
+      "sha256": "6056663f275642c5ed427473ea28cb79ecfd32c6594e074666af52ffa07d9fc6",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc058-molt_modified-s400": {
+      "id": "eaa92db5",
+      "score": 5.3564282400000005,
+      "sha256": "fca25254634b15629a13e59319f72c68370032ceb39fb7268b2cc1e47051648f",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc058-molt2_adaptive_branches-s400": {
+      "id": "fa9b3107",
+      "score": 5.493486346666667,
+      "sha256": "c4cc9ce8317d36ee5bc2c90a5e6a5aa50b8dc7f73e7845b79c98c876b2adbb76",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc058-simpletes-s400": {
+      "id": "42967382",
+      "score": 5.440964066666666,
+      "sha256": "9afacb6130a58be2f282ba69bd4d0a452656cae23cf95a810d56819a38e60117",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc024-molt2_adaptive_branches-s401": {
+      "id": "35391a44",
+      "score": 0.6392933333333333,
+      "sha256": "d2e68361f4176fbc7b5cb84c021b1b28ec1a1b621e6f2453bcf2f948fcc9db26",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc024-simpletes-s401": {
+      "id": "3e260d6d",
+      "score": 0.6394466666666667,
+      "sha256": "926a997ebeff3264f75a36f4be3588e152c224c35cc1fe3c89a09ae988053723",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc024-molt-s401": {
+      "id": "94dfd2c4",
+      "score": 0.63936,
+      "sha256": "39b911691366795aa7d8668f3fc8c96aa6e7c4cf28c3ce1b7d5d7fe8ab9bb9a5",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc024-molt_modified-s401": {
+      "id": "b0965d62",
+      "score": 0.63898,
+      "sha256": "307ee9b0f47672080449d8dbccbd0b522f199c3e68b193aa06ed5ff21b3d1005",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc058-molt-s401": {
+      "id": "8427523e",
+      "score": 5.416108693333333,
+      "sha256": "7f5d2545bae122fa554ee6594c4383c7c8492b8bbdf1f5315d5f7fbe731c582c",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc058-simpletes-s401": {
+      "id": "51cccb68",
+      "score": 5.24868346,
+      "sha256": "cf683c1f341893eb13af3cf1d7004c463121d5c2747b465f5b008106f0d555c2",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc058-molt_modified-s401": {
+      "id": "7bdfcd8a",
+      "score": 5.280642126666667,
+      "sha256": "bc7ada90c391bc695a7994c904b472f52d0e95a782f86d1da0208668e5578420",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc058-molt2_adaptive_branches-s401": {
+      "id": "59a1f671",
+      "score": 5.320119053333333,
+      "sha256": "bea0e4be0ae094cdc151fd4ccf42a419c232ab0698df784d84f4a2682116b967",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc024-simpletes-s402": {
+      "id": "b9c9c937",
+      "score": 0.6393866666666667,
+      "sha256": "97382c473ad74163582608c64ac5d0ca78ac601e4ae95bca4d0cf1cb4282a256",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc024-molt-s402": {
+      "id": "7be2f536",
+      "score": 0.63924,
+      "sha256": "d43faa284105253b2e9e66de7a0c0f371a369e0a428b84bfccd55eaa3dad64af",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc024-molt_modified-s402": {
+      "id": "3bab2a58",
+      "score": 1.1084733333333334,
+      "sha256": "f83760c67c79df6be85679deea0dc19188172174ed381f27769d1b05cc74fdba",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc024-molt2_adaptive_branches-s402": {
+      "id": "a10e6351",
+      "score": 0.6385333333333333,
+      "sha256": "ed79791a465b2c1a544eb7e2fa7880f4caaa102b7984f2e535bf115cfc95e279",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc058-simpletes-s402": {
+      "id": "0295d87e",
+      "score": 5.2483123733333334,
+      "sha256": "e7a0c757862fd7cdf8a920a384477c3d0397cd757906b8af6eb33d8e62f7fb44",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc058-molt_modified-s402": {
+      "id": "f6ce3644",
+      "score": 5.4490837800000005,
+      "sha256": "fe0b76c7a41d6c60cf09113ceb3b171c5f1e47e398be391e55daec092ac5be4e",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc058-molt-s402": {
+      "id": "5af3e3cb",
+      "score": 5.398154786666667,
+      "sha256": "c61f3ea291c21ab8442b9ddc364fd3c7d7f578803c6dba878453a0aae897bd48",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc058-molt2_adaptive_branches-s402": {
+      "id": "7ad13aea",
+      "score": 5.554382913333333,
+      "sha256": "3e775aedacf6369b7d07354fa155148a3743647c3a9efa559368b66cb3654344",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc024-simpletes-s403": {
+      "id": "087810af",
+      "score": 0.63948,
+      "sha256": "6f11f5db483076733d9c4ccae86b276839491a7bf4172a900069e9adb3825a12",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc024-molt2_adaptive_branches-s403": {
+      "id": "18729803",
+      "score": 0.6393866666666667,
+      "sha256": "3b202c67e518ab3f0b9ec4f9f91722a866277265f64c5dbcb016a1edaf73d4dd",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc024-molt_modified-s403": {
+      "id": "5f9b3db5",
+      "score": 0.6393933333333334,
+      "sha256": "dbf8cc52a68a03959ffa7d9531af10d3ca236efa9fd1eab28dfbd9465b2d5949",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc024-molt-s403": {
+      "id": "fa031015",
+      "score": 0.6392733333333334,
+      "sha256": "c2e231aaca84e35e681d2c56b1c405e2de9fbe385999b9e8e990ae4523b1c670",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc058-molt_modified-s403": {
+      "id": "e00c0eda",
+      "score": 5.42989428,
+      "sha256": "9a961b8bd07f6edc721c68c1e85aa24410d6b2c533bed57ee89d1738a13e3396",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc058-molt-s403": {
+      "id": "9e523316",
+      "score": 5.35177596,
+      "sha256": "548d68871cfbcde7d0a892b5da40cefd44ec68b17c306f4906ca14569aa3396a",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc058-molt2_adaptive_branches-s403": {
+      "id": "b48dadd9",
+      "score": 5.5140018799999995,
+      "sha256": "4d499364045d12f0f9dcae842cbb7c70f910875fdfbeb6b0fd8e815c39f7efca",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc058-simpletes-s403": {
+      "id": "4960f802",
+      "score": 5.24540926,
+      "sha256": "0eaf70a2b1d73e518579d0a0a9bd926370b8c95ed17ea0c32b63aed2221a142a",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc024-molt-s404": {
+      "id": "275f771c",
+      "score": 0.6385066666666667,
+      "sha256": "3b06951c79b8b8e41e1fbd8928b164161831240c21925fff796fa4f2ac41af23",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc024-molt_modified-s404": {
+      "id": "c0372f80",
+      "score": 0.8261000000000001,
+      "sha256": "6f2070d7dd5ef15a419abc5d6972f8914246d3abf8dc65c25eed83bf8b2ccb43",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc024-molt2_adaptive_branches-s404": {
+      "id": "cb8651bb",
+      "score": 1.9219666666666666,
+      "sha256": "0276be03b2936df5d1277bf2fa3e7844005ad8f0466704b47d57723f81a24249",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc024-simpletes-s404": {
+      "id": "1719731d",
+      "score": 0.6394133333333333,
+      "sha256": "02aabf93927cf1f37a3831bf34d76fb0b77e1114ad39ffdae186714ac4b0cbe4",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc058-molt_modified-s404": {
+      "id": "2e6d3ad3",
+      "score": 5.3240629,
+      "sha256": "5522873653800876f26c1c104cc01bc17109686fb15840affb59223b38caf469",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc058-simpletes-s404": {
+      "id": "9081d328",
+      "score": 5.27184856,
+      "sha256": "fbdd8f7dbd14a42ad79a3120c3370a82d50795e4a4181a86676ff2cd6598a5e3",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc058-molt-s404": {
+      "id": "348245e6",
+      "score": 5.471102566666667,
+      "sha256": "49dad1b3d8736074f64d485995d836345ed7273bf3ddd60bb13cb686fd9ae436",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    },
+    "matched-ahc058-molt2_adaptive_branches-s404": {
+      "id": "192b6cb2",
+      "score": 5.42248762,
+      "sha256": "d8ad113b5d39e089e27fd75451372a6215d0ae0cbdf7e9e7bed6e0fe1865530c",
+      "eval_cap": 80,
+      "cases": 150,
+      "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+    }
+  },
+  "optimizer_stopped": true
+}

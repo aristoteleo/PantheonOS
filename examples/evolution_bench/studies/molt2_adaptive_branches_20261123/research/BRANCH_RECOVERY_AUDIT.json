@@ -1,5 +1,5 @@
 {
-  "at_unix": 1795510793.3311174,
+  "at_unix": 1795536725.4868047,
   "rows": [
     {
       "run": "matched-ahc024-molt-s400",
@@ -758,6 +758,576 @@
       ]
     },
     {
+      "run": "matched-ahc024-molt-s403",
+      "chain": 2,
+      "fate": "retired",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6384666666666667,
+      "best_retained_score": 0.07637999999999999,
+      "retained_entries": [
+        {
+          "id": "d4cdf322",
+          "score": 0.001,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 16
+        },
+        {
+          "id": "4ebc567c",
+          "score": 0.001,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 23
+        },
+        {
+          "id": "d613b448",
+          "score": 0.001,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 37
+        },
+        {
+          "id": "fcbee52e",
+          "score": 0.07637999999999999,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 47
+        },
+        {
+          "id": "a987f342",
+          "score": 0.001,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 59
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt-s403",
+      "chain": 3,
+      "fate": "graduated",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": 1,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6384666666666667,
+      "best_retained_score": 0.6389466666666667,
+      "retained_entries": [
+        {
+          "id": "6893f39e",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "dc030cc1",
+          "score": 0.6389466666666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 26
+        },
+        {
+          "id": "9fae0f70",
+          "score": 0.63888,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 35
+        },
+        {
+          "id": "65a3b5df",
+          "score": 0.63888,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 48
+        },
+        {
+          "id": "ee82fe74",
+          "score": 0.6388666666666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 62
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt-s403",
+      "chain": 4,
+      "fate": "graduated",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6384666666666667,
+      "best_retained_score": 0.6384466666666667,
+      "retained_entries": [
+        {
+          "id": "535a8d94",
+          "score": 0.5863933333333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 19
+        },
+        {
+          "id": "3d339c46",
+          "score": 0.6384466666666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 27
+        },
+        {
+          "id": "f9f8db2f",
+          "score": 0.6384333333333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 40
+        },
+        {
+          "id": "386fc5d1",
+          "score": 0.6381733333333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 51
+        },
+        {
+          "id": "92cdf108",
+          "score": 0.6341666666666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 70
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt-s403",
+      "chain": 5,
+      "fate": "retired",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6384666666666667,
+      "best_retained_score": 0.6135866666666667,
+      "retained_entries": [
+        {
+          "id": "ba550718",
+          "score": 0.6135866666666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 20
+        },
+        {
+          "id": "de5afd36",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "1da771d7",
+          "score": 0.6118733333333334,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 41
+        },
+        {
+          "id": "0d3a5af9",
+          "score": 0.6135533333333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 54
+        },
+        {
+          "id": "1af519bc",
+          "score": 0.6135333333333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 71
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt-s403",
+      "chain": 6,
+      "fate": "probation",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": 1,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6390800000000001,
+      "best_retained_score": 0.63754,
+      "retained_entries": [
+        {
+          "id": "4069f803",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "0649783b",
+          "score": 0.63754,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 72
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt-s403",
+      "chain": 7,
+      "fate": "probation",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": 1,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6390800000000001,
+      "best_retained_score": 0.6392733333333334,
+      "retained_entries": [
+        {
+          "id": "8222f7d1",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "fa031015",
+          "score": 0.6392733333333334,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 77
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt-s403",
+      "chain": 8,
+      "fate": "probation",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": null,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6390800000000001,
+      "best_retained_score": 0.0,
+      "retained_entries": [
+        {
+          "id": "a7c4b271",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "3f94ec73",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt-s403",
+      "chain": 9,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6390800000000001,
+      "best_retained_score": 0.6379466666666667,
+      "retained_entries": [
+        {
+          "id": "398db479",
+          "score": 0.6379466666666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 69
+        },
+        {
+          "id": "77ec68d3",
+          "score": 0.6311466666666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 79
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt-s404",
+      "chain": 2,
+      "fate": "graduated",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6384333333333333,
+      "best_retained_score": 0.6379933333333333,
+      "retained_entries": [
+        {
+          "id": "4e689fe6",
+          "score": 0.001,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 17
+        },
+        {
+          "id": "553c357b",
+          "score": 0.03663333333333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 26
+        },
+        {
+          "id": "6a0fc87a",
+          "score": 0.04089333333333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 43
+        },
+        {
+          "id": "9dfa4907",
+          "score": 0.6379933333333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 51
+        },
+        {
+          "id": "71363af5",
+          "score": 0.6379733333333334,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 62
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt-s404",
+      "chain": 3,
+      "fate": "retired",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6384333333333333,
+      "best_retained_score": 0.45785333333333333,
+      "retained_entries": [
+        {
+          "id": "5c3ee161",
+          "score": 0.42496666666666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 20
+        },
+        {
+          "id": "c2881bdb",
+          "score": 0.4054333333333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 29
+        },
+        {
+          "id": "5b181411",
+          "score": 0.44752,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 38
+        },
+        {
+          "id": "d250852e",
+          "score": 0.45785333333333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 52
+        },
+        {
+          "id": "ba76764a",
+          "score": 0.4490933333333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 65
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt-s404",
+      "chain": 4,
+      "fate": "retired",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6384333333333333,
+      "best_retained_score": 0.5564,
+      "retained_entries": [
+        {
+          "id": "b083601e",
+          "score": 0.4789933333333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 21
+        },
+        {
+          "id": "da2a0fc5",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "a53905eb",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "71a63255",
+          "score": 0.5135,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 54
+        },
+        {
+          "id": "9aa47a37",
+          "score": 0.5564,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 74
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt-s404",
+      "chain": 5,
+      "fate": "retired",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": 1,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6384333333333333,
+      "best_retained_score": 0.015619999999999998,
+      "retained_entries": [
+        {
+          "id": "0b7ee259",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "d83d424e",
+          "score": 0.011006666666666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 31
+        },
+        {
+          "id": "023b92bc",
+          "score": 0.015619999999999998,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 45
+        },
+        {
+          "id": "51691dc2",
+          "score": 0.001,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 58
+        },
+        {
+          "id": "d59de8ba",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt-s404",
+      "chain": 6,
+      "fate": "probation",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": null,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6385066666666667,
+      "best_retained_score": 0.0,
+      "retained_entries": [
+        {
+          "id": "d435cea4",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "befdf320",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt-s404",
+      "chain": 7,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6385066666666667,
+      "best_retained_score": 0.63852,
+      "retained_entries": [
+        {
+          "id": "f2660bd9",
+          "score": 0.63766,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 69
+        },
+        {
+          "id": "d51d5ceb",
+          "score": 0.63852,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt-s404",
+      "chain": 8,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6385066666666667,
+      "best_retained_score": 0.44617333333333337,
+      "retained_entries": [
+        {
+          "id": "c7e80089",
+          "score": 0.44617333333333337,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 70
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt-s404",
+      "chain": 9,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6385066666666667,
+      "best_retained_score": 0.03394,
+      "retained_entries": [
+        {
+          "id": "d24aef6c",
+          "score": 0.03394,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 73
+        }
+      ]
+    },
+    {
       "run": "matched-ahc024-molt2_adaptive_branches-s400",
       "chain": 2,
       "fate": "graduated",
@@ -1363,6 +1933,490 @@
           "validity": 1.0,
           "eligible_first80_valid_reading": false,
           "search_eval_index": null
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s403",
+      "chain": 2,
+      "fate": "graduated",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6393866666666667,
+      "best_retained_score": 0.6393066666666666,
+      "retained_entries": [
+        {
+          "id": "8ee95141",
+          "score": 0.6392666666666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 28
+        },
+        {
+          "id": "18805db7",
+          "score": 0.6392866666666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 30
+        },
+        {
+          "id": "f8e7b81b",
+          "score": 0.6392533333333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 36
+        },
+        {
+          "id": "4ef5373f",
+          "score": 0.6393066666666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 46
+        },
+        {
+          "id": "fed90e1c",
+          "score": 0.6392733333333334,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 48
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s403",
+      "chain": 3,
+      "fate": "graduated",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": 1,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6393866666666667,
+      "best_retained_score": 0.6374866666666666,
+      "retained_entries": [
+        {
+          "id": "15b6c659",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "f8344928",
+          "score": 0.059906666666666664,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 41
+        },
+        {
+          "id": "6b3f89b2",
+          "score": 0.6373933333333334,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 59
+        },
+        {
+          "id": "550d1b06",
+          "score": 0.6374866666666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 64
+        },
+        {
+          "id": "a9cad046",
+          "score": 0.6374866666666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 78
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s403",
+      "chain": 4,
+      "fate": "retired",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": 2,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6393866666666667,
+      "best_retained_score": 0.001,
+      "retained_entries": [
+        {
+          "id": "8610d815",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "8fdab3f5",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "55c1ad26",
+          "score": 0.001,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 54
+        },
+        {
+          "id": "e81adb4e",
+          "score": 0.001,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 56
+        },
+        {
+          "id": "c31bf0f0",
+          "score": 0.001,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 72
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s403",
+      "chain": 5,
+      "fate": "probation",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": 1,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6393866666666667,
+      "best_retained_score": 0.6380666666666667,
+      "retained_entries": [
+        {
+          "id": "ab8bec5c",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "f2d44f00",
+          "score": 0.6380266666666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 66
+        },
+        {
+          "id": "a65111da",
+          "score": 0.6380266666666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 69
+        },
+        {
+          "id": "b7ffcc40",
+          "score": 0.6380666666666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 73
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s404",
+      "chain": 2,
+      "fate": "graduated",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": 0,
+      "reference_score": 0.6380066666666666,
+      "best_retained_score": 1.5745066666666667,
+      "retained_entries": [
+        {
+          "id": "b15a62a5",
+          "score": 1.5065466666666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 19
+        },
+        {
+          "id": "f345367a",
+          "score": 1.5423266666666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 22
+        },
+        {
+          "id": "42481a8f",
+          "score": 1.4926533333333334,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 26
+        },
+        {
+          "id": "8ee8e417",
+          "score": 1.5745066666666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 30
+        },
+        {
+          "id": "2c6752f5",
+          "score": 1.57012,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 44
+        },
+        {
+          "id": "5f095e9b",
+          "score": 1.5473866666666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 71
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s404",
+      "chain": 3,
+      "fate": "graduated",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": 0,
+      "reference_score": 0.6380066666666666,
+      "best_retained_score": 1.8993933333333335,
+      "retained_entries": [
+        {
+          "id": "b273072d",
+          "score": 1.8993933333333335,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 23
+        },
+        {
+          "id": "02620bb0",
+          "score": 1.8842466666666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 27
+        },
+        {
+          "id": "c32bb512",
+          "score": 1.8855066666666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 32
+        },
+        {
+          "id": "af0c77c0",
+          "score": 1.8878933333333334,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 34
+        },
+        {
+          "id": "65be83e1",
+          "score": 1.8864,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 38
+        },
+        {
+          "id": "c4308f13",
+          "score": 1.5505733333333334,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 40
+        },
+        {
+          "id": "540b04f8",
+          "score": 1.8796133333333331,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 48
+        },
+        {
+          "id": "fdbd6160",
+          "score": 1.5291533333333334,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 51
+        },
+        {
+          "id": "4d0e131b",
+          "score": 1.8915799999999998,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 52
+        },
+        {
+          "id": "097b08b7",
+          "score": 1.8735133333333334,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 54
+        },
+        {
+          "id": "a74ae0ab",
+          "score": 1.8828466666666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 58
+        },
+        {
+          "id": "135e67bb",
+          "score": 0.5918133333333334,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 61
+        },
+        {
+          "id": "d6aa3c1a",
+          "score": 1.7891400000000002,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 68
+        },
+        {
+          "id": "4150f00c",
+          "score": 1.7869666666666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 76
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s404",
+      "chain": 4,
+      "fate": "graduated",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": 1,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6380066666666666,
+      "best_retained_score": 0.6380066666666666,
+      "retained_entries": [
+        {
+          "id": "03843e05",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "f03d8154",
+          "score": 0.4703466666666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 36
+        },
+        {
+          "id": "78010f62",
+          "score": 0.6376466666666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 43
+        },
+        {
+          "id": "a80623af",
+          "score": 0.6380066666666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 63
+        },
+        {
+          "id": "fd2e0159",
+          "score": 0.6380066666666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 69
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s404",
+      "chain": 5,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 1.8993933333333335,
+      "best_retained_score": 0.45241333333333333,
+      "retained_entries": [
+        {
+          "id": "9f5d040d",
+          "score": 0.001,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 50
+        },
+        {
+          "id": "830990e1",
+          "score": 0.43593333333333334,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 55
+        },
+        {
+          "id": "2d7aa4e0",
+          "score": 0.45241333333333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 64
+        },
+        {
+          "id": "3a705e58",
+          "score": 0.44384666666666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s404",
+      "chain": 6,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 1.8993933333333335,
+      "best_retained_score": 0.47742666666666667,
+      "retained_entries": [
+        {
+          "id": "cc7df211",
+          "score": 0.46410666666666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 56
+        },
+        {
+          "id": "2d3475d8",
+          "score": 0.47742666666666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 60
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s404",
+      "chain": 7,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": 0,
+      "reference_score": 1.8993933333333335,
+      "best_retained_score": 1.9219666666666666,
+      "retained_entries": [
+        {
+          "id": "cb8651bb",
+          "score": 1.9219666666666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 75
+        },
+        {
+          "id": "c54290d2",
+          "score": 1.8336199999999998,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 79
         }
       ]
     },
@@ -2094,6 +3148,531 @@
       ]
     },
     {
+      "run": "matched-ahc024-molt_modified-s403",
+      "chain": 2,
+      "fate": "graduated",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": 1,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.63834,
+      "best_retained_score": 0.6380066666666666,
+      "retained_entries": [
+        {
+          "id": "bcd661ac",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "14f10fe5",
+          "score": 0.6380066666666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 27
+        },
+        {
+          "id": "729967e7",
+          "score": 0.5653133333333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 38
+        },
+        {
+          "id": "9d03306d",
+          "score": 0.6277733333333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 52
+        },
+        {
+          "id": "ae8f03d5",
+          "score": 0.60966,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 64
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt_modified-s403",
+      "chain": 3,
+      "fate": "retired",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": 2,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.63834,
+      "best_retained_score": 0.001,
+      "retained_entries": [
+        {
+          "id": "b5b3d9e2",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "daf87aa9",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "d9a205d5",
+          "score": 0.001,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 41
+        },
+        {
+          "id": "3e3fd2f7",
+          "score": 0.001,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 53
+        },
+        {
+          "id": "bd0257f4",
+          "score": 0.001,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 66
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt_modified-s403",
+      "chain": 4,
+      "fate": "graduated",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": 3,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.63834,
+      "best_retained_score": 0.6387466666666667,
+      "retained_entries": [
+        {
+          "id": "7a88c3d7",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "ce483882",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "d5a0d715",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "9e6bcede",
+          "score": 0.52934,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 56
+        },
+        {
+          "id": "c13ec9c3",
+          "score": 0.6387466666666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 74
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt_modified-s403",
+      "chain": 5,
+      "fate": "retired",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": 2,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.63834,
+      "best_retained_score": 0.23113333333333333,
+      "retained_entries": [
+        {
+          "id": "92abfdf2",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "f27cab85",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "79a44e59",
+          "score": 0.001,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 45
+        },
+        {
+          "id": "f4416b5a",
+          "score": 0.16963999999999999,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 60
+        },
+        {
+          "id": "5b521020",
+          "score": 0.23113333333333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 77
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt_modified-s403",
+      "chain": 6,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.63936,
+      "best_retained_score": 0.06265333333333334,
+      "retained_entries": [
+        {
+          "id": "dacb71a3",
+          "score": 0.06127333333333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 68
+        },
+        {
+          "id": "f9e84530",
+          "score": 0.06265333333333334,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 79
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt_modified-s403",
+      "chain": 7,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.63936,
+      "best_retained_score": 0.6393933333333334,
+      "retained_entries": [
+        {
+          "id": "5f9b3db5",
+          "score": 0.6393933333333334,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 71
+        },
+        {
+          "id": "60bf9bb2",
+          "score": 0.6393933333333334,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt_modified-s403",
+      "chain": 8,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.63936,
+      "best_retained_score": 0.001,
+      "retained_entries": [
+        {
+          "id": "7feb067f",
+          "score": 0.001,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 72
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt_modified-s404",
+      "chain": 2,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6386266666666667,
+      "best_retained_score": 0.1512,
+      "retained_entries": [
+        {
+          "id": "1a7d2ff3",
+          "score": 0.001,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 18
+        },
+        {
+          "id": "0b57cce0",
+          "score": 0.11706666666666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 26
+        },
+        {
+          "id": "f515755e",
+          "score": 0.01394,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 44
+        },
+        {
+          "id": "12d05838",
+          "score": 0.001,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 62
+        },
+        {
+          "id": "0fa37a98",
+          "score": 0.1512,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt_modified-s404",
+      "chain": 3,
+      "fate": "probation",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": 1,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6386266666666667,
+      "best_retained_score": 0.6386133333333334,
+      "retained_entries": [
+        {
+          "id": "132f5f61",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "f6411153",
+          "score": 0.6385266666666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 31
+        },
+        {
+          "id": "45e1af89",
+          "score": 0.6386133333333334,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 45
+        },
+        {
+          "id": "de5dadf3",
+          "score": 0.6385466666666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 63
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt_modified-s404",
+      "chain": 4,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6386266666666667,
+      "best_retained_score": 0.6389466666666667,
+      "retained_entries": [
+        {
+          "id": "bf81d010",
+          "score": 0.46802,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 21
+        },
+        {
+          "id": "d55f5c81",
+          "score": 0.6386799999999999,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 28
+        },
+        {
+          "id": "114566e0",
+          "score": 0.6389466666666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 36
+        },
+        {
+          "id": "db412bb3",
+          "score": 0.6389466666666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 50
+        },
+        {
+          "id": "733ee544",
+          "score": 0.6389466666666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 67
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt_modified-s404",
+      "chain": 5,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": 0,
+      "reference_score": 0.6389866666666667,
+      "best_retained_score": 0.8261000000000001,
+      "retained_entries": [
+        {
+          "id": "c0372f80",
+          "score": 0.8261000000000001,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 37
+        },
+        {
+          "id": "b983d580",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "464a12af",
+          "score": 0.001,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 68
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt_modified-s404",
+      "chain": 6,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6389866666666667,
+      "best_retained_score": 0.6390800000000001,
+      "retained_entries": [
+        {
+          "id": "f110ae99",
+          "score": 0.63906,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 38
+        },
+        {
+          "id": "ef51976f",
+          "score": 0.63906,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 52
+        },
+        {
+          "id": "65460184",
+          "score": 0.6390800000000001,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 72
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt_modified-s404",
+      "chain": 7,
+      "fate": "probation",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": 2,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6389866666666667,
+      "best_retained_score": 0.6384733333333333,
+      "retained_entries": [
+        {
+          "id": "f98e1ae8",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "c4a48d4f",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "5edd642b",
+          "score": 0.6384733333333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 71
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc024-molt_modified-s404",
+      "chain": 8,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 0.6389866666666667,
+      "best_retained_score": 0.6380066666666666,
+      "retained_entries": [
+        {
+          "id": "c1fba0d2",
+          "score": 0.6380066666666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 43
+        },
+        {
+          "id": "05482cc5",
+          "score": 0.638,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 56
+        },
+        {
+          "id": "27dfdae9",
+          "score": 0.6117266666666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 76
+        }
+      ]
+    },
+    {
       "run": "matched-ahc058-molt-s400",
       "chain": 2,
       "fate": "graduated",
@@ -2539,6 +4118,609 @@
       ]
     },
     {
+      "run": "matched-ahc058-molt-s402",
+      "chain": 2,
+      "fate": "retired",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.226983146666666,
+      "best_retained_score": 3.126685753333333,
+      "retained_entries": [
+        {
+          "id": "29ec0a85",
+          "score": 1.63294016,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 28
+        },
+        {
+          "id": "ac46732a",
+          "score": 3.100381946666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 40
+        },
+        {
+          "id": "cec1e1ca",
+          "score": 3.126685753333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 53
+        },
+        {
+          "id": "a964a6d9",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "a726b378",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt-s402",
+      "chain": 3,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": 0,
+      "reference_score": 5.226983146666666,
+      "best_retained_score": 5.398154786666667,
+      "retained_entries": [
+        {
+          "id": "5af3e3cb",
+          "score": 5.398154786666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 31
+        },
+        {
+          "id": "7d88e106",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "4ff87b14",
+          "score": 4.869231546666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 54
+        },
+        {
+          "id": "3b80b06a",
+          "score": 4.87412912,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 67
+        },
+        {
+          "id": "3ca14a18",
+          "score": 5.343160353333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 78
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt-s402",
+      "chain": 4,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.226983146666666,
+      "best_retained_score": 4.639973533333333,
+      "retained_entries": [
+        {
+          "id": "68cdf8ef",
+          "score": 4.632099533333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 34
+        },
+        {
+          "id": "99e4a48a",
+          "score": 4.177797606666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 45
+        },
+        {
+          "id": "e8dc3ad3",
+          "score": 4.230979179999999,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 57
+        },
+        {
+          "id": "d99c6fd0",
+          "score": 4.639973533333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 68
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt-s402",
+      "chain": 5,
+      "fate": "probation",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": 1,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.226983146666666,
+      "best_retained_score": 3.6170526400000003,
+      "retained_entries": [
+        {
+          "id": "b9eaf432",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "c64f118d",
+          "score": 2.810906673333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 47
+        },
+        {
+          "id": "d4a9d410",
+          "score": 3.5472830933333332,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 58
+        },
+        {
+          "id": "0df0c495",
+          "score": 3.6170526400000003,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 70
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt-s402",
+      "chain": 6,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.398154786666667,
+      "best_retained_score": 4.9932078266666675,
+      "retained_entries": [
+        {
+          "id": "6401bba7",
+          "score": 4.9932078266666675,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 80
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt-s403",
+      "chain": 2,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.2317836799999995,
+      "best_retained_score": 4.5888131266666665,
+      "retained_entries": [
+        {
+          "id": "bfb30212",
+          "score": 3.1848151733333334,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 26
+        },
+        {
+          "id": "5906dff9",
+          "score": 2.7107417066666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 32
+        },
+        {
+          "id": "25795b6b",
+          "score": 2.6872228666666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 42
+        },
+        {
+          "id": "acf5375e",
+          "score": 4.5888131266666665,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 66
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt-s403",
+      "chain": 3,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.2317836799999995,
+      "best_retained_score": 2.9260374666666666,
+      "retained_entries": [
+        {
+          "id": "9e5113c0",
+          "score": 2.238475033333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 27
+        },
+        {
+          "id": "6376b966",
+          "score": 2.8443418533333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 34
+        },
+        {
+          "id": "41243dc2",
+          "score": 2.8543154066666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 52
+        },
+        {
+          "id": "2502631f",
+          "score": 2.9260374666666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 69
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt-s403",
+      "chain": 4,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.2317836799999995,
+      "best_retained_score": 5.14744772,
+      "retained_entries": [
+        {
+          "id": "02c432f2",
+          "score": 4.880944946666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 29
+        },
+        {
+          "id": "f9742095",
+          "score": 4.901024286666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 37
+        },
+        {
+          "id": "3e487677",
+          "score": 5.14744772,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 56
+        },
+        {
+          "id": "b16e3399",
+          "score": 5.145833606666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 70
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt-s403",
+      "chain": 5,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.2333903,
+      "best_retained_score": 4.667140246666667,
+      "retained_entries": [
+        {
+          "id": "cffce79f",
+          "score": 4.519193506666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 45
+        },
+        {
+          "id": "84d1f5c4",
+          "score": 4.667140246666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 57
+        },
+        {
+          "id": "59e5fd08",
+          "score": 4.667140246666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 71
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt-s403",
+      "chain": 6,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": 1,
+      "reference_score": 5.2333903,
+      "best_retained_score": 5.35177596,
+      "retained_entries": [
+        {
+          "id": "6df8c8e0",
+          "score": 4.86749216,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 47
+        },
+        {
+          "id": "9e523316",
+          "score": 5.35177596,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 59
+        },
+        {
+          "id": "7b97d1f2",
+          "score": 5.351773273333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 76
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt-s403",
+      "chain": 7,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.2333903,
+      "best_retained_score": 2.15043268,
+      "retained_entries": [
+        {
+          "id": "6407693a",
+          "score": 1.957247,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 51
+        },
+        {
+          "id": "936e6225",
+          "score": 2.15043268,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 58
+        },
+        {
+          "id": "be7505ec",
+          "score": 2.1449354533333334,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 77
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt-s404",
+      "chain": 2,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": 0,
+      "reference_score": 5.271288480000001,
+      "best_retained_score": 5.471102566666667,
+      "retained_entries": [
+        {
+          "id": "1d92f6af",
+          "score": 5.345934146666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 46
+        },
+        {
+          "id": "6983a9d8",
+          "score": 5.4392002999999995,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 53
+        },
+        {
+          "id": "d1822a13",
+          "score": 5.4498621,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 64
+        },
+        {
+          "id": "cbbbe02b",
+          "score": 5.394063326666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 67
+        },
+        {
+          "id": "31c797f8",
+          "score": 5.467304606666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 68
+        },
+        {
+          "id": "348245e6",
+          "score": 5.471102566666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 71
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt-s404",
+      "chain": 3,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.271288480000001,
+      "best_retained_score": 4.834578059999999,
+      "retained_entries": [
+        {
+          "id": "83cfe303",
+          "score": 4.561429413333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 48
+        },
+        {
+          "id": "c98200a1",
+          "score": 4.775728746666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 57
+        },
+        {
+          "id": "63604a76",
+          "score": 4.834578059999999,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 65
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt-s404",
+      "chain": 4,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.271288480000001,
+      "best_retained_score": 4.2624470599999995,
+      "retained_entries": [
+        {
+          "id": "c116da5b",
+          "score": 1.0888088,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 49
+        },
+        {
+          "id": "ecd673ca",
+          "score": 4.2624470599999995,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 56
+        },
+        {
+          "id": "dd6f2877",
+          "score": 4.235708233333334,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 73
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt-s404",
+      "chain": 5,
+      "fate": "probation",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": 1,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.4498621,
+      "best_retained_score": 4.595405166666667,
+      "retained_entries": [
+        {
+          "id": "6ce6dcc8",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "81b593bc",
+          "score": 4.595405166666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 74
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt-s404",
+      "chain": 6,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.4498621,
+      "best_retained_score": 5.230914293333333,
+      "retained_entries": [
+        {
+          "id": "5b9db526",
+          "score": 5.230914293333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 70
+        },
+        {
+          "id": "812c9bdb",
+          "score": 5.210693166666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 77
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt-s404",
+      "chain": 7,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.4498621,
+      "best_retained_score": 4.7499178466666665,
+      "retained_entries": [
+        {
+          "id": "24c95a09",
+          "score": 4.7499178466666665,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 75
+        }
+      ]
+    },
+    {
       "run": "matched-ahc058-molt2_adaptive_branches-s400",
       "chain": 2,
       "fate": "graduated",
@@ -2911,6 +5093,566 @@
           "validity": 1.0,
           "eligible_first80_valid_reading": true,
           "search_eval_index": 74
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s402",
+      "chain": 2,
+      "fate": "graduated",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": 1,
+      "reference_score": 5.216364706666667,
+      "best_retained_score": 5.347535313333333,
+      "retained_entries": [
+        {
+          "id": "5c5d2e9c",
+          "score": 5.140227826666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 30
+        },
+        {
+          "id": "67952d35",
+          "score": 5.275308753333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 33
+        },
+        {
+          "id": "2c195adc",
+          "score": 5.2659552666666665,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 35
+        },
+        {
+          "id": "aa60c535",
+          "score": 5.27729436,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 37
+        },
+        {
+          "id": "6271f063",
+          "score": 5.28896148,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 42
+        },
+        {
+          "id": "0a25fd60",
+          "score": 5.28343592,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 46
+        },
+        {
+          "id": "ea700f15",
+          "score": 5.2918081133333335,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 48
+        },
+        {
+          "id": "bb16b916",
+          "score": 5.291452546666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 64
+        },
+        {
+          "id": "5b0e12d5",
+          "score": 5.340099133333334,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 70
+        },
+        {
+          "id": "120dfa9a",
+          "score": 5.347535313333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 76
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s402",
+      "chain": 3,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.216364706666667,
+      "best_retained_score": 4.139973866666667,
+      "retained_entries": [
+        {
+          "id": "c170a675",
+          "score": 4.0922082,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 51
+        },
+        {
+          "id": "d7e5bf81",
+          "score": 4.138092006666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 53
+        },
+        {
+          "id": "afc8abf4",
+          "score": 4.139973866666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 59
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s402",
+      "chain": 4,
+      "fate": "graduated",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": 0,
+      "reference_score": 5.216364706666667,
+      "best_retained_score": 5.554382913333333,
+      "retained_entries": [
+        {
+          "id": "c65af8ee",
+          "score": 5.387619526666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 52
+        },
+        {
+          "id": "fc32520d",
+          "score": 5.418292413333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 56
+        },
+        {
+          "id": "259a199c",
+          "score": 5.50039878,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 60
+        },
+        {
+          "id": "521571e7",
+          "score": 5.5357424533333335,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 68
+        },
+        {
+          "id": "1092b3ec",
+          "score": 5.387532393333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 73
+        },
+        {
+          "id": "1b564eed",
+          "score": 5.493677873333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 75
+        },
+        {
+          "id": "7ad13aea",
+          "score": 5.554382913333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 79
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s402",
+      "chain": 5,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.216364706666667,
+      "best_retained_score": 5.043092486666667,
+      "retained_entries": [
+        {
+          "id": "190cdd55",
+          "score": 4.692243,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 62
+        },
+        {
+          "id": "48acfa1d",
+          "score": 4.4947007999999995,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 66
+        },
+        {
+          "id": "b52e2fa3",
+          "score": 5.043092486666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 72
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s403",
+      "chain": 2,
+      "fate": "retired",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": 1,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.2157458666666665,
+      "best_retained_score": 2.443122986666667,
+      "retained_entries": [
+        {
+          "id": "1e48360d",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "cab430fc",
+          "score": 1.5238024399999999,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 27
+        },
+        {
+          "id": "bf9c3543",
+          "score": 1.5238024399999999,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 30
+        },
+        {
+          "id": "9dd7cccd",
+          "score": 1.5778644199999998,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 51
+        },
+        {
+          "id": "4ba580ec",
+          "score": 2.443122986666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 68
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s403",
+      "chain": 3,
+      "fate": "graduated",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": 1,
+      "first_over_1pct_retained_index": 1,
+      "reference_score": 5.2157458666666665,
+      "best_retained_score": 5.4236961,
+      "retained_entries": [
+        {
+          "id": "845899f1",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "b27c3561",
+          "score": 5.352767553333334,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 39
+        },
+        {
+          "id": "503c6cf0",
+          "score": 5.398959046666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 44
+        },
+        {
+          "id": "25093917",
+          "score": 5.419554406666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 48
+        },
+        {
+          "id": "42dcbdab",
+          "score": 5.41863078,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 54
+        },
+        {
+          "id": "3fde69da",
+          "score": 5.4188615066666665,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 60
+        },
+        {
+          "id": "6dba2ccb",
+          "score": 5.402549606666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 62
+        },
+        {
+          "id": "4c96da9b",
+          "score": 5.366592253333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 67
+        },
+        {
+          "id": "aabe70c2",
+          "score": 5.417140466666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 70
+        },
+        {
+          "id": "0a39c32b",
+          "score": 5.40009048,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 74
+        },
+        {
+          "id": "1de102bd",
+          "score": 5.4236961,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 80
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s403",
+      "chain": 4,
+      "fate": "probation",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": 1,
+      "first_over_1pct_retained_index": 1,
+      "reference_score": 5.2157458666666665,
+      "best_retained_score": 5.371375226666666,
+      "retained_entries": [
+        {
+          "id": "6dfcc5d2",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "46893348",
+          "score": 5.371375226666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 49
+        },
+        {
+          "id": "130f3a95",
+          "score": 5.343354833333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 58
+        },
+        {
+          "id": "94ff82b2",
+          "score": 5.3393011066666665,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 75
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s404",
+      "chain": 2,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.230688773333333,
+      "best_retained_score": 5.22832266,
+      "retained_entries": [
+        {
+          "id": "854a0e0a",
+          "score": 4.771010053333334,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 23
+        },
+        {
+          "id": "cb839b7e",
+          "score": 4.806124953333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 27
+        },
+        {
+          "id": "934402ee",
+          "score": 5.22832266,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 32
+        },
+        {
+          "id": "a88eef5d",
+          "score": 5.216898853333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 76
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s404",
+      "chain": 3,
+      "fate": "retired",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.230688773333333,
+      "best_retained_score": 4.9920831266666665,
+      "retained_entries": [
+        {
+          "id": "587bbbe6",
+          "score": 4.79935772,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 31
+        },
+        {
+          "id": "881f2a41",
+          "score": 4.87207796,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 34
+        },
+        {
+          "id": "0f2ae62b",
+          "score": 4.94829846,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 37
+        },
+        {
+          "id": "793d5b84",
+          "score": 4.985650606666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 39
+        },
+        {
+          "id": "8b8ef747",
+          "score": 4.9920831266666665,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 45
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s404",
+      "chain": 4,
+      "fate": "probation",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": 1,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.230688773333333,
+      "best_retained_score": 4.47750654,
+      "retained_entries": [
+        {
+          "id": "b670dddf",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "5651ef7b",
+          "score": 4.47750654,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 50
+        },
+        {
+          "id": "73c0dc76",
+          "score": 4.38633866,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 60
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s404",
+      "chain": 5,
+      "fate": "graduated",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": 0,
+      "reference_score": 5.230688773333333,
+      "best_retained_score": 5.42248762,
+      "retained_entries": [
+        {
+          "id": "b4637583",
+          "score": 5.33930952,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 55
+        },
+        {
+          "id": "4d2f2647",
+          "ambiguous_measurement_count": 2
+        },
+        {
+          "id": "4d2f2647",
+          "ambiguous_measurement_count": 2
+        },
+        {
+          "id": "192b6cb2",
+          "score": 5.42248762,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 66
+        },
+        {
+          "id": "be00da92",
+          "score": 5.306480086666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 68
+        },
+        {
+          "id": "a0880939",
+          "score": 5.274992746666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 74
+        },
+        {
+          "id": "79ad6b50",
+          "score": 5.362389273333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 77
         }
       ]
     },
@@ -3459,6 +6201,536 @@
           "validity": 1.0,
           "eligible_first80_valid_reading": true,
           "search_eval_index": 80
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt_modified-s403",
+      "chain": 2,
+      "fate": "graduated",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": 7,
+      "reference_score": 5.22102866,
+      "best_retained_score": 5.4036325,
+      "retained_entries": [
+        {
+          "id": "798a24bf",
+          "score": 5.2605948399999996,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 23
+        },
+        {
+          "id": "e81a7d54",
+          "score": 5.26064896,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 32
+        },
+        {
+          "id": "780ec6fc",
+          "score": 5.261122406666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 42
+        },
+        {
+          "id": "ebaab289",
+          "score": 5.261537866666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 53
+        },
+        {
+          "id": "d94d6e2f",
+          "score": 5.26064896,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 68
+        },
+        {
+          "id": "af5a7a13",
+          "score": 5.261537866666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 71
+        },
+        {
+          "id": "1c8879b1",
+          "score": 5.26211882,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 75
+        },
+        {
+          "id": "c36a2829",
+          "score": 5.4036325,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 77
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt_modified-s403",
+      "chain": 3,
+      "fate": "graduated",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.22102866,
+      "best_retained_score": 5.236682900000001,
+      "retained_entries": [
+        {
+          "id": "bfe250cb",
+          "score": 5.191220226666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 24
+        },
+        {
+          "id": "c58f5997",
+          "score": 5.202657206666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 33
+        },
+        {
+          "id": "29ce316a",
+          "score": 5.236682900000001,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 47
+        },
+        {
+          "id": "d3d41e80",
+          "score": 5.106499019999999,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 56
+        },
+        {
+          "id": "389b9e9b",
+          "score": 4.998977473333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 69
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt_modified-s403",
+      "chain": 4,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.22102866,
+      "best_retained_score": 5.24793032,
+      "retained_entries": [
+        {
+          "id": "0b8df2a5",
+          "score": 5.246785233333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 26
+        },
+        {
+          "id": "b72fa726",
+          "score": 5.24679246,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 36
+        },
+        {
+          "id": "2fb9b629",
+          "score": 5.247868853333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 46
+        },
+        {
+          "id": "3a4b91af",
+          "score": 5.247888146666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 61
+        },
+        {
+          "id": "d26707c4",
+          "score": 5.24793032,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 78
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt_modified-s403",
+      "chain": 5,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.22102866,
+      "best_retained_score": 4.109075146666666,
+      "retained_entries": [
+        {
+          "id": "02a203c0",
+          "score": 3.8965158466666665,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 28
+        },
+        {
+          "id": "416f287b",
+          "score": 3.87091328,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 38
+        },
+        {
+          "id": "5149e8c5",
+          "score": 4.109075146666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 50
+        },
+        {
+          "id": "f89fdcf1",
+          "score": 4.109075146666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 60
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt_modified-s403",
+      "chain": 6,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.261537866666666,
+      "best_retained_score": 4.381228086666667,
+      "retained_entries": [
+        {
+          "id": "951aad3a",
+          "score": 4.381228086666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 72
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt_modified-s403",
+      "chain": 7,
+      "fate": "probation",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": null,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.261537866666666,
+      "best_retained_score": 0.0,
+      "retained_entries": [
+        {
+          "id": "f0fd9d75",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt_modified-s403",
+      "chain": 8,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.261537866666666,
+      "best_retained_score": 3.2840676066666665,
+      "retained_entries": [
+        {
+          "id": "7693a996",
+          "score": 3.2840676066666665,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 74
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt_modified-s403",
+      "chain": 9,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": 0,
+      "reference_score": 5.261537866666666,
+      "best_retained_score": 5.42989428,
+      "retained_entries": [
+        {
+          "id": "e00c0eda",
+          "score": 5.42989428,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 76
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt_modified-s404",
+      "chain": 2,
+      "fate": "graduated",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": 2,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.242742546666667,
+      "best_retained_score": 5.294071440000001,
+      "retained_entries": [
+        {
+          "id": "a19d9bd2",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "9a36bc90",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "1aa4f828",
+          "score": 5.294040186666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 40
+        },
+        {
+          "id": "84a3aa6f",
+          "score": 5.294046913333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 53
+        },
+        {
+          "id": "92f14819",
+          "score": 5.294046913333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 67
+        },
+        {
+          "id": "42e50916",
+          "score": 5.294071440000001,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 75
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt_modified-s404",
+      "chain": 3,
+      "fate": "retired",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.242742546666667,
+      "best_retained_score": 4.963978233333333,
+      "retained_entries": [
+        {
+          "id": "ada91830",
+          "score": 3.0361841866666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 23
+        },
+        {
+          "id": "c3877ff1",
+          "score": 4.8909279,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 33
+        },
+        {
+          "id": "9eecf89c",
+          "score": 4.910209673333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 43
+        },
+        {
+          "id": "9ecfdd6d",
+          "score": 4.963978233333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 57
+        },
+        {
+          "id": "817114db",
+          "score": 4.824663753333333,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 69
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt_modified-s404",
+      "chain": 4,
+      "fate": "retired",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.242742546666667,
+      "best_retained_score": 4.837385,
+      "retained_entries": [
+        {
+          "id": "e631170a",
+          "score": 4.71717986,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 24
+        },
+        {
+          "id": "0261eb02",
+          "score": 4.715212606666666,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 36
+        },
+        {
+          "id": "ef021ea8",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        },
+        {
+          "id": "d43b0c96",
+          "score": 4.837385,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 58
+        },
+        {
+          "id": "dba11670",
+          "score": 4.737730346666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 79
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt_modified-s404",
+      "chain": 5,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.242742546666667,
+      "best_retained_score": 5.0638041933333335,
+      "retained_entries": [
+        {
+          "id": "c66d3e5b",
+          "score": 3.5743351066666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 25
+        },
+        {
+          "id": "7c65a3e2",
+          "score": 4.95738736,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 35
+        },
+        {
+          "id": "c7ba138b",
+          "score": 5.038748826666668,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 48
+        },
+        {
+          "id": "f8a90bef",
+          "score": 5.0638041933333335,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 60
+        },
+        {
+          "id": "c3b2fc76",
+          "score": 5.045773326666668,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 80
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt_modified-s404",
+      "chain": 6,
+      "fate": "probation",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": null,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.294046913333333,
+      "best_retained_score": 0.0,
+      "retained_entries": [
+        {
+          "id": "c6fd5b05",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt_modified-s404",
+      "chain": 7,
+      "fate": "probation",
+      "initial_validity": 1.0,
+      "first_valid_retained_index": 0,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.294046913333333,
+      "best_retained_score": 4.637589626666667,
+      "retained_entries": [
+        {
+          "id": "97e0e5bc",
+          "score": 4.637589626666667,
+          "validity": 1.0,
+          "eligible_first80_valid_reading": true,
+          "search_eval_index": 72
+        }
+      ]
+    },
+    {
+      "run": "matched-ahc058-molt_modified-s404",
+      "chain": 8,
+      "fate": "probation",
+      "initial_validity": 0.0,
+      "first_valid_retained_index": null,
+      "first_over_1pct_retained_index": null,
+      "reference_score": 5.294046913333333,
+      "best_retained_score": 0.0,
+      "retained_entries": [
+        {
+          "id": "00882028",
+          "score": 0.0,
+          "validity": 0.0,
+          "eligible_first80_valid_reading": false,
+          "search_eval_index": null
         }
       ]
     }
