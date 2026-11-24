@@ -1,5 +1,5 @@
 {
-  "at_unix": 1795494094.184366,
+  "at_unix": 1795495025.6397681,
   "initial_engine_commit": "b496461",
   "corrected_engine_commit": "54856f08436fbda0b5256dbe8438bb6f873a900e",
   "campaign_source_files": {
@@ -48,7 +48,7 @@
     "research/FIRST_PAIR_DIAGNOSTIC.pdf": "d9d5619cdc03be76096ed5accf10c0cb88f913108c2fd6488a5567ab1f9667e6",
     "research/writer_parent_audit.py": "ecf12caee8b165fdead00759b51cb5fb21399772d22c9bd7bcfecb1c73fc86dc",
     "research/BACKUP-matched-ahc024-molt2_adaptive_branches-s400.json": "26cc988494b64e6cde3e5a8134f42169c6a8da8f2922882ea6c830e95e776149",
-    "research/paired_inference.py": "535fc2803d7c54d7ea5f41c52dd4bfd431922be6ae63ab76ff96bcfaee031334",
+    "research/paired_inference.py": "0d75f0fa3222429353b971dcb60f3bb8f9319985717b53820322c8e1cd72ea5b",
     "research/archive_completed_run.py": "063f41705493950223899a1f9a131a393e79b0ca59f616b30378c447115a5a87",
     "research/reread_finalists.py": "86997963f95e147dfec3864f2d17b898cb5b190f3684c52dc99041b5f8e8ed6a",
     "research/preserve_runtime_assets.py": "f9db11aa2d701730443addb5a526391bac5928c7b7e46a16605bd7bb6e72682f",
@@ -84,7 +84,11 @@
     "tasks/ahc058/task.json": "c782d21028eb680b7f4eb642c16c49611ce9cb1b3dd5536e3cadafc2e9de775f",
     "tasks/ahc058/solution.cpp": "599fc27b8c744ec7787eb536dfb8906a85ebe7e2b7c0357bbf0004d97d0590f6",
     "research/archive_validation.py": "8ee3ff7e7d1f1158d824df7d24dbf80487b5abd1623626b80e6ec9ff5928995b",
-    "research/REPORTING_TEST_EVIDENCE.json": "7f189ec0a143f08caf153876dec3a4cfb38ba9a9cbf7307bdcb09f44eed57a29"
+    "research/REPORTING_TEST_EVIDENCE.json": "7f189ec0a143f08caf153876dec3a4cfb38ba9a9cbf7307bdcb09f44eed57a29",
+    "research/plot_completed_blocks.py": "ab1d507af0b5ee0e1be46729e50953aa3bc98bb896de934d73b768bffe6c61e9",
+    "research/CREDIT_SIGNAL_HYPOTHESIS.json": "cc2ca8c437bc939018f8cfddbca32b8cedf15d20a5a59d3da32aa640640fb400",
+    "research/AHC058_SEED400_WINNING_ANCESTRY.json": "6d3e1e5d6762181ffea8140951675fad4c6278717bd2a341b3548ccd90f6859f",
+    "research/SOURCE_INTEGRITY_LATEST.json": "bb93dfec607830a6e0f7c358d807185c56e7564809addd4867e4a73ac644a314"
   },
   "runtime_assets_location": "Private Modal source archive in research/SOURCE_BACKUP_RECEIPT.json",
   "scope": "Versioned campaign records and diagnostics; raw traces remain in checksum-verified private Modal archives."

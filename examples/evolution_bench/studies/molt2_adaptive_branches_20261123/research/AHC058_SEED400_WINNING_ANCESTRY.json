@@ -1,0 +1,134 @@
+{
+  "at_unix": 1795494477.2972772,
+  "run": "matched-ahc058-molt2_adaptive_branches-s400",
+  "selection": {
+    "id": "fa9b3107",
+    "score": 5.493486346666667,
+    "sha256": "c4cc9ce8317d36ee5bc2c90a5e6a5aa50b8dc7f73e7845b79c98c876b2adbb76",
+    "eval_cap": 80,
+    "cases": 150,
+    "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+  },
+  "ancestry": [
+    {
+      "id": "fa9b3107",
+      "generation": 13,
+      "parents": [
+        "318338f2",
+        "d19ab44c"
+      ],
+      "summary": "// EVOLVE-BLOCK-START"
+    },
+    {
+      "id": "318338f2",
+      "generation": 12,
+      "parents": [
+        "27e8dd30",
+        "332202a1"
+      ],
+      "summary": "// EVOLVE-BLOCK-START"
+    },
+    {
+      "id": "27e8dd30",
+      "generation": 11,
+      "parents": [
+        "d19ab44c",
+        "f7f57961"
+      ],
+      "summary": "// EVOLVE-BLOCK-START"
+    },
+    {
+      "id": "d19ab44c",
+      "generation": 10,
+      "parents": [
+        "332202a1",
+        "d1767677"
+      ],
+      "summary": "Looking at the chain's design, I need to keep the simulated annealing over full sequences approach, but improve the initial greedy sequence generation and the SA efficiency. The key improvements:"
+    },
+    {
+      "id": "332202a1",
+      "generation": 9,
+      "parents": [
+        "f7f57961",
+        "862e9e2c"
+      ],
+      "summary": "// EVOLVE-BLOCK-START"
+    },
+    {
+      "id": "f7f57961",
+      "generation": 8,
+      "parents": [
+        "d1767677"
+      ],
+      "summary": "// EVOLVE-BLOCK-START"
+    },
+    {
+      "id": "d1767677",
+      "generation": 7,
+      "parents": [
+        "862e9e2c"
+      ],
+      "summary": "// EVOLVE-BLOCK-START"
+    },
+    {
+      "id": "862e9e2c",
+      "generation": 6,
+      "parents": [
+        "daa35d6c"
+      ],
+      "summary": "Looking at this redesign task, I need to implement a **simulated annealing over full action sequences** approach, replacing daa35d6c's myopic per-turn rollout. The key idea:"
+    },
+    {
+      "id": "daa35d6c",
+      "generation": 5,
+      "parents": [
+        "c11999b0",
+        "21143826"
+      ],
+      "summary": "Looking at this problem, I need to think carefully about the structure:"
+    },
+    {
+      "id": "c11999b0",
+      "generation": 4,
+      "parents": [
+        "0941eac9",
+        "1dbc6c6e"
+      ],
+      "summary": "Looking at this problem, I need to understand the structure:"
+    },
+    {
+      "id": "0941eac9",
+      "generation": 3,
+      "parents": [
+        "21143826",
+        "85f06095"
+      ],
+      "summary": "Looking at this problem, I need to understand the structure:"
+    },
+    {
+      "id": "21143826",
+      "generation": 2,
+      "parents": [
+        "1dbc6c6e"
+      ],
+      "summary": "Looking at this problem, I need to understand the mechanics:"
+    },
+    {
+      "id": "1dbc6c6e",
+      "generation": 1,
+      "parents": [
+        "85f06095"
+      ],
+      "summary": "Looking at this problem, I need to understand the mechanics:"
+    },
+    {
+      "id": "85f06095",
+      "generation": 0,
+      "parents": [],
+      "summary": null
+    }
+  ],
+  "trace_observation": "Winning ancestry contains redesign 862e9e2c, whose saved writer summary proposes simulated annealing over full action sequences replacing target daa35d6c myopic per-turn rollout; target is generation 5, not seed. Subsequent winner is generation 13.",
+  "limits": "A single completed development seed. Saved writer summary and lineage establish proposal ancestry, not isolated causal contribution or cross-seed superiority."
+}

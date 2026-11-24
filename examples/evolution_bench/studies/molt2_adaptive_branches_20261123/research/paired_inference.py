@@ -51,6 +51,10 @@ def build_analysis():
   subprocess.run([sys.executable,str(R/'research/reward_sensitivity.py')],check=True,capture_output=True,text=True,timeout=120)
   return json.loads((R/'research/REWARD_SENSITIVITY.json').read_text())
  result['reward_signal_audit']=optional('reward_signal_audit',rewards,errors);save()
+ def curves():
+  subprocess.run([sys.executable,str(R/'research/plot_completed_blocks.py')],check=True,capture_output=True,text=True,timeout=120)
+  return {'pdf':str(R/'research/COMPLETED_MATCHED_BLOCKS.pdf'),'data':str(R/'research/COMPLETED_MATCHED_BLOCKS_DATA.json'),'scope':'Completed matched task/seed blocks only; individual curves, not pooled inference'}
+ result['completed_block_curves']=optional('completed_block_curves',curves,errors);save()
  if (R/'CAMPAIGN_COMPLETE.json').exists() and (R/'FINALIST_FREEZE.json').exists():
   def rereads():
    subprocess.run([sys.executable,str(R/'research/reread_finalists.py')],check=True,capture_output=True,text=True,timeout=44100)

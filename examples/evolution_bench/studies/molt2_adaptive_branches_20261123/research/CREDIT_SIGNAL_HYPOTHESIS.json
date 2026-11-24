@@ -1,0 +1,33 @@
+{
+  "at_unix": 1795494154.2395225,
+  "status": "interim_development_hypothesis_not_policy_evidence",
+  "source": "REWARD_SENSITIVITY.json",
+  "observations": [
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s400",
+      "work_items": 43,
+      "native_1pct_positive_work_items": 0,
+      "any_positive_work_items": 6
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s401",
+      "work_items": 43,
+      "native_1pct_positive_work_items": 0,
+      "any_positive_work_items": 5
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s400",
+      "work_items": 43,
+      "native_1pct_positive_work_items": 4,
+      "any_positive_work_items": 12
+    }
+  ],
+  "interpretation": "Fixed 1% frontier improvement yields zero positive allocation feedback on the two completed AHC024 seeds, but four positives on the completed AHC058 seed. Sparse credit is task-scale dependent; this does not establish causation or policy superiority.",
+  "next_ablation_after_campaign": "Keep parent selection and all evaluator/model conditions fixed; compare current binary reward against a separately specified scale-adaptive improvement reward on development cases. Preserve independent validation.",
+  "constraints": [
+    "Do not retune current in-flight campaign",
+    "Do not infer lower thresholds improve future search from offline counts",
+    "Check repeated public-case score variability before rewarding tiny differences",
+    "Do not pool tasks with incompatible score scales"
+  ]
+}
