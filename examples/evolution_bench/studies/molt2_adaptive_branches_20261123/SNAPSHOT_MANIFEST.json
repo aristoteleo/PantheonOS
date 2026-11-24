@@ -1,5 +1,5 @@
 {
-  "at_unix": 1795538370.8022742,
+  "at_unix": 1795538870.9776094,
   "initial_engine_commit": "b496461",
   "corrected_engine_commit": "54856f08436fbda0b5256dbe8438bb6f873a900e",
   "campaign_source_files": {
@@ -175,7 +175,14 @@
     "research/REREAD_VARIABILITY_EXAMPLE.json": "ab025c9b3a768863361c29096d427b2b43f0f35898be07477ebae3908d378eb7",
     "research/AHC024_MOLT2_BREAKTHROUGH_REREAD_INTERIM.json": "a0c78a421169f304cee84608e5432c9b3b1e3a7c45c6860503c2d9e2e3fdfcda",
     "research/ANALYSIS_WATCH_STATUS.json": "fc5407f11a5d394719431bb38df0fa8513e133afd51fa0a7557c6ec557e0fa70",
-    "research/ablation-relabel/run.py": "ef448fa201b1250ae836555fc1de4b82c857d6d5d71027167329da28de21c90d"
+    "research/ablation-relabel/run.py": "ef448fa201b1250ae836555fc1de4b82c857d6d5d71027167329da28de21c90d",
+    "research/ablation-relabel/REPORT.json": "9af4d91f2a3ce638774d8099d9fc9bdb64ae75042ef8c8d53a604b4d52d6bbcd",
+    "research/ablation-relabel/FINDINGS.json": "5ef04d912d03932ed36a84b98230277a69125cf6cafc76579813317bce3a2147",
+    "research/NOISE_CREDIT_ABLATION_PLAN.json": "d6d1792cf94454ef1a860d1aa110c0fbc0c815c764cde50637281dc398be03e4",
+    "research/ablation-relabel/results/manual-no-relabel/slot1/AUDIT.json": "2413f87154e77a13b2bcb72b64a748ced04d9fab4dfb2dccba54c343edc234e2",
+    "research/ablation-relabel/results/manual-no-relabel/slot0/AUDIT.json": "bca189cf875a407226bf74b7271748abf84ed01a21c5aa3f251764f15c20de17",
+    "research/ablation-relabel/results/selected-original/slot1/AUDIT.json": "840d7db94f32493e4d61daa173fb11dd7f1cf07fb174448da847bcc17541dcd3",
+    "research/ablation-relabel/results/selected-original/slot0/AUDIT.json": "d11c993a774bb082618ce08f3ff24312ab7fec21792a55d00121efed26f0e958"
   },
   "runtime_assets_location": "Private Modal source archive in research/SOURCE_BACKUP_RECEIPT.json",
   "scope": "Versioned campaign records and diagnostics; raw traces remain in checksum-verified private Modal archives."

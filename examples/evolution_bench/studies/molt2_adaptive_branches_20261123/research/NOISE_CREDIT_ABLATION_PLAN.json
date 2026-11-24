@@ -1,0 +1,16 @@
+{
+  "at_unix": 1795538483.5502915,
+  "status": "prepared_not_launched",
+  "engine_worktree": "/home/erwinpi/molt2-noise-credit-engine",
+  "parent_commit": "54856f08436fbda0b5256dbe8438bb6f873a900e",
+  "single_change": "Replace binary relative frontier-gain credit by scale-normalized positive frontier gain above a fixed empirical repeat-variation gate. Keep planner, writer parents, selection, trigger, probation, proposal order and CPU/case/evaluation budget fixed.",
+  "threshold_rule": "Median across all20 frozen selected programs per task of absolute difference between the two public training rereads. Frozen before any new evolution. A heuristic sensitivity parameter, not a calibrated noise confidence bound.",
+  "noise_tolerance_by_task": {
+    "ahc024": 6.666666666710341e-06,
+    "ahc058": 0.009678663333333226
+  },
+  "gain_history": "Prior finite positive global frontier gains from retained64-evaluation allocation history only. No future observations. Cold start credit1 above gate.",
+  "budget_constraint": "Cumulative math cap74USD unchanged; about10USD conservatively available. No launch before integration tests and explicit paired protocol freeze.",
+  "caution": "May suppress real gains or reward noisy ones; fractional Beta credits are heuristic. New runs remain development evidence and cannot establish statistical superiority from a small pilot.",
+  "validation_accessed": false
+}

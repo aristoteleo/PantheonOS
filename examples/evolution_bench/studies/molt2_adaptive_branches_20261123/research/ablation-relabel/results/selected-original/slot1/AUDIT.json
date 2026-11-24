@@ -1,0 +1,33 @@
+{
+  "source": "selected-original.cpp",
+  "sha256": "f83760c67c79df6be85679deea0dc19188172174ed381f27769d1b05cc74fdba",
+  "slot": 1,
+  "cores": [
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50,
+    51
+  ],
+  "manually_modified": false,
+  "used_for_selection": false,
+  "result": {
+    "combined_score": 0.9707933333333333,
+    "raw_score": 970.7933333333333,
+    "total_score": 145619.0,
+    "score_spread": 0.0,
+    "num_accepted": 150,
+    "num_cases": 150,
+    "n_eval_runs": 1,
+    "validity": 1.0,
+    "eval_time": 44.98592662811279,
+    "fitness_weights": {
+      "combined_score": 1.0
+    }
+  },
+  "status": "valid",
+  "wall_seconds": 45.0598886013031
+}

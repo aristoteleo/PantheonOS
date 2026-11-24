@@ -1,0 +1,10 @@
+{
+  "at_unix": 1795538453.4269087,
+  "paired_slot_mean_scores": {
+    "selected-original.cpp": 0.9774433333333333,
+    "manual-no-relabel.cpp": 0.63849
+  },
+  "interpretation": "Disallowing nonzero relabeling reduces the selected modified-Molt program to about0.6385, while unchanged code scores about0.9774 in these repeats. This supports relabeling as a useful component of this one generated program, not superiority of an evolution framework. Timing and random trajectories can change when moves are disabled; not a deterministic isolated numerical effect.",
+  "scope": "150 public training cases, both original CPU slots; four checks all valid; no model or held-out access",
+  "next_framework_implication": "Useful search-space changes can require a valid but initially weak intermediate implementation; evaluate proposal maturation and credit against noise before assuming a lower threshold suffices."
+}

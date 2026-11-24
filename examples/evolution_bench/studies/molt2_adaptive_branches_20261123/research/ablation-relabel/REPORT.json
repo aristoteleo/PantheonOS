@@ -1,0 +1,141 @@
+{
+  "rows": [
+    {
+      "source": "selected-original.cpp",
+      "sha256": "f83760c67c79df6be85679deea0dc19188172174ed381f27769d1b05cc74fdba",
+      "slot": 0,
+      "cores": [
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23
+      ],
+      "manually_modified": false,
+      "used_for_selection": false,
+      "result": {
+        "combined_score": 0.9840933333333334,
+        "raw_score": 984.0933333333334,
+        "total_score": 147614.0,
+        "score_spread": 0.0,
+        "num_accepted": 150,
+        "num_cases": 150,
+        "n_eval_runs": 1,
+        "validity": 1.0,
+        "eval_time": 44.67843437194824,
+        "fitness_weights": {
+          "combined_score": 1.0
+        }
+      },
+      "status": "valid",
+      "wall_seconds": 44.740373611450195
+    },
+    {
+      "source": "manual-no-relabel.cpp",
+      "sha256": "7c291c0123c3fcac9b7b43905cd063e26579ef3dfd99140871b0b68290247bac",
+      "slot": 0,
+      "cores": [
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23
+      ],
+      "manually_modified": true,
+      "used_for_selection": false,
+      "result": {
+        "combined_score": 0.63852,
+        "raw_score": 638.52,
+        "total_score": 95778.0,
+        "score_spread": 0.0,
+        "num_accepted": 150,
+        "num_cases": 150,
+        "n_eval_runs": 1,
+        "validity": 1.0,
+        "eval_time": 43.862518310546875,
+        "fitness_weights": {
+          "combined_score": 1.0
+        }
+      },
+      "status": "valid",
+      "wall_seconds": 43.943825244903564
+    },
+    {
+      "source": "manual-no-relabel.cpp",
+      "sha256": "7c291c0123c3fcac9b7b43905cd063e26579ef3dfd99140871b0b68290247bac",
+      "slot": 1,
+      "cores": [
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51
+      ],
+      "manually_modified": true,
+      "used_for_selection": false,
+      "result": {
+        "combined_score": 0.63846,
+        "raw_score": 638.46,
+        "total_score": 95769.0,
+        "score_spread": 0.0,
+        "num_accepted": 150,
+        "num_cases": 150,
+        "n_eval_runs": 1,
+        "validity": 1.0,
+        "eval_time": 44.54931044578552,
+        "fitness_weights": {
+          "combined_score": 1.0
+        }
+      },
+      "status": "valid",
+      "wall_seconds": 44.604777574539185
+    },
+    {
+      "source": "selected-original.cpp",
+      "sha256": "f83760c67c79df6be85679deea0dc19188172174ed381f27769d1b05cc74fdba",
+      "slot": 1,
+      "cores": [
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51
+      ],
+      "manually_modified": false,
+      "used_for_selection": false,
+      "result": {
+        "combined_score": 0.9707933333333333,
+        "raw_score": 970.7933333333333,
+        "total_score": 145619.0,
+        "score_spread": 0.0,
+        "num_accepted": 150,
+        "num_cases": 150,
+        "n_eval_runs": 1,
+        "validity": 1.0,
+        "eval_time": 44.98592662811279,
+        "fitness_weights": {
+          "combined_score": 1.0
+        }
+      },
+      "status": "valid",
+      "wall_seconds": 45.0598886013031
+    }
+  ],
+  "no_model_calls": true,
+  "validation_accessed": false,
+  "selection_changed": false,
+  "limitation": "One selected development program, proposed after seeing its success. This can diagnose a move-set component; it cannot establish framework superiority or an unbiased population effect.",
+  "intervention": "One move-admission guard; input, feasibility checker, scoring, time limit, RNG initialization and rest of selected program unchanged. Manual variant must never be reported as an evolved selected candidate."
+}
