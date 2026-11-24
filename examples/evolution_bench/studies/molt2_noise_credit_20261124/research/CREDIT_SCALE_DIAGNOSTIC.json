@@ -1,0 +1,66 @@
+{
+  "at_unix": 1795547789.9046233,
+  "rows": [
+    {
+      "run": "noise-ahc024-molt2_noise_credit-s500",
+      "noise_gate": 6.666666666710341e-06,
+      "fractional_credit_items": [
+        {
+          "arm": "proposal",
+          "frontier_gain": 6.666666666665932e-05,
+          "credit": 0.005079006772004731,
+          "implied_prior_normalizer": 0.011813333333333287
+        },
+        {
+          "arm": "chain:0",
+          "frontier_gain": 0.0004466666666667063,
+          "credit": 0.037931034482758454,
+          "implied_prior_normalizer": 0.011599999999999944
+        },
+        {
+          "arm": "chain:0",
+          "frontier_gain": 7.999999999996898e-05,
+          "credit": 0.012174875484215619,
+          "implied_prior_normalizer": 0.006023333333333325
+        }
+      ],
+      "current_retained_positive_gain_median": 7.999999999996898e-05
+    },
+    {
+      "run": "noise-ahc024-molt2_noise_credit-s501",
+      "noise_gate": 6.666666666710341e-06,
+      "fractional_credit_items": [
+        {
+          "arm": "chain:1",
+          "frontier_gain": 2.0000000000020002e-05,
+          "credit": 0.0061633281972155105,
+          "implied_prior_normalizer": 0.0021633333333333504
+        },
+        {
+          "arm": "chain:1",
+          "frontier_gain": 1.333333333330966e-05,
+          "credit": 0.004854368931989781,
+          "implied_prior_normalizer": 0.0013733333333333375
+        }
+      ],
+      "current_retained_positive_gain_median": 2.0000000000020002e-05
+    },
+    {
+      "run": "noise-ahc058-molt2_noise_credit-s500",
+      "noise_gate": 0.009678663333333226,
+      "fractional_credit_items": [
+        {
+          "arm": "chain:5",
+          "frontier_gain": 0.031378473333333545,
+          "credit": 0.7668658964799915,
+          "implied_prior_normalizer": 0.028296746666666373
+        }
+      ],
+      "current_retained_positive_gain_median": 0.031378473333333545
+    }
+  ],
+  "scope": "Observed fractional credit and algebraically reconstructed normalizer at that item; rolling history only.",
+  "interpretation": "On AHC024, some small above-noise gains received low credit because their prior scale was much larger than the final retained median. This demonstrates scale adaptation lag, but does not establish that it caused lower selected scores. AHC058 values must be judged separately.",
+  "search_changed": false,
+  "validation_accessed": false
+}

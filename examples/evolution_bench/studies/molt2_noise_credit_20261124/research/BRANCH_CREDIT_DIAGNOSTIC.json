@@ -1,5 +1,5 @@
 {
-  "at_unix": 1795547644.4377968,
+  "at_unix": 1795548661.4180522,
   "rows": [
     {
       "run": "noise-ahc024-molt2_adaptive_branches-s500",
@@ -51,6 +51,72 @@
           "chain": "4",
           "task": "Write a new complete program that parses the input, runs the existing greedy erasure to get a valid map, then for the remaining time alternates between: (a) a full pass of tryErase in random order; (b) if no erasure occurred, perform up to 100 random valid color swaps between adjacent non-zero cells (swap their colors, check full validity using the existing allConnected and adjacency checks). Accept the swaps, then return to (a). If an erasure occurs, keep the swaps. Limit total time to 2s.",
           "hypothesis": "Pure erasure cannot move interior wards; allowing valid color swaps between adjacent non-zero cells can reshape regions and unlock additional erasures. By shifting boundary cells between wards, the non-zero region can become more compact, increasing the number of 0 cells.",
+          "fate": "probation"
+        }
+      ]
+    },
+    {
+      "run": "noise-ahc024-molt2_adaptive_branches-s501",
+      "selected_score": 0.6384466666666667,
+      "selected_chain_memberships": [
+        2
+      ],
+      "selected_origin": [
+        "redesign_origin"
+      ],
+      "history_evaluations_retained": 64,
+      "rolling_history_by_role": {
+        "original_chain": {
+          "work_items": 8,
+          "evaluations": 16,
+          "positive_credit_items": 0,
+          "credit_sum": 0.0,
+          "positive_frontier_gains": 0
+        },
+        "proposal": {
+          "work_items": 6,
+          "evaluations": 6,
+          "positive_credit_items": 0,
+          "credit_sum": 0.0,
+          "positive_frontier_gains": 0
+        },
+        "redesign_origin": {
+          "work_items": 21,
+          "evaluations": 42,
+          "positive_credit_items": 0,
+          "credit_sum": 0.0,
+          "positive_frontier_gains": 1
+        }
+      },
+      "redesign_directions": [
+        {
+          "chain": "2",
+          "task": "Replace the greedy erasure loop in a44d6f56 with a two-phase optimizer. Phase 1: compute non-border colors (no cell on grid border) and force all their cells to be kept. For border-touching colors, force kept all cells adjacent to any non-border color. For each adjacency between border-touching colors (and between border colors and 0), collect all candidate grid edges (pairs of adjacent cells, or border cells for 0). Phase 2: local search over the choice of exactly one candidate edge per adjacency. For a given choice, for each border-touching color, compute a minimum Steiner tree on its remaining cells connecting: the cells incident to its chosen edges, its forced kept cells, and at least one border cell if it touched the border originally. The kept set is the union of these trees plus all non-border cells; all other cells become 0. Start from the edge choices implied by the best a44d6f56 solution. Iteratively pick a random adjacency, try a random alternative candidate edge, recompute Steiner trees for the two affected colors, and accept if total kept cells decreases (or use simulated annealing). Use a 1.8s budget.",
+          "hypothesis": "The greedy cell-by-cell erasure is myopic; it does not globally optimize which boundary edges are kept to preserve adjacencies. By explicitly choosing one edge per adjacency and computing minimal Steiner trees for each color, we can reduce the total kept cells beyond the greedy local optimum.",
+          "fate": "graduated"
+        },
+        {
+          "chain": "3",
+          "task": "Write a new solution that, for each ward c, identifies forced cells: all c-cells adjacent to any non-border ward (a ward with no border cell). For each border-touching ward, also identify terminals for each neighbor d (including 0): the set of c-cells adjacent to d. Solve a Steiner tree on the c-cells to find a minimum-size connected subset that includes all forced cells and at least one cell from each terminal set. Use bitmask DP over the at most ~8 neighbors (Dreyfus-Wagner on the small ward graph). Keep only these cells for c; set all other c-cells to 0. For non-border wards, keep all cells. Then check global 0 connectivity; if isolated 0 components exist, find the shortest path of cells (by number of cells) from each isolated component to the main 0 component and restore those cells to their original colors. Output the resulting map.",
+          "hypothesis": "Per-ward exact minimum connected subgraph (Steiner tree) will find smaller skeletons than greedy cell-by-cell erosion, increasing total erased cells.",
+          "fate": "retired"
+        },
+        {
+          "chain": "4",
+          "task": "Write a new program from scratch (or replacing a44d6f56's algorithm) that: (1) For each color c, collect all cells of color c. Identify 'interface' cells: those adjacent to a different color or the border. (2) For each neighboring color d of c, select one interface cell of c adjacent to d as a terminal (choose the one that minimizes distance to other terminals, or try all and pick best). (3) Compute a minimum Steiner tree connecting these terminals within the subgraph of color c cells, using a standard BFS-based Steiner tree heuristic (e.g., start with one terminal, iteratively add the closest remaining terminal by shortest path, then optionally do local pruning). (4) Mark all cells in the Steiner tree as kept (original color); set all other cells of color c to 0. (5) After processing all colors, check if the 0-region is connected. If not, add back erased cells (i.e., revert some 0s to their original color) along the shortest paths connecting 0-components to the border, ensuring no new adjacencies are created. Output the resulting map.",
+          "hypothesis": "A global per-color Steiner tree extraction will find a smaller connected core for each color than myopic cell-by-cell erasure, because it optimizes the entire color's shape at once rather than making irreversible local decisions. This can leave more cells as 0 while preserving all adjacencies and connectivity.",
+          "fate": "probation"
+        },
+        {
+          "chain": "5",
+          "task": "Replace ad3321f2's global greedy cell-by-cell erasure with an LNS: repeatedly pick a random rectangular window of size up to 8x8, freeze all cells outside, and within the window try to maximize erased cells while maintaining all connectivity and adjacency constraints (using a local exhaustive search or the existing validator). Accept the best local solution and continue until time runs out.",
+          "hypothesis": "A Large Neighborhood Search that re-optimizes small windows (e.g., 6x6 blocks) by exhaustive or greedy local search will escape single-cell local optima by making coordinated erasures that are individually invalid but collectively valid, increasing the number of 0 cells.",
+          "fate": "probation"
+        },
+        {
+          "chain": "6",
+          "task": "Replace the main greedy erasure loop in 20703198 with a simulated annealing search over the 2500 cell states. Start from the current greedy solution. Maintain a penalized objective: zeros minus lambda * (broken adjacencies + disconnected color components). At each step, flip a random cell, locally update the penalized objective, and accept with Metropolis criterion. Keep the best valid map found. Tune lambda and temperature schedule within the 2s budget.",
+          "hypothesis": "Allowing temporary invalid states via simulated annealing on the binary kept matrix can escape local optima where a cell is kept only because removing it would break a constraint, but a different configuration could remove it and add another cell elsewhere for a net gain.",
           "fate": "probation"
         }
       ]

@@ -1,0 +1,11 @@
+{
+  "run": "noise-ahc024-molt2_adaptive_branches-s501",
+  "terminal_status": "complete",
+  "sha256": "433f584bd3bd996d3d5d00d6b342e7c4e31f83d6842189b2bdcea75c1e7a9433",
+  "remote": "/archives/molt2-noise-credit-20261124/runs/noise-ahc024-molt2_adaptive_branches-s501-433f584bd3bd996d3d5d00d6b342e7c4e31f83d6842189b2bdcea75c1e7a9433.tar.gz",
+  "volume": "molt-cardiac4d-runs",
+  "readback_verified": true,
+  "selected_source_sha256": "440039e05835d0a845d20db6c9cc01d284398e5d2ea7661623bb88e91dd5698b",
+  "at_unix": 1795548622.3208666,
+  "validation_accessed": false
+}
