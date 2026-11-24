@@ -1,0 +1,33 @@
+{
+  "at_unix": 1795548701.999338,
+  "reference_commit": "54856f08436fbda0b5256dbe8438bb6f873a900e",
+  "engine_commit": "4185a143274dd2db748f74b62601e51a1040529c",
+  "preserved_control_methods": [
+    {
+      "file": "pantheon/evolution/methods/molt.py",
+      "reference_sha256": "d2026cedce14f8fc52bf5ef8f23a2f85562980eb95cc3d85b124649f726f1608",
+      "current_sha256": "d2026cedce14f8fc52bf5ef8f23a2f85562980eb95cc3d85b124649f726f1608",
+      "byte_identical": true
+    },
+    {
+      "file": "pantheon/evolution/methods/simpletes.py",
+      "reference_sha256": "b874ab93bf86527a6bc03237240cab974e01a080d707b87c4e5238ce22f43853",
+      "current_sha256": "b874ab93bf86527a6bc03237240cab974e01a080d707b87c4e5238ce22f43853",
+      "byte_identical": true
+    },
+    {
+      "file": "pantheon/evolution/methods/molt_modified.py",
+      "reference_sha256": "5904d47d267e9a3a59d0d8460978ff1537f086c8a19879360a2da171bed428a1",
+      "current_sha256": "5904d47d267e9a3a59d0d8460978ff1537f086c8a19879360a2da171bed428a1",
+      "byte_identical": true
+    },
+    {
+      "file": "pantheon/evolution/methods/molt2_adaptive_branches.py",
+      "reference_sha256": "df8412e5712a13d9c5c7fdd80d085ff4aa104517d857041f2432f6c43b7b026d",
+      "current_sha256": "df8412e5712a13d9c5c7fdd80d085ff4aa104517d857041f2432f6c43b7b026d",
+      "byte_identical": true
+    }
+  ],
+  "variant_separate_file": "pantheon/evolution/methods/molt2_noise_credit.py",
+  "working_tree_clean": true
+}

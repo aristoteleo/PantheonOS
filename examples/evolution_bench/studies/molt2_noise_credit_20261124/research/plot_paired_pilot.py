@@ -19,16 +19,19 @@ def main():
     for task in cfg['tasks']:
         for seed in cfg['seeds']:
             scores={}
+            statuses={}
             for method in cfg['methods']:
                 folder=ROOT/'runs'/f'noise-{task}-{method}-s{seed}'
                 wp=folder/'workflow.json'
-                if not wp.exists() or json.loads(wp.read_text())['status']!='complete':
+                status=json.loads(wp.read_text())['status'] if wp.exists() else 'not_started'
+                statuses[method]=status
+                if status!='complete':
                     continue
                 selection=json.loads((folder/'selection.json').read_text())
                 assert selection['eval_cap']==80 and selection['cases']==150
                 assert hashlib.sha256((folder/'selected/solution.cpp').read_bytes()).hexdigest()==selection['sha256']
                 scores[method]=selection['score']
-            rows.append(dict(task=task,seed=seed,scores=scores,paired=len(scores)==2))
+            rows.append(dict(task=task,seed=seed,scores=scores,statuses=statuses,paired=len(scores)==2))
     finished=all(row['paired'] for row in rows)
     if not finished and not args.allow_partial:
         raise SystemExit('Cohort unfinished; use --allow-partial for an explicitly interim figure')
@@ -39,7 +42,8 @@ def main():
         for row in (r for r in rows if r['task']==task):
             x=cfg['seeds'].index(row['seed'])
             if not row['paired']:
-                ax.text(x,.5,'Pending',ha='center',va='center',transform=ax.get_xaxis_transform(),color='gray')
+                label='Incomplete' if any(s not in ['complete','running','queued','not_started'] for s in row['statuses'].values()) else 'Pending'
+                ax.text(x,.5,label,ha='center',va='center',transform=ax.get_xaxis_transform(),color='gray')
                 continue
             ys=[row['scores'][m] for m in cfg['methods']]
             ax.plot([x-.12,x+.12],ys,color='#999999',linewidth=1)
