@@ -1,0 +1,295 @@
+{
+  "at_unix": 1795547644.4377968,
+  "rows": [
+    {
+      "run": "noise-ahc024-molt2_adaptive_branches-s500",
+      "selected_score": 0.6491,
+      "selected_chain_memberships": [
+        4
+      ],
+      "selected_origin": [
+        "redesign_origin"
+      ],
+      "history_evaluations_retained": 64,
+      "rolling_history_by_role": {
+        "original_chain": {
+          "work_items": 20,
+          "evaluations": 40,
+          "positive_credit_items": 0,
+          "credit_sum": 0.0,
+          "positive_frontier_gains": 4
+        },
+        "proposal": {
+          "work_items": 8,
+          "evaluations": 8,
+          "positive_credit_items": 1,
+          "credit_sum": 1.0,
+          "positive_frontier_gains": 2
+        },
+        "redesign_origin": {
+          "work_items": 8,
+          "evaluations": 16,
+          "positive_credit_items": 0,
+          "credit_sum": 0.0,
+          "positive_frontier_gains": 0
+        }
+      },
+      "redesign_directions": [
+        {
+          "chain": "2",
+          "task": "Replace the greedy erasure loop with a simulated annealing local search starting from the original map. The search uses two move types: (1) set a non-zero cell to 0; (2) change a non-zero cell to an adjacent non-zero color. Each move is accepted only if the full map remains valid: every color 0..m connected, and the complete adjacency graph (including 0) matches the original. Use a time limit of 2 seconds and an appropriate cooling schedule.",
+          "hypothesis": "Allowing recoloring of cells between adjacent non-zero colors enables relocating interior wards to the border, where they can be shrunk, overcoming the erasing-only limitation that interior wards cannot be adjacent to 0.",
+          "fate": "retired"
+        },
+        {
+          "chain": "3",
+          "task": "Implement a coordinate-descent optimizer: parse the map, identify interior-only colors (keep all their cells). For each border-touching color, treat its forced cells (adjacent to interior-only colors) as mandatory connected components. For each neighbor color, compute the set of cells of the current color adjacent to any kept cell of that neighbor. Run a Steiner tree DP over subsets of these required groups plus forced components to find the minimum connected subset of the color's cells that hits all groups and includes all forced cells. Update the color's kept cells. Iterate over all border-touching colors until convergence or time limit. Output the final map.",
+          "hypothesis": "The current greedy erases cells one by one and can get stuck in local optima where a color's kept cells are not a minimum connected subgraph for its required adjacencies. Optimizing each border-touching color's kept cells exactly via a Steiner tree DP (given other colors fixed) will find smaller valid connected subgraphs, increasing total erased cells.",
+          "fate": "retired"
+        },
+        {
+          "chain": "4",
+          "task": "Write a new complete program that parses the input, runs the existing greedy erasure to get a valid map, then for the remaining time alternates between: (a) a full pass of tryErase in random order; (b) if no erasure occurred, perform up to 100 random valid color swaps between adjacent non-zero cells (swap their colors, check full validity using the existing allConnected and adjacency checks). Accept the swaps, then return to (a). If an erasure occurs, keep the swaps. Limit total time to 2s.",
+          "hypothesis": "Pure erasure cannot move interior wards; allowing valid color swaps between adjacent non-zero cells can reshape regions and unlock additional erasures. By shifting boundary cells between wards, the non-zero region can become more compact, increasing the number of 0 cells.",
+          "fate": "probation"
+        }
+      ]
+    },
+    {
+      "run": "noise-ahc024-molt2_noise_credit-s500",
+      "selected_score": 0.6390266666666666,
+      "selected_chain_memberships": [
+        0
+      ],
+      "selected_origin": [
+        "original_chain"
+      ],
+      "history_evaluations_retained": 64,
+      "rolling_history_by_role": {
+        "proposal": {
+          "work_items": 7,
+          "evaluations": 7,
+          "positive_credit_items": 1,
+          "credit_sum": 0.005079006772004731,
+          "positive_frontier_gains": 1
+        },
+        "original_chain": {
+          "work_items": 13,
+          "evaluations": 26,
+          "positive_credit_items": 2,
+          "credit_sum": 0.050105909966974074,
+          "positive_frontier_gains": 2
+        },
+        "redesign_origin": {
+          "work_items": 15,
+          "evaluations": 30,
+          "positive_credit_items": 0,
+          "credit_sum": 0.0,
+          "positive_frontier_gains": 0
+        }
+      },
+      "redesign_directions": [
+        {
+          "chain": "2",
+          "task": "Write a complete new program: 1) Identify non-border colors and mark all their cells and their 4-neighbors as frozen (must keep). 2) For each border-touching color, group its frozen cells into connected components (mandatory components). 3) For each adjacency between two border-touching colors, maintain a witness edge (pair of adjacent cells). 4) For each color, compute the minimum connected subgraph containing all mandatory components and incident witness cells using Dreyfus-Wagner Steiner tree DP on the color's cells, with node weights 0 for frozen cells and 1 otherwise. 5) Perform hill-climbing over witness edges: for each inter-color adjacency, try all alternative boundary edges, recompute Steiner trees for the two affected colors, and accept if total kept cells decreases. 6) Output original color for kept cells and 0 for erased cells.",
+          "hypothesis": "The greedy erases cells individually and cannot temporarily break an adjacency to swap which boundary cell preserves it. By explicitly choosing one witness boundary edge per inter-color adjacency and then solving an exact minimum Steiner tree per color to connect mandatory cells and witness cells, we globally optimize each color's kept skeleton. Local search over witness edges will reduce total kept cells beyond the greedy local optimum.",
+          "fate": "retired"
+        },
+        {
+          "chain": "3",
+          "task": "Write a new solver. Initialize 0-region as outside; candidate queue contains all border cells. Maintain current map, edge counts ecnt, and target adjacency tadj. Repeatedly pop the best boundary cell (heuristic: fewest distinct required neighbor colors, then most same-color neighbors). Tentatively set it to 0; update ecnt; reject if any required ecnt becomes 0 or if the cell's color becomes disconnected (BFS on remaining cells of that color). If accepted, commit, and push its non-0 neighbors into the queue. Use remaining time for randomized restarts with different heuristic weights. Output the best valid map found.",
+          "hypothesis": "A 0-region-growing algorithm that only attempts erasures on the boundary of the current 0 component will avoid wasted checks on isolated cells and naturally maintain 0 connectivity, while a priority queue can choose more erodable cells first. This different search paradigm may find a better local optimum than the pass-based global greedy.",
+          "fate": "graduated"
+        },
+        {
+          "chain": "4",
+          "task": "Write a new program that: (1) parses the original map; (2) for each color, builds a graph of its cells. For each neighbor color (and 0 if the color touches border), identify the set of cells of this color adjacent to that neighbor. (3) For each color, solve a group Steiner tree problem to find a minimum-size connected subset that includes at least one cell from each neighbor group. Use a heuristic: start with all boundary cells, iteratively remove leaves that are not the only cell for any neighbor group, then prune. (4) After independent per-color trees, check for each original edge (c,d) whether there is a kept adjacency. If not, add the necessary cells to one or both colors to create a contact, minimizing added cells. (5) Run a local search that tries to remove any kept cell that is not needed for connectivity or adjacency, repeating until no improvement. Output the resulting map.",
+          "hypothesis": "Current greedy erodes one cell at a time from the outside, which can leave unnecessary cells due to local connectivity traps. A global per-color minimum connected subgraph (Steiner tree) that connects all required neighbor contacts can find a much smaller skeleton for each color, then a coordination pass ensures each original adjacency edge has at least one kept contact. This should erase more cells than greedy erosion.",
+          "fate": "graduated"
+        },
+        {
+          "chain": "5",
+          "task": "Write a new program that (1) starts from the best greedy solution (or original map), (2) extracts for each original edge a kept adjacent pair as the current contact, (3) for each edge, tries alternative adjacent pairs, updates the required cells for the two incident colors, and re-runs a fast per-color greedy erasure to minimize kept cells while preserving connectivity and all required contacts, (4) accepts changes that increase total 0-cells, and (5) repeats until time out. Output the best valid map.",
+          "hypothesis": "The greedy cell-erasure algorithm makes irreversible contact choices when it keeps the last adjacent pair for each color edge. These choices constrain the per-color Steiner trees. A two-level local search that explicitly selects which adjacent cell pair represents each original edge, and then re-shrinks each affected color to a minimal connected subgraph containing its required cells, can escape the greedy local optimum and find a smaller total kept set.",
+          "fate": "probation"
+        }
+      ]
+    },
+    {
+      "run": "noise-ahc024-molt2_noise_credit-s501",
+      "selected_score": 0.6394466666666667,
+      "selected_chain_memberships": [
+        1
+      ],
+      "selected_origin": [
+        "original_chain"
+      ],
+      "history_evaluations_retained": 64,
+      "rolling_history_by_role": {
+        "original_chain": {
+          "work_items": 17,
+          "evaluations": 34,
+          "positive_credit_items": 3,
+          "credit_sum": 1.0110176971292053,
+          "positive_frontier_gains": 3
+        },
+        "proposal": {
+          "work_items": 8,
+          "evaluations": 8,
+          "positive_credit_items": 0,
+          "credit_sum": 0.0,
+          "positive_frontier_gains": 0
+        },
+        "redesign_origin": {
+          "work_items": 11,
+          "evaluations": 22,
+          "positive_credit_items": 0,
+          "credit_sum": 0.0,
+          "positive_frontier_gains": 0
+        }
+      },
+      "redesign_directions": [
+        {
+          "chain": "2",
+          "task": "Rewrite solution.cpp to: (1) identify border-touching wards (A0[0][c]=1) and keep interior wards unchanged; (2) for each border ward, run a Steiner tree DP over its cell graph with terminals: one 0-terminal (any cell on the grid border) and one terminal per neighboring ward (any cell adjacent to that ward); (3) combine the chosen cell sets; (4) for each original adjacency between two border wards that is not represented by an edge between chosen sets, add the minimal cells to one or both wards to restore it; (5) output the resulting map. Ensure all colors remain connected and all original adjacencies hold.",
+          "hypothesis": "Current greedy erosion can leave suboptimal connected shapes in border-touching wards because it removes cells one at a time and gets stuck in local minima. Since each ward has only ~25 cells on average, we can compute the exact minimum connected subset (Steiner tree) for each border ward that covers all required contacts (to 0 and to neighboring wards), then repair broken border-border adjacencies. This per-ward optimization should reduce total kept cells beyond greedy.",
+          "fate": "retired"
+        },
+        {
+          "chain": "3",
+          "task": "Replace the entire algorithm with a Steiner-tree-based skeleton optimizer. For each ward, collect its cells and the boundary cells for each neighbor. Use a Steiner tree heuristic (e.g., Dreyfus-Wagner on the ward's subgraph with terminals chosen from boundary cells) to compute a minimal connected subset that includes at least one cell adjacent to each neighbor. Assemble all ward skeletons, then check 0 connectivity. If 0 is disconnected, repair by removing redundant cells from the skeletons (using the existing tryRemove logic) until 0 is connected. Output the resulting map.",
+          "hypothesis": "The greedy cell removal approximates the minimum connected subgraph problem for each ward but can leave extra cells due to local articulation and last-adjacency constraints. Formulating the problem as a per-ward Steiner tree optimization\u2014where each ward must select a connected subset covering at least one boundary cell for each neighbor\u2014can find smaller skeletons than greedy removal. This directly targets the combinatorial core of the problem.",
+          "fate": "probation"
+        },
+        {
+          "chain": "4",
+          "task": "Write a complete new program that initializes kept cells to the original map, then repeatedly iterates over wards. For each ward c, compute the set of required neighbor groups: for each d with A0[c][d]=1, the set of c-cells adjacent to any currently kept cell of d (or border cells if d=0). Also include the border cells of c if A0[c][0]=1. Solve the minimum connected subgraph of c that intersects each group exactly (Steiner tree DP over subsets of groups). Update c's kept cells to that subgraph. Repeat until no ward's kept cell count decreases or time limit is reached. Ensure all erased cells satisfy the static constraint that every non-0 neighbor is a ward that originally touches 0. Output the final kept cells as colors, others as 0.",
+          "hypothesis": "Replacing the cell-by-cell greedy removal with an iterative per-ward exact Steiner tree re-optimization will find smaller connected subgraphs for each ward because it simultaneously considers all required neighbor adjacencies and border connections, escaping the order-dependent local minima of the greedy.",
+          "fate": "retired"
+        },
+        {
+          "chain": "5",
+          "task": "Write a new program that uses 57a61b58's helpers (tryRemove, initCounts, runGreedy with its modes). First run the greedy for ~0.3s to get an initial bestMap. Then loop until 0.9*tl: copy bestMap to cur; apply a random perturbation by restoring a small connected set of 0 cells to their original colors (e.g., a random walk of length 10-30 through cells, setting each visited 0 cell back to orig[i][j]); then run runGreedy with a random mode and seed until local optimum; if the result has more zeros than bestMap, update bestMap. Output bestMap.",
+          "hypothesis": "57a61b58 is only 0.0000067 below the frontier but still uses random restarts from the original map. Replacing its outer loop with iterated local search (ILS) that perturbs the best map by restoring a small connected region to original colors, then re-running its greedy, can escape the local optimum of the best map and find a better kept set.",
+          "fate": "probation"
+        }
+      ]
+    },
+    {
+      "run": "noise-ahc058-molt2_adaptive_branches-s500",
+      "selected_score": 5.500531179999999,
+      "selected_chain_memberships": [
+        3
+      ],
+      "selected_origin": [
+        "redesign_origin"
+      ],
+      "history_evaluations_retained": 64,
+      "rolling_history_by_role": {
+        "original_chain": {
+          "work_items": 15,
+          "evaluations": 30,
+          "positive_credit_items": 0,
+          "credit_sum": 0.0,
+          "positive_frontier_gains": 0
+        },
+        "proposal": {
+          "work_items": 7,
+          "evaluations": 7,
+          "positive_credit_items": 0,
+          "credit_sum": 0.0,
+          "positive_frontier_gains": 0
+        },
+        "redesign_origin": {
+          "work_items": 13,
+          "evaluations": 26,
+          "positive_credit_items": 1,
+          "credit_sum": 1.0,
+          "positive_frontier_gains": 1
+        }
+      },
+      "redesign_directions": [
+        {
+          "chain": "2",
+          "task": "Replace 678bb30e's per-turn top-K rollout choice with a beam search: maintain W=128 partial histories (State plus action list); each turn expand every beam state by no-op and all affordable upgrades (or top M=12 by existing value_of), apply/produce exactly, rank children by a cheap estimate (current apples + remaining*current level-0 production + sum over affordable upgrades of value_of(s,i,j,remaining)/cost), keep top W; output the action list of the best final state. Use existing State/produce/afford/applyU; no change to I/O.",
+          "hypothesis": "The incumbent's one-step rollout with a fixed greedy completion cannot recover from an early locally-best move that blocks a better multi-step bootstrap; a beam search over partial upgrade sequences can keep multiple such plans and evaluate them exactly, so it can find a sequence whose final apple count exceeds the greedy-rollout basin.",
+          "fate": "retired"
+        },
+        {
+          "chain": "3",
+          "task": "Rewrite solution.cpp for fa2b7d9e as an offline sequence optimizer: first build an initial valid 500-action sequence with the existing fast heuristic/rollout, then use the remaining time to run hill-climbing or simulated annealing over whole sequences. Mutations: move one upgrade earlier/later, swap two upgrades, or replace a no-op with an affordable upgrade; after each mutation, simulate from turn 0 with exact i128 state to verify non-negative apples and compute final S. Keep the best valid sequence and print it.",
+          "hypothesis": "The final score is determined by the entire 500-action sequence; fa2b7d9e commits per-turn to a rollout of the same greedy policy, so it cannot revise early coordinated investments. An offline local search over complete valid sequences can make multi-step edits that compound and escape the per-turn local optimum.",
+          "fate": "graduated"
+        },
+        {
+          "chain": "4",
+          "task": "Replace the per-turn rollout lookahead with an offline beam search planner. Maintain a beam of W=500 states (apples, B, P, parent pointer, move). At each turn t, expand all affordable moves plus no-op from each state, apply move and production, and evaluate each child with a heuristic: score = apples + remaining_turns * current_production_rate + sum over machines of max_i value_of(state, i, j, remaining_turns). Keep the top W states by score. After T turns, backtrack from the best final state to output the move sequence. Use the existing produce, applyU, and value_of functions.",
+          "hypothesis": "The current online one-step rollout commits to a move at each turn based on greedy continuation. This myopic planning can lock in suboptimal early allocations. Replacing it with an offline beam search over the entire T-turn action sequence allows the planner to consider multiple future upgrade paths simultaneously and select a globally better sequence. A wide beam with a cheap potential-based heuristic can explore many more states than the fixed K2=8 rollouts, escaping the local optimum of the online policy.",
+          "fate": "probation"
+        }
+      ]
+    },
+    {
+      "run": "noise-ahc058-molt2_noise_credit-s500",
+      "selected_score": 5.383925153333333,
+      "selected_chain_memberships": [
+        5
+      ],
+      "selected_origin": [
+        "redesign_origin"
+      ],
+      "history_evaluations_retained": 64,
+      "rolling_history_by_role": {
+        "original_chain": {
+          "work_items": 17,
+          "evaluations": 34,
+          "positive_credit_items": 0,
+          "credit_sum": 0.0,
+          "positive_frontier_gains": 0
+        },
+        "proposal": {
+          "work_items": 7,
+          "evaluations": 7,
+          "positive_credit_items": 0,
+          "credit_sum": 0.0,
+          "positive_frontier_gains": 0
+        },
+        "redesign_origin": {
+          "work_items": 11,
+          "evaluations": 22,
+          "positive_credit_items": 3,
+          "credit_sum": 2.7668658964799917,
+          "positive_frontier_gains": 3
+        }
+      },
+      "redesign_directions": [
+        {
+          "chain": "2",
+          "task": "Replace b7f7b1cf's main loop with a beam search. Maintain a beam of up to K=20 states (apples, P, B). At each turn, for each state generate all affordable actions (including do-nothing), simulate one turn exactly, score the resulting state with a fast heuristic (e.g., sum over machines of a closed-form marginal value for the best next upgrade, or a short 5-turn greedy rollout), and keep the top K states by score. Output the action sequence of the best final state. Use exact i128 arithmetic and respect the 2s limit.",
+          "hypothesis": "The incumbent's per-turn rollout is myopic: it evaluates each candidate action by simulating a greedy analytic policy that never saves apples and cannot coordinate upgrades across levels. A beam search over global states can discover non-greedy sequences, such as saving apples for a high-level upgrade or upgrading a higher level before a lower level to amplify compounding, potentially clearing the gap to a higher score.",
+          "fate": "probation"
+        },
+        {
+          "chain": "3",
+          "task": "Replace 03ae25b2's per-turn controller with a complete beam-search planner: maintain a beam of W states over the horizon; at each turn expand each state with all affordable upgrades plus the wait action; apply production; prune to top W using a value estimate combining current apples with analytic marginal-value future potential. Keep the same input/output format and exact production/cost semantics. Adapt W to fit the 2 s limit.",
+          "hypothesis": "The incumbent family uses per-turn one-step rollout with a greedy analytic future policy that never deliberately saves apples. A beam search over action sequences, including wait actions, can capture multi-turn saving for expensive high-level upgrades and interactions between levels, a structurally different bottleneck than candidate ordering or pruning.",
+          "fate": "probation"
+        },
+        {
+          "chain": "4",
+          "task": "Write a new program that first generates an initial 500-action sequence using the myopic marginal-value policy (without time-limited rollouts for speed). Then repeatedly iterate over turns t=0..T-1; for each t, try all affordable actions at turn t given the state reached by the current sequence up to t, keeping the rest of the sequence fixed; simulate the game from t to T for each candidate action; if a candidate yields higher final apples, update the action at t and continue. Run as many passes as fit in the time limit (e.g., until 1.8s). Use exact i128 simulation.",
+          "hypothesis": "The online greedy+rollout policy commits to each action immediately and cannot revise past decisions. An offline local search over the full 500-action sequence can change individual actions (including early ones) and re-simulate the remainder, correcting early suboptimal investments that the one-step rollout misses. This could escape the current local optimum.",
+          "fate": "probation"
+        },
+        {
+          "chain": "5",
+          "task": "Implement a new solution that first runs the existing b7f7b1cf algorithm to generate an initial 500-action sequence. Then, for the remaining time (up to ~1.5s), perform local search: repeatedly pick a random turn, replace its action with a random valid action (or swap two turns), simulate the new sequence from scratch, and accept if the final apple count improves. Use simple hill-climbing with occasional restarts or simulated annealing. Output the best sequence found.",
+          "hypothesis": "The online greedy+rollout policy is myopic: it only evaluates one-step lookahead using the same greedy policy for the rest of the game. An offline local search over the full 500-action sequence can make non-greedy early moves that enable better compounding later, escaping the greedy local optimum.",
+          "fate": "graduated"
+        }
+      ]
+    }
+  ],
+  "validation_accessed": false,
+  "limitations": "Native adaptive history is a rolling window, not a whole-run or strict first-80 allocation. A work item may evaluate multiple children; planner and implementation costs differ. Credit is a policy heuristic, not a probability. Selected score uses the separate strict-cap selection file. This observational decomposition does not establish causality."
+}
