@@ -1,0 +1,33 @@
+{
+  "at_unix": 1795538777.592812,
+  "files": {
+    "campaign.json": "76ae31478cae9512b735a52ed86b1db2b5c5a1a96049ec3d5f86b93fa526c984",
+    "manifest.json": "81174aaf8b227c21ac9c78f0aa79c973292f53c24177f2a42d99cae225763ead",
+    "PROTOCOL.json": "55800e91a8b98f1b24ddf77ce35b30c6b0ab8a711b186f5e3add983746ebf69f",
+    "SOURCE_FREEZE.json": "4c3ac47b4fe54dce8f98aeab8a1442e8e732bcb50ec27cf0bf3d0980452e45dd",
+    "LAUNCH.json": "b4782a3c85ce8f5606284757a16b02e58454cb9f60a0c72e584020a59d9f0391",
+    "CONTROLLER_HANDLE.json": "5e368aa5823296b71459b3f046a42e5da0936f100bfdac239be75358f37f4cfb",
+    "research/RUNTIME_DEPENDENCIES.json": "e4691e2569fb9ed973f35f02fb4bea496ff598f79a349235d8b5f79336a5dd2b",
+    "research/analyze_when_finished.py": "24c2f0e38c2bd5d5aa93885813b101d058b370ba825986111324069648915b24",
+    "research/archive_as_completed.py": "cabe078c03f27b2ec87ab58e8ae0e49d391c8d2793887bbd09624a527fb8d302",
+    "research/archive_completed_run.py": "d392aafcbd966dbc90c3ba1205b3f9f12cb598929565d5ba2c76299d4eb331b2",
+    "runner/test_model_io_queue.py": "b22580fe7d262aa4a7af1cf98d1ec6c8ba561c931ac5b3de6649af0d97004dbe",
+    "runner/receipt_guard.py": "9b7747b5663cc8c79237ec63bd78c4a12afc0e04ecfbe2ea28e29e43895405c7",
+    "runner/development_budget.py": "78b301670ce87720460a40ec59f78c9e629a607e25ab9630adc7a7c282b5b562",
+    "runner/budget_selection.py": "181e176b783dbb000efcad4b7bd9e2a28933b4ff860aa150419248b64fc6b4ca",
+    "runner/instrumentation_route.py": "cf3de9141cc25a7784505f0f26939d356bf1af021872efab918cc1da30ca1ac6",
+    "runner/model_io_queue.py": "8733b355df5521b80d2caa7ae2b8ceb5807f30ae9ef9e807a15d29049307000c",
+    "runner/controller.py": "c53fdf97b4df23b66dec4f5f8b9374d74547af987d047bc3ec1e7cb3fe884bc5",
+    "runner/test_development_budget.py": "b04f8e3218955f005f23005da3fc884394e8137b9bd7ae6acd826c9f063734ed",
+    "runner/test_priced_math_guard.py": "b05f33333d2763dc085d5e03450d6d30d442ce2873f739bcf1e4181a606df1c2",
+    "runner/entry_worker.py": "7b87b39e247ec9491a96a7f4dad726eb2b59ea32794d3716215661797261d1d4",
+    "runner/report.py": "b928d363e6689ca05d6c83cce438897377bae80948ee3a49257c75513f05eaea",
+    "runner/test_budget_selection.py": "03e5408d583a64b3b294fbfbbb6e46629920ba6fa99842248b706f416f5461c4",
+    "runner/model_io_confirmation.py": "cab62433b547ef35efcab0f62ccee83d6e3ff3f4108dad91c525aed56be72cb8",
+    "runner/priced_math_guard.py": "fab36267c882984c042e8fb54e46db2ad0f196b59081e14a081b46c8a0fc0447",
+    "runner/model_io.py": "5b7e1764748708c93ebede580d964b6da2cc93580d108643b78337b754a49f60"
+  },
+  "public_tasks_and_runtime": "Same task files and prequalified public150-case runtime assets as ../molt2_adaptive_branches_20261123; original private archives retain exact data.",
+  "engine_branch": "erwin/molt2-noise-credit-20261124",
+  "engine_commit": "4185a14"
+}

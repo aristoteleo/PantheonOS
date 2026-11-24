@@ -1,0 +1,25 @@
+{
+  "status": "frozen_not_launched",
+  "at_unix": 1795538643.7565777,
+  "new_seeds": [
+    500,
+    501,
+    502
+  ],
+  "runs": 12,
+  "comparators": [
+    "molt2_adaptive_branches",
+    "molt2_noise_credit"
+  ],
+  "noise_tolerances": {
+    "ahc024": 6.666666666710341e-06,
+    "ahc058": 0.009678663333333226
+  },
+  "cases": 150,
+  "evaluation_cap": 80,
+  "model_soft_cap_each": 0.5,
+  "global_math_cap": 74,
+  "read_only_tasks_link": "/home/erwinpi/molt2-adaptive-branches-lab/tasks",
+  "analysis": "Report all3 paired seed deltas per task, descriptive only. No early outcome-based stop or selective seed exclusion. Do not pool with seeds400-404 or claim confirmed superiority.",
+  "reserved_validation_accessed": false
+}
