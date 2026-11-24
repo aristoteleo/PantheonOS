@@ -1,0 +1,43 @@
+{
+  "at_unix": 1795549296.0078385,
+  "progress_rel": 0.002,
+  "source": "pantheon/evolution/methods/molt2_adaptive_branches.py:127-128",
+  "rows": [
+    {
+      "run": "noise-ahc024-molt2_noise_credit-s500",
+      "noise_gate": 6.666666666710341e-06,
+      "retained_work_items": 35,
+      "median_native_threshold": 0.0012780533333333333,
+      "median_native_threshold_to_noise_ratio": 191.70799999874407,
+      "noise_only_gain_items": 3
+    },
+    {
+      "run": "noise-ahc024-molt2_noise_credit-s501",
+      "noise_gate": 6.666666666710341e-06,
+      "retained_work_items": 36,
+      "median_native_threshold": 0.0012787200000000001,
+      "median_native_threshold_to_noise_ratio": 191.80799999874344,
+      "noise_only_gain_items": 3
+    },
+    {
+      "run": "noise-ahc058-molt2_noise_credit-s500",
+      "noise_gate": 0.009678663333333226,
+      "retained_work_items": 35,
+      "median_native_threshold": 0.010470863546666667,
+      "median_native_threshold_to_noise_ratio": 1.0818501673268364,
+      "noise_only_gain_items": 0
+    },
+    {
+      "run": "noise-ahc058-molt2_noise_credit-s501",
+      "noise_gate": 0.009678663333333226,
+      "retained_work_items": 8,
+      "median_native_threshold": 0.010244290466666668,
+      "median_native_threshold_to_noise_ratio": 1.058440624893463,
+      "noise_only_gain_items": 0
+    }
+  ],
+  "interpretation": "The reward-only variant changes both the progress gate and the magnitude of credit. This pilot cannot isolate those components.",
+  "scope": "Retained rolling history; descriptive, not whole-run allocation or causal replay.",
+  "validation_accessed": false,
+  "search_changed": false
+}
