@@ -1,0 +1,12 @@
+{
+  "at_unix": 1795554620.7520506,
+  "status": "verified",
+  "verified": true,
+  "scheduled_runs": 40,
+  "selected_runs": 40,
+  "unique_sources": 40,
+  "expected_repeats": 80,
+  "observed_repeats": 80,
+  "errors": [],
+  "limitation": "Coverage and source identity audit; two repeats do not establish statistical superiority or fully characterize score noise."
+}
