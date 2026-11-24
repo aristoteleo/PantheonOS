@@ -5,7 +5,7 @@ Any incomplete pair group is withheld. Six one-sided comparisons are corrected
 with Holm's procedure. Bootstrap intervals are descriptive with only five seeds.
 """
 from pathlib import Path
-import math,json,random,statistics
+import math,json,random,statistics,subprocess,sys
 R=Path(__file__).resolve().parents[1]
 def analyze(rows):
  out=[]
@@ -33,4 +33,11 @@ if __name__=='__main__':
  from writer_parent_audit import build
  result['writer_parent_audit']=build();
  from run_resource_audit import build as resource_audit
- result['resource_audit']=resource_audit();(R/'research/PAIRED_INFERENCE.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result,indent=2))
+ result['resource_audit']=resource_audit();
+ from baseline_parity import build as baseline_audit
+ result['baseline_parity']=baseline_audit();
+ subprocess.run([sys.executable,str(R/'research/reward_sensitivity.py')],check=True,capture_output=True,text=True)
+ result['reward_signal_audit']=json.loads((R/'research/REWARD_SENSITIVITY.json').read_text());
+ if (R/'CAMPAIGN_COMPLETE.json').exists() and (R/'FINALIST_FREEZE.json').exists():
+  subprocess.run([sys.executable,str(R/'research/reread_finalists.py')],check=True,capture_output=True,text=True)
+  result['public_reproducibility_rereads']=json.loads((R/'research/PUBLIC_REREAD_REPORT.json').read_text());(R/'research/PAIRED_INFERENCE.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result,indent=2))

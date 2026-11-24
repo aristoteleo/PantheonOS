@@ -1,0 +1,14 @@
+{
+  "at_unix": 1795481608.9924827,
+  "status": "scheduled_after_optimizer_termination_only",
+  "public_cases_per_task": 150,
+  "rereads_per_unique_task_source": 2,
+  "cpu_slots": "Both original disjoint8-core slots; each source is run once on each slot",
+  "candidate_selection": "Frozen first80-call selections; never changed by reread outcomes",
+  "duplicate_sources": "Shared exact source hash uses identical common rereads",
+  "no_model_calls": true,
+  "validation_accessed": false,
+  "guard_verified": "Invocation during live optimization refused before creating output directories",
+  "failure_policy": "Invalid results and timeouts are reported; no source replacement or selective retry",
+  "automatic_entrypoint": "Existing analysis watcher -> paired_inference.py -> reread_finalists.py"
+}

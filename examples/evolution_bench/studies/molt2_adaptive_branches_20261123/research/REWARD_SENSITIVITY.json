@@ -1,0 +1,40 @@
+{
+  "at_unix": 1795480586.3505847,
+  "rows": [
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s400",
+      "observed_work_items": 43,
+      "joined_candidate_evaluations": 79,
+      "thresholds": [
+        {
+          "relative_threshold": 0.01,
+          "positive_work_items": 0,
+          "by_arm": {}
+        },
+        {
+          "relative_threshold": 0.001,
+          "positive_work_items": 0,
+          "by_arm": {}
+        },
+        {
+          "relative_threshold": 0.0001,
+          "positive_work_items": 5,
+          "by_arm": {
+            "chain:0": 3,
+            "proposal": 2
+          }
+        },
+        {
+          "relative_threshold": 0.0,
+          "positive_work_items": 6,
+          "by_arm": {
+            "chain:0": 4,
+            "proposal": 2
+          }
+        }
+      ],
+      "reconstruction_matches_native_window": true
+    }
+  ],
+  "caution": "Post-hoc training-only diagnostic of observed signal density, not a policy comparison. Different rewards change future sampling and candidates; no claim that a lower threshold improves performance. Concurrent work uses its recorded dispatch frontier. Tiny differences can reflect scorer timing noise."
+}

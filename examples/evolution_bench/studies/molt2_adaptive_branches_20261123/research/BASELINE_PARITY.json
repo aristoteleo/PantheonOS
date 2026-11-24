@@ -1,0 +1,52 @@
+{
+  "at_unix": 1795481746.8474495,
+  "observed_starts": 4,
+  "scheduled_trials": 40,
+  "all_observed_sources_match": true,
+  "all_observed_seeds_valid150": true,
+  "rows": [
+    {
+      "run": "matched-ahc024-molt-s400",
+      "task": "ahc024",
+      "starting_source_sha256": "dad6022c8f8422bf66c13e49c7e36c95a6668a84ee5f01b92e2bdada4e571f0e",
+      "matches_fixed_seed": true,
+      "starting_score": 0.6378933333333333,
+      "starting_validity": 1.0,
+      "starting_cases_accepted": 150,
+      "selected_generation": 8,
+      "selected_is_starting_source": false,
+      "selected_score": 0.6394333333333333
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s400",
+      "task": "ahc024",
+      "starting_source_sha256": "dad6022c8f8422bf66c13e49c7e36c95a6668a84ee5f01b92e2bdada4e571f0e",
+      "matches_fixed_seed": true,
+      "starting_score": 0.6378533333333334,
+      "starting_validity": 1.0,
+      "starting_cases_accepted": 150,
+      "selected_generation": 7,
+      "selected_is_starting_source": false,
+      "selected_score": 0.6392266666666667
+    },
+    {
+      "run": "matched-ahc024-simpletes-s400",
+      "task": "ahc024",
+      "starting_source_sha256": "dad6022c8f8422bf66c13e49c7e36c95a6668a84ee5f01b92e2bdada4e571f0e",
+      "matches_fixed_seed": true,
+      "starting_score": 0.6378933333333333,
+      "starting_validity": 1.0,
+      "starting_cases_accepted": 150
+    },
+    {
+      "run": "matched-ahc024-molt_modified-s400",
+      "task": "ahc024",
+      "starting_source_sha256": "dad6022c8f8422bf66c13e49c7e36c95a6668a84ee5f01b92e2bdada4e571f0e",
+      "matches_fixed_seed": true,
+      "starting_score": 0.6378733333333333,
+      "starting_validity": 1.0,
+      "starting_cases_accepted": 150
+    }
+  ],
+  "caution": "Source parity is distinct from identical stochastic histories. Wall-clock scores and prompt timing metrics can differ even with the same initial source and configured algorithm/model seeds."
+}
