@@ -1,0 +1,86 @@
+{
+  "at_unix": 1795550047.6139379,
+  "run": "noise-ahc058-molt2_adaptive_branches-s501",
+  "selection": {
+    "id": "14c36e45",
+    "score": 5.233243633333334,
+    "sha256": "9daeb9625a1b6cf44c4d8b25c538234d20e702c1877e96f06d6098fa080dde0c",
+    "eval_cap": 80,
+    "cases": 150,
+    "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+  },
+  "source_hash_verified": true,
+  "chain_memberships": [
+    0
+  ],
+  "chain_roles": [
+    "base"
+  ],
+  "ancestry": [
+    {
+      "id": "14c36e45",
+      "parents": [
+        "d1de80da",
+        "258bedfb"
+      ],
+      "meta": {
+        "summary": "Looking at the problem, key observations:",
+        "candidate": 0,
+        "mutation_seconds": 75.93426012992859
+      }
+    },
+    {
+      "id": "258bedfb",
+      "parents": [
+        "c4b58298"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to understand the mechanics deeply:",
+        "candidate": 0,
+        "mutation_seconds": 69.29907083511353
+      }
+    },
+    {
+      "id": "c4b58298",
+      "parents": [
+        "fb7d903f"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to understand the core mechanics:",
+        "candidate": 0,
+        "mutation_seconds": 218.02976274490356
+      }
+    },
+    {
+      "id": "fb7d903f",
+      "parents": [],
+      "meta": {}
+    },
+    {
+      "id": "d1de80da",
+      "parents": [
+        "f52273fb",
+        "c4b58298"
+      ],
+      "meta": {
+        "summary": "Looking at the two inspirations, both use analytic marginal-value greedy with bounded rollout. Let me think about what could improve here.",
+        "candidate": 0,
+        "mutation_seconds": 143.756249666214
+      }
+    },
+    {
+      "id": "f52273fb",
+      "parents": [
+        "258bedfb",
+        "fb7d903f"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to understand the mechanics deeply:",
+        "candidate": 1,
+        "mutation_seconds": 127.3684389591217
+      }
+    }
+  ],
+  "comparison_status": "Matching variant still running; no final paired comparison.",
+  "validation_accessed": false
+}
