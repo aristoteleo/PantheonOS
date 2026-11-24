@@ -1,0 +1,56 @@
+{
+  "at_unix": 1795499844.0400457,
+  "rows": [
+    {
+      "run": "matched-ahc058-molt-s400",
+      "selected_score": 5.53216096,
+      "chain": 2,
+      "retained_chain_nodes": 5,
+      "planner_record": {
+        "intervention": 0,
+        "direction": "i0/planner_0/direction_01",
+        "task": "Write a new program for 0ab4c9a7 that generates an initial valid sequence using the existing greedy+rollout (or a simple greedy), then runs simulated annealing over the sequence: randomly pick a turn, replace its action with a random affordable action at that point (or swap two actions), re-simulate from that turn to the end, repairing invalid actions by skipping them, and keep the change if final apples increase (or with SA acceptance). Use the remaining time to run as many iterations as possible; output the best sequence found. Reuse the State struct and produce function.",
+        "old": 5.224688686666666,
+        "hypothesis": "The current best is an online greedy with depth-1 rollout; it can lock into locally optimal early upgrades and miss globally better sequences. An offline local search over complete action sequences can escape these local optima by evaluating full sequences exactly and accepting non-greedy rearrangements.",
+        "fate": "graduated",
+        "opened_at": 22,
+        "best": 5.53216096,
+        "decided_at": 74
+      }
+    },
+    {
+      "run": "matched-ahc058-molt_modified-s400",
+      "selected_score": 5.3564282400000005,
+      "chain": 4,
+      "retained_chain_nodes": 4,
+      "planner_record": {
+        "intervention": 0,
+        "direction": "i0/planner_1/direction_01",
+        "task": "Write a complete new program that represents the solution as a fixed T-length action sequence. Initialize with a fast greedy/rollout sequence and then, for the remaining time, repeatedly propose bounded mutations: replace one action with the current best ROI action, swap two adjacent actions, shift an action earlier/later, or toggle do-nothing. Evaluate each candidate by exact simulation of all T turns (rejecting sequences that ever overspend apples) and accept only strict improvements in final apple count. Keep the best sequence found and output it.",
+        "old": 5.21893044,
+        "hypothesis": "Current per-turn rollout commits greedily and cannot revise earlier commitments; a global action-sequence local search can make coordinated multi-turn changes that are locally worse but globally better, directly optimizing final apples instead of one-step ROI.",
+        "fate": "probation",
+        "opened_at": 34
+      }
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s400",
+      "selected_score": 5.493486346666667,
+      "chain": 2,
+      "retained_chain_nodes": 8,
+      "planner_record": {
+        "intervention": 0,
+        "direction": "i0/planner_0/direction_01",
+        "task": "Write a complete new program for daa35d6c's input/output. Generate an initial T-length action sequence by running a greedy policy once. Then run time-limited simulated annealing over full sequences: repeatedly pick a turn, replace its action with a random affordable alternative or -1, simulate the full sequence from the initial state, compute final apples, and accept if better or with temperature. Track the best sequence and output it. If time runs out, output the current best sequence. Use fast simulation with 64-bit/128-bit arithmetic.",
+        "old": 5.254575906666666,
+        "hypothesis": "daa35d6c's per-turn rollout is myopic: it evaluates only the current turn's action plus a greedy continuation, so it can prune early high-level investments that pay off later. A complete sequence-level local search can adjust early investments globally and escape these local traps.",
+        "fate": "graduated",
+        "opened_at": 33,
+        "best": 5.473236646666667,
+        "decided_at": 52
+      }
+    }
+  ],
+  "interpretation": "Vanilla Molt and Molt2 both proposed full-action-sequence simulated annealing. Different final scores therefore do not show a lack of this conceptual idea in either method. Implementation, initial state, scheduling and stochastic differences remain entangled.",
+  "limits": "One development seed; chain node counts are retained ancestry, not exact evaluation costs or causal policy effects."
+}

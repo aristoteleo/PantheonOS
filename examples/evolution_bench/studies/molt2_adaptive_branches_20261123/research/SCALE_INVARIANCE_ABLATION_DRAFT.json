@@ -1,0 +1,36 @@
+{
+  "at_unix": 1795495294.1761189,
+  "status": "candidate_ablation_specification_not_deployed",
+  "motivation": "An additive score offset leaves candidate ordering and improvements unchanged but changes the current fixed-relative reward. This algebraic property is distinct from empirical evidence of better policies.",
+  "counterexample": [
+    {
+      "offset": 0.0,
+      "before": 0.638,
+      "after": 0.639,
+      "gain": 0.0010000000000000009,
+      "current_1pct_reward": 0
+    },
+    {
+      "offset": -0.63,
+      "before": 0.008000000000000007,
+      "after": 0.009000000000000008,
+      "gain": 0.0010000000000000009,
+      "current_1pct_reward": 1
+    }
+  ],
+  "candidate_change": "Replace only allocation credit with bounded improvement normalized by recent nonzero improvement magnitudes; derive any noise gate from repeated public-case measurements. Keep trigger, parents, proposals, writer prompts, ordinary selection, evaluator and budgets fixed.",
+  "required_properties": [
+    "Positive affine score transformations preserve credit apart from floating-point effects",
+    "Failed evaluations still consume allocation cost",
+    "All-zero gains yield zero credit without division by zero",
+    "Scale uses only measurements available when credit is assigned",
+    "Repeated-source timing variability is assessed before crediting tiny gains"
+  ],
+  "gates_before_launch": [
+    "Finish current matched comparison",
+    "Inspect scheduled public-case rereads for timing variability",
+    "Specify estimator window, cold start and noise gate before new runs",
+    "Check remaining authorized cumulative budget; do not increase cap"
+  ],
+  "limits": "Not a claim of novelty or superiority. No numerical formula selected yet because noise evidence is incomplete. No held-out data accessed."
+}

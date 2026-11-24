@@ -1,0 +1,24 @@
+{
+  "at_unix": 1795499545.361998,
+  "run": "matched-ahc024-simpletes-s402",
+  "baseline_metrics": {
+    "llm_score": 0.5,
+    "combined_score": 0.63788,
+    "raw_score": 637.88,
+    "total_score": 95682.0,
+    "score_spread": 0.0,
+    "num_accepted": 150,
+    "num_cases": 150,
+    "n_eval_runs": 1,
+    "validity": 1.0,
+    "eval_time": 28.650044918060303,
+    "fitness_weights": {
+      "combined_score": 1.0
+    }
+  },
+  "first_generated_invalid_reasons": [
+    "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 3 and 30 must be adjacent.\nScore = 0",
+    "150/150 cases rejected -- case 0: WA Tester nonzero: Colors 0 and 1 must not be adjacent.\nScore = 0"
+  ],
+  "conclusion": "Starting program accepted on 150/150 cases. Initial generated programs violate benchmark adjacency rules; zero scores are evaluator-detected invalid outputs, not evidence of a broken baseline."
+}

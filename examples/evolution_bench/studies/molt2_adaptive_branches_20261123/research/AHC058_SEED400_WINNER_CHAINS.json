@@ -1,0 +1,40 @@
+{
+  "at_unix": 1795499814.6400225,
+  "rows": [
+    {
+      "run": "matched-ahc058-molt-s400",
+      "selected_id": "e69c3722",
+      "score": 5.53216096,
+      "final_chain_membership": [
+        2
+      ],
+      "final_roles": {
+        "2": "established"
+      }
+    },
+    {
+      "run": "matched-ahc058-molt_modified-s400",
+      "selected_id": "eaa92db5",
+      "score": 5.3564282400000005,
+      "final_chain_membership": [
+        4
+      ],
+      "final_roles": {
+        "4": "sprout"
+      }
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s400",
+      "selected_id": "fa9b3107",
+      "score": 5.493486346666667,
+      "final_chain_membership": [
+        2
+      ],
+      "final_roles": {
+        "2": "established"
+      }
+    }
+  ],
+  "observation": "All three selected winners occur in introduced chains, outside original chains 0 and 1. This identifies winning lineage location, not causal effects of parent choice or scheduling.",
+  "limitations": "One AHC058 seed. Chain membership and final role alone do not prove which individual intervention caused the improvement."
+}
