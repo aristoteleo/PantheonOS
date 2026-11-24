@@ -49,5 +49,30 @@
     "observation": "Generated programs differ in reachable moves and annealing acceptance, not only framework allocation. The AHC024 compared SA branches each received four productive follow-ups.",
     "consequence": "Do not bundle reward changes with planner/writer changes. A credit-only ablation must keep existing parents, proposal prompts and branch rules fixed; independent runs still require multiple seeds because future histories diverge. A component-level generated-code ablation addresses a different causal question.",
     "current_campaign_unchanged": true
+  },
+  "latest_credit_evidence": {
+    "at_unix": 1795515746.7822878,
+    "completed_ahc024_runs": 4,
+    "native1pct_positive_work_items_by_run": {
+      "matched-ahc024-molt2_adaptive_branches-s400": 0,
+      "matched-ahc024-molt2_adaptive_branches-s401": 0,
+      "matched-ahc024-molt2_adaptive_branches-s402": 0,
+      "matched-ahc024-molt2_adaptive_branches-s403": 0,
+      "matched-ahc058-molt2_adaptive_branches-s400": 4,
+      "matched-ahc058-molt2_adaptive_branches-s401": 3,
+      "matched-ahc058-molt2_adaptive_branches-s402": 5
+    },
+    "interpretation": "Four completed AHC024 adaptive runs have no1% credit, whereas AHC058 has usable positive credit and one adaptive seed wins all controls. This motivates a general score-scale/credit ablation after scheduled noise rereads, not a task-specific switch or an immediate change. The large ModifiedMolt AHC024 breakthrough remains a counterexample to concluding that only tiny gains are available."
+  },
+  "unlaunched_prototype": {
+    "at_unix": 1795516186.8298662,
+    "source": "research/credit_ablation.py",
+    "tests": "research/test_credit_ablation.py",
+    "test_result": "10 passed",
+    "formula": "Zero below a frozen noise gate or for invalid results; otherwise clip((global_gain-noise)/median(prior valid positive global gains),0,1). If no such prior gains, first above-noise gain earns1.",
+    "proposed_history_scope": "Only prior valid positive global-frontier gains whose measurements lie within the existing64-evaluation window; keep failed evaluations in window cost accounting.",
+    "noise_policy": "No tolerance selected yet. Required explicit function argument; estimate/freeze from scheduled public training rereads before launch.",
+    "integration_status": "Pure credit helper only. Not wired into engine, allocator, worker or automatic campaign launcher. No alternative policy evaluation performed.",
+    "limitations": "Fractional credit would be pseudo-count evidence for the existing sampling rule, not a calibrated Bernoulli posterior. The scale can favor small improvements and reduce deep exploration; test as one-factor development ablation. No performance guarantee."
   }
 }

@@ -1,0 +1,23 @@
+{
+  "at_unix": 1795514043.9578693,
+  "engine_checks": [
+    {
+      "engine_root": "/home/erwinpi/molt2-adaptive-branches-engine",
+      "engine_commit": "b49646136e6132df30e72ca63ddbcd54cb445f98",
+      "four_algorithm_files_match_commit": true
+    },
+    {
+      "engine_root": "/home/erwinpi/molt2-adaptive-branches-fixed-engine",
+      "engine_commit": "54856f08436fbda0b5256dbe8438bb6f873a900e",
+      "four_algorithm_files_match_commit": true
+    }
+  ],
+  "live_run_provenance_verified": "matched-ahc024-molt2_adaptive_branches-s403",
+  "unchanged_controls_between_engines": {
+    "pantheon/evolution/methods/molt.py": "d2026cedce14f8fc52bf5ef8f23a2f85562980eb95cc3d85b124649f726f1608",
+    "pantheon/evolution/methods/simpletes.py": "b874ab93bf86527a6bc03237240cab974e01a080d707b87c4e5238ce22f43853",
+    "pantheon/evolution/methods/molt_modified.py": "5904d47d267e9a3a59d0d8460978ff1537f086c8a19879360a2da171bed428a1"
+  },
+  "legacy_provenance_note": "Initial seed400 legacy run predates per-run ENGINE_PROVENANCE.json; its membership is recorded by measurement-event-fix/AMENDMENT.json. Do not claim a per-run file exists for it.",
+  "scientific_settings_changed": false
+}
