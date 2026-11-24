@@ -1,0 +1,132 @@
+{
+  "at_unix": 1795551457.1242704,
+  "run": "noise-ahc058-molt2_noise_credit-s501",
+  "selection": {
+    "id": "649528d9",
+    "score": 5.361436473333334,
+    "sha256": "a18baf9cf7383e0cf1177337b43a1bced80b738309efcbf531105275b30a4da4",
+    "eval_cap": 80,
+    "cases": 150,
+    "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+  },
+  "source_hash_verified": true,
+  "chain_memberships": [
+    3
+  ],
+  "chain_roles": [
+    "established"
+  ],
+  "ancestry": [
+    {
+      "id": "649528d9",
+      "parents": [
+        "41f0f583",
+        "7ea8306d"
+      ],
+      "meta": {
+        "summary": "// EVOLVE-BLOCK-START",
+        "candidate": 1,
+        "mutation_seconds": 34.84362483024597
+      }
+    },
+    {
+      "id": "7ea8306d",
+      "parents": [
+        "f978d6d0"
+      ],
+      "meta": {
+        "summary": "Looking at this design, I need to keep the two-phase algorithm (greedy init + hill-climbing) but improve it. Key issues to fix:",
+        "candidate": 1,
+        "mutation_seconds": 24.71882653236389
+      }
+    },
+    {
+      "id": "f978d6d0",
+      "parents": [
+        "e94d2902"
+      ],
+      "meta": {
+        "summary": "// EVOLVE-BLOCK-START",
+        "candidate": 0,
+        "mutation_seconds": 7.541513442993164
+      }
+    },
+    {
+      "id": "e94d2902",
+      "parents": [
+        "3ae154d9",
+        "7d6c91f3"
+      ],
+      "meta": {
+        "summary": "Looking at the problem, I need to think about the structure: level-0 machines directly produce apples based on `A_j * B[0][j] * P[0][j]`. Higher-level machines boost `B` of lower levels multiplicative",
+        "candidate": 0,
+        "mutation_seconds": 33.92649960517883
+      }
+    },
+    {
+      "id": "7d6c91f3",
+      "parents": [],
+      "meta": {}
+    },
+    {
+      "id": "3ae154d9",
+      "parents": [
+        "4115c035"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to design a solution that maximizes the final apple count through strategic upgrades over 500 turns.",
+        "candidate": 0,
+        "mutation_seconds": 140.33346939086914
+      }
+    },
+    {
+      "id": "4115c035",
+      "parents": [
+        "7d6c91f3"
+      ],
+      "meta": {
+        "summary": "// EVOLVE-BLOCK-START",
+        "candidate": 1,
+        "mutation_seconds": 77.28005051612854
+      }
+    },
+    {
+      "id": "41f0f583",
+      "parents": [
+        "47e30856",
+        "f978d6d0"
+      ],
+      "meta": {
+        "summary": "Looking at this chain's design and the reference solutions, I need to develop a two-phase algorithm: greedy initialization followed by hill-climbing local search. The key insight from the best referen",
+        "candidate": 0,
+        "mutation_seconds": 36.38226795196533
+      }
+    },
+    {
+      "id": "47e30856",
+      "parents": [
+        "7ea8306d"
+      ],
+      "meta": {
+        "summary": "Looking at the inspiration code and the chain's design goals, I need to improve the two-phase algorithm. Key issues to fix:",
+        "candidate": 0,
+        "mutation_seconds": 30.97635793685913
+      }
+    }
+  ],
+  "redesign_directions": [
+    {
+      "intervention": 0,
+      "direction": "i0/planner_1/direction_01",
+      "task": "Replace e94d2902's main loop with a two-phase algorithm: (1) generate an initial action sequence using a fast greedy policy (e.g., pick the highest analyticValue action each turn without rollout); (2) use the remaining time to run hill-climbing local search on the sequence: repeatedly pick a random turn, change its action to a random feasible action (including -1), simulate the full sequence from the initial state to compute final apples, and accept if the final apples increase. Output the best sequence found.",
+      "old": 5.222830453333333,
+      "hypothesis": "e94d2902's per-turn rollout is a one-step lookahead with a fixed policy, which can commit to locally optimal actions that are globally suboptimal. A local search over the full 500-action sequence can fix coordinated multi-turn inefficiencies because simulation is cheap and exact, allowing many mutations to be evaluated within the time limit.",
+      "fate": "graduated",
+      "opened_at": 40,
+      "best": 5.33857228,
+      "decided_at": 59
+    }
+  ],
+  "validation_accessed": false,
+  "scope": "Second of three planned paired seeds. No superiority claim."
+}

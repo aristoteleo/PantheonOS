@@ -1,0 +1,41 @@
+{
+  "at_unix": 1795550579.2303338,
+  "run": "noise-ahc058-molt2_noise_credit-s501",
+  "best_progress_observation": {
+    "t": 1883.9,
+    "n": 48,
+    "score": 5.334107086666667,
+    "id": "47e30856",
+    "fidelity": "full",
+    "valid": 1.0
+  },
+  "candidate_saved": true,
+  "chain_memberships": [
+    3
+  ],
+  "parent_ids": [
+    "7ea8306d"
+  ],
+  "work_items": [
+    {
+      "arm": "chain:3",
+      "reason": "thompson_progress_per_evaluation",
+      "samples": {
+        "chain:1": 0.31100960969856606,
+        "chain:2": 0.020393491278580395,
+        "chain:3": 0.805375586510986,
+        "proposal": 0.4156572268693999
+      },
+      "frontier": 5.3250611333333335,
+      "batch_id": "b7a1026c7",
+      "evaluations": 2,
+      "best_child": 5.334107086666667,
+      "dispatch": 14,
+      "success": 0.0,
+      "frontier_gain": 0.009045953333333578,
+      "binary_credit_reference": 0
+    }
+  ],
+  "provisional": true,
+  "validation_accessed": false
+}

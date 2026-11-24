@@ -1,0 +1,33 @@
+{
+  "at_unix": 1795551457.1247303,
+  "task": "ahc058",
+  "seed": 501,
+  "rows": [
+    {
+      "method": "molt2_adaptive_branches",
+      "selection": {
+        "id": "14c36e45",
+        "score": 5.233243633333334,
+        "sha256": "9daeb9625a1b6cf44c4d8b25c538234d20e702c1877e96f06d6098fa080dde0c",
+        "eval_cap": 80,
+        "cases": 150,
+        "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+      }
+    },
+    {
+      "method": "molt2_noise_credit",
+      "selection": {
+        "id": "649528d9",
+        "score": 5.361436473333334,
+        "sha256": "a18baf9cf7383e0cf1177337b43a1bced80b738309efcbf531105275b30a4da4",
+        "eval_cap": 80,
+        "cases": 150,
+        "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+      }
+    }
+  ],
+  "difference": 0.12819283999999964,
+  "source_hashes_verified": true,
+  "validation_accessed": false,
+  "scope": "Second of three planned paired seeds; descriptive only."
+}

@@ -1,0 +1,19 @@
+{
+  "at_unix": 1795550699.0382476,
+  "run": "noise-ahc058-molt2_noise_credit-s501",
+  "candidate": "41f0f583",
+  "observed_training_score": 5.33857228,
+  "source_file": "provisional-candidates/ahc058-noise-credit-s501-41f0f583.cpp",
+  "sha256": "90cc8b3c96511a5266ecb5b54267cfa974443e29b2274a011304353af7142b49",
+  "comparison_candidate": "f978d6d0",
+  "verified_code_changes": [
+    "Caches states before each turn and simulates only the changed suffix",
+    "Mixes random, nearby-action and analytic-value-biased mutations",
+    "Adds two-turn swaps/mutations and three-turn rotations",
+    "Accepts equal-value moves while retaining the best sequence separately"
+  ],
+  "interpretation": "The follow-up contains substantive code changes, rather than only a changed seed. Their individual score effects have not been isolated. Clock-seeded search still requires the planned repeat evaluation.",
+  "provisional": true,
+  "validation_accessed": false,
+  "search_modified": false
+}
