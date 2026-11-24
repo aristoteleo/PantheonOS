@@ -2874,6 +2874,13 @@ starts it, through the one wake of "The Workspace starts only when asked".
    reads it through the Workspace's file service, as Files does. Anything
    under `.fleet-node/` (each App instance's private data and the node's
    state), whether asked for or reached through a link, stays refused.
+8. *A Start that does not go through says so.* The card shows the Hub's
+   reason with Try again, also when the Workspace is back to paused within
+   five minutes of the page's Start without ever being ready. After three
+   minutes of "Starting your Cloud Workspace…" the page says it is taking
+   longer than usual and offers Keep waiting, Try again and the computers
+   menu; it never stops the Workspace by itself. A viewer opened with no file
+   has its own Start Cloud Workspace for uploading, with the same handling.
 
 ## Open decisions
 
