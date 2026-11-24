@@ -32,5 +32,12 @@
     "Specify estimator window, cold start and noise gate before new runs",
     "Check remaining authorized cumulative budget; do not increase cap"
   ],
-  "limits": "Not a claim of novelty or superiority. No numerical formula selected yet because noise evidence is incomplete. No held-out data accessed."
+  "limits": "Not a claim of novelty or superiority. No numerical formula selected yet because noise evidence is incomplete. No held-out data accessed.",
+  "later_development_evidence": {
+    "at_unix": 1795506666.3905828,
+    "run": "matched-ahc024-molt_modified-s402",
+    "eligible_final_score": 1.1084733333333334,
+    "earlier_plateau_approx": 0.639,
+    "implication": "Large improvements are possible on AHC024. A sparse1% reward during early plateau is not by itself proof of a bad policy; ignoring tiny incumbent gains may also preserve exploration. Lowering the threshold can change that balance and must be tested as an ablation, not assumed beneficial."
+  }
 }

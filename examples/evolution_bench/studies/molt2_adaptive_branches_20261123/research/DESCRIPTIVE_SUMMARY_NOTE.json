@@ -1,0 +1,6 @@
+{
+  "at_unix": 1795506790.1751168,
+  "change": "Add median and observed range of paired differences alongside unchanged mean, all per-seed differences, exact sign test and Holm correction. Clarify independent figure axes.",
+  "reason": "Added descriptively after observing a large valid AHC024 gain in one ModifiedMolt seed. Mean remains reported; no test, candidate selection, exclusion policy or scientific run is changed.",
+  "scope": "Exploratory development reporting; not a newly preregistered inferential endpoint."
+}

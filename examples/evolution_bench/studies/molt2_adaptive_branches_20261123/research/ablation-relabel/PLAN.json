@@ -1,0 +1,15 @@
+{
+  "at_unix": 1795507095.1711419,
+  "status": "prepared_not_launched",
+  "scope": "Optional generated-program mechanism diagnostic, not a new evolution method or a framework comparison",
+  "hypothesis": "The successful generated program benefits from permitting nonzero cell-label changes rather than restricting every output cell to its original label or zero.",
+  "original_selected_run": "matched-ahc024-molt_modified-s402",
+  "original_selected_id": "3bab2a58",
+  "sources": {
+    "selected-original.cpp": "f83760c67c79df6be85679deea0dc19188172174ed381f27769d1b05cc74fdba",
+    "manual-no-relabel.cpp": "7c291c0123c3fcac9b7b43905cd063e26579ef3dfd99140871b0b68290247bac"
+  },
+  "single_intervention": "One move-admission guard; input, feasibility checker, scoring, time limit, RNG initialization and rest of selected program unchanged. Manual variant must never be reported as an evolved selected candidate.",
+  "evaluation_not_yet_scheduled": "If justified after current cohort: same150 public TRAIN cases, same compiler/time limit, repeat both variants on both original CPU slots. No model calls, held-out access or optimizer feedback. Keep primary campaign scores unchanged.",
+  "limitations": "One selected development program, proposed after seeing its success. This can diagnose a move-set component; it cannot establish framework superiority or an unbiased population effect."
+}

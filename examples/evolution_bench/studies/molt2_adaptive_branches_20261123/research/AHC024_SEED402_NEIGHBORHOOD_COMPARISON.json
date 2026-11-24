@@ -1,0 +1,43 @@
+{
+  "at_unix": 1795506908.6079,
+  "scope": "Development AHC024 seed402; ModifiedMolt complete, Molt2 snapshot still in progress",
+  "branches": [
+    {
+      "method": "molt_modified",
+      "chain": 3,
+      "planner_record": {
+        "intervention": 0,
+        "direction": "i0/planner_1/direction_01",
+        "task": "Write a new program that performs simulated annealing on the 50x50 grid. Start from the original map. Moves: pick a random cell, change its color to 0 or to a color of an adjacent cell. Validate incrementally: ensure all colors (including 0) remain connected and the adjacency graph matches the original. Accept if increases zeros, or with probability exp(-delta/T) if it decreases. Use a cooling schedule. Run until time limit, return the best grid found. Reuse the input/output format and basic helpers (color connectivity, adjacency counts).",
+        "old": 0.6393466666666667,
+        "hypothesis": "Allowing non-zero cells to change color (not just erase to 0) expands the search space. Colors can move boundaries to become more compact, freeing cells for erasure. This can escape the local optima of pure greedy erosion.",
+        "fate": "graduated",
+        "opened_at": 27,
+        "best": 1.1084733333333334,
+        "decided_at": 75
+      },
+      "producing_followup_batches": 4,
+      "actual_implementation": "Single-cell recoloring to0 or an adjacent cell color with annealing; permits changes of nonzero color identity."
+    },
+    {
+      "method": "molt2_adaptive_branches",
+      "chain": 3,
+      "planner_record": {
+        "intervention": 0,
+        "direction": "i0/planner_1/direction_01",
+        "task": "Write a new complete program. First run the existing greedy erasure from d0327dca to obtain an initial feasible solution. Precompute the static set of erasable cells: colors touching the border are exposed, and a cell is erasable if its color is exposed and every non-c 4-neighbor color is exposed. Maintain incremental state: for each color, count of 0-adjacent cells; for each color pair, edge count; and connectivity via dynamic BFS on local changes. Run a simulated annealing / LNS loop: randomly pick an erased cell in the static set, un-erase it (restore original color). If this breaks feasibility (e.g., an exposed color loses its last 0-edge, a color-pair edge count drops to 0, or connectivity breaks), reject. Otherwise, try to erase a random subset of neighboring static cells that were previously kept, in random order, using the incremental feasibility check. Accept the new state if it has more erased cells, or with probability exp(-\u0394/T). Run until the 2s time limit.",
+        "old": 0.63788,
+        "hypothesis": "The incumbent's single-pass greedy erasure is myopic and order-dependent. A large-neighborhood / simulated-annealing search over the set of erasable cells can escape local optima by un-erasing a cell and then re-erasing a random subset of its neighbors, accepting moves that increase the number of erased cells and occasionally accepting worsening moves. With correct incremental feasibility checks, thousands of moves are possible in 2s, allowing discovery of configurations unreachable by a single greedy pass.",
+        "fate": "graduated",
+        "opened_at": 27,
+        "best": 0.6383333333333334,
+        "decided_at": 60
+      },
+      "producing_followup_batches": 4,
+      "actual_implementation": "Static erasable-cell mask, zero/restore moves on original colors followed by local erasure; retains a narrower neighborhood."
+    }
+  ],
+  "interpretation": "Both relevant annealing branches received four producing follow-up batches. Their broad SA label hides different move sets: recoloring boundaries versus a restricted erasure/restore neighborhood. This is a plausible search-space mechanism for the observed gap, not a causal estimate of the framework change. Plans, generated implementations, initial histories and stochastic generation also differ.",
+  "general_design_implication": "Audit which inherited restrictions are problem invariants versus optional algorithm assumptions. Do not hardcode a task-specific move into a general evolution framework.",
+  "freeze_policy": "No live algorithm, prompt, candidate source, scorer or budget changed during this analysis."
+}

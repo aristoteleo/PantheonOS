@@ -33,7 +33,7 @@ for ax,(task,seed) in zip(axes.flat,blocks):
  ax.set(title=f'{task.upper()} · seed {seed}',xlabel='Evaluator calls (baseline included)',ylabel='Best eligible training score',xlim=(1,80))
  ax.grid(alpha=.2);ax.legend(fontsize=8)
 fig.suptitle('Completed matched development blocks — individual seeds, not five-seed means',fontsize=12)
-fig.text(.5,.015,'Higher is better. Task score scales differ. Marks show observed endpoints; no validation data or significance claim.',ha='center',fontsize=9)
+fig.text(.5,.015,'Higher is better. Each panel has its own score axis. Marks show observed endpoints; no validation data or significance claim.',ha='center',fontsize=9)
 fig.tight_layout(rect=(0,.055,1,.92))
 for ext in ['pdf','png']:fig.savefig(R/'research'/f'COMPLETED_MATCHED_BLOCKS.{ext}',dpi=180)
 (R/'research/COMPLETED_MATCHED_BLOCKS_DATA.json').write_text(json.dumps({'scope':'Completed matched blocks only; unpooled individual seeds','curves':export},indent=2)+'\n')

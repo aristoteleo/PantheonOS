@@ -21,7 +21,7 @@ def analyze(rows):
     n=sum(d!=0 for d in deltas);wins=sum(d>0 for d in deltas)
     p=sum(math.comb(n,k) for k in range(wins,n+1))/2**n if n else 1.
     rng=random.Random(20261123);samples=sorted(statistics.mean(rng.choices(deltas,k=5)) for _ in range(20000))
-    item.update(status='complete_development_only',mean_difference=statistics.mean(deltas),wins=wins,non_tied_pairs=n,one_sided_sign_p=p,bootstrap_mean_95pct=[samples[500],samples[19499]])
+    item.update(status='complete_development_only',mean_difference=statistics.mean(deltas),median_difference=statistics.median(deltas),observed_difference_range=[min(deltas),max(deltas)],wins=wins,non_tied_pairs=n,one_sided_sign_p=p,bootstrap_mean_95pct=[samples[500],samples[19499]])
    out.append(item)
  # Keep all six planned comparisons in the family, including incomplete groups.
  ranked=sorted([x for x in out if 'one_sided_sign_p' in x],key=lambda x:x['one_sided_sign_p']);prev=0

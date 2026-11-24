@@ -1,0 +1,11 @@
+--- selected-original.cpp
++++ manual-no-relabel.cpp
+@@ -80,6 +80,8 @@
+ // Apply move tentatively. On success returns true and state is committed.
+ // On failure returns false with state restored.
+ static bool tryMoveCommit(int i,int j,int newColor){
++    // MANUAL DIAGNOSTIC ABLATION: keep each cell original-colored or zero.
++    if (newColor != 0 && newColor != origG[i][j]) return false;
+     int oldColor = curG[i][j];
+     if(oldColor==newColor) return false;
+     if(newColor==0){

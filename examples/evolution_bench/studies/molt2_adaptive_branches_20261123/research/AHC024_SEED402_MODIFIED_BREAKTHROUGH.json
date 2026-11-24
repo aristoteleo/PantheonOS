@@ -1,0 +1,169 @@
+{
+  "at_unix": 1795506471.7942843,
+  "run": "matched-ahc024-molt_modified-s402",
+  "provisional": false,
+  "candidate": {
+    "individual_id": "5e1b842d",
+    "code_sha256": "0dd7bc5dea2ab927448245471338ae046740071381479dc33e9cf9374f556320",
+    "measurement_at": 1795505028.4441605,
+    "search_eval_index": 51,
+    "score": 0.9900933333333334,
+    "eligible": true
+  },
+  "metrics": {
+    "llm_score": 0.5,
+    "combined_score": 0.9900933333333334,
+    "raw_score": 990.0933333333334,
+    "total_score": 148514.0,
+    "score_spread": 0.0,
+    "num_accepted": 150,
+    "num_cases": 150,
+    "n_eval_runs": 1,
+    "validity": 1.0,
+    "eval_time": 40.99979043006897,
+    "fitness_weights": {
+      "combined_score": 1.0
+    }
+  },
+  "parent": {
+    "id": "2d372a7d",
+    "generation": 3,
+    "measurements": [
+      {
+        "metrics": {
+          "llm_score": 0.5,
+          "combined_score": 0.001,
+          "raw_score": 1.0,
+          "total_score": 150.0,
+          "score_spread": 0.0,
+          "num_accepted": 150,
+          "num_cases": 150,
+          "n_eval_runs": 1,
+          "validity": 1.0,
+          "eval_time": 42.30558800697327,
+          "fitness_weights": {
+            "combined_score": 1.0
+          }
+        },
+        "artifacts": {
+          "llm_feedback": "",
+          "issues": [],
+          "suggestions": []
+        }
+      }
+    ]
+  },
+  "mechanism": "Planner-proposed grid simulated annealing with temporary score-decreasing moves. A follow-up rewrite changed the implementation from a valid near-zero-score parent to a much better valid program; writer text described fixing bugs, which requires source-level assessment rather than treating its prose as evaluator evidence.",
+  "limits": "Single development seed, current search reading only. No public rereads or validation used; this is ModifiedMolt, not Molt2. Does not prove framework superiority.",
+  "saved_source": "research/provisional-candidates/ahc024-modified-molt-seed402-5e1b842d.cpp",
+  "parent_interpretation": "Parent passed150/150 cases but scored raw1 (combined0.001); it produced no empty cells. Do not call it an invalid program based only on the writer summary.",
+  "verified_bookkeeping_counterexample": {
+    "scope": "Small valid adjacency/connectivity component example; no benchmark evaluation or model call",
+    "grid_after_corner_erasure": [
+      [
+        0,
+        1
+      ],
+      [
+        1,
+        1
+      ]
+    ],
+    "expected_1_to_0_adjacency": true,
+    "parent_row_1_to_0_count_before_recount_zero": 8,
+    "parent_row_1_to_0_count_after_recount_zero": 0,
+    "parent_row_0_to_1_count": 2,
+    "defect": "recountAdj clears both a row and column, but fills only the row. Sequential oldColor/newColor recounts erase needed opposite-direction counts and can reject valid moves.",
+    "child_change": "Full adjacency recount populates symmetric counts together, avoiding that particular stale/incomplete bookkeeping defect.",
+    "limit": "The child also changes other code. This component counterexample establishes a parent defect, not the isolated numerical contribution to the0.99009 aggregate score."
+  },
+  "completed_run_selection": {
+    "id": "3bab2a58",
+    "score": 1.1084733333333334,
+    "sha256": "f83760c67c79df6be85679deea0dc19188172174ed381f27769d1b05cc74fdba",
+    "eval_cap": 80,
+    "cases": 150,
+    "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+  },
+  "completion_status": "complete",
+  "run_source_backup_verified": true,
+  "selected_winner_ancestry": [
+    {
+      "id": "3bab2a58",
+      "generation": 6,
+      "parents": [
+        "08faa613",
+        "2d372a7d"
+      ],
+      "summary": "Looking at this chain, the best-scoring attempt (08faa613, score 1.08646) matches Inspiration 1 closely. The key insight: the SA phase should use **incremental acceptance based on `cnt[0]` change**, a",
+      "scores": [
+        1.1084733333333334
+      ]
+    },
+    {
+      "id": "08faa613",
+      "generation": 5,
+      "parents": [
+        "5e1b842d",
+        "51fcf163"
+      ],
+      "summary": "Looking at this chain's history:",
+      "scores": [
+        1.08646
+      ]
+    },
+    {
+      "id": "5e1b842d",
+      "generation": 4,
+      "parents": [
+        "2d372a7d"
+      ],
+      "summary": "Looking at the reference solution, I can identify several bugs that caused the score=0.0 (invalid output):",
+      "scores": [
+        0.9900933333333334
+      ]
+    },
+    {
+      "id": "2d372a7d",
+      "generation": 3,
+      "parents": [
+        "51fcf163"
+      ],
+      "summary": "Looking at the reference solution, I can identify several issues causing the score of 0.0 (illegal maps):",
+      "scores": [
+        0.001
+      ]
+    },
+    {
+      "id": "51fcf163",
+      "generation": 2,
+      "parents": [
+        "987e126a"
+      ],
+      "summary": "Looking at the task, I need to implement simulated annealing on the 50\u00d750 grid that:",
+      "scores": [
+        0.0
+      ]
+    },
+    {
+      "id": "987e126a",
+      "generation": 1,
+      "parents": [
+        "8402c064"
+      ],
+      "summary": "Looking at this problem, I need to think carefully about the approach.",
+      "scores": [
+        0.6392599999999999
+      ]
+    },
+    {
+      "id": "8402c064",
+      "generation": 0,
+      "parents": [],
+      "summary": null,
+      "scores": [
+        0.6379
+      ]
+    }
+  ]
+}
