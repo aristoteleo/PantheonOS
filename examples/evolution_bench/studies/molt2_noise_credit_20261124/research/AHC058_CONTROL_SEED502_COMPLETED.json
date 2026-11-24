@@ -1,0 +1,192 @@
+{
+  "at_unix": 1795557828.3905413,
+  "run": "noise-ahc058-molt2_adaptive_branches-s502",
+  "selection": {
+    "id": "9f011728",
+    "score": 5.444104713333333,
+    "sha256": "c1a32a37e7b282948a6bd6e80c91098182d62d490cebe81f1c277b0cb322c0a1",
+    "eval_cap": 80,
+    "cases": 150,
+    "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+  },
+  "source_hash_verified": true,
+  "chain_memberships": [
+    3
+  ],
+  "chain_roles": [
+    "established"
+  ],
+  "ancestry": [
+    {
+      "id": "9f011728",
+      "parents": [
+        "c586a4cc",
+        "35858211"
+      ],
+      "meta": {
+        "summary": "Looking at the reference solutions, the key strengths are: (1) incremental evaluation with prefix reuse via `IncEval`, (2) late-acceptance hill climbing, (3) diverse mutation types. The top-scoring on",
+        "candidate": 0,
+        "mutation_seconds": 57.980676889419556
+      }
+    },
+    {
+      "id": "35858211",
+      "parents": [
+        "bb7cee25",
+        "8468702d"
+      ],
+      "meta": {
+        "summary": "// EVOLVE-BLOCK-START",
+        "candidate": 0,
+        "mutation_seconds": 21.157116889953613
+      }
+    },
+    {
+      "id": "8468702d",
+      "parents": [
+        "6a8d91da"
+      ],
+      "meta": {
+        "summary": "We need to redesign the program so that instead of the greedy online rollout, we first generate a valid action sequence using the existing fastPolicy/greedy rollout, then perform iterative local searc",
+        "candidate": 0,
+        "mutation_seconds": 21.11442255973816
+      }
+    },
+    {
+      "id": "6a8d91da",
+      "parents": [
+        "90fb19e4",
+        "52ecf565"
+      ],
+      "meta": {
+        "summary": "Looking at the two reference solutions, they both use the same core approach: a greedy rollout-based beam search using a heuristic value function `fastValue` that estimates the marginal apple value of",
+        "candidate": 0,
+        "mutation_seconds": 46.40529727935791
+      }
+    },
+    {
+      "id": "52ecf565",
+      "parents": [
+        "9faa4b64",
+        "f2d2b4a6"
+      ],
+      "meta": {
+        "summary": "Looking at the two inspirations, I need to understand the problem deeply:",
+        "candidate": 1,
+        "mutation_seconds": 42.20134735107422
+      }
+    },
+    {
+      "id": "f2d2b4a6",
+      "parents": [
+        "f2f26e97"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to understand the mechanics:",
+        "candidate": 0,
+        "mutation_seconds": 68.01015305519104
+      }
+    },
+    {
+      "id": "f2f26e97",
+      "parents": [],
+      "meta": {}
+    },
+    {
+      "id": "9faa4b64",
+      "parents": [
+        "f2f26e97"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to think carefully about the structure of the game.",
+        "candidate": 1,
+        "mutation_seconds": 46.54817724227905
+      }
+    },
+    {
+      "id": "90fb19e4",
+      "parents": [
+        "4799f64c",
+        "9faa4b64"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to understand the structure:",
+        "candidate": 1,
+        "mutation_seconds": 92.90534210205078
+      }
+    },
+    {
+      "id": "4799f64c",
+      "parents": [
+        "52ecf565",
+        "f2f26e97"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to understand the mechanics deeply:",
+        "candidate": 1,
+        "mutation_seconds": 42.04088592529297
+      }
+    },
+    {
+      "id": "bb7cee25",
+      "parents": [
+        "5d4064c9"
+      ],
+      "meta": {
+        "summary": "// EVOLVE-BLOCK-START",
+        "candidate": 0,
+        "mutation_seconds": 48.18173050880432
+      }
+    },
+    {
+      "id": "5d4064c9",
+      "parents": [
+        "8468702d"
+      ],
+      "meta": {
+        "summary": "Looking at the failure: score=0.0, gain=-5.212063. This means the previous attempt scored 0, which is the score for invalid output (fewer than T lines, negative apples, or nonexistent machine). The mo",
+        "candidate": 0,
+        "mutation_seconds": 27.2360782623291
+      }
+    },
+    {
+      "id": "c586a4cc",
+      "parents": [
+        "537124f4",
+        "bb7cee25"
+      ],
+      "meta": {
+        "summary": "Looking at this chain, the design is: greedy initial sequence + offline local search on the full 500-turn action sequence with various mutation types. The recent gain was small (+0.019 from multi-star",
+        "candidate": 1,
+        "mutation_seconds": 29.37770700454712
+      }
+    },
+    {
+      "id": "537124f4",
+      "parents": [
+        "35858211",
+        "5d4064c9"
+      ],
+      "meta": {
+        "summary": "// EVOLVE-BLOCK-START",
+        "candidate": 0,
+        "mutation_seconds": 31.511106252670288
+      }
+    }
+  ],
+  "redesign_directions": [
+    {
+      "intervention": 0,
+      "direction": "i0/planner_1/direction_00",
+      "task": "Replace the main decision loop with a two-phase approach: (1) generate an initial valid sequence using the existing fastPolicy/greedy rollout; (2) perform iterative local search on the sequence, mutating by swapping adjacent actions, moving an action to an earlier turn, or changing an action to another (i,j) or -1, accepting mutations that increase the exact final apple count while maintaining validity. Use the full time budget for as many mutations as possible.",
+      "old": 5.212062946666666,
+      "hypothesis": "The online one-step lookahead commits to each action based on a greedy rollout, which can be myopic and fail to reorder investments to exploit compounding. Offline local search on the entire 500-turn action sequence can discover non-greedy orderings (e.g., upgrading higher levels earlier) that yield higher final apples.",
+      "fate": "graduated",
+      "opened_at": 35,
+      "best": 5.432265986666667,
+      "decided_at": 54
+    }
+  ],
+  "validation_accessed": false,
+  "repeat_scores_pending": true
+}

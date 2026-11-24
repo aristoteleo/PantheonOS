@@ -1,0 +1,106 @@
+{
+  "at_unix": 1795557824.4067132,
+  "tasks": [
+    {
+      "task": "ahc024",
+      "pairs": [
+        {
+          "seed": 500,
+          "scores": {
+            "molt2_adaptive_branches": 0.6491,
+            "molt2_noise_credit": 0.6390266666666666
+          },
+          "statuses": {
+            "molt2_adaptive_branches": "complete",
+            "molt2_noise_credit": "complete"
+          },
+          "difference": -0.010073333333333379
+        },
+        {
+          "seed": 501,
+          "scores": {
+            "molt2_adaptive_branches": 0.6384466666666667,
+            "molt2_noise_credit": 0.6394466666666667
+          },
+          "statuses": {
+            "molt2_adaptive_branches": "complete",
+            "molt2_noise_credit": "complete"
+          },
+          "difference": 0.0010000000000000009
+        },
+        {
+          "seed": 502,
+          "scores": {
+            "molt2_adaptive_branches": 1.8563399999999999,
+            "molt2_noise_credit": 0.63902
+          },
+          "statuses": {
+            "molt2_adaptive_branches": "complete",
+            "molt2_noise_credit": "complete"
+          },
+          "difference": -1.21732
+        }
+      ],
+      "complete": true,
+      "mean_difference": -0.40879777777777776,
+      "median_difference": -0.010073333333333379,
+      "wins": 1,
+      "mean_scores": {
+        "molt2_adaptive_branches": 1.0479622222222222,
+        "molt2_noise_credit": 0.6391644444444444
+      }
+    },
+    {
+      "task": "ahc058",
+      "pairs": [
+        {
+          "seed": 500,
+          "scores": {
+            "molt2_adaptive_branches": 5.500531179999999,
+            "molt2_noise_credit": 5.383925153333333
+          },
+          "statuses": {
+            "molt2_adaptive_branches": "complete",
+            "molt2_noise_credit": "complete"
+          },
+          "difference": -0.1166060266666662
+        },
+        {
+          "seed": 501,
+          "scores": {
+            "molt2_adaptive_branches": 5.233243633333334,
+            "molt2_noise_credit": 5.361436473333334
+          },
+          "statuses": {
+            "molt2_adaptive_branches": "complete",
+            "molt2_noise_credit": "complete"
+          },
+          "difference": 0.12819283999999964
+        },
+        {
+          "seed": 502,
+          "scores": {
+            "molt2_adaptive_branches": 5.444104713333333,
+            "molt2_noise_credit": 5.403834306666667
+          },
+          "statuses": {
+            "molt2_adaptive_branches": "complete",
+            "molt2_noise_credit": "complete"
+          },
+          "difference": -0.04027040666666615
+        }
+      ],
+      "complete": true,
+      "mean_difference": -0.009561197777777567,
+      "median_difference": -0.04027040666666615,
+      "wins": 1,
+      "mean_scores": {
+        "molt2_adaptive_branches": 5.392626508888889,
+        "molt2_noise_credit": 5.383065311111111
+      }
+    }
+  ],
+  "development_only": true,
+  "validation_accessed": false,
+  "limitations": "Three fresh seeds per task; descriptive pilot, no superiority claim or outcome-based exclusions. Do not pool with the prior cohort or substitute historical control scores. Selected search scores can be noisy; no held-out evaluation or automatic reselection."
+}

@@ -1,5 +1,5 @@
 {
-  "at_unix": 1795548661.4180522,
+  "at_unix": 1795557816.4691625,
   "rows": [
     {
       "run": "noise-ahc024-molt2_adaptive_branches-s500",
@@ -117,6 +117,78 @@
           "chain": "6",
           "task": "Replace the main greedy erasure loop in 20703198 with a simulated annealing search over the 2500 cell states. Start from the current greedy solution. Maintain a penalized objective: zeros minus lambda * (broken adjacencies + disconnected color components). At each step, flip a random cell, locally update the penalized objective, and accept with Metropolis criterion. Keep the best valid map found. Tune lambda and temperature schedule within the 2s budget.",
           "hypothesis": "Allowing temporary invalid states via simulated annealing on the binary kept matrix can escape local optima where a cell is kept only because removing it would break a constraint, but a different configuration could remove it and add another cell elsewhere for a net gain.",
+          "fate": "probation"
+        }
+      ]
+    },
+    {
+      "run": "noise-ahc024-molt2_adaptive_branches-s502",
+      "selected_score": 1.8563399999999999,
+      "selected_chain_memberships": [
+        3
+      ],
+      "selected_origin": [
+        "redesign_origin"
+      ],
+      "history_evaluations_retained": 64,
+      "rolling_history_by_role": {
+        "proposal": {
+          "work_items": 11,
+          "evaluations": 11,
+          "positive_credit_items": 1,
+          "credit_sum": 1.0,
+          "positive_frontier_gains": 2
+        },
+        "original_chain": {
+          "work_items": 7,
+          "evaluations": 14,
+          "positive_credit_items": 0,
+          "credit_sum": 0.0,
+          "positive_frontier_gains": 0
+        },
+        "redesign_origin": {
+          "work_items": 19,
+          "evaluations": 38,
+          "positive_credit_items": 2,
+          "credit_sum": 2.0,
+          "positive_frontier_gains": 4
+        }
+      },
+      "redesign_directions": [
+        {
+          "chain": "2",
+          "task": "Replace d5a31fb9's main loop with a simulated annealing search. Start from a map produced by running the original greedy for 0.5s. Then repeatedly: pick a random cell. If it is non-zero, attempt to erase it using the existing tryRemove logic. If it is zero, attempt to restore it to orig[i][j] using a new tryRestore function that checks connectivity of the restored color, 0 connectivity, and adjacency counts. Accept if it increases zeros, or with probability exp((newZeros - oldZeros)/T) otherwise. Cool T from 1.0 to 0.01 over the time limit. Keep the best map seen.",
+          "hypothesis": "The greedy erosion is a one-way process that gets trapped in local optima where early removals prevent later, better configurations. A simulated annealing local search that allows restoring cells to their original colors can escape these local optima by undoing harmful removals, exploring a connected state space of valid maps, and thus finding a map with more zeros.",
+          "fate": "graduated"
+        },
+        {
+          "chain": "3",
+          "task": "Write a complete new program (replacing the EVOLVE-BLOCK) that reads the input, initializes the grid to the original map, and runs simulated annealing for the time limit. Moves: pick a random cell, change its color to 0 or to a color of an adjacent cell. Accept the move if all colors 0..m remain connected (non-empty) and all pairwise adjacencies match the original; otherwise reject. Use a temperature schedule that starts high and cools, accepting worsening moves with probability exp(-delta/T) to escape local optima. Maintain edge counts between colors and use BFS for connectivity checks. Output the best grid found.",
+          "hypothesis": "The current algorithm only erodes wards that originally touch the border. By allowing cells to be recolored to adjacent colors (not just 0), a non-border ward can give a cell to a border-touching neighbor, which then erodes it to 0, effectively shrinking the interior ward without creating illegal 0-adjacencies. A simulated annealing search over the full color assignment can explore these boundary movements and potentially shrink all wards to minimal skeletons, significantly increasing the number of 0 cells.",
+          "fate": "graduated"
+        },
+        {
+          "chain": "4",
+          "task": "Write a complete new program that keeps the same input/output format and feasibility checks (initAdj, tryRemove, connectivity) but replaces the main loop with a genetic algorithm. Represent a solution as a permutation of all non-zero cells (or a priority value per cell). Initialize a population of 20 permutations using random shuffles and the heuristic priorities from d5a31fb9. Evaluate each by resetting to the original map and applying tryRemove in the permutation order for up to 50 sweeps or until no progress; fitness is the number of zeros. Use tournament selection, order crossover (OX1), and swap mutation to create the next generation. Run until the time limit, returning the best solution found.",
+          "hypothesis": "Replacing independent random restarts with a genetic algorithm over removal permutations will explore the order space more effectively by recombining successful partial orders from different restarts, leading to a higher zero count than the current best's plateau.",
+          "fate": "graduated"
+        },
+        {
+          "chain": "5",
+          "task": "Replace d5a31fb9's greedy sweep with a simulated annealing search. State: each original cell is either its original color or 0. Start from the best solution found by d5a31fb9's greedy phase. Moves: pick a random cell and flip it (0 -> original color or original color -> 0). Maintain incremental edge counts and a penalty = 1000 * (sum over colors of (components-1)) + 10 * (number of mismatched adjacency pairs vs A0). Accept moves that reduce penalty, and accept increasing penalty with probability exp(-delta/T). Use a geometric cooling schedule. Keep the best legal (penalty=0) state by number of 0-cells. Run for the remaining time and output the best legal state.",
+          "hypothesis": "The greedy removal used by d5a31fb9 is myopic: a cell that is removable now may block several better removals later. Simulated annealing over the binary keep/remove decision can escape such local optima by temporarily accepting illegal states (penalized) and later repairing them, potentially finding a legal map with more 0-cells.",
+          "fate": "probation"
+        },
+        {
+          "chain": "6",
+          "task": "Write a complete new program that parses the input, builds the original adjacency graph, randomly samples witness adjacent cell pairs for every original edge, computes for each color a connected subset of its original cells containing its witness cells via repeated BFS shortest paths (Steiner heuristic), sets all other cells to 0, then runs a short local repair/SA to connect zero pockets to the outside and fix any lost adjacencies before output.",
+          "hypothesis": "A witness-edge Steiner-tree construction explicitly selects one adjacent cell pair per original ward adjacency and keeps only a minimal connected set per color containing its witness cells. This directly minimizes non-zero cells for the required adjacency graph, whereas cell-by-cell SA may be trapped by local connectivity constraints.",
+          "fate": "probation"
+        },
+        {
+          "chain": "7",
+          "task": "Write a complete new program: (1) parse input and build adjacency graph; (2) for each color, extract its original cells and required neighbor-contact cells, compute a minimal connected subgraph covering those contacts (e.g., prune leaves from a spanning tree of the color region); (3) assign these subgraphs as non-zero cells; (4) repair trapped zero components by eroding non-essential boundary cells; (5) run a short local search (e.g., the existing SA or greedy erosion) to polish the map.",
+          "hypothesis": "A constructive algorithm that first computes a minimal connected subgraph (Steiner tree) for each color covering all its required neighbor contacts, then repairs zero-sea connectivity and refines with local search, will start from a much more compact configuration than the original map and escape the slow erosion bottleneck of the current SA.",
           "fate": "probation"
         }
       ]
@@ -242,6 +314,72 @@
       ]
     },
     {
+      "run": "noise-ahc024-molt2_noise_credit-s502",
+      "selected_score": 0.63902,
+      "selected_chain_memberships": [
+        0
+      ],
+      "selected_origin": [
+        "original_chain"
+      ],
+      "history_evaluations_retained": 64,
+      "rolling_history_by_role": {
+        "proposal": {
+          "work_items": 9,
+          "evaluations": 9,
+          "positive_credit_items": 0,
+          "credit_sum": 0.0,
+          "positive_frontier_gains": 0
+        },
+        "original_chain": {
+          "work_items": 16,
+          "evaluations": 32,
+          "positive_credit_items": 3,
+          "credit_sum": 1.0415086388538901,
+          "positive_frontier_gains": 3
+        },
+        "redesign_origin": {
+          "work_items": 11,
+          "evaluations": 22,
+          "positive_credit_items": 0,
+          "credit_sum": 0.0,
+          "positive_frontier_gains": 0
+        }
+      },
+      "redesign_directions": [
+        {
+          "chain": "2",
+          "task": "Write a complete new program. Start from the best greedy map (or original). Repeatedly iterate over colors. For a chosen color c, fix all other cells. Precompute forced c cells (those adjacent to any color that does not originally touch 0, since they cannot be removed). For each neighbor d with origAdj[c][d]=1, collect the set of c cells adjacent to any currently kept d cell. Solve a Group Steiner Tree on c's cells: find a minimum connected subset that includes all forced cells and at least one cell from each neighbor group. Use BFS within c's cells to compute all-pairs distances, then DP over subsets of neighbor groups (2^g * |cells|) to find the optimal tree. Replace c's cells with this subset. After all colors, check global 0-connectivity and adjacency validity; revert any color change that makes the map invalid. Repeat until time runs out.",
+          "hypothesis": "The greedy erases cells one by one and cannot re-route a color's connections globally. Solving an exact minimum connected subgraph (Group Steiner Tree) for each color given its neighbors' kept cells will find smaller connected subsets that preserve all required adjacencies, reducing the number of kept cells beyond the greedy local optimum.",
+          "fate": "probation"
+        },
+        {
+          "chain": "3",
+          "task": "Replace the target's greedy loop with a complete simulated annealing program. State: a bit `keep[i][j]` for each cell (1=original color, 0=erased). Initialize from the target's current best map. Objective: maximize erased cells minus 1000*penalty, where penalty = sum over colors of (components-1) + sum over original edges of (missing?1:0) + sum over colors not touching 0 of (new 0-c edges) + (0 disconnected?1:0). Moves: flip a random cell. Accept if delta <= 0 or with probability exp(-delta/T). T starts at 10, cools to 0.1 over 1.8s. Use BFS to update connectivity of the affected color and 0 after each move. Output the best feasible map (penalty=0) found.",
+          "hypothesis": "A simulated annealing search over binary keep/erase decisions with penalty for constraint violations can escape the local minima that trap single-cell greedy erasure, finding a map with more zeros.",
+          "fate": "probation"
+        },
+        {
+          "chain": "4",
+          "task": "Write a complete new program that: (1) identifies border colors (adjacent to 0) and keeps all cells of non-border colors; (2) for each border color, precomputes groups of cells adjacent to each neighbor color; (3) solves the group Steiner tree DP over subsets of neighbors and cells to find the minimum connected subset touching all groups; (4) initializes the map with these trees; (5) runs coordinate descent: for each border color, recompute its Steiner tree using the current kept cells of neighbors as groups, adding a cell to a neighbor if an adjacency is missing; (6) outputs the map. Use the same I/O format as 4196459a.",
+          "hypothesis": "The current single-cell greedy cannot rearrange a color's cells globally; computing an exact minimum group Steiner tree per color (to touch all required neighbors) and then iteratively repairing shared edges can find much smaller connected shapes, directly increasing zeros.",
+          "fate": "probation"
+        },
+        {
+          "chain": "5",
+          "task": "Write a complete new program for target 14bcf71d that: (1) builds for each color its internal cell graph and lists of candidate ports (cells adjacent to each neighbor color); (2) initializes a port choice per neighbor; (3) for each color, computes the minimum Steiner tree connecting its chosen ports using Dreyfus-Wagner DP over subsets (or a greedy Steiner heuristic if degree > 12); (4) runs local search over port choices to minimize total kept cells, recomputing only affected colors; (5) repairs 0-connectivity by erasing shortest paths from any isolated 0 component to the border, ensuring color connectivity is maintained; (6) outputs the resulting map.",
+          "hypothesis": "Greedy cell erasure cannot jointly optimize which boundary cells to keep for each color. A port-based Steiner tree formulation directly minimizes the total kept cells: for each color, choose one boundary cell (port) per neighbor, then compute the minimum connected subgraph connecting those ports. Local search over port choices can find much smaller cores than greedy peeling, increasing zeros.",
+          "fate": "probation"
+        },
+        {
+          "chain": "6",
+          "task": "Write a complete new program based on 14bcf71d's I/O and tryErase, but replace the restart loop with an LNS loop: (1) run the existing greedy pass to get an initial map; (2) repeatedly pick a random rectangle or connected region, reset its cells to original colors (or to a random valid color); (3) run the greedy erasure pass on the whole map; (4) accept the new map if it has more zeros, otherwise revert. Use the remaining time for as many LNS iterations as possible.",
+          "hypothesis": "Independent greedy restarts from scratch get trapped in local optima. A large neighborhood search that starts from the best greedy map and repeatedly destroys a random region (resetting cells to original colors) then repairs via the existing greedy erasure pass can escape local optima and combine erasures from different regions, yielding more zeros than any single restart.",
+          "fate": "probation"
+        }
+      ]
+    },
+    {
       "run": "noise-ahc058-molt2_adaptive_branches-s500",
       "selected_score": 5.500531179999999,
       "selected_chain_memberships": [
@@ -291,6 +429,120 @@
           "chain": "4",
           "task": "Replace the per-turn rollout lookahead with an offline beam search planner. Maintain a beam of W=500 states (apples, B, P, parent pointer, move). At each turn t, expand all affordable moves plus no-op from each state, apply move and production, and evaluate each child with a heuristic: score = apples + remaining_turns * current_production_rate + sum over machines of max_i value_of(state, i, j, remaining_turns). Keep the top W states by score. After T turns, backtrack from the best final state to output the move sequence. Use the existing produce, applyU, and value_of functions.",
           "hypothesis": "The current online one-step rollout commits to a move at each turn based on greedy continuation. This myopic planning can lock in suboptimal early allocations. Replacing it with an offline beam search over the entire T-turn action sequence allows the planner to consider multiple future upgrade paths simultaneously and select a globally better sequence. A wide beam with a cheap potential-based heuristic can explore many more states than the fixed K2=8 rollouts, escaping the local optimum of the online policy.",
+          "fate": "probation"
+        }
+      ]
+    },
+    {
+      "run": "noise-ahc058-molt2_adaptive_branches-s501",
+      "selected_score": 5.233243633333334,
+      "selected_chain_memberships": [
+        0
+      ],
+      "selected_origin": [
+        "original_chain"
+      ],
+      "history_evaluations_retained": 64,
+      "rolling_history_by_role": {
+        "original_chain": {
+          "work_items": 20,
+          "evaluations": 40,
+          "positive_credit_items": 0,
+          "credit_sum": 0.0,
+          "positive_frontier_gains": 1
+        },
+        "proposal": {
+          "work_items": 7,
+          "evaluations": 7,
+          "positive_credit_items": 0,
+          "credit_sum": 0.0,
+          "positive_frontier_gains": 0
+        },
+        "redesign_origin": {
+          "work_items": 8,
+          "evaluations": 16,
+          "positive_credit_items": 0,
+          "credit_sum": 0.0,
+          "positive_frontier_gains": 0
+        }
+      },
+      "redesign_directions": [
+        {
+          "chain": "2",
+          "task": "Write a complete new solution.cpp that replaces the turn-by-turn single-rollout loop with a beam search over the first D=40 turns. Maintain a beam of W=64 states (apples, B, P, and action history). At each of the first 40 turns, expand each state by all affordable actions (including do nothing), evaluate each child by completing the remaining turns with the existing greedy rollout (using f52273fb's extraValue and greedyChoice), and keep the top W states by final score. After 40 turns, commit the best state's first action and continue the rest of the game with the original greedy policy. Tune D and W to fit within 2s.",
+          "hypothesis": "The single-first-action rollout is myopic: it cannot discover sequences where a non-greedy first action enables a much better second action. A beam search over the first 40 turns can explore such multi-step plans and then fall back to the existing greedy policy, potentially improving early-game compounding.",
+          "fate": "retired"
+        },
+        {
+          "chain": "3",
+          "task": "Replace d1de80da's per-turn decision with a receding-horizon beam search. At each turn t, run a beam search of width W=64 and horizon H=20: maintain a beam of states (apples, P, B). For each state, generate all valid actions (including do-nothing), apply and produce. Keep the top W states by a cheap heuristic (e.g., apples + sum_j A_j*B0_j*P0_j*remaining). After H steps, evaluate the top few leaf states with the existing greedy rollout for the remaining turns, then execute the first action of the best sequence. Fall back to the current greedy if time runs out.",
+          "hypothesis": "The current online single-path rollout commits to a fixed greedy policy after the first action, which can miss short sequences that sacrifice immediate value to build a cascade. A beam search over the next H actions, evaluating leaves with a fast greedy rollout, can discover non-myopic short-term plans and improve the global score.",
+          "fate": "probation"
+        },
+        {
+          "chain": "4",
+          "task": "Write a complete new program based on 14c36e45's I/O and helpers that replaces per-turn rollout with block beam search: maintain W states (apples,B,P,firstAction); for each block of B turns, expand each state by top M actions per turn using corrected extraValue/cost, simulate the block, evaluate leaves with a short greedy rollout to T, keep top W states by final apples; output firstAction of the best final state. Tune W,M,B within 2s.",
+          "hypothesis": "The current per-turn rollout only chooses among first actions under a fixed greedy continuation. It cannot commit to a multi-turn sequence where an early lower-value action (e.g., building P0 or P1) enables a much larger later cascade. Beam search over blocks of turns can evaluate such coordinated investments and choose the first action of the best sequence.",
+          "fate": "probation"
+        },
+        {
+          "chain": "5",
+          "task": "Rewrite the solution as a beam-search planner: maintain W partial states over a rolling horizon H; expand each by the top M actions ranked by corrected extraValue/cost plus do-nothing; simulate exact production; rank by current apples plus analytic remaining potential; commit the first action of the best sequence, then advance one turn and shift the beam. Tune W/H/M within the 2s budget.",
+          "hypothesis": "14c36e45 commits each turn by evaluating single first actions with a greedy rollout continuation. This cannot retain multi-step plans where a locally suboptimal first action enables later compounding. A beam search over partial action sequences can discover and exploit delayed investment chains.",
+          "fate": "probation"
+        }
+      ]
+    },
+    {
+      "run": "noise-ahc058-molt2_adaptive_branches-s502",
+      "selected_score": 5.444104713333333,
+      "selected_chain_memberships": [
+        3
+      ],
+      "selected_origin": [
+        "redesign_origin"
+      ],
+      "history_evaluations_retained": 64,
+      "rolling_history_by_role": {
+        "original_chain": {
+          "work_items": 14,
+          "evaluations": 28,
+          "positive_credit_items": 1,
+          "credit_sum": 1.0,
+          "positive_frontier_gains": 3
+        },
+        "proposal": {
+          "work_items": 6,
+          "evaluations": 6,
+          "positive_credit_items": 0,
+          "credit_sum": 0.0,
+          "positive_frontier_gains": 1
+        },
+        "redesign_origin": {
+          "work_items": 15,
+          "evaluations": 30,
+          "positive_credit_items": 4,
+          "credit_sum": 4.0,
+          "positive_frontier_gains": 5
+        }
+      },
+      "redesign_directions": [
+        {
+          "chain": "2",
+          "task": "Write a complete new program that implements a beam search over game states. Maintain a beam of K states (e.g., K=200). At each turn, for each state in the beam, consider all 40 strengthening actions plus no-op, apply the action, run production, and score the resulting state using a fast heuristic (e.g., current apples plus a greedy estimate of remaining production). Keep the top K states by this score. After T turns, output the action sequence corresponding to the best final state. Use 64-bit integers and respect the 2s time limit.",
+          "hypothesis": "The current algorithm performs one-step lookahead by rolling out each candidate with a greedy policy. This myopic search may miss action sequences where a currently suboptimal action enables a much better action later. A beam search over full game states can jointly explore multiple future actions, maintaining a diverse set of promising states and pruning by a heuristic, potentially finding higher-scoring sequences than the greedy rollout.",
+          "fate": "retired"
+        },
+        {
+          "chain": "3",
+          "task": "Replace the main decision loop with a two-phase approach: (1) generate an initial valid sequence using the existing fastPolicy/greedy rollout; (2) perform iterative local search on the sequence, mutating by swapping adjacent actions, moving an action to an earlier turn, or changing an action to another (i,j) or -1, accepting mutations that increase the exact final apple count while maintaining validity. Use the full time budget for as many mutations as possible.",
+          "hypothesis": "The online one-step lookahead commits to each action based on a greedy rollout, which can be myopic and fail to reorder investments to exploit compounding. Offline local search on the entire 500-turn action sequence can discover non-greedy orderings (e.g., upgrading higher levels earlier) that yield higher final apples.",
+          "fate": "graduated"
+        },
+        {
+          "chain": "4",
+          "task": "Replace the per-turn one-step rollout with a depth-2 beam search. At each turn, generate the top W1=10 first moves using the exact marginal value. For each, simulate the move and then generate the top W2=10 second moves. Simulate the second move, then run the existing greedy rollout to the end of the game. Choose the first move that yields the highest final apples. Commit that move and proceed to the next turn. Use the exact binomial coefficients from the exploration direction for the marginal value.",
+          "hypothesis": "The current one-step lookahead evaluates each first move in isolation with a greedy rollout, which can miss sequences where a low-immediate-value first move enables a high-value second move. A depth-2 beam search can discover such synergies by evaluating pairs of moves before committing to the first. Using the exact marginal value for candidate generation and pruning keeps the search within the time limit.",
           "fate": "probation"
         }
       ]
@@ -352,6 +604,120 @@
           "task": "Implement a new solution that first runs the existing b7f7b1cf algorithm to generate an initial 500-action sequence. Then, for the remaining time (up to ~1.5s), perform local search: repeatedly pick a random turn, replace its action with a random valid action (or swap two turns), simulate the new sequence from scratch, and accept if the final apple count improves. Use simple hill-climbing with occasional restarts or simulated annealing. Output the best sequence found.",
           "hypothesis": "The online greedy+rollout policy is myopic: it only evaluates one-step lookahead using the same greedy policy for the rest of the game. An offline local search over the full 500-action sequence can make non-greedy early moves that enable better compounding later, escaping the greedy local optimum.",
           "fate": "graduated"
+        }
+      ]
+    },
+    {
+      "run": "noise-ahc058-molt2_noise_credit-s501",
+      "selected_score": 5.361436473333334,
+      "selected_chain_memberships": [
+        3
+      ],
+      "selected_origin": [
+        "redesign_origin"
+      ],
+      "history_evaluations_retained": 64,
+      "rolling_history_by_role": {
+        "original_chain": {
+          "work_items": 12,
+          "evaluations": 24,
+          "positive_credit_items": 0,
+          "credit_sum": 0.0,
+          "positive_frontier_gains": 0
+        },
+        "proposal": {
+          "work_items": 8,
+          "evaluations": 8,
+          "positive_credit_items": 1,
+          "credit_sum": 0.5494326215171518,
+          "positive_frontier_gains": 1
+        },
+        "redesign_origin": {
+          "work_items": 16,
+          "evaluations": 32,
+          "positive_credit_items": 1,
+          "credit_sum": 0.13515447479145296,
+          "positive_frontier_gains": 3
+        }
+      },
+      "redesign_directions": [
+        {
+          "chain": "2",
+          "task": "Implement a beam search over T turns. Maintain top K=1000 states per turn. For each state, consider do-nothing and all affordable upgrades; apply action, run production, and score the new state by the exact final apples if no further upgrades occur (computed via polynomial sums of B0 over remaining turns). Keep top K states by this score. At the end, output the action sequence of the best state.",
+          "hypothesis": "Replacing the online 1-step rollout with an offline beam search over the entire game can explore non-greedy action sequences (e.g., saving, different upgrade orders) that the greedy base policy misses, raising the ceiling.",
+          "fate": "retired"
+        },
+        {
+          "chain": "3",
+          "task": "Replace e94d2902's main loop with a two-phase algorithm: (1) generate an initial action sequence using a fast greedy policy (e.g., pick the highest analyticValue action each turn without rollout); (2) use the remaining time to run hill-climbing local search on the sequence: repeatedly pick a random turn, change its action to a random feasible action (including -1), simulate the full sequence from the initial state to compute final apples, and accept if the final apples increase. Output the best sequence found.",
+          "hypothesis": "e94d2902's per-turn rollout is a one-step lookahead with a fixed policy, which can commit to locally optimal actions that are globally suboptimal. A local search over the full 500-action sequence can fix coordinated multi-turn inefficiencies because simulation is cheap and exact, allowing many mutations to be evaluated within the time limit.",
+          "fate": "graduated"
+        },
+        {
+          "chain": "4",
+          "task": "Replace e94d2902's per-turn action selection with a depth-3, width-8 beam search: at each turn, start from the current state; for each ply, expand each beam state with its top 8 actions by analyticValue, apply and produce, and keep the best 8 states by immediate apples plus analytic value of remaining turns; execute the first action of the best leaf, then continue. Keep the existing time budget and exact simulation.",
+          "hypothesis": "e94d2902's one-step rollout evaluates single actions under a fixed greedy continuation; it cannot coordinate multiple cheap upgrades that only pay off together. A bounded short-horizon beam search can discover such sequences, raising the ceiling beyond one-step policy improvement.",
+          "fate": "probation"
+        },
+        {
+          "chain": "5",
+          "task": "Write a complete new program that generates an initial 500-action sequence using e94d2902's policy (analytic greedy), then performs coordinate descent: for each turn t=0..T-1, try all 41 actions at t, simulate the remainder of the sequence from the cached state at t, accept the action that maximizes final apples, and repeat passes until the 1.8s budget expires. Output the best sequence.",
+          "hypothesis": "e94d2902 optimizes one turn at a time using a fixed analytic rollout policy, so it cannot coordinate multi-step investments (e.g., early high-level upgrades before level0 becomes productive). Offline coordinate descent over the full 500-action sequence can directly discover and exploit such synergies, yielding gains beyond the myopic frontier.",
+          "fate": "probation"
+        }
+      ]
+    },
+    {
+      "run": "noise-ahc058-molt2_noise_credit-s502",
+      "selected_score": 5.403834306666667,
+      "selected_chain_memberships": [
+        3
+      ],
+      "selected_origin": [
+        "redesign_origin"
+      ],
+      "history_evaluations_retained": 64,
+      "rolling_history_by_role": {
+        "original_chain": {
+          "work_items": 11,
+          "evaluations": 22,
+          "positive_credit_items": 1,
+          "credit_sum": 0.33316143908319096,
+          "positive_frontier_gains": 1
+        },
+        "proposal": {
+          "work_items": 7,
+          "evaluations": 7,
+          "positive_credit_items": 1,
+          "credit_sum": 0.4116134192561693,
+          "positive_frontier_gains": 1
+        },
+        "redesign_origin": {
+          "work_items": 17,
+          "evaluations": 34,
+          "positive_credit_items": 3,
+          "credit_sum": 1.778336856646289,
+          "positive_frontier_gains": 5
+        }
+      },
+      "redesign_directions": [
+        {
+          "chain": "2",
+          "task": "Write a complete new program that maintains a beam of K states (e.g., K=3) at each turn. For each state in the beam, generate all valid actions, rank them by estGain/cost, take the top M (e.g., M=5), and for each evaluate the resulting state by rolling out the remaining turns using the existing policy. Keep the top K states for the next turn. At the end, output the action sequence from the best final state. Optimize the rollout to fit within 2s (e.g., use flattened arrays and limit M adaptively based on elapsed time).",
+          "hypothesis": "A beam search over multiple states, each expanded by a limited set of high-potential actions and evaluated by the existing heuristic rollout, can avoid the myopic traps of single-state one-step lookahead and discover better long-term trajectories.",
+          "fate": "graduated"
+        },
+        {
+          "chain": "3",
+          "task": "Rewrite 47bcd209's main loop as a stochastic local search over the entire T=500 action sequence: initialize with the target's greedy sequence, then repeatedly apply one of {single-action replacement, adjacent swap, insert/delete -1}, accept improving moves and occasionally worse moves with a small temperature, evaluate by exact simulation from the first changed turn, and output the best valid sequence found within the time limit.",
+          "hypothesis": "All live branches choose actions myopically using a surrogate score and never revise earlier decisions. A global sequence local search directly maximizes final apple count and can correct early misallocations; if the greedy sequence is locally improvable, the search will find a higher-scoring sequence.",
+          "fate": "graduated"
+        },
+        {
+          "chain": "4",
+          "task": "Replace 47bcd209's greedy per-turn rollout with a beam search. At each turn, for each of W beam states, generate the top M affordable actions ranked by exact marginal value (formula above); apply each, produce, and evaluate the resulting state by running a fast greedy rollout using the exact marginal-value policy for remaining turns. Keep the top W states by final-apple estimate. Use W=20, M=4, and a time budget to shrink W/M as elapsed time grows. Output the action sequence of the best state at the end. Bounded experiment: implement beam search as a complete new program, reusing flat state representation and input/output.",
+          "hypothesis": "Greedy one-step rollout with a fixed heuristic policy is myopic and can lock into local optima; maintaining a beam of diverse states and evaluating them with the exact marginal-value policy can discover non-greedy sequences that improve final compounding. The exact combinatorial marginal value gives a fast O(1) per-action heuristic, making beam search feasible within 2s.",
+          "fate": "probation"
         }
       ]
     }

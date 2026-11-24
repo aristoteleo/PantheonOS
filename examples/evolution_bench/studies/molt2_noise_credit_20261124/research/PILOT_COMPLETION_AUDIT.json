@@ -1,7 +1,7 @@
 {
-  "at_unix": 1795556372.323988,
+  "at_unix": 1795557862.4899962,
   "expected_run_count": 12,
-  "completed_run_count": 11,
+  "completed_run_count": 12,
   "rows": [
     {
       "run": "noise-ahc024-molt2_adaptive_branches-s500",
@@ -65,9 +65,9 @@
     },
     {
       "run": "noise-ahc058-molt2_adaptive_branches-s502",
-      "status": "running",
-      "strict_selection_verified": false,
-      "remote_archive_verified": false
+      "status": "complete",
+      "strict_selection_verified": true,
+      "remote_archive_verified": true
     },
     {
       "run": "noise-ahc058-molt2_noise_credit-s502",
@@ -78,8 +78,8 @@
   ],
   "frozen_file_count": 17,
   "changed_frozen_files": [],
-  "all_search_runs_and_archives_verified": false,
-  "paired_analysis_present": false,
+  "all_search_runs_and_archives_verified": true,
+  "paired_analysis_present": true,
   "public_repeat_report_present": false,
   "completion_proven": false,
   "limitation": "This audit does not prove statistical superiority. Public repeat results and their archive must still be inspected against the full frozen finalist set. Presence alone does not verify repeat coverage or validity."

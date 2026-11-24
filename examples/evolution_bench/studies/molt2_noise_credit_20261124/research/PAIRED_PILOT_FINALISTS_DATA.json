@@ -1,0 +1,85 @@
+{
+  "at_unix": 1795557816.2289815,
+  "complete": true,
+  "rows": [
+    {
+      "task": "ahc024",
+      "seed": 500,
+      "scores": {
+        "molt2_adaptive_branches": 0.6491,
+        "molt2_noise_credit": 0.6390266666666666
+      },
+      "statuses": {
+        "molt2_adaptive_branches": "complete",
+        "molt2_noise_credit": "complete"
+      },
+      "paired": true
+    },
+    {
+      "task": "ahc024",
+      "seed": 501,
+      "scores": {
+        "molt2_adaptive_branches": 0.6384466666666667,
+        "molt2_noise_credit": 0.6394466666666667
+      },
+      "statuses": {
+        "molt2_adaptive_branches": "complete",
+        "molt2_noise_credit": "complete"
+      },
+      "paired": true
+    },
+    {
+      "task": "ahc024",
+      "seed": 502,
+      "scores": {
+        "molt2_adaptive_branches": 1.8563399999999999,
+        "molt2_noise_credit": 0.63902
+      },
+      "statuses": {
+        "molt2_adaptive_branches": "complete",
+        "molt2_noise_credit": "complete"
+      },
+      "paired": true
+    },
+    {
+      "task": "ahc058",
+      "seed": 500,
+      "scores": {
+        "molt2_adaptive_branches": 5.500531179999999,
+        "molt2_noise_credit": 5.383925153333333
+      },
+      "statuses": {
+        "molt2_adaptive_branches": "complete",
+        "molt2_noise_credit": "complete"
+      },
+      "paired": true
+    },
+    {
+      "task": "ahc058",
+      "seed": 501,
+      "scores": {
+        "molt2_adaptive_branches": 5.233243633333334,
+        "molt2_noise_credit": 5.361436473333334
+      },
+      "statuses": {
+        "molt2_adaptive_branches": "complete",
+        "molt2_noise_credit": "complete"
+      },
+      "paired": true
+    },
+    {
+      "task": "ahc058",
+      "seed": 502,
+      "scores": {
+        "molt2_adaptive_branches": 5.444104713333333,
+        "molt2_noise_credit": 5.403834306666667
+      },
+      "statuses": {
+        "molt2_adaptive_branches": "complete",
+        "molt2_noise_credit": "complete"
+      },
+      "paired": true
+    }
+  ],
+  "validation_accessed": false
+}
