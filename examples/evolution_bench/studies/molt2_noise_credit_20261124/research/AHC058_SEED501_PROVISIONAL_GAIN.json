@@ -52,5 +52,15 @@
     }
   ],
   "source_sha256": "6d9e0a8a6be81fc472b42a5b48974156228c310a0fdc3f84c16888e7fad473de",
-  "source_file": "provisional-candidates/ahc058-noise-credit-s501-f978d6d0.cpp"
+  "source_file": "provisional-candidates/ahc058-noise-credit-s501-f978d6d0.cpp",
+  "code_review": {
+    "reviewed_at_unix": 1795550345.6990514,
+    "implementation_verified": [
+      "greedySeq selects feasible actions using analyticValue",
+      "simSeq evaluates complete action sequences",
+      "single-turn random mutations are accepted only when final apples increase"
+    ],
+    "randomness": "mt19937_64 seed includes steady_clock timestamp, so identical source can produce different scores on rereads.",
+    "reporting": "Current search score remains provisional; planned post-search TRAIN repeats will measure repeat variation without reselection."
+  }
 }
