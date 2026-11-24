@@ -9,22 +9,23 @@ def audit(run):
   for m in ind.get('measurements',[]):
    score=m.get('metrics',{}).get('combined_score')
    if isinstance(score,(int,float)) and math.isfinite(score):by_batch[m['batch_id']].append(float(score))
- rows=[]
+ rows=[];native_by_batch={x['batch_id']:x for x in state['history']};fallbacks=[];mismatches=[]
  for decision in state['decisions']:
-  scores=by_batch.get(decision['batch_id'],[])
-  if not scores:continue
-  rows.append({'batch_id':decision['batch_id'],'arm':decision['arm'],'reason':decision['reason'],'dispatch_frontier':decision['frontier'],'evaluations':len(scores),'best_child':max(scores)})
- # Validate reconstruction against the native retained window before interpreting it.
- reconstructed={x['batch_id']:x for x in rows}
- for native in state['history']:
-  row=reconstructed[native['batch_id']]
-  assert row['evaluations']==native['evaluations'] and row['best_child']==native['best_child'],native['batch_id']
+  scores=by_batch.get(decision['batch_id'],[]);native=native_by_batch.get(decision['batch_id'])
+  if scores:
+   row={'batch_id':decision['batch_id'],'arm':decision['arm'],'reason':decision['reason'],'dispatch_frontier':decision['frontier'],'evaluations':len(scores),'best_child':max(scores),'source':'stored_measurements'}
+  elif native:
+   row={'batch_id':decision['batch_id'],'arm':decision['arm'],'reason':decision['reason'],'dispatch_frontier':decision['frontier'],'evaluations':native['evaluations'],'best_child':native['best_child'],'source':'native_window_unmeasured_result'}
+   fallbacks.append(decision['batch_id'])
+  else:continue
+  if native and (row['evaluations']!=native['evaluations'] or row['best_child']!=native['best_child']):mismatches.append(decision['batch_id'])
+  rows.append(row)
  thresholds=[]
  for relative in [.01,.001,.0001,0.]:
   eligible=[r for r in rows if r['dispatch_frontier'] is not None]
-  successes=[r for r in eligible if r['best_child']>r['dispatch_frontier']+relative*abs(r['dispatch_frontier'])]
+  successes=[r for r in eligible if r['best_child'] is not None and r['best_child']>r['dispatch_frontier']+relative*abs(r['dispatch_frontier'])]
   thresholds.append({'relative_threshold':relative,'positive_work_items':len(successes),'by_arm':dict(collections.Counter(r['arm'] for r in successes))})
- return {'run':run.name,'observed_work_items':len(rows),'joined_candidate_evaluations':sum(r['evaluations'] for r in rows),'thresholds':thresholds,'reconstruction_matches_native_window':True}
+ return {'run':run.name,'observed_work_items':len(rows),'joined_candidate_evaluations':sum(r['evaluations'] for r in rows),'thresholds':thresholds,'reconstruction_matches_native_window':not mismatches,'native_window_fallback_batches':fallbacks,'mismatched_batches':mismatches}
 if __name__=='__main__':
  rows=[]
  for run in sorted((R/'runs').iterdir()):

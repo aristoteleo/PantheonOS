@@ -4,6 +4,10 @@ import sys,json,os,runpy
 ROOT=Path(__file__).resolve().parent.parent
 job=json.loads(Path(sys.argv[1]).read_text());config=json.loads((ROOT/'campaign.json').read_text())
 engine=Path(config['engine_root']);sys.path.insert(0,str(engine))
+import subprocess,hashlib
+actual_commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=engine,text=True).strip()
+assert actual_commit==config['engine_commit'],'Unexpected engine checkout'
+(Path(job['output'])/'ENGINE_PROVENANCE.json').write_text(json.dumps({'engine_root':str(engine),'engine_commit':actual_commit,'algorithm_sources':{name:hashlib.sha256((engine/name).read_bytes()).hexdigest() for name in ['pantheon/evolution/methods/molt.py','pantheon/evolution/methods/simpletes.py','pantheon/evolution/methods/molt_modified.py','pantheon/evolution/methods/molt2_adaptive_branches.py']}},indent=2)+'\n')
 os.environ.update(PYTHONPATH=str(engine),MOLT2_LAB=str(ROOT),MOLT2_PROVIDER=config['provider'],MOLT2_GLOBAL_USD=str(config['global_usd_cap']),MOLT2_RUN_ID=job['job_id'],MOLT_LLM_IO_DIR=str(Path(job['output'])/'llm_io'),MOLT2_EVAL_FINGERPRINT=job['eval_fingerprint'])
 os.environ['MOLT2_LEDGER_ROOT']=config['shared_ledger_root']
 os.environ['MOLT2_MODEL_SEED']=str(job['seed'])

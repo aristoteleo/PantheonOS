@@ -5,6 +5,23 @@ R=Path(__file__).resolve().parent
 sys.path.insert(0,str(R/'runner'))
 from report import build
 rows,groups=build();pairs=[]
+# Preserve raw outcomes and apply only the documented implementation-integrity gate.
+(R/'research/RAW_CAMPAIGN_COMPARISON_AT_END.json').write_text(json.dumps({'rows':rows,'groups':groups},indent=2)+'\n')
+sys.path.insert(0,str(R/'research'))
+try:
+    from measurement_event_audit import build as event_audit
+    event_integrity=event_audit();excluded=set(event_integrity['excluded_primary_run_ids'])
+except Exception as exc:
+    event_integrity={'status':'audit_error','error':repr(exc)}
+    excluded={x['id'] for x in rows if x['method']=='molt2_adaptive_branches'}
+rows=[dict(x,status='implementation_review_required') if x['id'] in excluded else x for x in rows]
+if excluded:
+    revised=[]
+    for g in groups:
+        values=[x['score'] for x in rows if (x['phase'],x['task'],x['method'])==(g['phase'],g['task'],g['method']) and x['status']=='complete' and x['score'] is not None]
+        revised.append({**g,'complete':len(values),'mean':statistics.mean(values) if values else None,'sd':statistics.stdev(values) if len(values)>1 else None})
+    groups=revised
+
 for task in ['ahc024','ahc058']:
     for control in ['simpletes','molt','molt_modified']:
         values=[]
@@ -18,12 +35,13 @@ for task in ['ahc024','ahc058']:
                       'sd_difference':statistics.stdev(deltas) if len(deltas)>1 else None,
                       'wins':sum(x>0 for x in deltas),'ties':sum(x==0 for x in deltas)})
 result={'status':'complete' if all(x['status']=='complete' for x in rows) else 'incomplete',
-        'groups':groups,'paired_development_differences':pairs,
+        'groups':groups,'paired_development_differences':pairs,'implementation_event_audit':event_integrity,'excluded_primary_run_ids':sorted(excluded),
         'interpretation':'Exploratory development evidence on two selected tasks. Five seeds cannot establish broad superiority. Scores are from first80 eligible native search calls; no historical-provider controls are pooled into fresh means.',
         'validation_accessed':False,'wall_time_scoring_caveat':'C++ heuristics are time limited; CPU scheduling/frequency affects numeric scores. Fresh method controls share hardware/affinity policy and randomized block order. Exact historical score parity is not claimed.',
         'at_unix':time.time()}
 (R/'research/FINAL_ANALYSIS.json').write_text(json.dumps(result,indent=2)+'\n')
 lines=['Adaptive Molt2 development comparison',result['interpretation'],result['wall_time_scoring_caveat'],'']
+if excluded:lines.append('Primary inference withholds runs requiring event-identity implementation review: '+', '.join(sorted(excluded)))
 for g in groups:lines.append(f"{g['task']} / {g['method']}: n={g['complete']}/{g['scheduled']}, mean={g['mean']}, SD={g['sd']}")
 lines.append('\nValidation remained untouched. Budget and all raw traces remain independently auditable.')
 (R/'research/FINAL_REPORT.txt').write_text('\n'.join(lines)+'\n')

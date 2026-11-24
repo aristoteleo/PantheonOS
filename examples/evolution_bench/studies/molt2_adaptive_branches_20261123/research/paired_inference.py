@@ -5,7 +5,7 @@ Any incomplete pair group is withheld. Six one-sided comparisons are corrected
 with Holm's procedure. Bootstrap intervals are descriptive with only five seeds.
 """
 from pathlib import Path
-import math,json,random,statistics,subprocess,sys
+import math,json,random,statistics,subprocess,sys,importlib
 R=Path(__file__).resolve().parents[1]
 def analyze(rows):
  out=[]
@@ -28,16 +28,33 @@ def analyze(rows):
  for rank,item in enumerate(ranked):
   prev=max(prev,min(1.,(6-rank)*item['one_sided_sign_p']));item['holm_adjusted_p']=prev
  return {'comparisons':out,'planned_comparisons':6,'caution':'Exploratory development tasks and n=5 seeds. No validation accessed. Descriptive bootstrap coverage can be poor at n=5. With six comparisons, even five wins alone cannot establish familywise significance at 0.05.'}
-if __name__=='__main__':
- result=analyze(json.loads((R/'comparison.json').read_text())['rows']);
- from writer_parent_audit import build
- result['writer_parent_audit']=build();
- from run_resource_audit import build as resource_audit
- result['resource_audit']=resource_audit();
- from baseline_parity import build as baseline_audit
- result['baseline_parity']=baseline_audit();
- subprocess.run([sys.executable,str(R/'research/reward_sensitivity.py')],check=True,capture_output=True,text=True)
- result['reward_signal_audit']=json.loads((R/'research/REWARD_SENSITIVITY.json').read_text());
+def optional(name,callback,errors):
+ try:return callback()
+ except Exception as exc:
+  error={'diagnostic':name,'error_type':type(exc).__name__,'error':str(exc)[:1500]};errors.append(error);return {'status':'error','details':error}
+
+def build_analysis():
+ rows=json.loads((R/'comparison.json').read_text())['rows'];errors=[]
+ events=optional('measurement_event_audit',lambda:importlib.import_module('measurement_event_audit').build(),errors)
+ excluded=set(events.get('excluded_primary_run_ids',[]))
+ # Unknown event-audit failure withholds new-method inferences, never hides it.
+ if events.get('status')=='error':excluded.update(x['id'] for x in rows if x['method']=='molt2_adaptive_branches')
+ primary=[dict(x,status='implementation_review_required') if x['id'] in excluded else x for x in rows]
+ result=analyze(primary);result['measurement_event_audit']=events;result['excluded_primary_runs']=sorted(excluded)
+ def save():
+  result['diagnostic_errors']=errors
+  p=R/'research/PAIRED_INFERENCE.json';tmp=p.with_suffix('.tmp');tmp.write_text(json.dumps(result,indent=2)+'\n');tmp.replace(p)
+ save()  # retain core paired results even if a later optional diagnostic fails
+ for field,module in [('writer_parent_audit','writer_parent_audit'),('resource_audit','run_resource_audit'),('baseline_parity','baseline_parity')]:
+  result[field]=optional(field,lambda module=module:importlib.import_module(module).build(),errors);save()
+ def rewards():
+  subprocess.run([sys.executable,str(R/'research/reward_sensitivity.py')],check=True,capture_output=True,text=True,timeout=120)
+  return json.loads((R/'research/REWARD_SENSITIVITY.json').read_text())
+ result['reward_signal_audit']=optional('reward_signal_audit',rewards,errors);save()
  if (R/'CAMPAIGN_COMPLETE.json').exists() and (R/'FINALIST_FREEZE.json').exists():
-  subprocess.run([sys.executable,str(R/'research/reread_finalists.py')],check=True,capture_output=True,text=True)
-  result['public_reproducibility_rereads']=json.loads((R/'research/PUBLIC_REREAD_REPORT.json').read_text());(R/'research/PAIRED_INFERENCE.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result,indent=2))
+  def rereads():
+   subprocess.run([sys.executable,str(R/'research/reread_finalists.py')],check=True,capture_output=True,text=True,timeout=44100)
+   return json.loads((R/'research/PUBLIC_REREAD_REPORT.json').read_text())
+  result['public_reproducibility_rereads']=optional('public_reproducibility_rereads',rereads,errors);save()
+ return result
+if __name__=='__main__':print(json.dumps(build_analysis(),indent=2))

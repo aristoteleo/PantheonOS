@@ -1,0 +1,15 @@
+{
+  "at_unix": 1795485398.0387502,
+  "engine_commit": "54856f08436fbda0b5256dbe8438bb6f873a900e",
+  "method_tests_passed": 109,
+  "reporting_tests_passed": 4,
+  "controls_identical_to_b496461": true,
+  "first_completed_molt2_no_repeated_individual_measurements": true,
+  "paid_model_calls_in_tests": 0,
+  "validation_accessed": false,
+  "reporting_check": {
+    "diagnostic_errors": [],
+    "excluded_primary_runs": [],
+    "public_rereads_started": false
+  }
+}

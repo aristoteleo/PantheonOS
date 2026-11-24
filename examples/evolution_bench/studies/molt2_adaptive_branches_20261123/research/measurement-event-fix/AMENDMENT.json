@@ -1,0 +1,60 @@
+{
+  "id": "20261124-measurement-event-identity",
+  "at_unix": 1795485070.8660107,
+  "old_engine_root": "/home/erwinpi/molt2-adaptive-branches-engine",
+  "old_engine_commit": "b49646136e6132df30e72ca63ddbcd54cb445f98",
+  "new_engine_root": "/home/erwinpi/molt2-adaptive-branches-fixed-engine",
+  "new_engine_commit": "54856f08436fbda0b5256dbe8438bb6f873a900e",
+  "already_started_trials": [
+    {
+      "run": "matched-ahc058-molt-s400",
+      "status_at_amendment": "complete",
+      "started_epoch": 1795482173.995912
+    },
+    {
+      "run": "matched-ahc024-molt_modified-s400",
+      "status_at_amendment": "complete",
+      "started_epoch": 1795479457.598963
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s400",
+      "status_at_amendment": "complete",
+      "started_epoch": 1795475922.9759867
+    },
+    {
+      "run": "matched-ahc058-molt_modified-s400",
+      "status_at_amendment": "running",
+      "started_epoch": 1795482844.1347215
+    },
+    {
+      "run": "matched-ahc024-molt-s400",
+      "status_at_amendment": "complete",
+      "started_epoch": 1795475922.9756942
+    },
+    {
+      "run": "matched-ahc024-simpletes-s400",
+      "status_at_amendment": "complete",
+      "started_epoch": 1795479089.5205953
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s400",
+      "status_at_amendment": "running",
+      "started_epoch": 1795484820.4195359
+    }
+  ],
+  "bug": "Original Molt2 deduplicated callbacks by batch plus stored program ID. Store merges identical genomes, so distinct evaluations of one program could be collapsed and leave best-of-two batch open.",
+  "fix": "Key by timestamped measurement event and use that measurement metric for its credit. Exact redelivery remains idempotent.",
+  "tests": "109 passed across adaptive Molt2, native Molt/SimpleTES, core, persistence, upstream prompts; regression reproduces real Store genome deduplication and both measured results.",
+  "changed_engine_files": [
+    "pantheon/evolution/methods/molt2_adaptive_branches.py",
+    "tests/test_molt2_adaptive_branches.py"
+  ],
+  "controls_unchanged": true,
+  "first_completed_molt2_run_unaffected": true,
+  "first_run_evidence": "All80 recorded measurements belong to distinct individuals; neither event-collapse nor latest-reread metric ambiguity occurred.",
+  "legacy_primary_policy": "Audit already-started legacy Molt2 runs for repeated measurements. Exclude affected or ambiguous legacy results from primary paired inference pending a recorded review/correction; retain raw traces. No score-based exclusion.",
+  "running_processes_restarted": false,
+  "model_provider_prompt_budget_cases_changed": false,
+  "validation_accessed": false,
+  "analysis_gate": "Both final summary and paired inference retain raw results and withhold legacy Molt2 runs with repeat-event ambiguity until reviewed. Optional diagnostic failures are explicitly recorded instead of erasing primary paired results."
+}

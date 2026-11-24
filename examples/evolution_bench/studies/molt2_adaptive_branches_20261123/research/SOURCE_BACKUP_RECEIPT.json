@@ -1,10 +1,10 @@
 {
-  "sha256": "3a1e214955fa14a5fa729c4ff00363cc8edd9ec908b4b3eea0f42ee67e28ac27",
-  "bytes": 2844565,
-  "at_unix": 1795482052.0188878,
+  "sha256": "c7a41f4d0013577252dabc13021e8e5eba1332d80e38586e516ca8fdea69ec98",
+  "bytes": 2896455,
+  "at_unix": 1795485399.5980346,
   "scope": "Campaign code/configuration/qualification plus preserved public runtime assets; ongoing search traces are archived separately.",
   "local": "/home/erwinpi/molt2-adaptive-branches-lab/campaign-source.tar.gz",
-  "remote": "/archives/molt2-adaptive-branches-20261123/source-3a1e214955fa14a5fa729c4ff00363cc8edd9ec908b4b3eea0f42ee67e28ac27.tar.gz",
+  "remote": "/archives/molt2-adaptive-branches-20261123/source-c7a41f4d0013577252dabc13021e8e5eba1332d80e38586e516ca8fdea69ec98.tar.gz",
   "volume": "molt-cardiac4d-runs",
   "readback_verified": true
 }

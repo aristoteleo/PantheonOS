@@ -1,0 +1,25 @@
+{
+  "at_unix": 1795484252.4439325,
+  "requested_vs_returned_choices": [
+    {
+      "requested": 1,
+      "returned": 1,
+      "response_count": 288
+    },
+    {
+      "requested": 2,
+      "returned": 1,
+      "response_count": 192
+    }
+  ],
+  "reasoning_token_reports": {
+    "reported_zero": 435,
+    "reported_positive": 45
+  },
+  "incomplete_files_skipped": 0,
+  "native_fallback_source": "pantheon/evolution/variators/completion.py:452",
+  "observation": "For observed n=2 responses, the provider returns one choice. The unchanged native variator waits for that request, then requests the missing candidate; k=2 remains fulfilled.",
+  "future_hypothesis": "Explicit parallel n=1 requests could avoid the extra serial generation round for this provider. Latency benefit is unmeasured, and concurrency/seed ordering can change stochastic results. Test as a common backend condition across fresh matched arms rather than modifying the current campaign.",
+  "campaign_changed": false,
+  "reasoning_interpretation": "Observed positive reasoning-token responses request effort=high in native Molt meta-level calls (planning/review), while ordinary writer examples request enabled=false. This is a native role-specific setting, not evidence that the provider ignored the writer flag. Preserve and report this architecture-specific distinction; do not call the whole campaign reasoning-off."
+}

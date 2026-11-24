@@ -4,8 +4,8 @@
   "api_key_file": "/home/erwinpi/molt-spateo-launch/.secrets/openrouter.key",
   "shared_ledger_root": "/home/erwinpi/molt2-lab",
   "model": "openrouter/deepseek/deepseek-v4.1-flash",
-  "engine_root": "/home/erwinpi/molt2-adaptive-branches-engine",
-  "engine_commit": "b49646136e6132df30e72ca63ddbcd54cb445f98",
+  "engine_root": "/home/erwinpi/molt2-adaptive-branches-fixed-engine",
+  "engine_commit": "54856f08436fbda0b5256dbe8438bb6f873a900e",
   "global_usd_cap": 74,
   "provider": "DeepInfra",
   "tasks": [

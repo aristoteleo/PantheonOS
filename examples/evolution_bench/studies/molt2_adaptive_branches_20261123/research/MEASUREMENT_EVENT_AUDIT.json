@@ -1,0 +1,29 @@
+{
+  "at_unix": 1795485187.7722414,
+  "rows": [
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s400",
+      "workflow_status": "complete",
+      "engine_classification": "legacy",
+      "review_required": false,
+      "repeated_program_ids": [],
+      "same_batch_repeated_program_ids": [],
+      "varying_score_program_ids": [],
+      "legacy_event_review_required": false,
+      "reasons": []
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s400",
+      "workflow_status": "running",
+      "engine_classification": "legacy",
+      "review_required": false,
+      "repeated_program_ids": [],
+      "same_batch_repeated_program_ids": [],
+      "varying_score_program_ids": [],
+      "legacy_event_review_required": false,
+      "reasons": []
+    }
+  ],
+  "excluded_primary_run_ids": [],
+  "policy": "Score-independent implementation-integrity gate. Keep raw results, withhold affected/ambiguous legacy runs pending documented review or correction. No exclusion based on how well the program scored."
+}

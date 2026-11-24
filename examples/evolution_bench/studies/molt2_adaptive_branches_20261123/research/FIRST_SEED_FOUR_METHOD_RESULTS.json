@@ -1,0 +1,39 @@
+{
+  "task": "ahc024",
+  "seed": 400,
+  "rows": [
+    {
+      "method": "simpletes",
+      "score": 0.6378933333333333,
+      "actual_evaluator_calls": 80,
+      "selection_cutoff": 80,
+      "selected_generation": 0,
+      "backup_verified": true
+    },
+    {
+      "method": "molt",
+      "score": 0.6394333333333333,
+      "actual_evaluator_calls": 81,
+      "selection_cutoff": 80,
+      "selected_generation": 8,
+      "backup_verified": true
+    },
+    {
+      "method": "molt_modified",
+      "score": 0.6393,
+      "actual_evaluator_calls": 80,
+      "selection_cutoff": 80,
+      "selected_generation": 6,
+      "backup_verified": true
+    },
+    {
+      "method": "molt2_adaptive_branches",
+      "score": 0.6392266666666667,
+      "actual_evaluator_calls": 80,
+      "selection_cutoff": 80,
+      "selected_generation": 7,
+      "backup_verified": true
+    }
+  ],
+  "scope": "One development seed only; no statistical-superiority claim."
+}

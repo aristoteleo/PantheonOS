@@ -1,0 +1,41 @@
+{
+  "at_unix": 1795483061.858743,
+  "status": "Literature-grounded hypotheses, not an implemented or validated revision",
+  "live_campaign_changed": false,
+  "references": [
+    {
+      "title": "Adaptive Operator Selection With Bandits for a Multiobjective Evolutionary Algorithm Based on Decomposition",
+      "authors": "Ke Li, Alvaro Fialho, Sam Kwong, Qingfu Zhang",
+      "year": 2014,
+      "doi": "10.1109/TEVC.2013.2239648",
+      "primary_pdf": "https://colalab.ai/publications/LiFKZ14.pdf",
+      "verified_sections": "III.A\u2013B, equations6\u20138 and Algorithms1\u20132",
+      "paper_facts": "FRRMAB records parent-to-offspring fitness improvement rates in a recent sliding window. It ranks operator rewards, applies rank-dependent decay, and uses a UCB-style rule for operator choice. Its experiments concern numerical multiobjective optimization, not LLM program evolution.",
+      "our_inference": "Separate the planner stall criterion from branch-credit calculation. A fixed1-percent gate hid every improvement in the first AHC024 adaptive run; a recent normalized improvement signal is a better-grounded next hypothesis than picking another fixed threshold. Parent-relative reward from the paper is not identical to our global-frontier objective; guard against rewarding weak-branch recovery that never helps the best program. Timing noise still needs explicit treatment."
+    },
+    {
+      "title": "JADE: Adaptive Differential Evolution with Optional External Archive",
+      "authors": "Jingqiao Zhang, Arthur C. Sanderson",
+      "year": 2009,
+      "doi": "10.1109/TEVC.2009.2014613",
+      "publisher": "https://ieeexplore.ieee.org/abstract/document/5208221",
+      "primary_paper_pdf": "https://ahmetcevahircinar.com.tr/wp-content/uploads/2017/01/JADE_Adaptive_Differential_Evolution_with_Optional_External_Archive.pdf",
+      "verified_sections": "III.A, equations6\u20137 and TableI",
+      "paper_facts": "The current-to-pbest mutation samples its guiding solution from a top-performing population fraction. An optional archive of replaced parents supplies additional diversity in differential-vector mutation. These operations apply to numerical vectors.",
+      "our_inference": "A program-evolution analogue can explicitly sample valid promising parents rather than rely entirely on planner anchor choice, with an archive for alternative implementations. Code cannot be subtracted like vectors; adapting the idea requires a distinct program-level design and tests. Source-hash diversity alone does not prove conceptual diversity."
+    }
+  ],
+  "next_ablation_order": [
+    "Finish the current predeclared five-seed comparison; retain all trials, failures and budget truncations.",
+    "If reward starvation repeats, change branch credit alone while preserving planner, writer, parent choice and budgets; do not simultaneously change parent selection.",
+    "Test an explicit strong-parent-pool policy separately if seed-target restarts dominate.",
+    "Only combine individually justified components after their separate development effects are measured."
+  ],
+  "limits": "No novelty claim for classic optimization ideas. No guarantee of improvement from numerical-optimization results. All proposed comparisons remain on development tasks; reserved validation is not used.",
+  "cross_task_guardrail": {
+    "at_unix": 1795483783.8839278,
+    "observation": "Running AHC058 vanilla Molt trace at44 completed candidates has best5.382173, up from a preceding5.224689. This is larger than1percent, unlike the total gain in the first completed AHC024 adaptive run.",
+    "interpretation": "Do not infer that a1-percent credit gate is uninformative on every task. Compare adaptive reward densities separately by task and seed after the frozen campaign finishes. This live vanilla-Molt observation is not a Molt2 performance result.",
+    "live_policy_changed": false
+  }
+}
