@@ -1,0 +1,168 @@
+{
+  "at_unix": 1795553509.1345782,
+  "run": "noise-ahc024-molt2_adaptive_branches-s502",
+  "selection": {
+    "id": "ffb64cf0",
+    "score": 1.8563399999999999,
+    "sha256": "b5fb0e512545722d3a135c051d14b75a33675730c0a00ba87189e9e52cd67517",
+    "eval_cap": 80,
+    "cases": 150,
+    "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+  },
+  "source_hash_verified": true,
+  "chain_memberships": [
+    3
+  ],
+  "chain_roles": [
+    "established"
+  ],
+  "ancestry": [
+    {
+      "id": "ffb64cf0",
+      "parents": [
+        "8aa9b33e",
+        "937f4c7f"
+      ],
+      "meta": {
+        "summary": "// EVOLVE-BLOCK-START",
+        "candidate": 0,
+        "mutation_seconds": 33.11251473426819
+      }
+    },
+    {
+      "id": "937f4c7f",
+      "parents": [
+        "fc145cd0",
+        "220068c1"
+      ],
+      "meta": {
+        "summary": "// EVOLVE-BLOCK-START",
+        "candidate": 1,
+        "mutation_seconds": 28.879635334014893
+      }
+    },
+    {
+      "id": "220068c1",
+      "parents": [
+        "6336fac2",
+        "4b20d0f1"
+      ],
+      "meta": {
+        "summary": "// EVOLVE-BLOCK-START",
+        "candidate": 1,
+        "mutation_seconds": 26.23798656463623
+      }
+    },
+    {
+      "id": "4b20d0f1",
+      "parents": [
+        "d5a31fb9"
+      ],
+      "meta": {
+        "summary": "We need to replace the EVOLVE-BLOCK with a simulated annealing (SA) approach as specified in the redesign. The new algorithm:",
+        "candidate": 0,
+        "mutation_seconds": 103.48042178153992
+      }
+    },
+    {
+      "id": "d5a31fb9",
+      "parents": [
+        "3fcf09fe"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to shrink wards by converting cells to 0 while preserving:",
+        "candidate": 1,
+        "mutation_seconds": 81.174489736557
+      }
+    },
+    {
+      "id": "3fcf09fe",
+      "parents": [
+        "057641fa"
+      ],
+      "meta": {
+        "summary": "Looking at this problem, I need to minimize the number of non-zero cells while preserving:",
+        "candidate": 1,
+        "mutation_seconds": 82.202645778656
+      }
+    },
+    {
+      "id": "057641fa",
+      "parents": [],
+      "meta": {}
+    },
+    {
+      "id": "6336fac2",
+      "parents": [
+        "a6e57dd1"
+      ],
+      "meta": {
+        "summary": "Looking at the reference solution, I notice a critical bug in the adjacency checking. The `adjacencyOK` function only checks the adjacency of colors `a` and `b` (the old and new colors), but it needs ",
+        "candidate": 0,
+        "mutation_seconds": 30.0267071723938
+      }
+    },
+    {
+      "id": "a6e57dd1",
+      "parents": [
+        "4b20d0f1"
+      ],
+      "meta": {
+        "summary": "Looking at the reference and the design, I'll write a complete simulated annealing solution. Key observations from the reference:",
+        "candidate": 0,
+        "mutation_seconds": 45.80151319503784
+      }
+    },
+    {
+      "id": "fc145cd0",
+      "parents": [
+        "3d0964aa",
+        "6336fac2"
+      ],
+      "meta": {
+        "summary": "Looking at this design, I need to analyze what's failing and improve the simulated annealing approach.",
+        "candidate": 1,
+        "mutation_seconds": 53.40211892127991
+      }
+    },
+    {
+      "id": "3d0964aa",
+      "parents": [
+        "220068c1",
+        "a6e57dd1"
+      ],
+      "meta": {
+        "summary": "Looking at this chain's design, the core is a simulated annealing over color assignments. The best result so far (1.827193) came from attempt 6336fac2. Let me build a robust version that:",
+        "candidate": 0,
+        "mutation_seconds": 33.84621262550354
+      }
+    },
+    {
+      "id": "8aa9b33e",
+      "parents": [
+        "6336fac2",
+        "3d0964aa"
+      ],
+      "meta": {
+        "summary": "Looking at the task: I need to replace the final 8-pass sequential greedy erosion in 6336fac2 with 3d0964aa's shuffled multi-pass sweep. The SA phase and best-restore logic must remain unchanged.",
+        "candidate": 0,
+        "mutation_seconds": 14.182354211807251
+      }
+    }
+  ],
+  "redesign_directions": [
+    {
+      "intervention": 0,
+      "direction": "i0/planner_1/direction_01",
+      "task": "Write a complete new program (replacing the EVOLVE-BLOCK) that reads the input, initializes the grid to the original map, and runs simulated annealing for the time limit. Moves: pick a random cell, change its color to 0 or to a color of an adjacent cell. Accept the move if all colors 0..m remain connected (non-empty) and all pairwise adjacencies match the original; otherwise reject. Use a temperature schedule that starts high and cools, accepting worsening moves with probability exp(-delta/T) to escape local optima. Maintain edge counts between colors and use BFS for connectivity checks. Output the best grid found.",
+      "old": 0.63902,
+      "hypothesis": "The current algorithm only erodes wards that originally touch the border. By allowing cells to be recolored to adjacent colors (not just 0), a non-border ward can give a cell to a border-touching neighbor, which then erodes it to 0, effectively shrinking the interior ward without creating illegal 0-adjacencies. A simulated annealing search over the full color assignment can explore these boundary movements and potentially shrink all wards to minimal skeletons, significantly increasing the number of 0 cells.",
+      "fate": "graduated",
+      "opened_at": 33,
+      "best": 1.8271933333333334,
+      "decided_at": 56
+    }
+  ],
+  "validation_accessed": false,
+  "comparison_status": "Matching reward variant still running; planned TRAIN repeats pending."
+}

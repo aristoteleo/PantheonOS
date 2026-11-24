@@ -1,0 +1,37 @@
+{
+  "at_unix": 1795551931.929201,
+  "run": "noise-ahc024-molt2_adaptive_branches-s502",
+  "best_progress_observation": {
+    "t": 1844.0,
+    "n": 43,
+    "score": 1.8271933333333334,
+    "id": "6336fac2",
+    "fidelity": "full",
+    "valid": 1.0
+  },
+  "candidate_saved": true,
+  "chain_memberships": [
+    3
+  ],
+  "roles": [
+    "sprout"
+  ],
+  "parent_ids": [
+    "a6e57dd1"
+  ],
+  "work_items": [
+    {
+      "arm": "chain:3",
+      "reason": "incumbent_floor",
+      "samples": {},
+      "frontier": 1.7083199999999998,
+      "batch_id": "b1129ec90",
+      "evaluations": 2,
+      "best_child": 1.8271933333333334,
+      "dispatch": 16,
+      "success": 1
+    }
+  ],
+  "provisional": true,
+  "validation_accessed": false
+}

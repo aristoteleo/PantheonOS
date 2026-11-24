@@ -1,0 +1,599 @@
+{
+  "at_unix": 1795553086.2947724,
+  "rows": [
+    {
+      "run": "noise-ahc024-molt2_adaptive_branches-s502",
+      "sprouts": {
+        "2": {
+          "intervention": 0,
+          "direction": "i0/planner_0/direction_01",
+          "task": "Replace d5a31fb9's main loop with a simulated annealing search. Start from a map produced by running the original greedy for 0.5s. Then repeatedly: pick a random cell. If it is non-zero, attempt to erase it using the existing tryRemove logic. If it is zero, attempt to restore it to orig[i][j] using a new tryRestore function that checks connectivity of the restored color, 0 connectivity, and adjacency counts. Accept if it increases zeros, or with probability exp((newZeros - oldZeros)/T) otherwise. Cool T from 1.0 to 0.01 over the time limit. Keep the best map seen.",
+          "old": 0.63902,
+          "hypothesis": "The greedy erosion is a one-way process that gets trapped in local optima where early removals prevent later, better configurations. A simulated annealing local search that allows restoring cells to their original colors can escape these local optima by undoing harmful removals, exploring a connected state space of valid maps, and thus finding a map with more zeros.",
+          "fate": "graduated",
+          "opened_at": 22,
+          "best": 0.6394,
+          "decided_at": 58
+        },
+        "3": {
+          "intervention": 0,
+          "direction": "i0/planner_1/direction_01",
+          "task": "Write a complete new program (replacing the EVOLVE-BLOCK) that reads the input, initializes the grid to the original map, and runs simulated annealing for the time limit. Moves: pick a random cell, change its color to 0 or to a color of an adjacent cell. Accept the move if all colors 0..m remain connected (non-empty) and all pairwise adjacencies match the original; otherwise reject. Use a temperature schedule that starts high and cools, accepting worsening moves with probability exp(-delta/T) to escape local optima. Maintain edge counts between colors and use BFS for connectivity checks. Output the best grid found.",
+          "old": 0.63902,
+          "hypothesis": "The current algorithm only erodes wards that originally touch the border. By allowing cells to be recolored to adjacent colors (not just 0), a non-border ward can give a cell to a border-touching neighbor, which then erodes it to 0, effectively shrinking the interior ward without creating illegal 0-adjacencies. A simulated annealing search over the full color assignment can explore these boundary movements and potentially shrink all wards to minimal skeletons, significantly increasing the number of 0 cells.",
+          "fate": "graduated",
+          "opened_at": 33,
+          "best": 1.8271933333333334,
+          "decided_at": 56
+        },
+        "4": {
+          "intervention": 0,
+          "direction": "i0/planner_2/direction_01",
+          "task": "Write a complete new program that keeps the same input/output format and feasibility checks (initAdj, tryRemove, connectivity) but replaces the main loop with a genetic algorithm. Represent a solution as a permutation of all non-zero cells (or a priority value per cell). Initialize a population of 20 permutations using random shuffles and the heuristic priorities from d5a31fb9. Evaluate each by resetting to the original map and applying tryRemove in the permutation order for up to 50 sweeps or until no progress; fitness is the number of zeros. Use tournament selection, order crossover (OX1), and swap mutation to create the next generation. Run until the time limit, returning the best solution found.",
+          "old": 0.63902,
+          "hypothesis": "Replacing independent random restarts with a genetic algorithm over removal permutations will explore the order space more effectively by recombining successful partial orders from different restarts, leading to a higher zero count than the current best's plateau.",
+          "fate": "probation",
+          "opened_at": 38
+        },
+        "5": {
+          "intervention": 0,
+          "direction": "i0/planner_3/direction_01",
+          "task": "Replace d5a31fb9's greedy sweep with a simulated annealing search. State: each original cell is either its original color or 0. Start from the best solution found by d5a31fb9's greedy phase. Moves: pick a random cell and flip it (0 -> original color or original color -> 0). Maintain incremental edge counts and a penalty = 1000 * (sum over colors of (components-1)) + 10 * (number of mismatched adjacency pairs vs A0). Accept moves that reduce penalty, and accept increasing penalty with probability exp(-delta/T). Use a geometric cooling schedule. Keep the best legal (penalty=0) state by number of 0-cells. Run for the remaining time and output the best legal state.",
+          "old": 0.63902,
+          "hypothesis": "The greedy removal used by d5a31fb9 is myopic: a cell that is removable now may block several better removals later. Simulated annealing over the binary keep/remove decision can escape such local optima by temporarily accepting illegal states (penalized) and later repairing them, potentially finding a legal map with more 0-cells.",
+          "fate": "probation",
+          "opened_at": 54
+        }
+      },
+      "pending": [
+        {
+          "type": "redesign",
+          "target_branch_id": "6336fac2",
+          "mechanism_hypothesis": "A witness-edge Steiner-tree construction explicitly selects one adjacent cell pair per original ward adjacency and keeps only a minimal connected set per color containing its witness cells. This directly minimizes non-zero cells for the required adjacency graph, whereas cell-by-cell SA may be trapped by local connectivity constraints.",
+          "task": "Write a complete new program that parses the input, builds the original adjacency graph, randomly samples witness adjacent cell pairs for every original edge, computes for each color a connected subset of its original cells containing its witness cells via repeated BFS shortest paths (Steiner heuristic), sets all other cells to 0, then runs a short local repair/SA to connect zero pockets to the outside and fix any lost adjacencies before output.",
+          "frontier_case": {
+            "target_score": 1.8271933333333334,
+            "frontier_score": 1.8271933333333334,
+            "required_gain": 0.0001,
+            "why_plausible": "The problem is essentially finding minimal connected representatives for each ward; a constructive skeleton can start much smaller than the original map, and the large historical jump from 0.639 to 1.708 on a new mechanism shows that non-SA representations can yield large gains. Even if the first version is rough, the ceiling is higher."
+          },
+          "constraints": [
+            "Complete replacement of EVOLVE-BLOCK; may reuse input/output parsing.",
+            "Must enforce exact adjacency, all colors connected, and color 0 connected (including outside).",
+            "Run within 2 s and 1024 MiB."
+          ],
+          "donor_branch_ids": [],
+          "evidence_attempt_ids": [
+            "6336fac2",
+            "4b20d0f1"
+          ],
+          "novel_axis": null,
+          "falsifier": null,
+          "verbalized_probability": 0.25,
+          "id": "i1/planner_0/direction_01",
+          "intervention": 1,
+          "frontier": 1.8271933333333334
+        },
+        {
+          "type": "redesign",
+          "target_branch_id": "6336fac2",
+          "mechanism_hypothesis": "A constructive algorithm that first computes a minimal connected subgraph (Steiner tree) for each color covering all its required neighbor contacts, then repairs zero-sea connectivity and refines with local search, will start from a much more compact configuration than the original map and escape the slow erosion bottleneck of the current SA.",
+          "task": "Write a complete new program: (1) parse input and build adjacency graph; (2) for each color, extract its original cells and required neighbor-contact cells, compute a minimal connected subgraph covering those contacts (e.g., prune leaves from a spanning tree of the color region); (3) assign these subgraphs as non-zero cells; (4) repair trapped zero components by eroding non-essential boundary cells; (5) run a short local search (e.g., the existing SA or greedy erosion) to polish the map.",
+          "frontier_case": {
+            "target_score": 1.8271933333333334,
+            "frontier_score": 1.8271933333333334,
+            "required_gain": 0.01,
+            "why_plausible": "The current SA starts from 2500 non-zero cells and must erode ~1827 cells to reach the best. A Steiner-tree construction directly targets the minimal non-zero set for each color's adjacency requirements, potentially starting near the theoretical minimum. Local moves from that compact state can then resolve zero-connectivity conflicts and push toward the global optimum."
+          },
+          "constraints": [
+            "Write a complete new program replacing the EVOLVE-BLOCK.",
+            "Must read input and output a valid map within 2s.",
+            "May reuse I/O and validity check helpers from 6336fac2."
+          ],
+          "donor_branch_ids": [],
+          "evidence_attempt_ids": [
+            "e2577429",
+            "998ad70e"
+          ],
+          "novel_axis": null,
+          "falsifier": null,
+          "verbalized_probability": 0.3,
+          "id": "i1/planner_1/direction_01",
+          "intervention": 1,
+          "frontier": 1.8271933333333334
+        },
+        {
+          "type": "integration",
+          "target_branch_id": "3d0964aa",
+          "mechanism_hypothesis": "Porting 6336fac2's longer SA deadline (tl*0.97), T0=1.0/Tmin=0.02 schedule, and 1/4 zero-bias into 3d0964aa's faster integer-queue connectivity checks will increase SA iterations and improve solution quality, closing the 0.0237 gap to the frontier.",
+          "task": "Edit 3d0964aa: change deadline to tl*0.97, set T0=1.0, Tmin=0.02, change zero bias condition to (rng()&3)==0; after SA, run 6336fac2's deterministic row-major 8-pass greedy erosion before any random-order passes. Keep 3d0964aa's existing doMove, adjacencyOK, connectivityNonZero, connectivityZero and legality checks unchanged.",
+          "frontier_case": {
+            "target_score": 1.8034533333333334,
+            "frontier_score": 1.8271933333333334,
+            "required_gain": 0.02374,
+            "why_plausible": "3d0964aa already uses the same SA family; its faster connectivity should allow more iterations under the longer schedule, and the best branch's zero-bias/greedy is demonstrably better."
+          },
+          "constraints": [
+            "Only modify SA schedule, zero-bias, and final greedy order in 3d0964aa.",
+            "Preserve all legality checks and output format.",
+            "Do not introduce new move types."
+          ],
+          "donor_branch_ids": [
+            "6336fac2"
+          ],
+          "evidence_attempt_ids": [
+            "3d0964aa",
+            "e2577429",
+            "fc145cd0"
+          ],
+          "novel_axis": null,
+          "falsifier": null,
+          "verbalized_probability": 0.4,
+          "id": "i1/planner_2/direction_00",
+          "intervention": 1,
+          "frontier": 1.8271933333333334
+        },
+        {
+          "type": "redesign",
+          "target_branch_id": "6336fac2",
+          "mechanism_hypothesis": "Replacing cell-level SA with exact per-color group Steiner tree optimization can remove large coordinated sets of cells that single-cell moves cannot, by optimally shrinking each color to a connected skeleton covering all required neighbor contacts.",
+          "task": "Write a complete new program replacing 6336fac2's EVOLVE-BLOCK. Build original adjacency. Maintain for each color c a connected subset of its original cells. Repeat: randomly permute colors 1..m; for each c, collect contact sets (original c cells adjacent to any currently kept cell of each neighbor d); solve a group Steiner tree on c's original cell graph to find the minimum-size connected subset containing at least one cell from each contact set (DP over (cell, neighbor-mask) with BFS/Dijkstra, since degree is small); tentatively replace c's cells with this subset. Check global legality: all colors connected, zero connected to outside, adjacency graph exactly matches original. If legal and zeros increase, keep; else revert. After all colors, run a boundary-zero expansion pass. Output best legal map.",
+          "frontier_case": {
+            "target_score": 1.8271933333333334,
+            "frontier_score": 1.8271933333333334,
+            "required_gain": 0.0001,
+            "why_plausible": "Per-color Steiner trees exactly optimize each color's footprint for a given contact set, bypassing SA's local barriers. The contact space is small, and large coordinated erasures can discover better skeletons than single-cell moves."
+          },
+          "constraints": [
+            "Complete new program, not an edit of 6336fac2's SA loop.",
+            "Use only C++20 standard library, no external solvers.",
+            "Must respect time limit and output format.",
+            "Legality checks must be exact."
+          ],
+          "donor_branch_ids": [],
+          "evidence_attempt_ids": [
+            "e2577429",
+            "fc145cd0",
+            "3c80d336"
+          ],
+          "novel_axis": null,
+          "falsifier": null,
+          "verbalized_probability": 0.25,
+          "id": "i1/planner_2/direction_01",
+          "intervention": 1,
+          "frontier": 1.8271933333333334
+        },
+        {
+          "type": "integration",
+          "target_branch_id": "3d0964aa",
+          "mechanism_hypothesis": "Transplanting the best branch's SA schedule (deadline 0.97, T0=1.0, Tmin=0.02, zero bias 1/4) into 3d0964aa, while keeping its 200-pass random greedy, will combine better SA exploration with a more thorough erosion, exceeding the current frontier.",
+          "task": "Edit 3d0964aa: replace its SA parameters (deadline 0.90, T0=0.8, Tmin=0.02, zero bias 1/2) with 6336fac2's parameters (deadline 0.97, T0=1.0, Tmin=0.02, zero bias 1/4). Keep all other code, especially the 200-pass random greedy erosion, unchanged. Run on the same time limit.",
+          "frontier_case": {
+            "target_score": 1.8034533333333334,
+            "frontier_score": 1.8271933333333334,
+            "required_gain": 0.02374,
+            "why_plausible": "The best branch 6336fac2 gained +0.130 over its parent a6e57dd1 (attempt 6336fac2 <- a6e57dd1), indicating the SA schedule change is highly impactful. 3d0964aa already has a more exhaustive greedy (200 random passes) than 6336fac2 (8 sequential passes). Combining the best SA schedule with the better greedy could surpass both."
+          },
+          "constraints": [
+            "Only modify the SA schedule parameters and zero bias in 3d0964aa.",
+            "Keep the 200-pass random greedy erosion unchanged.",
+            "Use the same time limit (2s)."
+          ],
+          "donor_branch_ids": [
+            "6336fac2"
+          ],
+          "evidence_attempt_ids": [
+            "6336fac2",
+            "3d0964aa"
+          ],
+          "novel_axis": null,
+          "falsifier": null,
+          "verbalized_probability": 0.35,
+          "id": "i1/planner_3/direction_00",
+          "intervention": 1,
+          "frontier": 1.8271933333333334
+        },
+        {
+          "type": "redesign",
+          "target_branch_id": "6336fac2",
+          "mechanism_hypothesis": "Replacing simulated annealing acceptance with Late Acceptance Hill Climbing (LAHC) will escape local optima more robustly than the temperature-scheduled SA, because LAHC uses a history of objective values and avoids tuning-sensitive cooling. The same move set and constraints can be reused.",
+          "task": "Write a complete new program (replacing the EVOLVE-BLOCK) that reads the input, initializes to the original map, and runs LAHC for the time limit. Moves: pick a random cell, change its color to 0 or to a color of an adjacent cell; check all colors 0..m remain connected (non-empty) and pairwise adjacencies match the original. Acceptance: maintain a history array H of length L (e.g., 5000). For iteration t, accept the move if newZeros >= H[t % L]; if accepted, update the map and set H[t % L] = newZeros. Keep the best map found. After the time limit, run the same greedy erosion as 6336fac2 (8 sequential passes) on the best map. Output the best map.",
+          "frontier_case": {
+            "target_score": 1.8271933333333334,
+            "frontier_score": 1.8271933333333334,
+            "required_gain": 1e-06,
+            "why_plausible": "LAHC is a well-known metaheuristic that often matches or outperforms SA on combinatorial problems without requiring temperature tuning. The current best's performance is sensitive to T0/Tmin and zero bias; LAHC removes this tuning risk and can accept worsening moves based on a longer history, potentially finding better configurations."
+          },
+          "constraints": [
+            "Complete new program replacing the EVOLVE-BLOCK.",
+            "Use the same I/O format and time limit.",
+            "Implement LAHC with history length L; no external libraries beyond standard C++.",
+            "Keep the same move set and constraint checks as the best branch."
+          ],
+          "donor_branch_ids": [],
+          "evidence_attempt_ids": [],
+          "novel_axis": null,
+          "falsifier": null,
+          "verbalized_probability": 0.25,
+          "id": "i1/planner_3/direction_01",
+          "intervention": 1,
+          "frontier": 1.8271933333333334
+        }
+      ],
+      "interventions": [
+        {
+          "n": 0,
+          "at": 14,
+          "at_since": 12,
+          "frontier": 0.63902,
+          "proposed": 8,
+          "valid": 8,
+          "kept": 8,
+          "planners_answered": 4,
+          "diagnoses": [
+            "The search has converged to a narrow frontier around 0.6390, with the top three branches within 0.001 of each other. Recent attempts show that simple variations of the greedy cell-removal (different priorities, restarts, or weak-branch combinations) yield gains of at most +0.001 and often regress. The bottleneck is local minima in the one-way erosion process: cells removed early can prevent better configurations later. The best branch d5a31fb9 uses a multi-restart greedy with a priority based on distinct neighbor colors, while db9f071d uses a similar greedy but with a zero-neighbor/same-color ",
+            "The search has stalled at ~0.639. All top branches are variants of greedy removal of cells adjacent to 0, differing only in ordering and restart logic. The best gain is +0.001013 from 3fcf09fe to d5a31fb9, while combining d5a31fb9 and fa70b588 into db9f071d slightly regressed. A fundamental limitation is that only wards originally touching the border can be directly eroded; interior wards cannot lose cells to 0 without creating illegal 0-ward adjacencies. This leaves a large unexplored space of moving boundaries between adjacent wards to enable indirect erosion.",
+            "Three live branches cluster within 0.001 of the 0.63902 frontier. Attempts show that random restarts and greedy order tweaks yield only tiny gains, suggesting the greedy removal paradigm is near a local optimum. Integration of the validated distinct-neighbor priority into the faster db9f071d could close the remaining 0.00023 gap, while a genetic search over removal permutations offers a distinct paradigm to escape local optima.",
+            "The search has plateaued around 0.639. d5a31fb9 (0.63902) is the global best, with db9f071d (0.638787) extremely close but slightly worse. The frontier was reached by adding random restarts and a neighbor-diversity ordering (3fcf09fe -> d5a31fb9). Attempts to add a zero/same-color priority (db9f071d) and to combine weak branches (6f5343fa, 5b7c69c1, dea3c895) have not beaten the best. The remaining gap is tiny, so both fine-grained ordering tweaks and a fundamentally different search paradigm are plausible next steps."
+          ],
+          "directions": [
+            {
+              "id": "i0/planner_0/direction_00",
+              "type": "integration",
+              "target": "d5a31fb9",
+              "donors": [
+                "db9f071d"
+              ],
+              "task": "In d5a31fb9, modify buildOrder to skip cells where zeroConnectsAt is false, and compute priority as (zeroNeighbors*4 - sameColorNeighbors*3)*1000 + distinctNeighbors*100 + rng()%100. Replace staysConnectedC with db9f071d's stamp-based version. Keep the restart loop, deadline, and best tracking uncha",
+              "verbalized_probability": 0.7
+            },
+            {
+              "id": "i0/planner_0/direction_01",
+              "type": "redesign",
+              "target": "d5a31fb9",
+              "donors": [],
+              "task": "Replace d5a31fb9's main loop with a simulated annealing search. Start from a map produced by running the original greedy for 0.5s. Then repeatedly: pick a random cell. If it is non-zero, attempt to erase it using the existing tryRemove logic. If it is zero, attempt to restore it to orig[i][j] using ",
+              "verbalized_probability": 0.4
+            },
+            {
+              "id": "i0/planner_1/direction_00",
+              "type": "integration",
+              "target": "db9f071d",
+              "donors": [
+                "d5a31fb9"
+              ],
+              "task": "In db9f071d, replace the priority computation inside the sweep loop with d5a31fb9's: for each candidate cell adjacent to 0, count the number of distinct colors among its 4-neighbors (including outside as 0), set priority = distinct_count * 1000 + (rng() % 1000), then sort candidates by priority desc",
+              "verbalized_probability": 0.7
+            },
+            {
+              "id": "i0/planner_1/direction_01",
+              "type": "redesign",
+              "target": "d5a31fb9",
+              "donors": [],
+              "task": "Write a complete new program (replacing the EVOLVE-BLOCK) that reads the input, initializes the grid to the original map, and runs simulated annealing for the time limit. Moves: pick a random cell, change its color to 0 or to a color of an adjacent cell. Accept the move if all colors 0..m remain con",
+              "verbalized_probability": 0.3
+            },
+            {
+              "id": "i0/planner_2/direction_00",
+              "type": "integration",
+              "target": "db9f071d",
+              "donors": [
+                "d5a31fb9"
+              ],
+              "task": "In db9f071d, modify the candidate ordering step: for each cell adjacent to 0, compute the number of distinct neighbor colors (including 0) among its 4-neighbors, and sort ascending by this count, breaking ties with the existing shuffled order. Keep all other logic (tryRemove, sz-based connectivity, ",
+              "verbalized_probability": 0.7
+            },
+            {
+              "id": "i0/planner_2/direction_01",
+              "type": "redesign",
+              "target": "d5a31fb9",
+              "donors": [],
+              "task": "Write a complete new program that keeps the same input/output format and feasibility checks (initAdj, tryRemove, connectivity) but replaces the main loop with a genetic algorithm. Represent a solution as a permutation of all non-zero cells (or a priority value per cell). Initialize a population of 2",
+              "verbalized_probability": 0.4
+            },
+            {
+              "id": "i0/planner_3/direction_00",
+              "type": "integration",
+              "target": "db9f071d",
+              "donors": [
+                "d5a31fb9"
+              ],
+              "task": "In db9f071d, replace the candidate sort comparator with a two-level sort: primary key = number of distinct neighboring colors (counting outside as 0) ascending; secondary key = (zero*4 - same*3) descending. Keep the candidate filtering (only cells adjacent to 0 or border), the 300-sweep limit, and t",
+              "verbalized_probability": 0.65
+            },
+            {
+              "id": "i0/planner_3/direction_01",
+              "type": "redesign",
+              "target": "d5a31fb9",
+              "donors": [],
+              "task": "Replace d5a31fb9's greedy sweep with a simulated annealing search. State: each original cell is either its original color or 0. Start from the best solution found by d5a31fb9's greedy phase. Moves: pick a random cell and flip it (0 -> original color or original color -> 0). Maintain incremental edge",
+              "verbalized_probability": 0.35
+            }
+          ],
+          "children": [
+            {
+              "direction": "i0/planner_0/direction_00",
+              "type": "integration",
+              "child": "158e4c77",
+              "score": 0.6387
+            },
+            {
+              "direction": "i0/planner_0/direction_01",
+              "type": "redesign",
+              "child": "263d56ab",
+              "score": 0.6392,
+              "chain": 2
+            },
+            {
+              "direction": "i0/planner_1/direction_00",
+              "type": "integration",
+              "child": "ba67e094",
+              "score": 0.6389866666666667
+            },
+            {
+              "direction": "i0/planner_2/direction_00",
+              "type": "integration",
+              "child": "97bc9403",
+              "score": 0.6390333333333333
+            },
+            {
+              "direction": "i0/planner_1/direction_01",
+              "type": "redesign",
+              "child": "4b20d0f1",
+              "score": 1.7083199999999998,
+              "chain": 3
+            },
+            {
+              "direction": "i0/planner_2/direction_01",
+              "type": "redesign",
+              "child": "59fdc9a8",
+              "score": 0.63934,
+              "chain": 4
+            },
+            {
+              "direction": "i0/planner_3/direction_00",
+              "type": "integration",
+              "child": "a34b7e31",
+              "score": 0.6387133333333334
+            },
+            {
+              "direction": "i0/planner_3/direction_01",
+              "type": "redesign",
+              "child": "176d4b5e",
+              "score": 0.0,
+              "chain": 5
+            }
+          ]
+        },
+        {
+          "n": 1,
+          "at": 66,
+          "at_since": 12,
+          "frontier": 1.8271933333333334,
+          "proposed": 8,
+          "valid": 8,
+          "kept": 7,
+          "planners_answered": 4,
+          "diagnoses": [
+            "The search is plateaued in the simulated-annealing family: 6336fac2 (1.827) and 3d0964aa (1.803) share nearly identical cell-move SA; recent high-branch attempts (220068c1 1.795, e2577429 1.795, 998ad70e 1.782) are small negative gains. The only large recent jump was 4b20d0f1 (+1.069 from d5a31fb9), showing a new mechanism can break the 0.639 plateau. To beat 1.827, the search needs either a better final erosion phase or a different representation.",
+            "Search is split into a high cluster (~1.8) of simulated-annealing branches and a low cluster (~0.639). The best branch 6336fac2 jumped from a6e57dd1 via SA parameter tuning. Recent attempts to improve high branches by crossover or small parameter changes have failed (e.g., e2577429 1.794, 998ad70e 1.781). The low cluster is stuck with tiny gains. The main bottleneck is the local cell-by-cell move set and the original-map initialization, which forces slow erosion from the border and may trap the search in local optima where necessary adjacencies block further compaction.",
+            "Global best 6336fac2 (1.827193) is a cell-level simulated annealing with adjacent-color moves, zero-bias, and deterministic greedy erosion. The next tier (3d0964aa 1.803, 220068c1 1.795, fc145cd0 1.787) uses the same family with different schedules/bias. Low cluster ~0.639 is erase-only and far behind. Recent attempts show simple crossover/parameter perturbations of high branches yield small or negative gains (e2577429 -0.0327, fc145cd0 -0.0397, 3c80d336 -0.0205). The bottleneck is local cell-level moves getting trapped in suboptimal skeletons; a faster SA with the best schedule or a new decom",
+            "Current search is dominated by a strong SA cluster (6336fac2 1.827, 3d0964aa 1.803, 220068c1 1.795) while the lower cluster (~0.639) is stuck. Recent attempts show tiny gains from SA parameter tweaks and failures when mixing weak branches with strong ones. The best's advantage likely comes from its SA schedule (T0=1.0, zero bias 1/4, deadline 0.97) and sequential greedy, but single-cell moves and temperature tuning remain bottlenecks. New search paradigms or large-neighborhood moves are needed to clear the frontier."
+          ],
+          "directions": [
+            {
+              "id": "i1/planner_0/direction_00",
+              "type": "integration",
+              "target": "6336fac2",
+              "donors": [
+                "3d0964aa"
+              ],
+              "task": "In 6336fac2, keep the SA phase and best-restore logic unchanged, but replace the final 8-pass sequential greedy erosion with 3d0964aa's shuffled multi-pass sweep: each pass shuffles all n*n cell indices, attempts to set a non-zero cell adjacent to 0 to 0, and checks connectivity of the old color, co",
+              "verbalized_probability": 0.65
+            },
+            {
+              "id": "i1/planner_0/direction_01",
+              "type": "redesign",
+              "target": "6336fac2",
+              "donors": [],
+              "task": "Write a complete new program that parses the input, builds the original adjacency graph, randomly samples witness adjacent cell pairs for every original edge, computes for each color a connected subset of its original cells containing its witness cells via repeated BFS shortest paths (Steiner heuris",
+              "verbalized_probability": 0.25
+            },
+            {
+              "id": "i1/planner_1/direction_01",
+              "type": "redesign",
+              "target": "6336fac2",
+              "donors": [],
+              "task": "Write a complete new program: (1) parse input and build adjacency graph; (2) for each color, extract its original cells and required neighbor-contact cells, compute a minimal connected subgraph covering those contacts (e.g., prune leaves from a spanning tree of the color region); (3) assign these su",
+              "verbalized_probability": 0.3
+            },
+            {
+              "id": "i1/planner_2/direction_00",
+              "type": "integration",
+              "target": "3d0964aa",
+              "donors": [
+                "6336fac2"
+              ],
+              "task": "Edit 3d0964aa: change deadline to tl*0.97, set T0=1.0, Tmin=0.02, change zero bias condition to (rng()&3)==0; after SA, run 6336fac2's deterministic row-major 8-pass greedy erosion before any random-order passes. Keep 3d0964aa's existing doMove, adjacencyOK, connectivityNonZero, connectivityZero and",
+              "verbalized_probability": 0.4
+            },
+            {
+              "id": "i1/planner_2/direction_01",
+              "type": "redesign",
+              "target": "6336fac2",
+              "donors": [],
+              "task": "Write a complete new program replacing 6336fac2's EVOLVE-BLOCK. Build original adjacency. Maintain for each color c a connected subset of its original cells. Repeat: randomly permute colors 1..m; for each c, collect contact sets (original c cells adjacent to any currently kept cell of each neighbor ",
+              "verbalized_probability": 0.25
+            },
+            {
+              "id": "i1/planner_3/direction_00",
+              "type": "integration",
+              "target": "3d0964aa",
+              "donors": [
+                "6336fac2"
+              ],
+              "task": "Edit 3d0964aa: replace its SA parameters (deadline 0.90, T0=0.8, Tmin=0.02, zero bias 1/2) with 6336fac2's parameters (deadline 0.97, T0=1.0, Tmin=0.02, zero bias 1/4). Keep all other code, especially the 200-pass random greedy erosion, unchanged. Run on the same time limit.",
+              "verbalized_probability": 0.35
+            },
+            {
+              "id": "i1/planner_3/direction_01",
+              "type": "redesign",
+              "target": "6336fac2",
+              "donors": [],
+              "task": "Write a complete new program (replacing the EVOLVE-BLOCK) that reads the input, initializes to the original map, and runs LAHC for the time limit. Moves: pick a random cell, change its color to 0 or to a color of an adjacent cell; check all colors 0..m remain connected (non-empty) and pairwise adjac",
+              "verbalized_probability": 0.25
+            }
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "run": "noise-ahc024-molt2_noise_credit-s502",
+      "sprouts": {
+        "2": {
+          "intervention": 0,
+          "direction": "i0/planner_1/direction_00",
+          "task": "Write a complete new program. Start from the best greedy map (or original). Repeatedly iterate over colors. For a chosen color c, fix all other cells. Precompute forced c cells (those adjacent to any color that does not originally touch 0, since they cannot be removed). For each neighbor d with origAdj[c][d]=1, collect the set of c cells adjacent to any currently kept d cell. Solve a Group Steiner Tree on c's cells: find a minimum connected subset that includes all forced cells and at least one cell from each neighbor group. Use BFS within c's cells to compute all-pairs distances, then DP over subsets of neighbor groups (2^g * |cells|) to find the optimal tree. Replace c's cells with this subset. After all colors, check global 0-connectivity and adjacency validity; revert any color change that makes the map invalid. Repeat until time runs out.",
+          "old": 0.6383,
+          "hypothesis": "The greedy erases cells one by one and cannot re-route a color's connections globally. Solving an exact minimum connected subgraph (Group Steiner Tree) for each color given its neighbors' kept cells will find smaller connected subsets that preserve all required adjacencies, reducing the number of kept cells beyond the greedy local optimum.",
+          "fate": "probation",
+          "opened_at": 17
+        },
+        "3": {
+          "intervention": 0,
+          "direction": "i0/planner_2/direction_00",
+          "task": "Replace the target's greedy loop with a complete simulated annealing program. State: a bit `keep[i][j]` for each cell (1=original color, 0=erased). Initialize from the target's current best map. Objective: maximize erased cells minus 1000*penalty, where penalty = sum over colors of (components-1) + sum over original edges of (missing?1:0) + sum over colors not touching 0 of (new 0-c edges) + (0 disconnected?1:0). Moves: flip a random cell. Accept if delta <= 0 or with probability exp(-delta/T). T starts at 10, cools to 0.1 over 1.8s. Use BFS to update connectivity of the affected color and 0 after each move. Output the best feasible map (penalty=0) found.",
+          "old": 0.6383,
+          "hypothesis": "A simulated annealing search over binary keep/erase decisions with penalty for constraint violations can escape the local minima that trap single-cell greedy erasure, finding a map with more zeros.",
+          "fate": "probation",
+          "opened_at": 33
+        }
+      },
+      "pending": [
+        {
+          "type": "redesign",
+          "target_branch_id": "4196459a",
+          "mechanism_hypothesis": "The current single-cell greedy cannot rearrange a color's cells globally; computing an exact minimum group Steiner tree per color (to touch all required neighbors) and then iteratively repairing shared edges can find much smaller connected shapes, directly increasing zeros.",
+          "task": "Write a complete new program that: (1) identifies border colors (adjacent to 0) and keeps all cells of non-border colors; (2) for each border color, precomputes groups of cells adjacent to each neighbor color; (3) solves the group Steiner tree DP over subsets of neighbors and cells to find the minimum connected subset touching all groups; (4) initializes the map with these trees; (5) runs coordinate descent: for each border color, recompute its Steiner tree using the current kept cells of neighbors as groups, adding a cell to a neighbor if an adjacency is missing; (6) outputs the map. Use the same I/O format as 4196459a.",
+          "frontier_case": {
+            "target_score": 0.638287,
+            "frontier_score": 0.6383,
+            "required_gain": 1.3e-05,
+            "why_plausible": "Independent per-color Steiner trees give a lower bound on kept cells that is likely far below the greedy's local optimum; repair overhead is small because original adjacencies provide many shared edges. The redesign could yield gains >0.01, easily clearing the 0.000013 gap."
+          },
+          "constraints": [
+            "C++20",
+            "2s limit",
+            "standard library only"
+          ],
+          "donor_branch_ids": [],
+          "evidence_attempt_ids": [
+            "21accbe1 <- ['c5c7d440', '6525e395']",
+            "68c46a1b <- ['6525e395']"
+          ],
+          "novel_axis": null,
+          "falsifier": null,
+          "verbalized_probability": 0.3,
+          "id": "i0/planner_3/direction_01",
+          "intervention": 0,
+          "frontier": 0.6383
+        }
+      ],
+      "interventions": [
+        {
+          "n": 0,
+          "at": 14,
+          "at_since": 12,
+          "frontier": 0.6383,
+          "proposed": 6,
+          "valid": 6,
+          "kept": 5,
+          "planners_answered": 3,
+          "diagnoses": [
+            "",
+            "The search is plateauing: the top three live branches (21accbe1, 4196459a, c5c7d440) are within 1.3e-5 of each other, and recent attempts combining them (4196459a, 21accbe1) yielded negligible or negative gains. All top branches use variations of greedy cell-by-cell erasing with random restarts. Further gains likely require a different search paradigm that can escape greedy local optima.",
+            "The search is plateaued at ~0.6383. Recent attempts combining top branches yield gains of only ~1e-5 or fail (0.0). All top branches are single-cell greedy erasers with different orderings and connectivity checks. The local greedy paradigm appears saturated. A faster feasibility check (4196459a's local 0-connectivity) and a fundamentally different search paradigm (simulated annealing) are the most promising directions.",
+            "The live frontier is saturated by single-cell greedy erasure: the top five branches are within 0.0001 of each other, and recent attempts combining them yield gains \u22640.000033 or negative. All provided branches use local erase with connectivity and adjacency checks, which cannot reconfigure a color's shape globally. The main bottleneck is per-color shape optimization under inter-color adjacency constraints."
+          ],
+          "directions": [
+            {
+              "id": "i0/planner_1/direction_00",
+              "type": "redesign",
+              "target": "21accbe1",
+              "donors": [],
+              "task": "Write a complete new program. Start from the best greedy map (or original). Repeatedly iterate over colors. For a chosen color c, fix all other cells. Precompute forced c cells (those adjacent to any color that does not originally touch 0, since they cannot be removed). For each neighbor d with orig",
+              "verbalized_probability": 0.25
+            },
+            {
+              "id": "i0/planner_1/direction_01",
+              "type": "exploration",
+              "target": "21accbe1",
+              "donors": [],
+              "task": "Write a complete new program. Start from the best greedy map. Then run a local search for the remaining time: repeatedly pick a random 0 cell, set it back to its original color (un-erase), then run the existing greedy erasing pass on the whole map to re-optimize. Accept the new map if it has more ze",
+              "verbalized_probability": 0.6
+            },
+            {
+              "id": "i0/planner_2/direction_00",
+              "type": "redesign",
+              "target": "68c46a1b",
+              "donors": [],
+              "task": "Replace the target's greedy loop with a complete simulated annealing program. State: a bit `keep[i][j]` for each cell (1=original color, 0=erased). Initialize from the target's current best map. Objective: maximize erased cells minus 1000*penalty, where penalty = sum over colors of (components-1) + ",
+              "verbalized_probability": 0.25
+            },
+            {
+              "id": "i0/planner_2/direction_01",
+              "type": "integration",
+              "target": "21accbe1",
+              "donors": [
+                "4196459a"
+              ],
+              "task": "In 21accbe1, modify `tryEraseFast` to replace `bool zOK = zeroConnected();` with `bool zOK = hasZeroNbr;`. Remove the unused `zeroConnected` function. Increase `maxRand` from 24 to 100 and adjust the time slicing in the random restart loop to use the saved time. Keep all other logic identical.",
+              "verbalized_probability": 0.4
+            },
+            {
+              "id": "i0/planner_3/direction_01",
+              "type": "redesign",
+              "target": "4196459a",
+              "donors": [],
+              "task": "Write a complete new program that: (1) identifies border colors (adjacent to 0) and keeps all cells of non-border colors; (2) for each border color, precomputes groups of cells adjacent to each neighbor color; (3) solves the group Steiner tree DP over subsets of neighbors and cells to find the minim",
+              "verbalized_probability": 0.3
+            }
+          ],
+          "children": [
+            {
+              "direction": "i0/planner_1/direction_00",
+              "type": "redesign",
+              "child": "1a0aac13",
+              "score": 0.001,
+              "chain": 2
+            },
+            {
+              "direction": "i0/planner_1/direction_01",
+              "type": "exploration",
+              "child": "d5b17eb6",
+              "score": 0.0
+            },
+            {
+              "direction": "i0/planner_2/direction_00",
+              "type": "redesign",
+              "child": "2a63f5ca",
+              "score": 0.0,
+              "chain": 3
+            },
+            {
+              "direction": "i0/planner_2/direction_01",
+              "type": "integration",
+              "child": "16784e83",
+              "score": 0.6383333333333334
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "provisional": true,
+  "interpretation": "Implemented redesigns differ in move space: control branch 3 permits nonzero recoloring; variant branches currently include binary keep/erase annealing and Group Steiner construction. Both policy and model-generated proposal/implementation differences remain possible explanations; allocation alone is not isolated. Two concurrent work items also mean incumbent selection is among currently available chains.",
+  "validation_accessed": false,
+  "search_changed": false
+}

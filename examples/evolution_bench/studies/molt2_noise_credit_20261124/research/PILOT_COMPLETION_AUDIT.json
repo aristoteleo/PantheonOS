@@ -1,7 +1,7 @@
 {
-  "at_unix": 1795551458.4068072,
+  "at_unix": 1795553509.1737278,
   "expected_run_count": 12,
-  "completed_run_count": 8,
+  "completed_run_count": 9,
   "rows": [
     {
       "run": "noise-ahc024-molt2_adaptive_branches-s500",
@@ -29,9 +29,9 @@
     },
     {
       "run": "noise-ahc024-molt2_adaptive_branches-s502",
-      "status": "running",
-      "strict_selection_verified": false,
-      "remote_archive_verified": false
+      "status": "complete",
+      "strict_selection_verified": true,
+      "remote_archive_verified": true
     },
     {
       "run": "noise-ahc024-molt2_noise_credit-s502",
@@ -71,7 +71,7 @@
     },
     {
       "run": "noise-ahc058-molt2_noise_credit-s502",
-      "status": "not_started",
+      "status": "running",
       "strict_selection_verified": false,
       "remote_archive_verified": false
     }
