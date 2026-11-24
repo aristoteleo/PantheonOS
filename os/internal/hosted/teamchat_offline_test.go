@@ -333,8 +333,15 @@ func TestTheOwnerIsToldOnceWhileTheComputerIsAway(t *testing.T) {
 
 	// Mine by computer.
 	on := call("agents_on_nodes", map[string]any{})["agents"].([]any)
-	if len(on) != 1 || on[0].(map[string]any)["node_id"] != "n_mac" || on[0].(map[string]any)["state"] != "offline" {
+	if len(on) != 1 || on[0].(map[string]any)["node_id"] != "n_mac" || on[0].(map[string]any)["state"] != "offline" || on[0].(map[string]any)["workspace"] != false {
 		t.Fatalf("%v", on)
+	}
+	// An agent on the Cloud Workspace says so, so the paused Workspace (not listed) still counts it.
+	makeAgent(t, h, mine, "Cloudy", "n_ws", "codex", nil)
+	for _, a := range call("agents_on_nodes", map[string]any{})["agents"].([]any) {
+		if a := a.(map[string]any); a["name"] == "Cloudy" && a["workspace"] != true {
+			t.Fatalf("%v", a)
+		}
 	}
 
 	// Back: answered, and the notice goes.

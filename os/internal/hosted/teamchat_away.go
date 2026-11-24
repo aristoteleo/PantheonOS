@@ -158,8 +158,9 @@ func (t *TeamChat) agentsOnNodes(fl *tcFleet, me string) map[string]any {
 			continue
 		}
 		st := t.statusOf(fl, m)
+		// workspace: it lives on the Cloud Workspace (whose node is not listed while it is paused).
 		agents = append(agents, map[string]any{"mid": mid, "handle": m.Handle, "name": m.Name, "node_id": m.NodeID,
-			"state": st["state"], "queue": st["queue"]})
+			"workspace": withMemberNode(fl.nodes[m.NodeID], m).Kind == "sandbox", "state": st["state"], "queue": st["queue"]})
 	}
 	return map[string]any{"agents": agents}
 }
