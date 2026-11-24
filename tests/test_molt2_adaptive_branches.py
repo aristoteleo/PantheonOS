@@ -147,3 +147,22 @@ def test_gone_planner_targets_fall_back_to_available_ordinary_work():
     item=run(m.ask(ctx,1))[0]
     assert item.meta['chain'] in [0,1] and not m.pending
     assert m.interventions[0]['children'][0]['skipped']=='target gone'
+
+def test_identical_genomes_with_distinct_measurements_close_best_of_two():
+    m,ctx,seed=setup();item=run(m.ask(ctx,1))[0]
+    first=ctx.store.add(Individual(id='same-a',genome=CodeGenome(files={'solution.cpp':CODE+'//same'}),kind='code',parent_ids=item.parent_ids))
+    second=ctx.store.add(Individual(id='same-b',genome=CodeGenome(files={'solution.cpp':CODE+'//same'}),kind='code',parent_ids=item.parent_ids))
+    assert first is second  # the real Store merges identical source
+    a=Measurement(individual_id=first.id,metrics={'combined_score':.7,'validity':1},item_id=item.id,batch_id=item.batch_id,at=10.)
+    b=Measurement(individual_id=first.id,metrics={'combined_score':.5,'validity':1},item_id=item.id,batch_id=item.batch_id,at=11.)
+    # Native run_create stores both results before returning them to the method.
+    ctx.store.record(a);ctx.store.record(b)
+    run(m.on_measured(ctx,first,a));assert m.open[item.batch_id].done==1
+    run(m.on_measured(ctx,first,a));assert m.open[item.batch_id].done==1
+    run(m.on_measured(ctx,second,b));assert item.batch_id not in m.open
+    record=m.allocation_history[-1]
+    assert record['evaluations']==2 and record['best_child']==.7
+    assert record['success']==1  # evaluate each result, not the store's latest reread
+    history=copy.deepcopy(m.allocation_history);attempts=m.attempts
+    run(m.on_measured(ctx,first,a));run(m.on_measured(ctx,second,b))
+    assert m.allocation_history==history and m.attempts==attempts
