@@ -1,0 +1,117 @@
+{
+  "at_unix": 1795521119.658481,
+  "scope": "Completed public development AHC058 ModifiedMolt seed403; no validation accessed",
+  "selection": {
+    "id": "e00c0eda",
+    "score": 5.42989428,
+    "sha256": "9a961b8bd07f6edc721c68c1e85aa24410d6b2c533bed57ee89d1738a13e3396",
+    "eval_cap": 80,
+    "cases": 150,
+    "policy": "First eligible full measurement per distinct source inside the evaluator-call ceiling."
+  },
+  "eligible_reading": {
+    "individual_id": "e00c0eda",
+    "code_sha256": "9a961b8bd07f6edc721c68c1e85aa24410d6b2c533bed57ee89d1738a13e3396",
+    "measurement_at": 1795520889.3392563,
+    "search_eval_index": 76,
+    "score": 5.42989428,
+    "eligible": true
+  },
+  "winning_branch": {
+    "chain": 9,
+    "intervention": 1,
+    "direction": "i1/planner_3/direction_00",
+    "task": "Replace the local-search loop with a full-sequence simulated annealing search. Start from the incumbent action sequence. Define move operators: (a) change one turn to any feasible action or -1; (b) swap actions at two turns; (c) move an action from turn u to turn v by shifting intervening actions; (d) delete one action and insert -1 elsewhere. Evaluate a move by re-simulating from the earliest changed turn using the existing State/produce/apply helpers. Accept with a Metropolis criterion on final apple count, cooling temperature over the 0.95*tl budget, and keep the best sequence found.",
+    "old": 5.261537866666666,
+    "hypothesis": "The incumbent's coordinate descent cannot reorder investments. Because production compounds, moving a high-level strengthen earlier can have a large delayed effect. A sequence-space simulated annealing search with swap and move operators can escape this local optimum.",
+    "fate": "probation",
+    "opened_at": 75
+  },
+  "first_parent_lineage": [
+    {
+      "id": "41f21234",
+      "generation": 0,
+      "parents": [],
+      "scores": [
+        4.86749216
+      ]
+    },
+    {
+      "id": "5794dfdd",
+      "generation": 1,
+      "parents": [
+        "41f21234"
+      ],
+      "scores": [
+        5.1031335
+      ]
+    },
+    {
+      "id": "3d45a256",
+      "generation": 2,
+      "parents": [
+        "5794dfdd"
+      ],
+      "scores": [
+        5.21776382
+      ]
+    },
+    {
+      "id": "798a24bf",
+      "generation": 3,
+      "parents": [
+        "3d45a256"
+      ],
+      "scores": [
+        5.2605948399999996
+      ]
+    },
+    {
+      "id": "e81a7d54",
+      "generation": 4,
+      "parents": [
+        "798a24bf"
+      ],
+      "scores": [
+        5.26064896
+      ]
+    },
+    {
+      "id": "780ec6fc",
+      "generation": 5,
+      "parents": [
+        "e81a7d54"
+      ],
+      "scores": [
+        5.261122406666666
+      ]
+    },
+    {
+      "id": "ebaab289",
+      "generation": 6,
+      "parents": [
+        "780ec6fc",
+        "798a24bf"
+      ],
+      "scores": [
+        5.261537866666666
+      ]
+    },
+    {
+      "id": "e00c0eda",
+      "generation": 7,
+      "parents": [
+        "ebaab289"
+      ],
+      "scores": [
+        5.42989428
+      ]
+    }
+  ],
+  "code_observations": [
+    "Generated code includes a full action-sequence search with change, swap and move operators and exponential acceptance of worsening moves.",
+    "The winning implementation was born in the second intervention, late in the budget; it improved directly from the incumbent lineage."
+  ],
+  "interpretation": "This is an example of a late new proposal paying off immediately, rather than only after many repairs. It complements the delayed-repair examples. Neither observation alone identifies an optimal allocation or proves that increasing the budget would outperform another method.",
+  "budget_index_note": "Use the eligible_reading search_eval_index for baseline-inclusive comparisons; native child-candidate log numbers differ by the baseline."
+}
