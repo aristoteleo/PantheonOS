@@ -1,0 +1,176 @@
+{
+  "at_unix": 1795509265.9040601,
+  "rows": [
+    {
+      "run": "matched-ahc024-molt-s400",
+      "ledger_calls": 91,
+      "errors_by_category": {},
+      "reported_usd": 0.4405274216,
+      "conservative_usd": 0.4405274216,
+      "unpriced_calls": 0
+    },
+    {
+      "run": "matched-ahc024-molt-s401",
+      "ledger_calls": 91,
+      "errors_by_category": {},
+      "reported_usd": 0.4417344848,
+      "conservative_usd": 0.4417344848,
+      "unpriced_calls": 0
+    },
+    {
+      "run": "matched-ahc024-molt-s402",
+      "ledger_calls": 92,
+      "errors_by_category": {},
+      "reported_usd": 0.3800144712,
+      "conservative_usd": 0.3800144712,
+      "unpriced_calls": 0
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s400",
+      "ledger_calls": 91,
+      "errors_by_category": {},
+      "reported_usd": 0.4020098432,
+      "conservative_usd": 1.4020098432,
+      "unpriced_calls": 1
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s401",
+      "ledger_calls": 91,
+      "errors_by_category": {},
+      "reported_usd": 0.4198335512,
+      "conservative_usd": 0.4198335512,
+      "unpriced_calls": 0
+    },
+    {
+      "run": "matched-ahc024-molt2_adaptive_branches-s402",
+      "ledger_calls": 92,
+      "errors_by_category": {},
+      "reported_usd": 0.423314332,
+      "conservative_usd": 0.423314332,
+      "unpriced_calls": 0
+    },
+    {
+      "run": "matched-ahc024-molt_modified-s400",
+      "ledger_calls": 92,
+      "errors_by_category": {},
+      "reported_usd": 0.38940060320000003,
+      "conservative_usd": 1.3894006032,
+      "unpriced_calls": 1
+    },
+    {
+      "run": "matched-ahc024-molt_modified-s401",
+      "ledger_calls": 91,
+      "errors_by_category": {},
+      "reported_usd": 0.4077716944,
+      "conservative_usd": 0.4077716944,
+      "unpriced_calls": 0
+    },
+    {
+      "run": "matched-ahc024-molt_modified-s402",
+      "ledger_calls": 87,
+      "errors_by_category": {},
+      "reported_usd": 0.3285951872,
+      "conservative_usd": 0.3285951872,
+      "unpriced_calls": 0
+    },
+    {
+      "run": "matched-ahc024-simpletes-s400",
+      "ledger_calls": 81,
+      "errors_by_category": {},
+      "reported_usd": 0.259912632,
+      "conservative_usd": 0.259912632,
+      "unpriced_calls": 0
+    },
+    {
+      "run": "matched-ahc024-simpletes-s401",
+      "ledger_calls": 82,
+      "errors_by_category": {},
+      "reported_usd": 0.2763033112,
+      "conservative_usd": 0.2763033112,
+      "unpriced_calls": 0
+    },
+    {
+      "run": "matched-ahc024-simpletes-s402",
+      "ledger_calls": 82,
+      "errors_by_category": {},
+      "reported_usd": 0.3267938744,
+      "conservative_usd": 0.3267938744,
+      "unpriced_calls": 0
+    },
+    {
+      "run": "matched-ahc058-molt-s400",
+      "ledger_calls": 91,
+      "errors_by_category": {},
+      "reported_usd": 0.2609046888,
+      "conservative_usd": 0.2609046888,
+      "unpriced_calls": 0
+    },
+    {
+      "run": "matched-ahc058-molt-s401",
+      "ledger_calls": 91,
+      "errors_by_category": {},
+      "reported_usd": 0.2734551568,
+      "conservative_usd": 0.2734551568,
+      "unpriced_calls": 0
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s400",
+      "ledger_calls": 90,
+      "errors_by_category": {},
+      "reported_usd": 0.2993412072,
+      "conservative_usd": 0.2993412072,
+      "unpriced_calls": 0
+    },
+    {
+      "run": "matched-ahc058-molt2_adaptive_branches-s401",
+      "ledger_calls": 93,
+      "errors_by_category": {},
+      "reported_usd": 0.3152851688,
+      "conservative_usd": 0.3152851688,
+      "unpriced_calls": 0
+    },
+    {
+      "run": "matched-ahc058-molt_modified-s400",
+      "ledger_calls": 86,
+      "errors_by_category": {},
+      "reported_usd": 0.2462899656,
+      "conservative_usd": 0.2462899656,
+      "unpriced_calls": 0
+    },
+    {
+      "run": "matched-ahc058-molt_modified-s401",
+      "ledger_calls": 85,
+      "errors_by_category": {},
+      "reported_usd": 0.2692625432,
+      "conservative_usd": 0.2692625432,
+      "unpriced_calls": 0
+    },
+    {
+      "run": "matched-ahc058-simpletes-s400",
+      "ledger_calls": 82,
+      "errors_by_category": {},
+      "reported_usd": 0.232968708,
+      "conservative_usd": 0.232968708,
+      "unpriced_calls": 0
+    },
+    {
+      "run": "matched-ahc058-simpletes-s401",
+      "ledger_calls": 81,
+      "errors_by_category": {},
+      "reported_usd": 0.2245232584,
+      "conservative_usd": 0.2245232584,
+      "unpriced_calls": 0
+    },
+    {
+      "run": "matched-ahc058-simpletes-s402",
+      "ledger_calls": 83,
+      "errors_by_category": {
+        "upstream_rate_limit": 1
+      },
+      "reported_usd": 0.2184578424,
+      "conservative_usd": 1.2184578424,
+      "unpriced_calls": 1
+    }
+  ],
+  "caution": "Read-only billing diagnostic. Unpriced calls remain conservatively charged; no refunds inferred from HTTP status. Errors may change histories, so identical configured seeds do not imply paired identical generations. No runs excluded or repeated based on this audit."
+}

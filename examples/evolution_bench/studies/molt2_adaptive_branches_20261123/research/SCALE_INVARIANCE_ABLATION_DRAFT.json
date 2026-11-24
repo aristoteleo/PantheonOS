@@ -39,5 +39,15 @@
     "eligible_final_score": 1.1084733333333334,
     "earlier_plateau_approx": 0.639,
     "implication": "Large improvements are possible on AHC024. A sparse1% reward during early plateau is not by itself proof of a bad policy; ignoring tiny incumbent gains may also preserve exploration. Lowering the threshold can change that balance and must be tested as an ablation, not assumed beneficial."
+  },
+  "implementation_confound_check": {
+    "at_unix": 1795509723.9400434,
+    "evidence": [
+      "AHC024_SEED402_NEIGHBORHOOD_COMPARISON.json",
+      "AHC058_SEED402_PROVISIONAL_ANNEALING_CHANGE.json"
+    ],
+    "observation": "Generated programs differ in reachable moves and annealing acceptance, not only framework allocation. The AHC024 compared SA branches each received four productive follow-ups.",
+    "consequence": "Do not bundle reward changes with planner/writer changes. A credit-only ablation must keep existing parents, proposal prompts and branch rules fixed; independent runs still require multiple seeds because future histories diverge. A component-level generated-code ablation addresses a different causal question.",
+    "current_campaign_unchanged": true
   }
 }

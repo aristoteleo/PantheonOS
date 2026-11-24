@@ -1,0 +1,17 @@
+{
+  "at_unix": 1795509643.5269904,
+  "scope": "Provisional completed candidate measurements inside a still-active development run; not final selection",
+  "run": "matched-ahc058-molt_modified-s402",
+  "parent": "066d5d3f",
+  "child": "130a158d",
+  "parent_score": 5.38953452,
+  "child_score": 5.44326366,
+  "code_observations": [
+    "Child increases initial log-space annealing temperature from0.0005 to0.01 (20-fold) and cooling window from half to60% of nominal time. Time origin also changes.",
+    "Both use sequence change/swap/move mutations and final affordability sanitization.",
+    "Child changes fixed RNG seed, do-nothing proposal probability, equal-score acceptance probability, and other details.",
+    "The variable named bestApples is updated after accepting worsening moves in both sources, so it represents the current state rather than a separately preserved global incumbent."
+  ],
+  "interpretation": "A broader ability to traverse temporary losses is a plausible contributor. Multiple simultaneous changes, wall-clock search, and changed random trajectories prevent attributing this score increase to temperature alone. This is generated task-program behavior, not a changed framework allocation policy.",
+  "no_experiment_changed": true
+}
