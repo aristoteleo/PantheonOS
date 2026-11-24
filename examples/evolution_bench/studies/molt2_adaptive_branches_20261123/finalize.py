@@ -69,10 +69,12 @@ ids={x['id'] for x in rows};calls={k:v for k,v in ledger['calls'].items() if v.g
 (R/'research/STUDY_MODEL_COST.json').write_text(json.dumps({'calls':calls,'conservative_total_usd':sum(v['conservative_charge_usd'] for v in calls.values()),'cumulative_math_cap_usd':74},indent=2)+'\n')
 archive=R/'development-artifacts.tar.gz'
 with tarfile.open(archive,'w:gz') as t:
-    for name in ['runner','tasks','runs','research','source','campaign.json','manifest.json','SOURCE_FREEZE.json','AUTHORIZATION.json','LAUNCH.json','controller.log','launch.py','preflight.py','qualify.py','finalize.py']:
+    for name in ['runner','tasks','runs','research','source','README.txt','campaign.json','manifest.json','SOURCE_FREEZE.json','AUTHORIZATION.json','LAUNCH.json','controller.log','launch.py','preflight.py','qualify.py','finalize.py']:
         p=R/name
         if p.exists():t.add(p,arcname=name,filter=lambda info:None if '__pycache__' in Path(info.name).parts else info)
-digest=hashlib.sha256(archive.read_bytes()).hexdigest();receipt={'sha256':digest,'bytes':archive.stat().st_size,'local_archive':str(archive)}
+from archive_validation import validate_archive
+archive_validation=validate_archive(archive,R)
+digest=hashlib.sha256(archive.read_bytes()).hexdigest();receipt={'sha256':digest,'bytes':archive.stat().st_size,'local_archive':str(archive),'artifact_validation':archive_validation}
 try:
     import modal
     volume=modal.Volume.from_name('molt-cardiac4d-runs',create_if_missing=False)

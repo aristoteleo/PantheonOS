@@ -1,0 +1,15 @@
+{
+  "at_unix": 1795494079.9602294,
+  "command": "/home/erwinpi/molt2-lab/runtime/bin/python -m pytest -q /home/erwinpi/molt2-adaptive-branches-lab/research/test_reporting_edge_cases.py",
+  "exit_code": 0,
+  "result": "6 passed in 1.46s",
+  "test_source_sha256": "0c0be82f6d16febd1f479ccea27accd497bb6a6a854386eae10e05283d8176ee",
+  "coverage": [
+    "missing evaluator measurements",
+    "legacy duplicate measurement eligibility",
+    "optional diagnostic failures",
+    "paired statistics and multiplicity",
+    "missing frozen archive file",
+    "changed frozen archive bytes"
+  ]
+}

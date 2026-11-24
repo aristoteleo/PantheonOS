@@ -25,7 +25,7 @@ def audit(run):
   eligible=[r for r in rows if r['dispatch_frontier'] is not None]
   successes=[r for r in eligible if r['best_child'] is not None and r['best_child']>r['dispatch_frontier']+relative*abs(r['dispatch_frontier'])]
   thresholds.append({'relative_threshold':relative,'positive_work_items':len(successes),'by_arm':dict(collections.Counter(r['arm'] for r in successes))})
- return {'run':run.name,'observed_work_items':len(rows),'joined_candidate_evaluations':sum(r['evaluations'] for r in rows),'thresholds':thresholds,'reconstruction_matches_native_window':not mismatches,'native_window_fallback_batches':fallbacks,'mismatched_batches':mismatches}
+ return {'run':run.name,'observed_work_items':len(rows),'joined_candidate_evaluations':sum(r['evaluations'] for r in rows if r['source']=='stored_measurements'),'window_only_accounted_evaluations':sum(r['evaluations'] for r in rows if r['source']!='stored_measurements'),'total_accounted_evaluations':sum(r['evaluations'] for r in rows),'thresholds':thresholds,'reconstruction_matches_native_window':not mismatches and not fallbacks,'native_window_fallback_batches':fallbacks,'mismatched_batches':mismatches}
 if __name__=='__main__':
  rows=[]
  for run in sorted((R/'runs').iterdir()):
