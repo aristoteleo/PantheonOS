@@ -19,7 +19,7 @@ os.environ.setdefault("PYTHONWARNINGS", "ignore::DeprecationWarning")
 for _name in ("mcp", "mcp.server", "mcp.server.lowlevel.server"):
     logging.getLogger(_name).setLevel(logging.WARNING)
 
-__version__ = "0.6.4"
+__version__ = "0.7.0"
 
 # Modules that moved keep their old names (pantheonos/_moved.py).
 from ._moved import install as _install_moved
