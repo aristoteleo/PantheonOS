@@ -1028,8 +1028,11 @@ class ModelSelector:
                 "supported_tags": ["high", "normal", "low", "vision", ...]
             }
         """
-        available_providers = sorted(self._effective_providers() if self._scope is not None
-                                     else self._get_available_providers())
+        # _effective_providers() so that under platform budget (force-proxy) the
+        # picker lists the proxy-served families (anthropic/openai/gemini) even when
+        # the user has no BYOK key for them. Without force-proxy it delegates to
+        # _get_available_providers(), so BYOK listings are unchanged.
+        available_providers = sorted(self._effective_providers())
         current_provider = self._current_provider()
 
         # Collect models for each available provider

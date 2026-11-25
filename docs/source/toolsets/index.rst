@@ -1,5 +1,5 @@
-Toolsets
-========
+Toolsets Reference
+==================
 
 Toolsets extend agent capabilities by providing access to external functions, APIs, and services. They are bundled with the ``pantheon-agents`` package and can be used directly with agents.
 
@@ -36,6 +36,89 @@ The toolset system consists of:
 1. **ToolSet Base Class**: Base class that all toolsets inherit from
 2. **Tool Decorator**: Marks methods as tools with docstring descriptions
 3. **Provider System**: Handles tool discovery and execution
+
+Complete Toolset Catalog
+------------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 35 35
+
+   * - Toolset
+     - Category
+     - Key Capabilities
+   * - :doc:`python_interpreter`
+     - Code Execution
+     - Persistent Python sessions, run code, manage interpreters
+   * - :doc:`r_interpreter`
+     - Code Execution
+     - Persistent R sessions
+   * - :doc:`julia_interpreter`
+     - Code Execution
+     - Persistent Julia sessions
+   * - :doc:`shell`
+     - Code Execution
+     - Shell commands, background processes, timeouts
+   * - :doc:`notebook`
+     - Code Execution
+     - Jupyter notebooks, cell ops, kernel management
+   * - :doc:`file_editor`
+     - Files
+     - Read/write/edit files, search, patch, PDF, images
+   * - :doc:`file_transfer`
+     - Files
+     - Chunked streaming file I/O
+   * - :doc:`web_browse`
+     - Web & Search
+     - DuckDuckGo search, URL crawl/extract
+   * - :doc:`scraper_api`
+     - Web & Search
+     - JS-rendered scraping, selectors, pagination
+   * - :doc:`fleet`
+     - Infrastructure
+     - Multi-node execution, file transfer, cluster management
+   * - :doc:`desktop`
+     - Visualization
+     - Atrium desktop windows, app viewers, and a shared browser
+   * - :doc:`scfm`
+     - Bioinformatics
+     - Single-cell foundation models: annotate, embed, perturb
+   * - :doc:`evolution`
+     - AI/ML
+     - LLM-guided evolutionary code optimization
+   * - :doc:`evaluator`
+     - AI/ML
+     - Code evaluation, metrics, LLM review
+   * - :doc:`knowledge`
+     - Knowledge & RAG
+     - Qdrant hybrid search, collection management
+   * - :doc:`vector_rag`
+     - Knowledge & RAG
+     - LanceDB vector retrieval
+   * - :doc:`database_api`
+     - Data
+     - 26+ biological database queries via natural language
+   * - :doc:`scraper_api`
+     - Data
+     - Web scraping with ScraperAPI
+   * - :doc:`image_generation`
+     - Media
+     - AI image generation (DALL-E, Gemini, …)
+   * - :doc:`task`
+     - Workflow
+     - Task boundaries, user notifications, output registration
+   * - :doc:`skillbook`
+     - Learning
+     - Skill CRUD, trajectory tracking, effectiveness tagging
+   * - :doc:`package`
+     - Discovery
+     - Search packages and tools by keyword
+   * - :doc:`code_toolset`
+     - Code Analysis
+     - AST-based code outline and item extraction
+   * - :doc:`custom_toolsets`
+     - Extensibility
+     - Build your own toolsets
 
 Built-in Toolsets
 -----------------
@@ -180,6 +263,28 @@ Evolution & Evaluation
   - ``evaluate_codebase``: Evaluate entire projects
   - ``compute_code_metrics``: Static code metrics
   - ``get_llm_code_review``: AI-powered code review
+
+Infrastructure & Visualization
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- :doc:`fleet` - Multi-node cluster management
+
+  - ``fleet_list_nodes``, ``fleet_node_info``, ``fleet_status``: Observe cluster
+  - ``run_on_node``, ``run_on_label``: Execute on remote nodes
+  - ``transfer``, ``broadcast``, ``gather``: Move files across nodes
+
+- :doc:`desktop` - Atrium desktop windows and app viewers
+
+  - ``desktop_apps``, ``desktop_windows``: See what is installed and what is open
+  - ``desktop_open``: Open IGV, Vitessce, Mol*, Gosling, Cytoscape, and more
+  - ``desktop_read``, ``desktop_update``, ``desktop_set``, ``desktop_call``: Steer a window
+  - ``browser_open`` and the ``browser_*`` tools: Drive a shared Chromium page
+
+- :doc:`scfm` - Single-cell foundation models
+
+  - ``scfm_list_models``, ``scfm_describe_model``: Browse available models
+  - ``scfm_select_model``, ``scfm_run``: Run annotation, embedding, perturbation
+  - ``scfm_interpret_results``: Summarize and explain model output
 
 Quick Start
 -----------
@@ -339,29 +444,4 @@ Toolsets can be exposed as MCP (Model Context Protocol) servers::
    await gateway.serve()
 
 See :doc:`/api/utils` for more details on MCP integration.
-
-.. toctree::
-   :hidden:
-   :maxdepth: 1
-
-   file_editor
-   file_transfer
-   shell
-   python_interpreter
-   r_interpreter
-   julia_interpreter
-   notebook
-   code_toolset
-   web_browse
-   scraper_api
-   knowledge
-   vector_rag
-   image_generation
-   database_api
-   task
-   skillbook
-   package
-   evolution
-   evaluator
-   custom_toolset
 

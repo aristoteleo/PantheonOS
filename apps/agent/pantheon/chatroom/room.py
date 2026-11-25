@@ -474,7 +474,9 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
             except ValueError as error:
                 return False, str(error)
         selector = get_model_selector()
-        available = selector._get_available_providers()
+        # Under platform budget (force-proxy) the proxy serves anthropic/openai/gemini
+        # even without a BYOK key for them; otherwise this is _get_available_providers().
+        available = selector._effective_providers()
 
         # Extract provider from model name
         if "/" in model:
@@ -487,6 +489,15 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
             provider = provider_aliases.get(provider, provider)
 
             if provider not in available:
+                # Platform-OpenRouter mode: the picker offers platform models as
+                # "openrouter/<vendor>/<model>" (and a saved pin can be "<vendor>/<model>"),
+                # whose first segment is a ROUTING prefix, not a native provider — the
+                # platform's OpenRouter key supplies the credentials. Ask the same canonical
+                # routing path the LLM call uses; if it will be routed, it is usable.
+                from pantheonos.utils.llm_providers import platform_openrouter_model_id
+
+                if platform_openrouter_model_id(model):
+                    return True, ""
                 return False, f"Provider '{provider}' not available (missing credentials)"
 
         return True, ""
@@ -558,7 +569,7 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
 
     @tool(exclude=True)
     async def set_llm_proxy(
-        self, enabled: bool, base_url: str = "", api_key: str = ""
+        self, enabled: bool, base_url: str = "", api_key: str = "", model_mode: str = ""
     ) -> dict:
         """Toggle 'platform budget' mode for THIS local backend (frontend-only).
 
@@ -566,6 +577,13 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
         (base_url) using the user's per-user virtual key (api_key) — usage spends
         against the user's platform budget — bypassing (NOT deleting) the user's own
         provider keys. enabled=False: go back to the user's own keys.
+
+        model_mode carries the DEPLOYMENT's platform routing mode down to this local
+        process: "openrouter" means the platform fronts every vendor through OpenRouter,
+        so the picker should offer the full OpenRouter catalog (list_models →
+        platform_models_by_provider) and openrouter/<vendor>/<model> ids validate —
+        the same view a hub-served client gets, where PLATFORM_MODEL_MODE is set by the
+        deployment. "" (older frontends) leaves the env untouched; "direct" clears it.
 
         Sets the env in this process so it takes effect immediately. The frontend
         re-pushes this on every connect, so it survives backend restarts without
@@ -584,10 +602,17 @@ class ChatRoom(AgentRuntime, PlaygroundAPI, OAuthAPI, ModelDirectoryAPI, StoreAP
                 os.environ["PANTHEON_PLATFORM_PROXY_BASE"] = base_url
                 os.environ["PANTHEON_PLATFORM_PROXY_KEY"] = api_key
                 os.environ["LLM_FORCE_PROXY"] = "true"
+                mode = (model_mode or "").strip().lower()
+                if mode == "openrouter":
+                    os.environ["PLATFORM_MODEL_MODE"] = "openrouter"
+                elif mode:  # explicit non-openrouter (e.g. "direct") clears it
+                    os.environ.pop("PLATFORM_MODEL_MODE", None)
+                # mode == "": older frontend didn't say — leave the env as-is
             else:
                 os.environ.pop("LLM_FORCE_PROXY", None)
                 os.environ.pop("PANTHEON_PLATFORM_PROXY_BASE", None)
                 os.environ.pop("PANTHEON_PLATFORM_PROXY_KEY", None)
+                os.environ.pop("PLATFORM_MODEL_MODE", None)
             # Rebuild the model selector so quality-tier chains (high/normal/low)
             # re-resolve under the new mode — under budget they must use only the
             # platform's providers, not a cached local one.

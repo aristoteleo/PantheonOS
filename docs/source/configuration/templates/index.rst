@@ -57,9 +57,12 @@ Create ``.pantheon/agents/helper.md``:
 
 **Use the agent:**
 
+Agent templates are referenced from a team file. After you create
+``.pantheon/teams/my_team.md`` (below):
+
 .. code-block:: bash
 
-   pantheon cli --template helper
+   pantheon cli --template .pantheon/teams/my_team.md
 
 **Create a team:**
 
@@ -114,24 +117,21 @@ The ``{{work_strategy}}`` is replaced with the prompt content.
 System Templates
 ----------------
 
-Pantheon includes built-in templates:
+Pantheon includes built-in team templates (IDs as stored under
+``pantheon/factory/templates/teams/``):
 
-- ``default`` - General assistant
-- ``developer_team`` - Development team
-- ``data_research_team`` - Data analysis team
+- ``default`` — general team
+- ``single_cell_team`` — single-cell and spatial omics analysis
+- ``paper_write_team`` — report and academic paper writing
+- ``omicverse_team`` — OmicVerse-driven analysis
+- ``rare_disease_team`` — rare disease MDT copilot
+- ``evolution_team`` — evolutionary code optimization
 
-These are used when no custom template is specified.
+``default`` is used when no custom template is specified.
 
 Next Steps
 ----------
 
 - :doc:`agents` - Agent template reference
 - :doc:`teams` - Team template reference
-
-.. toctree::
-   :hidden:
-   :maxdepth: 1
-
-   agents
-   teams
 

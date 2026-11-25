@@ -19,8 +19,9 @@ The REPL is the fastest way to start using Pantheon. It provides a rich command-
    # Start with default settings
    pantheon cli
 
-   # Or specify a team template
-   pantheon cli --template data_research_team
+   # Or load a team template file (factory templates are copied into
+   # .pantheon/teams/ on first run)
+   pantheon cli --template .pantheon/teams/single_cell_team.md
 
 **Features:**
 

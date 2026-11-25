@@ -285,6 +285,10 @@ def token_counter(
                         # Image tokens: rough estimate
                         if part.get("type") == "image_url":
                             total += 765  # ~average image token cost
+            for field in ("tool_calls", "function_call"):
+                payload = msg.get(field)
+                if payload:
+                    total += len(encoding.encode(json.dumps(payload, sort_keys=True)))
 
         if tools:
             total += len(encoding.encode(json.dumps(tools)))
@@ -304,6 +308,10 @@ def token_counter(
             for part in content:
                 if isinstance(part, dict) and "text" in part:
                     total += _heuristic_token_count(part["text"])
+        for field in ("tool_calls", "function_call"):
+            payload = msg.get(field)
+            if payload:
+                total += _heuristic_token_count(json.dumps(payload, sort_keys=True))
 
     if tools:
         total += _heuristic_token_count(json.dumps(tools))

@@ -1,155 +1,91 @@
-REPL Interface
-==============
+CLI (REPL)
+==========
 
-The REPL (Read-Eval-Print Loop) provides a feature-rich command-line interface for interacting with Pantheon agents and teams.
-
-Quick Start
------------
-
-Start the REPL with default settings:
+The Pantheon CLI provides a full-featured terminal interface for working with agents and
+teams. It supports streaming responses, rich syntax highlighting, slash commands, session
+persistence, and all the same teams and toolsets as the web app.
 
 .. code-block:: bash
 
    pantheon cli
 
-You'll see a welcome message and prompt. Type your message and press Enter to chat with the agent.
+You are dropped into an interactive prompt immediately. No additional setup is required
+beyond having an API key configured.
 
-.. code-block:: text
-
-   ╭─ Pantheon REPL ─╮
-   │ Type /help for commands │
-   ╰──────────────────────────╯
-
-   > Hello! What can you help me with?
-
-Starting Options
+Feature Overview
 ----------------
-
-.. code-block:: bash
-
-   # Use a specific team template
-   pantheon cli --template data_research_team
-
-   # Set memory directory
-   pantheon cli --memory-dir ./my_chats
-
-   # Resume a previous chat
-   pantheon cli --chat-id abc123
-
-   # Quiet mode (less output)
-   pantheon cli --quiet
-
-Key Features
-------------
-
-Syntax Highlighting
-~~~~~~~~~~~~~~~~~~~
-
-Code in responses is automatically highlighted:
-
-.. code-block:: text
-
-   > Write a Python hello world
-
-   Here's the code:
-
-   ```python
-   print("Hello, World!")
-   ```
-
-File Viewer
-~~~~~~~~~~~
-
-View files with syntax highlighting using ``/view``:
-
-.. code-block:: text
-
-   > /view src/main.py
-
-This opens a full-screen viewer with:
-
-- Line numbers
-- Syntax highlighting
-- Vim-style navigation (j/k, g/G)
-- Page navigation (Space, Ctrl-F/B)
-
-See :doc:`file-viewer` for details.
-
-Command History
-~~~~~~~~~~~~~~~
-
-- Use arrow keys to navigate previous commands
-- History persists across sessions
-- Stored in ``~/.pantheon/cli_history``
-
-Auto-Completion
-~~~~~~~~~~~~~~~
-
-- Tab completion for commands
-- File path completion
-
-Multi-line Input
-~~~~~~~~~~~~~~~~
-
-For multi-line messages, use triple backticks:
-
-.. code-block:: text
-
-   > ```
-   This is a
-   multi-line
-   message
-   ```
-
-Common Commands
----------------
 
 .. list-table::
    :header-rows: 1
+   :widths: 35 65
 
-   * - Command
+   * - Feature
+     - Details
+   * - **Streaming responses**
+     - Tokens stream to the terminal in real time; no waiting for the full response.
+   * - **Syntax highlighting**
+     - Code blocks in responses are automatically highlighted by language. File
+       viewer (``/view``) provides full syntax highlighting with line numbers.
+   * - **Slash commands**
+     - ~25 built-in commands covering sessions, agents, models, files, MCP servers,
+       and display modes. See :doc:`commands`.
+   * - **Session persistence & resume**
+     - Every conversation is saved automatically. Resume any session by name, ID,
+       or ``last`` on startup or mid-session.
+   * - **File viewer**
+     - ``/view <path>`` opens a full-screen file viewer with Vim-style navigation
+       (j/k, g/G, Space/Ctrl-B, q to exit).
+   * - **Shell pass-through**
+     - Prefix a command with ``!`` to run it directly in the shell without the LLM
+       (e.g., ``!git status``, ``!ls -la``).
+   * - **MCP server management**
+     - Start, stop, restart, add, and remove MCP tool servers live without restarting
+       the CLI session.
+   * - **Model switching**
+     - ``/model <name>`` changes the active model mid-session; change persists across
+       restarts.
+   * - **Multi-agent teams**
+     - All team templates available in the web app work identically in the CLI.
+       Switch agents mid-conversation with ``/agent``.
+   * - **Context compression**
+     - ``/compress`` triggers context summarization when approaching the model's
+       context limit.
+   * - **Speech input**
+     - Not available in the CLI. Use the web or desktop app for speech-to-text input.
+
+Command-Line Options
+--------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 75
+
+   * - Option
      - Description
-   * - ``/help``
-     - Show available commands
-   * - ``/view <file>``
-     - View file with syntax highlighting
-   * - ``/clear``
-     - Clear conversation context
-   * - ``/compress``
-     - Compress conversation to save tokens
-   * - ``/exit``
-     - Exit the REPL
+   * - ``--template <path>``
+     - Load a team from a Markdown file path (must exist on disk).
+   * - ``--resume <id\|name\|last>``
+     - Resume a saved session immediately on startup.
+   * - ``-i <message>``
+     - Non-interactive mode: send one message and exit. Useful for scripting.
+   * - ``--model <name\|tag>``
+     - Override the model for all agents in this session.
+   * - ``--quiet``
+     - Suppress decorative output; useful when piping CLI output to other tools.
 
-See :doc:`commands` for the complete reference.
+See :doc:`commands` for the complete options reference.
 
-Configuration
--------------
+When to Use the CLI
+-------------------
 
-REPL settings are stored in ``.pantheon/settings.json``:
+Prefer the Pantheon CLI when:
 
-.. code-block:: json
+- Working on a remote server over SSH without a browser.
+- Scripting or automating one-shot queries with ``-i``.
+- Integrating Pantheon into shell pipelines or Makefiles.
+- Preferring a minimal, keyboard-driven interface.
+- Running on a headless machine or inside a container.
+- You want the fastest possible startup time (the CLI starts in under a second).
 
-   {
-     "repl": {
-       "quiet": false,
-       "default_template": "default",
-       "log_level": "ERROR"
-     }
-   }
-
-See :doc:`/configuration/settings` for all options.
-
-Next Steps
-----------
-
-- :doc:`commands` - Full command reference
-- :doc:`file-viewer` - File viewer features
-- :doc:`advanced` - Custom handlers and extensions
-
-.. toctree::
-   :hidden:
-   :maxdepth: 1
-
-   commands
-   file-viewer
-   advanced
+Use the web or desktop app when you need the Atrium desktop and its app windows, the
+Fleet panel, the integrated PTY terminal, or the Gateway configuration UI.

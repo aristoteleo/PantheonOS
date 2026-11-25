@@ -8,6 +8,13 @@ from typing import Any, Callable
 from .log import logger
 from .misc import run_func
 
+CONTEXT_TOKEN_SAFETY_MARGIN = 1024
+
+
+class ContextWindowExceededError(ValueError):
+    """Raised before a provider call when no output token can fit."""
+
+
 _PATTERN_BASE64_DATA_URI = re.compile(
     r"data:image/([a-zA-Z0-9+-]+);base64,([A-Za-z0-9+/=]+)"
 )
@@ -380,14 +387,25 @@ def _normalize_output_token_param(
         if max_out and max_out > 0:
             token_value = max_out
 
-    context_window = info.get("context_window")
-    if token_value and context_window and messages is not None:
-        prompt_tokens = token_counter(model=model, messages=messages, tools=tools)
+    # A model's advertised output limit is not automatically safe for the
+    # current prompt: clamp it to what the window leaves (every candidate of a
+    # fallback chain is normalized on its own). Catalog entries without an
+    # explicit context_window use max_input_tokens, the same window the agent's
+    # compaction uses.
+    context_window = info.get("context_window") or info.get("max_input_tokens")
+    if token_value and context_window and (messages is not None or tools is not None):
+        prompt_tokens = token_counter(model=model, messages=messages or [], tools=tools)
         # Tokenizers differ across routed providers; leave headroom for framing
         # and estimation error rather than requesting the entire remaining window.
-        available = int(context_window) - prompt_tokens - max(1024, int(prompt_tokens * 0.05))
+        margin = max(CONTEXT_TOKEN_SAFETY_MARGIN, int(prompt_tokens * 0.05))
+        available = int(context_window) - prompt_tokens - margin
         if available <= 0:
-            raise ValueError(f"Prompt exceeds the context window for {model}")
+            # The wording is matched by the agent loop's context-overflow check
+            # (compact and retry), so keep "exceeds the context window".
+            raise ContextWindowExceededError(
+                f"Prompt exceeds the context window for {model}: "
+                f"input={prompt_tokens}, context={context_window}, margin={margin}"
+            )
         token_value = min(token_value, available, info.get("max_output_tokens") or token_value)
 
     if token_value is not None:
@@ -803,7 +821,8 @@ async def acompletion(
         model,
         model_params,
         api_mode="chat",
-        **config_kwargs,        messages=messages,
+        **config_kwargs,
+        messages=messages,
         tools=tools,
     )
 
@@ -830,7 +849,10 @@ async def acompletion(
             model,
             model_params,
             api_mode="chat",
-            **config_kwargs,            force_param="max_tokens",
+            **config_kwargs,
+            # The first normalization above already clamped the budget to
+            # the context window; this only renames the parameter.
+            force_param="max_tokens",
         )
     elif provider_key == "openai":
         effective_base_url = openai_specific_base or openai_effective_base or provider_config.get("base_url")
@@ -1594,11 +1616,15 @@ def _safe_token_counter(
                 for part in content:
                     if isinstance(part, dict) and "text" in part:
                         total += _fallback_token_count(part["text"])
+            for field in ("tool_calls", "function_call"):
+                payload = msg.get(field)
+                if payload:
+                    total += _fallback_token_count(
+                        json.dumps(payload, sort_keys=True, default=str)
+                    )
         # Estimate tools tokens
         if tools:
-            import json
-
-            total += _fallback_token_count(json.dumps(tools))
+            total += _fallback_token_count(json.dumps(tools, default=str))
         return total
 
 

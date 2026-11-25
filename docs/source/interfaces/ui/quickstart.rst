@@ -41,21 +41,20 @@ The browser opens automatically with the connection pre-configured. Type your me
 Using Team Templates
 --------------------
 
-ChatRoom uses team templates from ``.pantheon/teams/``. To use a specific template:
+ChatRoom uses team templates from ``.pantheon/teams/`` (factory templates are copied
+there on first run). ``pantheon ui`` has no ``--template`` flag — start the app as
+usual, then pick a team from the **Team** dropdown.
 
-.. code-block:: bash
-
-   pantheon ui --auto-start-nats --auto-ui --template data_research_team
-
-Available options:
+Built-in template IDs: ``default``, ``single_cell_team``, ``paper_write_team``,
+``omicverse_team``, ``rare_disease_team``, ``evolution_team``.
 
 .. code-block:: bash
 
    # List available templates
    ls .pantheon/teams/
 
-   # Use a template
-   pantheon ui --auto-start-nats --auto-ui --template <template_name>
+   # Start the UI, then select a team in the Team dropdown
+   pantheon ui --auto-start-nats --auto-ui
 
 Creating Your First Template
 ----------------------------
@@ -81,11 +80,11 @@ Create a file ``.pantheon/teams/my_team.md``:
 
    This team helps with general tasks and coding.
 
-Then start with your template:
+Then start the UI and select ``my_team`` from the **Team** dropdown:
 
 .. code-block:: bash
 
-   pantheon ui --auto-start-nats --auto-ui --template my_team
+   pantheon ui --auto-start-nats --auto-ui
 
 Connecting to a Remote NATS Server
 -----------------------------------
@@ -122,10 +121,13 @@ Troubleshooting
 - Verify your API key is set correctly
 - Check the terminal for error messages
 
-**Template Not Found**
+**Template not listed in the Team dropdown**
 
 - Ensure the template file exists in ``.pantheon/teams/``
-- Check the file name matches (without ``.md`` extension)
+- Check the YAML ``id`` in the front matter (factory IDs include ``default``,
+  ``single_cell_team``, ``paper_write_team``, ``omicverse_team``,
+  ``rare_disease_team``, ``evolution_team``)
+- Reload settings after adding a new file
 
 Next Steps
 ----------

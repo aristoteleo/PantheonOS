@@ -73,19 +73,26 @@ Create ``.pantheon/agents/my_assistant.md``:
 
 **Use in any interface:**
 
+Agent templates are pulled in by a team file. Point the CLI at that team Markdown
+path; in the web app, pick the team from the **Team** dropdown (``pantheon ui``
+has no ``--template`` flag).
+
 .. code-block:: bash
 
-   # REPL
-   pantheon cli --template my_assistant
+   # REPL — path to a team Markdown file
+   pantheon cli --template .pantheon/teams/my_team.md
 
-   # ChatRoom
-   pantheon ui --auto-start-nats --auto-ui --template my_assistant
+   # ChatRoom — start the UI, then select the team in the dropdown
+   pantheon ui --auto-start-nats --auto-ui
 
 .. code-block:: python
 
-   # API
-   from pantheon.factory import load_agent
-   agent = load_agent("my_assistant")
+   # API — load a team by its template ID (not a file path)
+   from pantheon.factory import create_team_from_template
+   from pantheon.endpoint import Endpoint
+
+   endpoint = Endpoint()
+   team = await create_team_from_template(endpoint, "default")
 
 Shared Features
 ---------------

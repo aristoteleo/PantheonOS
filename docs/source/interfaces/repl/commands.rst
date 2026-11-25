@@ -1,186 +1,314 @@
-REPL Commands
-=============
+Command Reference
+=================
 
-Complete reference for REPL slash commands.
+Complete reference for the Pantheon CLI — startup options, slash commands, file input
+syntax, and keyboard shortcuts.
 
-Built-in Commands
------------------
+Starting Pantheon CLI
+---------------------
 
-/help
-~~~~~
+.. code-block:: bash
 
-Display available commands.
+   pantheon cli [OPTIONS] [--] [MESSAGE]
 
-.. code-block:: text
+.. list-table::
+   :header-rows: 1
+   :widths: 25 15 60
 
-   > /help
+   * - Option
+     - Default
+     - Description
+   * - ``--template <path>``
+     -
+     - Path to a team template Markdown file (for example
+       ``.pantheon/teams/single_cell_team.md``). The path must exist; this is not a
+       bare template ID.
+   * - ``--memory-dir <path>``
+     - ``.pantheon/memory``
+     - Directory where session files are stored and read from.
+   * - ``--workspace <path>``
+     - current directory
+     - Workspace root that agents operate in when workspace mode is active.
+   * - ``--chat-id <id>``
+     -
+     - Resume a specific session by its exact ID.
+   * - ``--resume <id\|name\|last>``
+     -
+     - Resume a session by partial name, full ID, or the keyword ``last`` to
+       resume the most recently active session.
+   * - ``-r <id\|name\|last>``
+     -
+     - Shorthand for ``--resume``.
+   * - ``--log-level <level>``
+     - ``ERROR``
+     - Logging verbosity: ``DEBUG``, ``INFO``, ``WARNING``, ``ERROR``.
+   * - ``--quiet``
+     - ``False``
+     - Suppress status messages and decorative output. Useful for scripted use.
+   * - ``--resync``
+     - ``False``
+     - Force a re-index of the workspace knowledge base on startup.
+   * - ``-i <message>``
+     -
+     - Send a single non-interactive query and exit. Accepts ``@path`` file
+       attachments. Output is printed to stdout.
+   * - ``--model <name\|tag>``
+     -
+     - Override the model for all agents in this session. Accepts a full model
+       identifier (e.g., ``openai/gpt-4o``) or a quality tag (``high``,
+       ``normal``, ``fast``).
 
-/view <filepath>
-~~~~~~~~~~~~~~~~
+Slash Commands — Complete Reference
+-------------------------------------
 
-Open full-screen file viewer with syntax highlighting.
+Session & Navigation
+~~~~~~~~~~~~~~~~~~~~
 
-.. code-block:: text
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
 
-   > /view src/main.py
-   > /view README.md
+   * - Command
+     - Description
+   * - ``/help``
+     - Show all available slash commands with brief descriptions.
+   * - ``/status``
+     - Show current session information: active model, team template name, chat ID,
+       and approximate token count for the current context.
+   * - ``/new``
+     - Start a new chat session. The current session is saved automatically. The
+       new session starts with an empty conversation.
+   * - ``/clear``
+     - Clear the current conversation history. Prompts for confirmation before
+       deleting. The session ID is preserved but all turns are removed.
+   * - ``/exit``, ``/quit``, ``/q``
+     - Exit Pantheon CLI. The current session is saved before exiting.
 
-See :doc:`file-viewer` for navigation keys.
+Chat History
+~~~~~~~~~~~~
 
-/clear
-~~~~~~
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
 
-Clear conversation context. Starts a fresh conversation while keeping the same session.
+   * - Command
+     - Description
+   * - ``/history``
+     - Show the input history for the current CLI session (commands and messages
+       sent since startup). Not the same as conversation history.
+   * - ``/list`` (or ``/chats``)
+     - List all saved chat sessions. Displays session ID, name, creation date,
+       last modified date, and message count.
+   * - ``/resume [id\|name\|last]``
+     - Resume a previous chat. Accepts a full session ID, a partial session name
+       (case-insensitive substring match), or ``last`` for the most recent session.
+       If no argument is provided, shows an interactive session picker.
+   * - ``/save [file]``
+     - Save the current conversation to a JSON file. If no filename is provided,
+       saves to a timestamped ``YYYYmmdd_HHMMSS.json`` in the current directory.
+       A name without a ``.json`` suffix gets one added.
+   * - ``/load <file>``
+     - **Not implemented.** Prints a notice that ``/load`` is not supported in
+       ChatRoom mode and recommends ``/resume``; the file is not read and the
+       conversation is unchanged. Use ``/resume`` to return to a saved session.
+   * - ``/revert [index]``
+     - Revert the conversation to an earlier user turn. If ``index`` is provided,
+       reverts to that turn number (0-indexed). If omitted, shows a numbered list
+       of user turns to pick from.
 
-.. code-block:: text
-
-   > /clear
-
-/compress
-~~~~~~~~~
-
-Compress conversation history to reduce token usage. Useful for long conversations approaching context limits.
-
-.. code-block:: text
-
-   > /compress
-
-The agent will summarize the conversation to preserve key information while reducing tokens.
-
-/model [model_name]
-~~~~~~~~~~~~~~~~~~~
-
-View or change the model for the current agent.
-
-.. code-block:: text
-
-   # Show current model and available models
-   > /model
-
-   # Set model by name
-   > /model openai/gpt-4o
-   > /model kimi-for-coding
-
-   # Set model by quality tag
-   > /model high
-   > /model normal,vision
-
-Model changes are **persisted** to the team template file so they survive restarts.
-
-/new
-~~~~
-
-Create a new chat session within the same REPL.
-
-.. code-block:: text
-
-   > /new
-
-/exit or /quit
+Agents & Teams
 ~~~~~~~~~~~~~~
 
-Exit the REPL.
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
 
-.. code-block:: text
+   * - Command
+     - Description
+   * - ``/agents``
+     - List all agents in the current team: name, role, model, and available
+       toolsets.
+   * - ``/agent <name\|n>``
+     - Switch the active agent. Accepts an agent name (partial match) or a
+       1-based agent number from the ``/agents`` list.
+   * - ``/team [list\|id\|path]``
+     - With no argument: show the current team name and template path. With
+       ``list``: show available templates. With a template ID or file path:
+       switch to that template immediately.
 
-   > /exit
-   > /quit
+Models & Keys
+~~~~~~~~~~~~~
 
-Shell Commands
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Command
+     - Description
+   * - ``/model [name\|tag]``
+     - With no argument: show the current model. With a model name or quality
+       tag: switch the model for the active agent. Model changes are persisted
+       to the team template file and survive restarts.
+   * - ``/keys [show\|set <provider>]``
+     - With no argument or ``show``: display configured provider API keys
+       (values are masked). With ``set <provider>``: prompt for and store a new
+       key for the given provider name.
+   * - ``/tokens``
+     - Show a token usage breakdown for the current conversation: total tokens,
+       tokens per turn, estimated cost at current model pricing.
+
+Context & Display
+~~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Command
+     - Description
+   * - ``/compress``
+     - Immediately trigger context compression. The agent summarizes the earlier
+       conversation to reduce token usage. Use when approaching the context limit.
+   * - ``/verbose``, ``/v``
+     - Switch to verbose display mode. All tool calls, tool results, and agent
+       reasoning steps are shown in full.
+   * - ``/compact``, ``/c``
+     - Switch to compact display mode. Tool calls and results are collapsed to
+       one-line summaries. This is the default mode.
+
+Files
+~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Command
+     - Description
+   * - ``/view <path>``
+     - Open the file at ``<path>`` in the full-screen file viewer with syntax
+       highlighting, line numbers, and Vim-style navigation. Press ``q`` or
+       ``Esc`` to exit the viewer.
+   * - ``/edit [path]``
+     - Open a file in ``$EDITOR`` (falls back to ``nvim``, then ``vim``). After
+       you save and close the editor, you are returned to the REPL prompt.
+
+MCP Servers
+~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 35 65
+
+   * - Command
+     - Description
+   * - ``/mcp list``
+     - List all configured MCP servers, their start commands, and current status
+       (running / stopped / error).
+   * - ``/mcp start <name>``
+     - Start a stopped MCP server. The server's tools become available to agents
+       immediately after startup.
+   * - ``/mcp stop <name>``
+     - Stop a running MCP server. Its tools are removed from the agent's toolset
+       without requiring a restart.
+   * - ``/mcp restart <name>``
+     - Stop and restart an MCP server. Useful after updating the server binary or
+       when a server has entered an error state.
+   * - ``/mcp add <name> '<cmd>'``
+     - Add a new MCP server and **persist it to** ``.pantheon/mcp.json``. ``<cmd>``
+       is the server's whole command line, quoted (e.g. ``'uvx context7'``). Use
+       ``--uri <url>`` instead for a remote HTTP server. The server is registered
+       but not started — run ``/mcp start <name>``, or pass ``--autostart`` to have
+       it start on every launch. Also accepts ``--desc`` and repeatable ``--env``.
+   * - ``/mcp remove <name>``
+     - Stop the server, unregister its tools, and **delete its entry from**
+       ``.pantheon/mcp.json`` (including the ``auto_start`` list). To keep the
+       configuration and only stop the server, use ``/mcp stop``.
+
+Shell Pass-Through
+~~~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Syntax
+     - Description
+   * - ``!<cmd>``
+     - Run a shell command directly without involving the LLM. The command runs
+       in a subprocess using the current shell. Output is printed to the terminal.
+       Example: ``!ls -la``, ``!git status``, ``!python train.py``.
+
+Input Features
 --------------
 
-Run shell commands directly by prefixing with ``!``:
+**File attachment with** ``@``
+
+Attach a file as context by typing ``@<path>`` anywhere in your message:
 
 .. code-block:: text
 
-   > !ls -la
-   > !git status
-   > !python script.py
+   > Summarize the key findings in @results/analysis_report.pdf
 
-Output is displayed and can be referenced in the conversation.
+Tab completion is supported for ``@path`` attachments — press Tab after ``@`` to
+autocomplete file paths relative to the current workspace.
 
-Multi-line Input
-----------------
+**Image attachment with** ``@image:``
 
-For multi-line messages, wrap in triple backticks:
+Attach an image for vision models:
 
 .. code-block:: text
 
-   > ```
-   Please review this code:
+   > What cell types are shown in @image:figures/umap_by_celltype.png
 
-   def hello():
-       print("Hello")
-   ```
+Images are base64-encoded and sent as vision input. Requires a model that supports
+image input (look for the ``vision`` capability tag in ``/model``).
 
-The entire block is sent as one message.
+**Multi-line input**
+
+Press **Alt+Enter** or **Ctrl+J** to insert a newline without sending. Press **Enter**
+on its own to submit the complete multi-line message:
+
+.. code-block:: text
+
+   > Please review this function:
+     [Alt+Enter]
+     def calculate_gc(seq):
+         return (seq.count('G') + seq.count('C')) / len(seq)
+     [Enter to send]
+
+**History navigation**
+
+Press **Up Arrow** to scroll backward through previous messages and commands you have
+entered in this session. **Down Arrow** scrolls forward. History persists across
+sessions and is stored in ``~/.pantheon/cli_history``.
 
 Keyboard Shortcuts
 ------------------
 
 .. list-table::
    :header-rows: 1
+   :widths: 30 70
 
    * - Key
      - Action
-   * - ``↑`` / ``↓``
-     - Navigate command history
-   * - ``Tab``
-     - Auto-complete
-   * - ``Ctrl+C``
-     - Cancel current operation
-   * - ``Ctrl+D``
-     - Exit REPL
-   * - ``Ctrl+L``
-     - Clear screen
-
-File Viewer Keys
-----------------
-
-When in the file viewer (``/view``):
-
-.. list-table::
-   :header-rows: 1
-
-   * - Key
-     - Action
-   * - ``j`` / ``↓``
-     - Scroll down
-   * - ``k`` / ``↑``
-     - Scroll up
-   * - ``Space`` / ``Ctrl+F``
-     - Page down
-   * - ``Ctrl+B``
-     - Page up
-   * - ``g``
-     - Go to top
-   * - ``G``
-     - Go to bottom
-   * - ``q`` / ``Esc``
-     - Exit viewer
-
-Interactive Dialogs
--------------------
-
-When agents request approval (via ``notify_user``), an interactive dialog appears:
-
-.. list-table::
-   :header-rows: 1
-
-   * - Key
-     - Action
-   * - ``a``
-     - Approve
-   * - ``c``
-     - Continue planning
-   * - ``1-9``
-     - Switch between file previews
-   * - ``Tab``
-     - Next file
-   * - ``Esc``
-     - Cancel/Reject
-
-Custom Commands
----------------
-
-You can add custom commands by creating command handlers. See :doc:`advanced` for details.
+   * - **Enter**
+     - Send the current message to the active agent
+   * - **Shift+Enter**
+     - Insert a newline (same as Alt+Enter in most terminals)
+   * - **Alt+Enter**
+     - Insert a newline without sending (for multi-line messages)
+   * - **Ctrl+C**
+     - Cancel the currently streaming generation; returns to the prompt
+   * - **Ctrl+D**
+     - Exit Pantheon CLI (equivalent to ``/exit``)
+   * - **Ctrl+T**
+     - Toggle between compact and verbose display modes
+   * - **Esc**
+     - Cancel generation (alternative to Ctrl+C)
+   * - **Up Arrow**
+     - Navigate to the previous message/command in input history
+   * - **Down Arrow**
+     - Navigate to the next message/command in input history
+   * - **Tab**
+     - Autocomplete slash commands and ``@path`` file references

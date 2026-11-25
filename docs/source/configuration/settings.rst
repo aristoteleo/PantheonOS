@@ -317,7 +317,7 @@ With custom model configuration:
      },
      "repl": {
        "quiet": false,
-       "default_template": "developer_team"
+       "default_template": null
      },
      "chatroom": {
        "memory_dir": ".pantheon/memory"
