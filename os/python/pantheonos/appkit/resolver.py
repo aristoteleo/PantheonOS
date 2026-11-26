@@ -19,6 +19,16 @@ the explicit coordinates are absent, the resolver reads that file lazily at
 first use instead:
 
     PANTHEON_FLEET_STATE_DIR=/tmp/fleet-node   (the runner's --state-dir)
+
+A legacy chatroom sandbox (one the hub starts outside Agent App mode) runs
+its Apps on a runner of its own, on a broker bound to loopback, and the
+entrypoint says so:
+
+    PANTHEON_APPS_RUNNER=local
+
+The resolver then commands that runner only. It never joins the Fleet
+controller as the user, even when FLEET_CONTROLLER_URL and FLEET_KEY are
+set (the Fleet App still uses them to reach the user's other machines).
 """
 
 from __future__ import annotations
@@ -28,6 +38,22 @@ import os
 from pathlib import Path
 
 from pantheonos.utils.log import logger
+
+
+#: How long a local-runner sandbox waits for its runner's runtime.json
+#: before a bind gives up. The entrypoint starts the runner before the
+#: worker, so this is normally a fraction of a second.
+LOCAL_RUNNER_WAIT_S = 30.0
+
+
+def local_runner_only() -> bool:
+    """Whether this process's Apps run on the sandbox's own runner only.
+
+    Set by the sandbox entrypoint for legacy chatrooms (PANTHEON_APPS_RUNNER=
+    local). The runner passes it on to the App processes it starts, so an
+    App that resolves another App stays on the same runner too.
+    """
+    return os.environ.get("PANTHEON_APPS_RUNNER", "").strip().lower() == "local"
 
 
 class NotJoinedError(RuntimeError):
@@ -106,14 +132,51 @@ class AppInstanceResolver:
         try:
             info = json.loads(path.read_text())
         except FileNotFoundError:
-            await self._discover_node()
-            return
+            if not local_runner_only():
+                await self._discover_node()
+                return
+            info = await self._wait_local_runtime(path)
         except Exception as e:
             raise RuntimeError(f"unreadable {path}: {e}") from None
         self._fleet = self._fleet or info.get("fleet_id", "")
         self._node = self._node or info.get("node_id", "")
         if not (self._fleet and self._node):
             raise RuntimeError(f"incomplete coordinates in {path}: {info}")
+
+    @staticmethod
+    async def _wait_local_runtime(path: Path) -> dict:
+        """The sandbox's own runner is starting: wait for its runtime.json.
+
+        A local-runner sandbox has no other node to adopt, and the
+        controller's registry is not this runner's, so waiting is the only
+        way forward.
+        """
+        import asyncio
+        import time as _t
+
+        deadline = _t.monotonic() + LOCAL_RUNNER_WAIT_S
+        while True:
+            try:
+                return json.loads(path.read_text())
+            except FileNotFoundError:
+                if _t.monotonic() >= deadline:
+                    raise NotJoinedError(
+                        f"the sandbox's App runner has not started ({path} missing)"
+                    ) from None
+            except ValueError:
+                pass  # caught mid-write; read it again
+            await asyncio.sleep(0.2)
+
+    def _local_runtime_nats(self) -> str | None:
+        """The loopback broker of the sandbox's own runner (runtime.json)."""
+        state_dir = self._state_dir or os.environ.get("PANTHEON_FLEET_STATE_DIR")
+        if not state_dir:
+            return None
+        try:
+            info = json.loads((Path(state_dir) / "runtime.json").read_text())
+        except Exception:
+            return None
+        return info.get("nats_url") or None
 
     async def _discover_node(self) -> None:
         """No local runner: adopt a workspace-capable node from the registry.
@@ -123,9 +186,11 @@ class AppInstanceResolver:
         holding the user's workspace is that default — the placer routes
         every App by requires × caps from there anyway. Requires the user
         join (controller + key); a same-container deployment without those
-        keeps the old behavior.
+        keeps the old behavior. So does a local-runner sandbox: its Apps
+        never go through the controller.
         """
-        if not (os.environ.get("FLEET_CONTROLLER_URL") and os.environ.get("FLEET_KEY")):
+        if local_runner_only() or not (
+                os.environ.get("FLEET_CONTROLLER_URL") and os.environ.get("FLEET_KEY")):
             raise NotJoinedError(
                 f"fleet runner not joined yet "
                 f"({Path(self._state_dir or '') / 'runtime.json'} missing)")
@@ -221,7 +286,8 @@ class AppInstanceResolver:
             }
             controller = os.environ.get("FLEET_CONTROLLER_URL")
             key = os.environ.get("FLEET_KEY")
-            if controller and key:
+            local = local_runner_only()
+            if controller and key and not local:
                 # USER-scope join: the controller mints creds whose JWT
                 # allows publishing fleet.<fid>.> — commanding one's own
                 # nodes is the product semantics, and this resolver IS the
@@ -250,6 +316,15 @@ class AppInstanceResolver:
                     connect_kwargs["user_credentials"] = tf.name
                     # Match the JWT's per-fleet inbox scope (_INBOX_<fid>.>).
                     connect_kwargs["inbox_prefix"] = b"_INBOX_" + self._fleet.encode()
+            elif local:
+                # The sandbox's own runner, on its loopback broker. Never
+                # NATS_SERVERS: in a sandbox that is the Hub's bus, which
+                # carries the App services but not this runner's commands.
+                nats_url = self._local_runtime_nats()
+                if not nats_url:
+                    raise NotJoinedError(
+                        "the sandbox's App runner has not published its broker yet")
+                connect_kwargs["servers"] = [nats_url]
             else:
                 # Dev: the local runner's own NATS (unauthenticated).
                 servers = os.environ.get(
@@ -565,6 +640,15 @@ class AppInstanceResolver:
                 spec_env["NATS_SERVERS"] = instance_nats
             if app.manifest.id == "node-files" or (node_id and service_type == 'pty'):
                 spec_env = {k: v for k, v in spec_env.items() if k.startswith("NATS_")}
+            if app.manifest.id == "fleet" and local_runner_only():
+                # A local-runner sandbox: the Fleet App reaches the user's
+                # other machines through the controller with the user's key,
+                # as the chatroom's Fleet toolset did. The runner withholds
+                # FLEET_KEY from the processes it starts, so it travels here,
+                # to this App only.
+                for name in ("FLEET_CONTROLLER_URL", "FLEET_KEY"):
+                    if os.environ.get(name):
+                        spec_env[name] = os.environ[name]
             spec_env.update(PANTHEON_FLEET_NODE_ID=target, PANTHEON_FLEET_ID=self._fleet,
                             PANTHEON_USER_SEED=self._seed)
             spec = apphost_spec(

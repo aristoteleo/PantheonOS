@@ -331,8 +331,73 @@ else
     # and env checks) used to stand between boot and the join for no
     # reason. App prestart stays later: those touch the Volume and must
     # wait for the layout migration.
+    #
+    # Agent App mode or a legacy chatroom. The hub sets
+    # PANTHEON_AGENT_APP_MODE=1 on the nodes it starts for an Agent App
+    # topology; a hub from before that variable marks those nodes with
+    # PANTHEON_NODE_APPS (and PANTHEON_APPS_DEPLOYED) instead. Anything else,
+    # including every sandbox of a hub that runs with Agent App mode off and
+    # every hub older than Agent App, is a legacy chatroom: its Apps run on a
+    # runner of this sandbox's own (below), never through the Fleet
+    # controller.
+    case "${PANTHEON_AGENT_APP_MODE:-}" in
+        1|true) AGENT_APP_MODE=1 ;;
+        0|false) AGENT_APP_MODE=0 ;;
+        *)
+            if [ -n "${PANTHEON_NODE_APPS:-}" ] || [ "${PANTHEON_APPS_DEPLOYED:-}" = "1" ]; then
+                AGENT_APP_MODE=1
+            else
+                AGENT_APP_MODE=0
+            fi
+            ;;
+    esac
     NODE_APPS="${PANTHEON_NODE_APPS:-}"
-    if [ -n "${FLEET_CONTROLLER_URL:-}" ] && command -v pantheon >/dev/null 2>&1; then
+    LOCAL_APPS_RUNNER=""
+    if [ "$AGENT_APP_MODE" != "1" ] && command -v pantheon >/dev/null 2>&1; then
+        # Legacy chatroom. Files, shell, notebooks, the web and the desktop
+        # are App instances, and something on this machine has to start them:
+        # a runner of the sandbox's own, commanded over a broker that listens
+        # on loopback only. The worker's resolver reads the runner's
+        # runtime.json and commands it there (PANTHEON_APPS_RUNNER=local);
+        # the instances serve their tools on the Hub's bus (NATS_SERVERS),
+        # where the old in-sandbox toolsets served them.
+        export PANTHEON_APPS_RUNNER=local
+        APPS_DIR="${PANTHEON_APPS_STATE_DIR:-/tmp/pantheon-apps}"
+        APPS_NATS="nats://127.0.0.1:${PANTHEON_APPS_NATS_PORT:-14250}"
+        export PANTHEON_FLEET_STATE_DIR="${APPS_DIR}/node"
+        mkdir -p "${APPS_DIR}/js" "${PANTHEON_FLEET_STATE_DIR}"
+        _ts "[apps] legacy chatroom: Apps on this sandbox's own runner (${APPS_NATS})"
+        # Each is started again if it stops: without them the agent has no
+        # tools. The runner keeps its node id in its state directory, and the
+        # worker re-binds an App that stops answering.
+        # (`|| rc=$?`: this script runs with `set -e`, which the loops inherit.)
+        ( while :; do
+              rc=0
+              pantheon node broker -a 127.0.0.1 -p "${APPS_NATS##*:}" -js -sd "${APPS_DIR}/js" || rc=$?
+              echo "[apps] broker exited (${rc}); starting it again"; sleep 1
+          done >> /tmp/pantheon-apps-broker.log 2>&1 & )
+        ( while :; do
+              rc=0
+              FLEET_NODE_CAPS= pantheon node up --nats "${APPS_NATS}" --fleet sandbox \
+                  --name "sandbox-${ID_HASH}" --kind sandbox --caps proc,fs:workspace,display,net \
+                  --state-dir "${PANTHEON_FLEET_STATE_DIR}" --no-dataplane --no-files \
+                  --no-auto-update --no-capture-setup || rc=$?
+              echo "[apps] runner exited (${rc}); starting it again"; sleep 2
+          done >> /tmp/pantheon-apps-runner.log 2>&1 & )
+        LOCAL_APPS_RUNNER=1
+        # The :prod image before Agent App joined the user's Fleet as a plain
+        # node "sandbox-<id>", so the Fleet tools can transfer files to and
+        # from this sandbox. Keep that join, and only that: no Files sharing,
+        # no Apps placed on it, nothing of the above routed through it.
+        if [ -n "${FLEET_CONTROLLER_URL:-}" ] && [ -n "${FLEET_KEY:-}" ]; then
+            _ts "[fleet] joining fleet as node sandbox-${ID_HASH} (transfers only)"
+            mkdir -p /tmp/fleet-node
+            ( FLEET_NODE_CAPS= pantheon node up --controller "${FLEET_CONTROLLER_URL}" --key "${FLEET_KEY}" \
+                  --name "sandbox-${ID_HASH}" --kind sandbox --caps proc,net \
+                  --state-dir /tmp/fleet-node --no-files --no-auto-update --no-capture-setup \
+                  > /tmp/fleet-node.log 2>&1 & )
+        fi
+    elif [ -n "${FLEET_CONTROLLER_URL:-}" ] && command -v pantheon >/dev/null 2>&1; then
         export FLEET_NODE_KIND="${FLEET_NODE_KIND:-sandbox}"
         export FLEET_NODE_CAPS="${FLEET_NODE_CAPS:-proc,fs:workspace,display,net}"
         NODE_NAME="${PANTHEON_NODE_NAME:-${PANTHEON_NODE_BASENAME:-sandbox}-${ID_HASH}}"
@@ -523,8 +588,12 @@ EOF
     # node's Apps (background, non-fatal; the resolver lazy-starts at bind
     # time either way). With a topology, the list is the node's `apps`
     # minus chatroom — the placer still routes each one by requires × caps.
-    if [ -n "${FLEET_CONTROLLER_URL:-}" ] && command -v pantheon >/dev/null 2>&1; then
-        if [ "${PANTHEON_APPS_DEPLOYED:-}" = "1" ]; then
+    # A legacy chatroom warms the default set on its own runner.
+    if [ -n "$LOCAL_APPS_RUNNER" ] || { [ "$AGENT_APP_MODE" = "1" ] \
+            && [ -n "${FLEET_CONTROLLER_URL:-}" ] && command -v pantheon >/dev/null 2>&1; }; then
+        if [ -n "$LOCAL_APPS_RUNNER" ]; then
+            PRESTART="${PANTHEON_APPS_PRESTART:-shell,file_manager,desktop}"
+        elif [ "${PANTHEON_APPS_DEPLOYED:-}" = "1" ]; then
             # The Fleet controller places this node's Apps (a deployment).
             # Legacy App hosts started here would run beside them, which
             # happened whenever the runner joined before this ran.
