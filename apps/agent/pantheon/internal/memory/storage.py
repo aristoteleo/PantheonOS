@@ -6,10 +6,51 @@ import tempfile
 import threading
 from abc import ABC, abstractmethod
 from pathlib import Path
+from datetime import datetime
 from typing import Dict, List, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .memory import Memory
+
+
+def activity_timestamp() -> str:
+    """A chat's ``last_activity_date``: naive ISO local time.
+
+    The form every runtime has written (local time is UTC in a sandbox) and
+    the one the runtime before Agent App can read: its chat list compares
+    these values as naive datetimes, so a single value with an offset fails
+    the whole list, and a user sees no chats after a rollback. Readers take
+    both forms, and read a naive value as local time.
+    """
+    return datetime.now().isoformat()
+
+
+def _naive_activity_date(value):
+    if not isinstance(value, str) or not value:
+        return value
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, OverflowError):
+        return value
+    if parsed.tzinfo is None:
+        return value
+    return parsed.astimezone().replace(tzinfo=None).isoformat()
+
+
+def rollback_readable_metadata(extra_data):
+    """A chat's metadata as written to disk.
+
+    ``last_activity_date`` is stored naive (see activity_timestamp), so a
+    value with an offset, whoever set it, is converted to local time on the
+    way out. The metadata held in memory is not changed.
+    """
+    if not isinstance(extra_data, dict):
+        return extra_data
+    value = extra_data.get("last_activity_date")
+    naive = _naive_activity_date(value)
+    if naive is value:
+        return extra_data
+    return {**extra_data, "last_activity_date": naive}
 
 
 class StorageBackend(ABC):
@@ -123,7 +164,7 @@ class JSONBackend(StorageBackend):
                     "id": memory.id,
                     "name": memory.name,
                     "messages": memory._records,
-                    "extra_data": memory.extra_data,
+                    "extra_data": rollback_readable_metadata(memory.extra_data),
                 },
             )
             self._last_persisted_count[memory.id] = len(memory._records)
@@ -150,7 +191,7 @@ class JSONBackend(StorageBackend):
                     "id": memory_id,
                     "name": name,
                     "messages": messages,
-                    "extra_data": extra_data,
+                    "extra_data": rollback_readable_metadata(extra_data),
                 },
             )
 
@@ -218,7 +259,7 @@ class JSONLBackend(StorageBackend):
                 {
                     "id": memory_id,
                     "name": name,
-                    "extra_data": extra_data,
+                    "extra_data": rollback_readable_metadata(extra_data),
                 },
             )
 

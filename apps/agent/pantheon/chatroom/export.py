@@ -909,6 +909,9 @@ def import_chat_bundle(
 
     chat_id = original_id if original_id else str(uuid.uuid4())
     meta["id"] = chat_id
+    if "extra_data" in meta:
+        from pantheon.internal.memory.storage import rollback_readable_metadata
+        meta["extra_data"] = rollback_readable_metadata(meta["extra_data"])
 
     memory_dir.mkdir(parents=True, exist_ok=True)
     (memory_dir / f"{chat_id}.jsonl").write_text(jsonl_text, encoding="utf-8")

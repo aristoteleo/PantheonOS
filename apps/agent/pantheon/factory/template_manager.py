@@ -757,16 +757,14 @@ class TemplateManager:
         required_toolsets: set[str] = set()
         required_mcp_servers: set[str] = set()
 
-        def collect_requirements(agent_cfg: AgentConfig | None):
-            if not agent_cfg:
-                return
-            required_toolsets.update(agent_cfg.toolsets or [])
-            required_mcp_servers.update(agent_cfg.mcp_servers or [])
-
         for agent in team_config.agents:
-            collect_requirements(agent)
             payload = agent.to_creation_payload()
             agent_payloads[agent.id] = payload
+            # What the agent is given, not what its template lists: an agent
+            # that selects Apps also lists the pre-App toolsets, for the
+            # previous runtime (rollback_readable_team), and binds none of them.
+            required_toolsets.update(payload["toolsets"])
+            required_mcp_servers.update(agent.mcp_servers or [])
 
         # "think" is a plugin-managed local tool, not an endpoint toolset
         required_toolsets.discard("think")

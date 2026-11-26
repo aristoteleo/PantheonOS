@@ -17,9 +17,10 @@ from typing import Callable
 from typing import TYPE_CHECKING
 
 from pantheon.agent import Agent
-from pantheon.factory.models import TeamConfig
+from pantheon.factory.models import TeamConfig, rollback_readable_team
 from .environment import AgentEnvironment
 from pantheon.internal.memory import MemoryManager, _ALL_CONTEXTS
+from pantheon.internal.memory.storage import activity_timestamp
 from pantheon.chatroom.routed_memory import ProjectRoutedMemoryManager, project_memory_dir
 from pantheon.team import PantheonTeam
 from pantheonos.toolset import ToolSet, tool
@@ -472,7 +473,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
         else:
             team_config = self.template_manager.dict_to_team_config(template_obj)
 
-        template_dict = dataclasses.asdict(team_config)
+        template_dict = rollback_readable_team(dataclasses.asdict(team_config))
         if persist:
             memory.set_metadata("team_template", template_dict)
         else:
@@ -584,7 +585,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
                 raise RuntimeError("Default template not found in template manager")
 
             # template_manager returns TeamConfig, convert to dict and save
-            team_template_dict = dataclasses.asdict(default_template)
+            team_template_dict = rollback_readable_team(dataclasses.asdict(default_template))
 
             # Save default template to memory for this chat
             if save_to_memory:
@@ -1396,7 +1397,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
             memory = await run_func(self.memory_manager.new_memory_in, _target_dir, chat_name)
         else:
             memory = await run_func(self.memory_manager.new_memory, chat_name)
-        memory.set_metadata("last_activity_date", datetime.now(timezone.utc).isoformat())
+        memory.set_metadata("last_activity_date", activity_timestamp())
 
         project = copy.deepcopy(project_metadata) if project_metadata else {}
         if project_name is not None:
@@ -1550,7 +1551,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
                 if key in source.extra_data:
                     memory.set_metadata(key, _copy.deepcopy(source.extra_data[key]))
             memory.set_metadata("forked_from", {"chat_id": source_chat_id, "message_id": fork_at_message_id or None})
-            memory.set_metadata("last_activity_date", datetime.now(timezone.utc).isoformat())
+            memory.set_metadata("last_activity_date", activity_timestamp())
 
             if sliced:
                 memory.add_messages(sliced)
@@ -2007,7 +2008,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
         """
         try:
             memory = await run_func(self.memory_manager.get_memory, chat_id, True)
-            memory.set_metadata("last_activity_date", datetime.now(timezone.utc).isoformat())
+            memory.set_metadata("last_activity_date", activity_timestamp())
             await run_func(self.memory_manager.save_one, chat_id)
             return {"success": True, "message": "Chat activity refreshed"}
         except KeyError:
@@ -2550,7 +2551,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
             if not _is_internal_notification(message):
                 memory.add_messages([dict(m) for m in message if isinstance(m, dict) and m.get("role")])
             memory.update_metadata({"running": False,
-                                    "last_activity_date": datetime.now(timezone.utc).isoformat()})
+                                    "last_activity_date": activity_timestamp()})
             await run_func(self.memory_manager.save_one, chat_id)
         except Exception as save_error:
             logger.error(f"Chat {chat_id}: keeping the refused message failed: {save_error}")
@@ -2912,7 +2913,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
         try:
             memory.update_metadata({
                 "running": True,
-                "last_activity_date": datetime.now(timezone.utc).isoformat(),
+                "last_activity_date": activity_timestamp(),
             })
 
             async def team_getter():
@@ -3158,7 +3159,7 @@ class AgentRuntime(AgentLifetime, ToolSet):
                 try:
                     memory.update_metadata({
                         "running": False,
-                        "last_activity_date": datetime.now(timezone.utc).isoformat(),
+                        "last_activity_date": activity_timestamp(),
                     })
                     await run_func(self.memory_manager.save_one, chat_id)
                 except Exception as e:

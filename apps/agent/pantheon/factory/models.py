@@ -169,3 +169,42 @@ class TeamConfig:
             source_path=data.get("source_path"),
             mode=data.get("mode") or "team",
         )
+
+
+#: The toolsets the runtime before Agent App served an agent (with its
+#: "package" builtin). That runtime knows no `apps` field: it reads an
+#: agent's tools from `toolsets` alone.
+PRE_APP_TOOLSETS = ("file_manager", "shell", "package", "integrated_notebook", "web", "evolution")
+_LOCAL_TOOLSETS = ("task", "think", "skills")
+
+
+def rollback_readable_team(template: dict) -> dict:
+    """A team template as a chat stores it, readable by the previous runtime.
+
+    A chat keeps its team in its metadata, and the runtime before Agent App
+    builds the chat's agents from that copy after a rollback. An agent that
+    selects Apps (an `apps` field, or no App toolsets at all, which means
+    every App) has no App toolsets, so that runtime would give it no tools.
+    Such an agent gets its selection written out as `apps` (this runtime
+    reads only that) and the matching pre-App toolsets beside it (the
+    previous runtime reads only those). Nothing else changes.
+    """
+    if not isinstance(template, dict) or not isinstance(template.get("agents"), list):
+        return template
+    from pantheonos.appkit.filter import AppFilter
+
+    agents = []
+    for agent in template["agents"]:
+        if isinstance(agent, dict):
+            try:
+                selection = AgentConfig.from_dict(agent).app_selection()
+            except (TypeError, ValueError):
+                selection = None
+            if selection is not None:
+                allowed = AppFilter.from_config(selection)
+                kept = [t for t in agent.get("toolsets") or [] if isinstance(t, str)
+                        and (t in _LOCAL_TOOLSETS or t == "mcp" or t.startswith("mcp:"))]
+                agent = {**agent, "apps": selection,
+                         "toolsets": kept + [t for t in PRE_APP_TOOLSETS if allowed.allows(t)]}
+        agents.append(agent)
+    return {**template, "agents": agents}
