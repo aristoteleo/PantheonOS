@@ -120,6 +120,19 @@ async def test_local_runner_is_commanded_on_its_loopback_broker(sandbox_env, mon
     assert joins == []
 
 
+async def test_the_client_is_bound_to_the_runners_fleet_even_when_asked_first(sandbox_env, monkeypatch, captured_connect):
+    """_list_nodes asks for the client before the coordinates; the client
+    must still carry the runner's fleet id, not an empty one."""
+    state_dir, joins = sandbox_env
+    monkeypatch.setenv("PANTHEON_APPS_RUNNER", "local")
+    _runtime(state_dir)
+    r = AppInstanceResolver.from_env(workdir=str(state_dir))
+    client = await r._ensure_client()
+    assert client._fleet == "sandbox"
+    assert (r._fleet, r._node) == ("sandbox", "n_local")
+    assert joins == []
+
+
 async def test_an_app_process_stays_on_the_sandbox_runner(sandbox_env, monkeypatch, captured_connect):
     """App processes get explicit coordinates and no state dir from their
     spec; they must still command the loopback broker, not the Hub bus."""

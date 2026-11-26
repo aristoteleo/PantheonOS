@@ -592,7 +592,9 @@ EOF
     if [ -n "$LOCAL_APPS_RUNNER" ] || { [ "$AGENT_APP_MODE" = "1" ] \
             && [ -n "${FLEET_CONTROLLER_URL:-}" ] && command -v pantheon >/dev/null 2>&1; }; then
         if [ -n "$LOCAL_APPS_RUNNER" ]; then
-            PRESTART="${PANTHEON_APPS_PRESTART:-shell,file_manager,desktop}"
+            # Desktop is not a legacy Leader toolset; warming it costs about
+            # 80 MB per sandbox for nothing (it still starts on first bind).
+            PRESTART="${PANTHEON_APPS_PRESTART:-shell,file_manager}"
         elif [ "${PANTHEON_APPS_DEPLOYED:-}" = "1" ]; then
             # The Fleet controller places this node's Apps (a deployment).
             # Legacy App hosts started here would run beside them, which

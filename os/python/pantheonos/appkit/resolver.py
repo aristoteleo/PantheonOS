@@ -320,6 +320,11 @@ class AppInstanceResolver:
                 # The sandbox's own runner, on its loopback broker. Never
                 # NATS_SERVERS: in a sandbox that is the Hub's bus, which
                 # carries the App services but not this runner's commands.
+                # The client is bound to a fleet id when it is built, and
+                # callers such as _list_nodes reach here before
+                # _ensure_coords: read the runner's coordinates first, or
+                # every command goes to the subject of fleet "".
+                await self._ensure_coords()
                 nats_url = self._local_runtime_nats()
                 if not nats_url:
                     raise NotJoinedError(
