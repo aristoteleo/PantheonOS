@@ -88,6 +88,53 @@ async def test_fleet_toolset_unconfigured_is_graceful(monkeypatch):
     await ts.cleanup()
 
 
+async def test_transfer_resolves_aliases_and_names_at_both_ends(monkeypatch):
+    """A name or "local" at either end becomes a node_id before the command goes
+    out: sent as-is it names no cmd subject and fails with "no responders"."""
+    ts = FleetToolSet("fleet")
+    nodes = [
+        {"node_id": "n_sandbox", "name": "sandbox-u1"},
+        {"node_id": "n_box", "name": "lab-box"},
+    ]
+    started = []
+
+    async def connected():
+        return None
+
+    async def read_nodes():
+        return nodes
+
+    async def local_node(snapshot=None):
+        return "n_sandbox"
+
+    def start(src, src_path, dst, dst_path, *rest):
+        started.append((src, dst))
+        return "x_test"
+
+    monkeypatch.setattr(ts, "_ensure_connected", connected)
+    monkeypatch.setattr(ts, "_read_nodes", read_nodes)
+    monkeypatch.setattr(ts, "_resolve_local_node", local_node)
+    monkeypatch.setattr(ts, "_start_transfer", start)
+
+    for src, dst in (("local", "lab-box"), ("LAB-BOX", "here"), ("sandbox-u1", "n_box"), ("n_sandbox", "n_box")):
+        r = await ts.transfer(src, "/a", dst, "/b")
+        assert r["success"] is True
+    assert started == [("n_sandbox", "n_box"), ("n_box", "n_sandbox"),
+                       ("n_sandbox", "n_box"), ("n_sandbox", "n_box")]
+
+    r = await ts.transfer("nowhere", "/a", "lab-box", "/b")
+    assert r["success"] is False and r["error"].startswith("src_node: no Node 'nowhere'")
+    assert "lab-box (n_box)" in r["error"]
+    assert len(started) == 4  # nothing sent for an unknown Node
+
+    async def no_registry():
+        raise RuntimeError("registry unavailable")
+
+    monkeypatch.setattr(ts, "_read_nodes", no_registry)
+    r = await ts.transfer("n_x", "/a", "n_y", "/b")  # ids pass through as before
+    assert r["success"] is True and started[-1] == ("n_x", "n_y")
+
+
 # --- live integration (opt-in) ------------------------------------------------
 
 _E2E_NATS = os.environ.get("FLEET_E2E_NATS")

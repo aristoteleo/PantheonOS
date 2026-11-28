@@ -939,9 +939,10 @@ class FleetToolSet(ToolSet):
         end-to-end.
 
         Args:
-            src_node: Node that has the file.
+            src_node: Node that has the file: a node_id, a Node name, or
+                "local" for this sandbox's own Node.
             src_path: Path of the file on src_node.
-            dst_node: Node that should receive the file.
+            dst_node: Node that should receive the file (same forms as src_node).
             dst_path: Destination path on dst_node.
             verify: "sha256" (default) or "none".
             compress: "none" (default) or "zstd" — zstd compresses on the wire
@@ -964,12 +965,20 @@ class FleetToolSet(ToolSet):
         # The sandbox joins the fleet as its own Node ("sandbox-<user>"), so
         # "local"/"here" resolves to that Node and the move goes over the normal
         # data plane like any Node->Node transfer — one interface, no size
-        # branching, no control-plane fallback.
-        if str(dst_node).strip().lower() in ("local", "workspace", "agent", "sandbox", "here", "me"):
-            local_id = await self._resolve_local_node()
-            if not local_id:
-                return {"success": False, "error": "this sandbox hasn't joined the fleet as a node yet — retry in a few seconds"}
-            dst_node = local_id
+        # branching, no control-plane fallback. Both ends take an alias, a Node
+        # name or a node_id: the command subject needs the id, and a name sent
+        # as-is reaches no one ("no responders").
+        try:
+            nodes = await self._read_nodes()
+        except Exception:  # noqa: BLE001 — resolve what we can without the registry
+            nodes = None
+        resolved = {}
+        for end, ref in (("src_node", src_node), ("dst_node", dst_node)):
+            node_id, error = await self._resolve_node_ref(ref, nodes)
+            if error:
+                return {"success": False, "error": f"{end}: {error}"}
+            resolved[end] = node_id
+        src_node, dst_node = resolved["src_node"], resolved["dst_node"]
         tid = self._start_transfer(
             src_node, src_path, dst_node, dst_path, verify, compress, resume, timeout
         )
@@ -1138,6 +1147,32 @@ class FleetToolSet(ToolSet):
         if p is None:
             return {"success": False, "error": f"unknown transfer_id {transfer_id}"}
         return {"success": True, **p}
+
+    _LOCAL_ALIASES = ("local", "workspace", "agent", "sandbox", "here", "me")
+
+    async def _resolve_node_ref(self, ref, nodes: list[dict] | None) -> tuple[str | None, str | None]:
+        """A transfer end as given (alias, Node name or node_id) -> (node_id, error).
+
+        Without a registry snapshot a non-alias passes through unchanged, as
+        before; with one, an unknown reference is an error that names the Nodes.
+        """
+        text = str(ref or "").strip()
+        if text.lower() in self._LOCAL_ALIASES:
+            local_id = await self._resolve_local_node(nodes or None)
+            if not local_id:
+                return None, "this sandbox hasn't joined the fleet as a node yet — retry in a few seconds"
+            return local_id, None
+        if not nodes:
+            return text, None
+        if any(n.get("node_id") == text for n in nodes):
+            return text, None
+        named = [n.get("node_id") for n in nodes if (n.get("name") or "").lower() == text.lower()]
+        if len(named) == 1:
+            return named[0], None
+        known = ", ".join(f"{n.get('name')} ({n.get('node_id')})" for n in nodes)
+        if len(named) > 1:
+            return None, f"{len(named)} Nodes are named {text!r}; pass a node_id: {known}"
+        return None, f"no Node {text!r} in this fleet; known Nodes: {known}"
 
     async def _resolve_local_node(self, nodes: list[dict] | None = None) -> str | None:
         """This machine's own Node id — so "local"/"here" transfer destinations
